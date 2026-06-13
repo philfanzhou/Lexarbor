@@ -1,0 +1,66 @@
+syntax = "proto3";
+
+package ruoyu.study.vocabulary.v1;
+
+import "google/protobuf/empty.proto";
+import "Protos/vocabulary.common.proto";
+
+option csharp_namespace = "Ruoyu.Study.Vocabulary.Contract.Protos";
+
+// === 书籍管理服务 ===
+service VocabularyBookGrpcService {
+  // 新增单词本
+  rpc Add(VocabularyBookDto) returns (BoolResponse);
+
+  // 更新单词本
+  rpc Update(VocabularyBookDto) returns (BoolResponse);
+
+  // 获取单个单词本
+  rpc Get(IdRequest) returns (VocabularyBookDto);
+
+  // 搜索单词本
+  rpc Search(SearchBookRequest) returns (VocabularyBookPageResult);
+
+  // 按分类获取书籍
+  rpc GetByCategory(GetByCategoryRequest) returns (VocabularyBookDtoList);
+
+  // 获取所有单词本（无分页）
+  rpc GetAll(google.protobuf.Empty) returns (VocabularyBookDtoList);
+
+
+  // 所有分类标签（去重）
+  rpc GetAllCategories(google.protobuf.Empty) returns (StringList);
+
+  // 所有教育阶段（去重）
+  rpc GetAllEducationLevels(google.protobuf.Empty) returns (StringList);
+
+  // 所有年级（去重）
+  rpc GetAllGrades(google.protobuf.Empty) returns (StringList);
+
+  // 按教育阶段获取年级（去重）
+  rpc GetGradesByEducationLevel(StringRequest) returns (StringList);
+
+  rpc GetBookWords(IdRequest) returns (VocabularyDtoList);
+  
+  // 删除单词本
+  rpc Delete(IdRequest) returns (BoolResponse);
+}
+
+// ========== 请求信息 ==========
+message SearchBookRequest {
+  string keyword = 1;   // 搜索关键词
+  int32 page = 2;       // 页码
+  int32 size = 3;       // 每页数量
+}
+
+message GetByCategoryRequest {
+  string category = 1;   // 分类
+  optional string grade = 2; // 年级（可选）
+}
+
+// ========== 响应信息 ==========
+message VocabularyBookPageResult {
+  repeated VocabularyBookDto items = 1;  // 书籍列表
+  int32 total_page = 2;                  // 总页数
+  int32 total_count = 3;                 // 总记录数
+}

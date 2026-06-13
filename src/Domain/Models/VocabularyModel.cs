@@ -1,0 +1,12 @@
+using System;
+
+namespace Ruoyu.Study.Vocabulary.Domain.Models;
+
+public class VocabularyModel
+{
+    public string Id { get; set; } = string.Empty;
+    public string Word { get; set; } = string.Empty;
+    public string? Phonetic { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+}
