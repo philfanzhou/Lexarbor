@@ -7,7 +7,7 @@ IMAGE_NAME="ruoyu.study.vocabulary:${IMAGE_TAG}"
 CONTAINER_NAME="ruoyu-vocabulary"
 NETWORK_NAME="ruoyu-net"
 
-#GRPC_PORT="10895"
+LISTEN_URL="http://+:5008"
 
 DB_HOST="ruoyu-postgres"
 DB_PORT="5432"
