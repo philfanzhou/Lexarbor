@@ -38,8 +38,4 @@ docker run -d \
   "$IMAGE_NAME"
 
 echo "${CONTAINER_NAME} started"
-echo "-> DB: ${DB_HOST}:${DB_PORT}/${DB_NAME}"
-echo "-> Network: ${NETWORK_NAME}"
-echo "-> Image: ${IMAGE_NAME}"
-echo "=== Real-time Logs ==="
 docker logs -f -t "$CONTAINER_NAME"

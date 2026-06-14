@@ -1,3 +1,4 @@
+using System.Data.Common;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -32,6 +33,18 @@ builder.Services.AddScoped<VocabularyDomainService>();
 builder.Services.AddScoped<VocabularyBookDomainService>();
 
 var app = builder.Build();
+
+app.Logger.LogInformation("Vocabulary Service starting");
+app.Logger.LogInformation("Listening: {Urls}", Environment.GetEnvironmentVariable("ASPNETCORE_URLS") ?? "(default)");
+if (isPostgreSql && !string.IsNullOrEmpty(connectionString))
+{
+    var csb = new DbConnectionStringBuilder { ConnectionString = connectionString };
+    app.Logger.LogInformation("Database: PostgreSQL {Host}:{Port}/{Database}", csb["Host"], csb.TryGetValue("Port", out var dbPort) ? dbPort : "5432", csb["Database"]);
+}
+else
+{
+    app.Logger.LogInformation("Database: SQLite");
+}
 
 // Configure database initialization (Code First without Migrations)
 using (var scope = app.Services.CreateScope())
