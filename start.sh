@@ -33,7 +33,7 @@ docker run -d \
   --restart unless-stopped \
   --network "$NETWORK_NAME" \
   -e TZ=Asia/Shanghai \
-  -e ASPNETCORE_URLS="http://+:5008" \
+  -e ASPNETCORE_URLS="${LISTEN_URL}" \
   -e ConnectionStrings__Default="${CONNECTION_STRING}" \
   "$IMAGE_NAME"
 
