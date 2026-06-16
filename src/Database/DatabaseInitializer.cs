@@ -4,9 +4,9 @@ namespace Ruoyu.Study.Vocabulary.Database;
 
 public static class DatabaseInitializer
 {
-    public static async Task InitializeAsync(VocabularyDbContext context, Microsoft.Extensions.Logging.ILogger logger)
+    public static async Task InitializeAsync(VocabularyDbContext context, Microsoft.Extensions.Logging.ILoggerFactory loggerFactory)
     {
-        await Common.Database.DatabaseInitializer.InitializeAsync(context, logger, GetTableCreationSql);
+        await Common.Database.DatabaseInitializer.InitializeAsync(context, loggerFactory, GetTableCreationSql);
     }
 
     private static string? GetTableCreationSql(string tableName)

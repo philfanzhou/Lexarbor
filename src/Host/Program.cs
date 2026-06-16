@@ -50,8 +50,8 @@ else
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
-    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
-    await DatabaseInitializer.InitializeAsync(dbContext, logger);
+    var loggerFactory = scope.ServiceProvider.GetRequiredService<ILoggerFactory>();
+    await DatabaseInitializer.InitializeAsync(dbContext, loggerFactory);
 }
 
 // Configure the HTTP request pipeline.
