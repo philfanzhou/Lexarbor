@@ -2,7 +2,7 @@
 
 ## 构建与部署
 
-- Dockerfile：`scripts/7.vocabulary/1.build/Dockerfile`
+- Dockerfile：`deploy/Dockerfile`
 - 部署脚本：`scripts/7.vocabulary/2.deploy/start.sh`
 
 ## 配置项
