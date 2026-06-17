@@ -13,4 +13,7 @@
     <ProjectReference Include="..\Domain\Ruoyu.Study.Vocabulary.Domain.csproj" />
     <ProjectReference Include="..\Database\Ruoyu.Study.Vocabulary.Database.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Ruoyu.Study.Vocabulary.Service.Tests" />
+  </ItemGroup>
 </Project>
