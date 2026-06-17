@@ -5,15 +5,15 @@ VisualStudioVersion = 18.1.11304.174
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{827E0CD3-B72D-47B6-A68D-7590B98EB39B}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ruoyu.Study.Vocabulary.Host", "src\Host\Ruoyu.Study.Vocabulary.Host.csproj", "{E3158D85-3F6C-4784-A3E9-2BC951BE4D90}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ruoyu.Study.Vocabulary.Host", "Host\Ruoyu.Study.Vocabulary.Host.csproj", "{E3158D85-3F6C-4784-A3E9-2BC951BE4D90}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ruoyu.Study.Vocabulary.Database", "src\Database\Ruoyu.Study.Vocabulary.Database.csproj", "{5F90CA68-2378-41CD-98E4-3ECAD708393E}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ruoyu.Study.Vocabulary.Database", "Database\Ruoyu.Study.Vocabulary.Database.csproj", "{5F90CA68-2378-41CD-98E4-3ECAD708393E}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ruoyu.Study.Vocabulary.Contract", "src\Contract\Ruoyu.Study.Vocabulary.Contract.csproj", "{014A8AE0-4070-412C-9B0D-C06DAECEDBD7}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ruoyu.Study.Vocabulary.Contract", "Contract\Ruoyu.Study.Vocabulary.Contract.csproj", "{014A8AE0-4070-412C-9B0D-C06DAECEDBD7}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ruoyu.Study.Vocabulary.Service", "src\Service\Ruoyu.Study.Vocabulary.Service.csproj", "{36DF6DFD-B3EF-480B-9F06-ADCFEFDFA12F}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ruoyu.Study.Vocabulary.Service", "Service\Ruoyu.Study.Vocabulary.Service.csproj", "{36DF6DFD-B3EF-480B-9F06-ADCFEFDFA12F}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ruoyu.Study.Vocabulary.Domain", "src\Domain\Ruoyu.Study.Vocabulary.Domain.csproj", "{38328AD5-8C76-41BC-B126-77D86B0F9790}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ruoyu.Study.Vocabulary.Domain", "Domain\Ruoyu.Study.Vocabulary.Domain.csproj", "{38328AD5-8C76-41BC-B126-77D86B0F9790}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Contract", "Contract", "{67DDEE60-44D9-BCA3-33AC-C38405C546D4}"
 EndProject

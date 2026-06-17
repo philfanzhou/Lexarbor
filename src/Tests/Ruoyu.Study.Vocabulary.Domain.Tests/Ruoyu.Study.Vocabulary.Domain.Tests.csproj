@@ -24,8 +24,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Database\Ruoyu.Study.Vocabulary.Database.csproj" />
-    <ProjectReference Include="..\..\src\Domain\Ruoyu.Study.Vocabulary.Domain.csproj" />
+    <ProjectReference Include="..\Database\Ruoyu.Study.Vocabulary.Database.csproj" />
+    <ProjectReference Include="..\Domain\Ruoyu.Study.Vocabulary.Domain.csproj" />
   </ItemGroup>
 
 </Project>
