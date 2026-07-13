@@ -12,7 +12,6 @@ using Ruoyu.Study.Vocabulary.Service;
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
-builder.Services.AddGrpc();
 var connectionString = builder.Configuration.GetConnectionString("Default");
 var isPostgreSql = !string.IsNullOrWhiteSpace(connectionString)
     && (connectionString.Contains("Host=", StringComparison.OrdinalIgnoreCase)
@@ -55,8 +54,7 @@ using (var scope = app.Services.CreateScope())
 }
 
 // Configure the HTTP request pipeline.
-app.MapGrpcService<VocabularyServiceImpl>();
-app.MapGrpcService<VocabularyBookServiceImpl>();
-app.MapGet("/", () => "Communication with gRPC endpoints must be made through a gRPC client.");
+app.MapVocabularyHttpEndpoints();
+app.MapGet("/", () => "Vocabulary WebAPI host is running.");
 
 app.Run();

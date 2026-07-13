@@ -1,11 +1,19 @@
 using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
 using FluentAssertions;
-using Ruoyu.Study.Vocabulary.Contract.Protos;
+using Moq;
 using Ruoyu.Study.Vocabulary.Domain.Models;
+using Ruoyu.Study.Vocabulary.Domain.Repositories;
+using Ruoyu.Study.Vocabulary.Domain.Services;
+using Ruoyu.Study.Vocabulary.Service.Dtos;
 using Xunit;
 
 namespace Ruoyu.Study.Vocabulary.Service.Tests;
 
+/// <summary>
+/// Tests for the Convertor (Mapster) between POCO DTOs and Domain Models.
+/// </summary>
 public class ConvertorTests
 {
     // ==================== VocabularyDto <-> VocabularyModel ====================
@@ -44,7 +52,6 @@ public class ConvertorTests
         dto.Id.Should().Be("vocab-1");
         dto.Word.Should().Be("apple");
         dto.Phonetic.Should().Be("ˈæpəl");
-        // DTO 没有 CreatedAt/UpdatedAt 字段，Mapster 会忽略
     }
 
     [Fact]
@@ -173,7 +180,7 @@ public class ConvertorTests
         dto.IconUrl.Should().Be("http://example.com/icon.png");
     }
 
-    // ==================== 边界场景 ====================
+    // ==================== Boundary scenarios ====================
 
     [Fact]
     public void ToEntity_VocabularyDto_WithEmptyValues_MapsCorrectly()
@@ -193,31 +200,13 @@ public class ConvertorTests
     }
 
     [Fact]
-    public void ToDto_VocabularyModel_WithNullPhonetic_ThrowsArgumentNullException()
-    {
-        // Mapster 默认将 null 源字段直接赋值给目标，但 protobuf string setter 拒绝 null。
-        // 这是 Convertor 的已知限制：生产环境依赖数据库返回非 null 值。
-        var model = new VocabularyModel
-        {
-            Id = "v1",
-            Word = "test",
-            Phonetic = null
-        };
-
-        var act = () => model.ToDto();
-
-        act.Should().Throw<ArgumentNullException>();
-    }
-
-    [Fact]
     public void ToEntity_VocabularyBookDto_WithEmptyId_GeneratesNewId()
     {
-        // AddOrUpdateAsync 会为新实体生成 Id，但 ToEntity 本身不会
         var dto = new VocabularyBookDto { BookName = "New Book" };
 
         var model = dto.ToEntity();
 
-        model.Id.Should().BeEmpty(); // ToEntity 不生成 Id，由 DomainService 生成
+        model.Id.Should().BeEmpty(); // ToEntity does not generate Id, DomainService does
         model.BookName.Should().Be("New Book");
     }
 }

@@ -4,10 +4,14 @@
 
 ## P0 — 必须修复
 
+（无）
+
+## P1 — 应尽快修复
+
 ### HR-01: GetWordsAsync 返回空列表，逻辑未实现
 
-- **问题**：VocabularyServiceImpl.cs GetWordsAsync 方法直接返回空列表，核心查询逻辑未实现
-- **A** (推荐)：实现完整查询逻辑：分页 + 过滤 + 排序
+- **问题**：VocabularyBookDomainService.GetWordsAsync 方法直接返回空列表，核心查询逻辑未实现
+- **A** (推荐)：实现完整查询逻辑：通过 bookId 查询词汇表，分页 + 过滤 + 排序
 - **B**：先返回 mock 数据，后续迭代实现
 - **C**：暂不处理，等需求明确
 - **批复**：C — 已知未完成，Vocabulary.GetWordsAsync **不在自动测试范围**，测试计划中已标注
@@ -20,21 +24,13 @@
 - **C**：暂不处理，生产环境固定 PostgreSQL
 - **批复**：C — 测试环境使用 PostgreSQL，SQLite 不纳入考虑
 
-### HR-03: gRPC 服务层吞没异常细节
-
-- **问题**：VocabularyServiceImpl.cs 统一将所有异常包装为 Internal 状态码，丢失异常类型信息
-- **A** (推荐)：区分异常类型：验证错误→InvalidArgument，未找到→NotFound，其他→Internal
-- **B**：添加结构化错误码到 gRPC Status Details
-- **C**：暂不处理，当前错误信息足够
-- **批复**：B — 已知行为，gRPC 错误场景测试需设容差，区分 Known Issue
-
-## P1 — 应尽快修复
+## P2 — 代码卫生
 
 ### HR-04: 中文异常消息
 
 - **问题**：多处异常消息使用中文
 - **A** (推荐)：统一改为英文，中文仅保留用户可见的 DisplayNames
-- **B**：保持中文，在规范中允许 gRPC 错误消息使用中文
+- **B**：保持中文，在规范中允许 HTTP 错误消息使用中文
 - **C**：暂不处理，不影响功能
 - **批复**：C — 代码规范类，不影响功能正确性
 

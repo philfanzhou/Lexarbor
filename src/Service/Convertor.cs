@@ -1,6 +1,6 @@
 using Mapster;
-using Ruoyu.Study.Vocabulary.Contract.Protos;
 using Ruoyu.Study.Vocabulary.Domain.Models;
+using Ruoyu.Study.Vocabulary.Service.Dtos;
 
 namespace Ruoyu.Study.Vocabulary.Service;
 

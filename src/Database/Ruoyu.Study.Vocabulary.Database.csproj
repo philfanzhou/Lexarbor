@@ -11,7 +11,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\..\ruoyu.common\src\Ruoyu.Study.Common\Ruoyu.Study.Common.csproj" />
-    <ProjectReference Include="..\Contract\Ruoyu.Study.Vocabulary.Contract.csproj" />
     <ProjectReference Include="..\Domain\Ruoyu.Study.Vocabulary.Domain.csproj" />
   </ItemGroup>
 </Project>

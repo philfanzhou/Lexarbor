@@ -7,7 +7,6 @@ FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
 
-COPY src/services/ruoyu.vocabulary/src/Contract/Ruoyu.Study.Vocabulary.Contract.csproj src/services/ruoyu.vocabulary/src/Contract/
 COPY src/services/ruoyu.vocabulary/src/Database/Ruoyu.Study.Vocabulary.Database.csproj src/services/ruoyu.vocabulary/src/Database/
 COPY src/services/ruoyu.vocabulary/src/Domain/Ruoyu.Study.Vocabulary.Domain.csproj src/services/ruoyu.vocabulary/src/Domain/
 COPY src/services/ruoyu.vocabulary/src/Service/Ruoyu.Study.Vocabulary.Service.csproj src/services/ruoyu.vocabulary/src/Service/
