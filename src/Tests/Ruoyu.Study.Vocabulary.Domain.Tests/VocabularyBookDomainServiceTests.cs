@@ -17,6 +17,77 @@ public class VocabularyBookDomainServiceTests : TestBase
     }
 
     [Fact]
+    public async Task GetWordsAsync_ReturnsSortedUniqueVocabularies()
+    {
+        var book = new VocabularyBookModel { BookName = "TestBook", DisplayOrder = 1, Status = true };
+        var createdBook = await _service.AddOrUpdateAsync(book);
+
+        var v1 = new VocabularyModel { Id = Guid.NewGuid().ToString(), Word = "cherry" };
+        var v2 = new VocabularyModel { Id = Guid.NewGuid().ToString(), Word = "apple" };
+        var v3 = new VocabularyModel { Id = Guid.NewGuid().ToString(), Word = "banana" };
+        await _vocabularyRepository.AddAsync(v1);
+        await _vocabularyRepository.AddAsync(v2);
+        await _vocabularyRepository.AddAsync(v3);
+        await _unitOfWork.SaveChangesAsync();
+
+        await _meaningRepository.AddAsync(new VocabularyMeaningModel
+        {
+            Id = Guid.NewGuid().ToString(),
+            BookId = createdBook.Id,
+            VocabularyId = v1.Id,
+            Meaning = "樱桃"
+        });
+        await _meaningRepository.AddAsync(new VocabularyMeaningModel
+        {
+            Id = Guid.NewGuid().ToString(),
+            BookId = createdBook.Id,
+            VocabularyId = v2.Id,
+            Meaning = "苹果"
+        });
+        await _meaningRepository.AddAsync(new VocabularyMeaningModel
+        {
+            Id = Guid.NewGuid().ToString(),
+            BookId = createdBook.Id,
+            VocabularyId = v2.Id,
+            Meaning = "苹果（另一释义）"
+        });
+        await _meaningRepository.AddAsync(new VocabularyMeaningModel
+        {
+            Id = Guid.NewGuid().ToString(),
+            BookId = createdBook.Id,
+            VocabularyId = v3.Id,
+            Meaning = "香蕉"
+        });
+        await _unitOfWork.SaveChangesAsync();
+
+        var words = await _service.GetWordsAsync(createdBook.Id);
+
+        Assert.Equal(3, words.Count);
+        Assert.Equal("apple", words[0].Word);
+        Assert.Equal("banana", words[1].Word);
+        Assert.Equal("cherry", words[2].Word);
+    }
+
+    [Fact]
+    public async Task GetWordsAsync_NoMeanings_ReturnsEmptyList()
+    {
+        var book = new VocabularyBookModel { BookName = "EmptyBook", DisplayOrder = 1, Status = true };
+        var createdBook = await _service.AddOrUpdateAsync(book);
+
+        var words = await _service.GetWordsAsync(createdBook.Id);
+
+        Assert.Empty(words);
+    }
+
+    [Fact]
+    public async Task GetWordsAsync_NonExistentBook_ReturnsEmptyList()
+    {
+        var words = await _service.GetWordsAsync("non-existent-book-id");
+
+        Assert.Empty(words);
+    }
+
+    [Fact]
     public async Task AddOrUpdateAsync_NewBook_CreatesBook()
     {
         var book = new VocabularyBookModel

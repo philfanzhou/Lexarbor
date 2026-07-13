@@ -57,7 +57,7 @@
 | GetAllEducationLevelsAsync | 返回去重教育阶段列表 |
 | GetAllGradesAsync | 返回去重年级列表 |
 | GetGradesByEducationLevelAsync | 按阶段过滤年级 |
-| GetWordsAsync | 返回词汇列表（HR-01：已知返回空列表） |
+| GetWordsAsync | 根据 bookId 返回去重后的词汇列表，并按单词排序 |
 
 ## 运行方式
 

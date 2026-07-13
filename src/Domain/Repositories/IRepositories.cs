@@ -8,6 +8,7 @@ public interface IVocabularyRepository
 {
     Task<VocabularyModel?> GetByIdAsync(string id);
     Task<VocabularyModel?> GetByWordAsync(string word);
+    Task<List<VocabularyModel>> GetByIdsAsync(IReadOnlyCollection<string> ids);
     Task<(List<VocabularyModel> Items, int TotalCount)> SearchAsync(string keyword, int page, int size);
     Task AddAsync(VocabularyModel model);
     Task UpdateAsync(VocabularyModel model);
@@ -28,6 +29,7 @@ public interface IVocabularyMeaningRepository
 {
     Task<VocabularyMeaningModel?> GetByIdAsync(string id);
     Task<List<VocabularyMeaningModel>> GetByVocabularyIdAsync(string vocabularyId);
+    Task<List<VocabularyMeaningModel>> GetByBookIdAsync(string bookId);
     Task<List<VocabularyMeaningModel>> GetByBookAndVocabularyIdAsync(string bookId, string vocabularyId);
     Task<List<VocabularyMeaningModel>> GetRandomExceptAsync(string excludeVocabularyId, string bookId, int count);
     Task AddAsync(VocabularyMeaningModel model);

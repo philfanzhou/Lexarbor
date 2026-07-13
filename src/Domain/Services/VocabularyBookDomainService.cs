@@ -94,8 +94,21 @@ public class VocabularyBookDomainService
 
     public async Task<List<VocabularyModel>> GetWordsAsync(string bookId)
     {
-        var meanings = await _meaningRepository.GetByBookAndVocabularyIdAsync(bookId, null!); 
-        return new List<VocabularyModel>();
+        var meanings = await _meaningRepository.GetByBookIdAsync(bookId);
+        var vocabularyIds = meanings
+            .Select(m => m.VocabularyId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct()
+            .ToList();
+
+        if (vocabularyIds.Count == 0)
+            return new List<VocabularyModel>();
+
+        var vocabularies = await _vocabularyRepository.GetByIdsAsync(vocabularyIds);
+        return vocabularies
+            .Where(v => !string.IsNullOrWhiteSpace(v.Word))
+            .OrderBy(v => v.Word, StringComparer.Ordinal)
+            .ToList();
     }
 
     public async Task<List<string>> GetAllCategoriesAsync()

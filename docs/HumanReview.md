@@ -8,14 +8,6 @@
 
 ## P1 — 应尽快修复
 
-### HR-01: GetWordsAsync 返回空列表，逻辑未实现
-
-- **问题**：VocabularyBookDomainService.GetWordsAsync 方法直接返回空列表，核心查询逻辑未实现
-- **A** (推荐)：实现完整查询逻辑：通过 bookId 查询词汇表，分页 + 过滤 + 排序
-- **B**：先返回 mock 数据，后续迭代实现
-- **C**：暂不处理，等需求明确
-- **批复**：C — 已知未完成，Vocabulary.GetWordsAsync **不在自动测试范围**，测试计划中已标注
-
 ### HR-02: UnitOfWork PostgreSQL 特定异常处理在 SQLite 下失效
 
 - **问题**：UnitOfWork.cs 中异常处理依赖 PostgreSQL 特定错误码，SQLite 环境下无法正确识别唯一约束冲突

@@ -31,6 +31,17 @@ public class VocabularyRepository : IVocabularyRepository
         return entity?.Adapt<VocabularyModel>();
     }
 
+    public async Task<List<VocabularyModel>> GetByIdsAsync(IReadOnlyCollection<string> ids)
+    {
+        if (ids == null || ids.Count == 0)
+            return new List<VocabularyModel>();
+
+        var entities = await _context.Vocabularies
+            .Where(v => ids.Contains(v.Id))
+            .ToListAsync();
+        return entities.Adapt<List<VocabularyModel>>();
+    }
+
     public async Task<(List<VocabularyModel> Items, int TotalCount)> SearchAsync(string keyword, int page, int size)
     {
         var query = _context.Vocabularies.AsQueryable();
@@ -149,6 +160,14 @@ public class VocabularyMeaningRepository : IVocabularyMeaningRepository
     {
         var entities = await _context.VocabularyMeanings
             .Where(m => m.VocabularyId == vocabularyId)
+            .ToListAsync();
+        return entities.Adapt<List<VocabularyMeaningModel>>();
+    }
+
+    public async Task<List<VocabularyMeaningModel>> GetByBookIdAsync(string bookId)
+    {
+        var entities = await _context.VocabularyMeanings
+            .Where(m => m.BookId == bookId)
             .ToListAsync();
         return entities.Adapt<List<VocabularyMeaningModel>>();
     }
