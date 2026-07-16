@@ -27,6 +27,8 @@ pipeline {
         NUGET_SOURCE     = 'https://repo.huaweicloud.com/repository/nuget/v3/index.json'
     }
 
+    triggers { pollSCM('H/5 * * * *') }
+
     stages {
         stage('Preflight') {
             steps {
