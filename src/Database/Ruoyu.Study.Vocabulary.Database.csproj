@@ -10,7 +10,7 @@
     <PackageReference Include="Mapster" Version="10.0.7" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\..\..\ruoyu.common\src\Ruoyu.Study.Common\Ruoyu.Study.Common.csproj" />
+    <ProjectReference Include="..\..\..\..\ruoyu.common\backend\Ruoyu.Study.Common\Ruoyu.Study.Common.csproj" />
     <ProjectReference Include="..\Domain\Ruoyu.Study.Vocabulary.Domain.csproj" />
   </ItemGroup>
 </Project>

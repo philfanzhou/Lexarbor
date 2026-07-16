@@ -11,7 +11,7 @@ COPY src/services/ruoyu.vocabulary/src/Database/Ruoyu.Study.Vocabulary.Database.
 COPY src/services/ruoyu.vocabulary/src/Domain/Ruoyu.Study.Vocabulary.Domain.csproj src/services/ruoyu.vocabulary/src/Domain/
 COPY src/services/ruoyu.vocabulary/src/Service/Ruoyu.Study.Vocabulary.Service.csproj src/services/ruoyu.vocabulary/src/Service/
 COPY src/services/ruoyu.vocabulary/src/Host/Ruoyu.Study.Vocabulary.Host.csproj src/services/ruoyu.vocabulary/src/Host/
-COPY src/ruoyu.common/src/Ruoyu.Study.Common/Ruoyu.Study.Common.csproj src/ruoyu.common/src/Ruoyu.Study.Common/
+COPY src/ruoyu.common/backend/Ruoyu.Study.Common/Ruoyu.Study.Common.csproj src/ruoyu.common/backend/Ruoyu.Study.Common/
 
 RUN dotnet restore "src/services/ruoyu.vocabulary/src/Host/Ruoyu.Study.Vocabulary.Host.csproj"
 
