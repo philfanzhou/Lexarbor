@@ -11,12 +11,12 @@ COPY src/services/ruoyu.vocabulary/src/Database/Ruoyu.Study.Vocabulary.Database.
 COPY src/services/ruoyu.vocabulary/src/Domain/Ruoyu.Study.Vocabulary.Domain.csproj src/services/ruoyu.vocabulary/src/Domain/
 COPY src/services/ruoyu.vocabulary/src/Service/Ruoyu.Study.Vocabulary.Service.csproj src/services/ruoyu.vocabulary/src/Service/
 COPY src/services/ruoyu.vocabulary/src/Host/Ruoyu.Study.Vocabulary.Host.csproj src/services/ruoyu.vocabulary/src/Host/
-COPY src/services/ruoyu.common/src/Ruoyu.Study.Common/Ruoyu.Study.Common.csproj src/services/ruoyu.common/src/Ruoyu.Study.Common/
+COPY src/ruoyu.common/src/Ruoyu.Study.Common/Ruoyu.Study.Common.csproj src/ruoyu.common/src/Ruoyu.Study.Common/
 
 RUN dotnet restore "src/services/ruoyu.vocabulary/src/Host/Ruoyu.Study.Vocabulary.Host.csproj"
 
 COPY src/services/ruoyu.vocabulary/src/ src/services/ruoyu.vocabulary/src/
-COPY src/services/ruoyu.common/ src/services/ruoyu.common/
+COPY src/ruoyu.common/ src/ruoyu.common/
 
 RUN dotnet publish "src/services/ruoyu.vocabulary/src/Host/Ruoyu.Study.Vocabulary.Host.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false --no-restore
 
