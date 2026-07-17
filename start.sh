@@ -9,13 +9,10 @@ NETWORK_NAME="ruoyu-net"
 
 LISTEN_URL="http://+:5008"
 
-DB_HOST="ruoyu-postgres"
-DB_PORT="5432"
-DB_NAME="ruoyu_study_vocabulary"
-DB_USER="postgres"
-DB_PASS="postgres"
+CONSUL_HTTP_ADDR="${CONSUL_HTTP_ADDR:-host.docker.internal:8500}"
+CONSUL_TOKEN="${CONSUL_TOKEN:-}"
 
-CONNECTION_STRING="Host=${DB_HOST};Port=${DB_PORT};Database=${DB_NAME};Username=${DB_USER};Password=${DB_PASS};"
+DB_NAME="ruoyu_study_vocabulary"
 
 docker network inspect "$NETWORK_NAME" >/dev/null 2>&1 || docker network create "$NETWORK_NAME"
 
@@ -32,9 +29,12 @@ docker run -d \
   --name "$CONTAINER_NAME" \
   --restart unless-stopped \
   --network "$NETWORK_NAME" \
+  --add-host=host.docker.internal:host-gateway \
   -e TZ=Asia/Shanghai \
   -e ASPNETCORE_URLS="${LISTEN_URL}" \
-  -e ConnectionStrings__Default="${CONNECTION_STRING}" \
+  -e CONSUL_HTTP_ADDR="${CONSUL_HTTP_ADDR}" \
+  -e CONSUL_TOKEN="${CONSUL_TOKEN}" \
+  -e Database__Name="${DB_NAME}" \
   "$IMAGE_NAME"
 
 echo "${CONTAINER_NAME} started"
