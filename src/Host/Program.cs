@@ -22,7 +22,9 @@ builder.Configuration.AddRuoyuLokiSink();
 builder.Host.UseRuoyuSerilog("Ruoyu.Study.Vocabulary");
 
 // Add services to the container.
-var connectionString = builder.Configuration.GetConnectionString("Default");
+var connectionString = SharedPostgreSqlConnectionStringFactory.BuildOrFallback(
+    builder.Configuration,
+    builder.Configuration.GetConnectionString("Default"));
 var isPostgreSql = !string.IsNullOrWhiteSpace(connectionString)
     && (connectionString.Contains("Host=", StringComparison.OrdinalIgnoreCase)
         || connectionString.Contains("Server=", StringComparison.OrdinalIgnoreCase));
@@ -62,6 +64,13 @@ else
 {
     app.Logger.LogInformation("Database: SQLite");
 }
+app.Logger.LogInformation(
+    "Effective configuration diagnostics: PostgreSqlHost={PostgreSqlHost}, PostgreSqlPort={PostgreSqlPort}, PostgreSqlUsername={PostgreSqlUsername}, PostgreSqlPassword={PostgreSqlPassword}, DatabaseName={DatabaseName}",
+    StartupDiagnosticsFormatter.SummarizeValue(builder.Configuration["PostgreSql:Host"]),
+    StartupDiagnosticsFormatter.SummarizeValue(builder.Configuration["PostgreSql:Port"]),
+    StartupDiagnosticsFormatter.SummarizeValue(builder.Configuration["PostgreSql:Username"]),
+    StartupDiagnosticsFormatter.SummarizePassword(builder.Configuration["PostgreSql:Password"]),
+    StartupDiagnosticsFormatter.SummarizeValue(builder.Configuration["Database:Name"]));
 
 // Configure database initialization (Code First without Migrations)
 using (var scope = app.Services.CreateScope())
