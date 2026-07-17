@@ -16,5 +16,6 @@
   <ItemGroup>
     <ProjectReference Include="..\Service\Ruoyu.Study.Vocabulary.Service.csproj" />
     <ProjectReference Include="..\Database\Ruoyu.Study.Vocabulary.Database.csproj" />
+    <ProjectReference Include="..\..\..\..\ruoyu.common\backend\Ruoyu.Study.Consul.Shared\Ruoyu.Study.Consul.Shared.csproj" />
   </ItemGroup>
 </Project>

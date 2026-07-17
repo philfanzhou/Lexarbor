@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Ruoyu.Study.Consul.Shared;
 using Ruoyu.Study.Vocabulary.Database;
 using Ruoyu.Study.Vocabulary.Database.Repositories;
 using Ruoyu.Study.Vocabulary.Domain.Repositories;
@@ -10,6 +11,15 @@ using Ruoyu.Study.Vocabulary.Domain.Services;
 using Ruoyu.Study.Vocabulary.Service;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// ========== Consul Configuration Source ==========
+builder.Configuration.AddRuoyuConsulConfiguration(builder.Configuration);
+var consulOptions = RuoyuConsulOptions.Bind(builder.Configuration);
+var consulRuntimeState = RuoyuConsulRuntimeState.Instance;
+
+// ========== Serilog (Console + Grafana Loki) ==========
+builder.Configuration.AddRuoyuLokiSink();
+builder.Host.UseRuoyuSerilog("Ruoyu.Study.Vocabulary");
 
 // Add services to the container.
 var connectionString = builder.Configuration.GetConnectionString("Default");
@@ -34,6 +44,14 @@ builder.Services.AddScoped<VocabularyBookDomainService>();
 var app = builder.Build();
 
 app.Logger.LogInformation("Vocabulary Service starting");
+app.Logger.LogInformation(
+    "Consul startup diagnostics: Address={Address}, Token={Token}, Source={Source}, KeyCount={KeyCount}, Prefixes={Prefixes}, LastError={LastError}",
+    $"{consulOptions.Host}:{consulOptions.Port}",
+    StartupDiagnosticsFormatter.MaskSecret(consulOptions.Token),
+    consulRuntimeState.Source,
+    consulRuntimeState.KeyCount,
+    StartupDiagnosticsFormatter.SummarizePrefixes(consulRuntimeState.LoadedPrefixes),
+    StartupDiagnosticsFormatter.SummarizeError(consulRuntimeState.LastError));
 app.Logger.LogInformation("Listening: {Urls}", Environment.GetEnvironmentVariable("ASPNETCORE_URLS") ?? "(default)");
 if (isPostgreSql && !string.IsNullOrEmpty(connectionString))
 {
