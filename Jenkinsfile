@@ -18,7 +18,7 @@ pipeline {
     }
 
     environment {
-        REPO_DIR         = '/mnt/data1/Ruoyu.Study'
+        REPO_DIR         = "${env.REPO_DIR ?: '/srv/repo'}"
         SERVICE_DIR      = "${env.REPO_DIR}/src/services/ruoyu.vocabulary"
         BUILD_SCRIPT     = "${env.REPO_DIR}/script/build-script/07-vocabulary.build.sh"
         TEST_PROJ        = "${env.SERVICE_DIR}/src/Tests/Ruoyu.Study.Vocabulary.Service.Tests/Ruoyu.Study.Vocabulary.Service.Tests.csproj"
