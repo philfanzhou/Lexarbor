@@ -11,7 +11,10 @@
 
 | 端口 | 协议 | 用途 |
 |------|------|------|
-| 5008 | HTTP | 词汇服务（ASPNETCORE_URLS 默认） |
+| 5008（容器内固定） | HTTP | 词汇服务唯一端口 |
+| host 映射端口 | — | host 访问容器服务的映射端口（`start.sh` 的 `Port` 变量，`-p ${Port}:5008`） |
+
+> **HTTP 监听端口固定为 5008**：硬编码在 `Program.cs` 的 `ConfigureKestrel` 中，不通过 `ASPNETCORE_URLS` 环境变量控制，Dockerfile 也不再设置 `ENV ASPNETCORE_URLS`。host 端口映射通过 `start.sh` 的 `Port` 变量控制。
 
 ### 数据库
 

@@ -21,6 +21,18 @@ var consulRuntimeState = RuoyuConsulRuntimeState.Instance;
 builder.Configuration.AddRuoyuLokiSink();
 builder.Host.UseRuoyuSerilog("Ruoyu.Study.Vocabulary");
 
+// HTTP listen port is hardcoded to 5008 (not configurable via ASPNETCORE_URLS).
+// host port mapping is controlled by start.sh: -p ${Port}:5008.
+const int httpPort = 5008;
+
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.ListenAnyIP(httpPort, listenOptions =>
+    {
+        listenOptions.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http1;
+    });
+});
+
 // Add services to the container.
 var connectionString = SharedPostgreSqlConnectionStringFactory.BuildOrFallback(
     builder.Configuration,
@@ -54,7 +66,7 @@ app.Logger.LogInformation(
     consulRuntimeState.KeyCount,
     StartupDiagnosticsFormatter.SummarizePrefixes(consulRuntimeState.LoadedPrefixes),
     StartupDiagnosticsFormatter.SummarizeError(consulRuntimeState.LastError));
-app.Logger.LogInformation("Listening: {Urls}", Environment.GetEnvironmentVariable("ASPNETCORE_URLS") ?? "(default)");
+app.Logger.LogInformation("Listening: http://+:{Port}", httpPort);
 if (isPostgreSql && !string.IsNullOrEmpty(connectionString))
 {
     var csb = new DbConnectionStringBuilder { ConnectionString = connectionString };
