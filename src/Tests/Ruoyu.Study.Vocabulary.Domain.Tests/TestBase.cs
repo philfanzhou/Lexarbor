@@ -17,11 +17,10 @@ public class TestBase : IDisposable
     public TestBase()
     {
         var options = new DbContextOptionsBuilder<VocabularyDbContext>()
-            .UseSqlite("DataSource=:memory:")
+            .UseInMemoryDatabase($"vocabulary_test_{Guid.NewGuid():N}")
             .Options;
 
         _dbContext = new VocabularyDbContext(options);
-        _dbContext.Database.OpenConnection();
         _dbContext.Database.EnsureCreated();
 
         _vocabularyRepository = new VocabularyRepository(_dbContext);
@@ -32,7 +31,6 @@ public class TestBase : IDisposable
 
     public void Dispose()
     {
-        _dbContext.Database.CloseConnection();
         _dbContext.Dispose();
     }
 }

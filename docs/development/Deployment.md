@@ -18,7 +18,7 @@
 
 ### 数据库
 
-- PostgreSQL（生产）或 SQLite（本地开发回退）
+- PostgreSQL（Npgsql 提供程序）
 - 连接串由 `SharedPostgreSqlConnectionStringFactory.BuildOrFallback` 构建：优先从 Consul 共享配置（`PostgreSql:Host`/`Port`/`Username`/`Password` + `Database:Name`）合成生产连接串，无法合成时回退到本地 `ConnectionStrings:Default`
 - `appsettings.json` 配置：
   ```json
@@ -29,5 +29,4 @@
     }
   }
   ```
-- 连接串包含 `Host=`/`Server=` 时走 PostgreSQL（`UseNpgsql`），否则走 SQLite（`Data Source=data/sqlite/ruoyu_study_vocabulary.db`）
 - 生产环境的 PostgreSQL 主机/端口/账号/密码由 Consul 的 `PostgreSql:*` 键覆盖，无需写入 `appsettings.json`

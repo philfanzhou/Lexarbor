@@ -8,13 +8,7 @@
 
 ## P1 — 应尽快修复
 
-### HR-02: UnitOfWork PostgreSQL 特定异常处理在 SQLite 下失效
-
-- **问题**：UnitOfWork.cs 中异常处理依赖 PostgreSQL 特定错误码，SQLite 环境下无法正确识别唯一约束冲突
-- **A** (推荐)：使用异常检测抽象层，根据 DB 类型匹配对应异常码
-- **B**：统一使用通用异常处理，不区分 DB 类型
-- **C**：暂不处理，生产环境固定 PostgreSQL
-- **批复**：C — 测试环境使用 PostgreSQL，SQLite 不纳入考虑
+（无）
 
 ## P2 — 代码卫生
 

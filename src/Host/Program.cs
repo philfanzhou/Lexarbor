@@ -37,15 +37,9 @@ builder.WebHost.ConfigureKestrel(options =>
 var connectionString = SharedPostgreSqlConnectionStringFactory.BuildOrFallback(
     builder.Configuration,
     builder.Configuration.GetConnectionString("Default"));
-var isPostgreSql = !string.IsNullOrWhiteSpace(connectionString)
-    && (connectionString.Contains("Host=", StringComparison.OrdinalIgnoreCase)
-        || connectionString.Contains("Server=", StringComparison.OrdinalIgnoreCase));
 builder.Services.AddDbContext<VocabularyDbContext>(options =>
 {
-    if (isPostgreSql)
-        options.UseNpgsql(connectionString);
-    else
-        options.UseSqlite(connectionString ?? "Data Source=data/sqlite/ruoyu_study_vocabulary.db");
+    options.UseNpgsql(connectionString);
 });
 
 builder.Services.AddScoped<IVocabularyRepository, VocabularyRepository>();
@@ -67,14 +61,10 @@ app.Logger.LogInformation(
     StartupDiagnosticsFormatter.SummarizePrefixes(consulRuntimeState.LoadedPrefixes),
     StartupDiagnosticsFormatter.SummarizeError(consulRuntimeState.LastError));
 app.Logger.LogInformation("Listening: http://+:{Port}", httpPort);
-if (isPostgreSql && !string.IsNullOrEmpty(connectionString))
+if (!string.IsNullOrEmpty(connectionString))
 {
     var csb = new DbConnectionStringBuilder { ConnectionString = connectionString };
     app.Logger.LogInformation("Database: PostgreSQL {Host}:{Port}/{Database}", csb["Host"], csb.TryGetValue("Port", out var dbPort) ? dbPort : "5432", csb["Database"]);
-}
-else
-{
-    app.Logger.LogInformation("Database: SQLite");
 }
 app.Logger.LogInformation(
     "Effective configuration diagnostics: PostgreSqlHost={PostgreSqlHost}, PostgreSqlPort={PostgreSqlPort}, PostgreSqlUsername={PostgreSqlUsername}, PostgreSqlPassword={PostgreSqlPassword}, DatabaseName={DatabaseName}",
