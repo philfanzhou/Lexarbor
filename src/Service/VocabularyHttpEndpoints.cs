@@ -20,27 +20,27 @@ public static partial class VocabularyHttpEndpoints
 {
     public static IEndpointRouteBuilder MapVocabularyHttpEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api");
+        // /api — external business systems (student, question bank, homework)
+        var apiGroup = app.MapGroup("/api");
+        apiGroup.MapGet("/vocabulary/{wordId}", GetVocabulary);
+        apiGroup.MapGet("/vocabulary", SearchVocabulary);
+        apiGroup.MapPost("/vocabulary/question", GetQuestion);
+        apiGroup.MapGet("/vocabulary-books/all", GetAllBooks);
 
-        // ===== Vocabulary endpoints (4) =====
-        group.MapGet("/vocabulary/{wordId}", GetVocabulary);
-        group.MapGet("/vocabulary", SearchVocabulary);
-        group.MapPost("/vocabulary", AddOrUpdateVocabulary);
-        group.MapPost("/vocabulary/question", GetQuestion);
-
-        // ===== VocabularyBook endpoints (12) =====
-        group.MapPost("/vocabulary-books", AddBook);
-        group.MapPut("/vocabulary-books", UpdateBook);
-        group.MapGet("/vocabulary-books/{id}", GetBook);
-        group.MapGet("/vocabulary-books", SearchBooks);
-        group.MapGet("/vocabulary-books/by-category", GetBooksByCategory);
-        group.MapGet("/vocabulary-books/all", GetAllBooks);
-        group.MapGet("/vocabulary-books/categories", GetAllCategories);
-        group.MapGet("/vocabulary-books/education-levels", GetAllEducationLevels);
-        group.MapGet("/vocabulary-books/grades", GetAllGrades);
-        group.MapGet("/vocabulary-books/grades-by-level", GetGradesByEducationLevel);
-        group.MapGet("/vocabulary-books/{id}/words", GetBookWords);
-        group.MapDelete("/vocabulary-books/{id}", DeleteBook);
+        // /admin — management frontend only
+        var adminGroup = app.MapGroup("/admin");
+        adminGroup.MapPost("/vocabulary", AddOrUpdateVocabulary);
+        adminGroup.MapPost("/vocabulary-books", AddBook);
+        adminGroup.MapPut("/vocabulary-books", UpdateBook);
+        adminGroup.MapGet("/vocabulary-books/{id}", GetBook);
+        adminGroup.MapGet("/vocabulary-books", SearchBooks);
+        adminGroup.MapGet("/vocabulary-books/by-category", GetBooksByCategory);
+        adminGroup.MapGet("/vocabulary-books/categories", GetAllCategories);
+        adminGroup.MapGet("/vocabulary-books/education-levels", GetAllEducationLevels);
+        adminGroup.MapGet("/vocabulary-books/grades", GetAllGrades);
+        adminGroup.MapGet("/vocabulary-books/grades-by-level", GetGradesByEducationLevel);
+        adminGroup.MapGet("/vocabulary-books/{id}/words", GetBookWords);
+        adminGroup.MapDelete("/vocabulary-books/{id}", DeleteBook);
 
         return app;
     }
