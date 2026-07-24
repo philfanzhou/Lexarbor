@@ -83,7 +83,9 @@ using (var scope = app.Services.CreateScope())
 }
 
 // Configure the HTTP request pipeline.
+app.UseDefaultFiles();
+app.UseStaticFiles();
 app.MapVocabularyHttpEndpoints();
-app.MapGet("/", () => "Vocabulary WebAPI host is running.");
+app.MapFallbackToFile("index.html");
 
 app.Run();
