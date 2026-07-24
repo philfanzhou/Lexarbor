@@ -32,7 +32,7 @@ const partOfSpeechOptions = [
 async function loadBooks() {
   try {
     const data = await getBooks()
-    books.value = data.books
+    books.value = data.items
   } catch (e: any) {
     ElMessage.error(e.message)
   }

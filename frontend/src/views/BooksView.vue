@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
-import { getBooks, addBook, updateBook, deleteBook } from '@/services/bookApi'
+import { getBooks, addBook, updateBook, deleteBook, getCategories, getEducationLevels } from '@/services/bookApi'
 import type { Book } from '@/types'
 
 const books = ref<Book[]>([])
@@ -10,6 +10,14 @@ const loading = ref(false)
 const dialogVisible = ref(false)
 const editingId = ref<string | null>(null)
 const formRef = ref<FormInstance>()
+
+const categories = ref<string[]>([])
+const educationLevels = ref<string[]>([])
+
+const keyword = ref('')
+const page = ref(1)
+const size = ref(20)
+const totalCount = ref(0)
 
 const form = ref<Partial<Book>>({
   bookName: '',
@@ -30,13 +38,40 @@ const rules: FormRules = {
 async function loadBooks() {
   loading.value = true
   try {
-    const data = await getBooks()
-    books.value = data.books
+    const data = await getBooks({ keyword: keyword.value || undefined, page: page.value, size: size.value })
+    books.value = data.items
+    totalCount.value = data.totalCount
   } catch (e: any) {
     ElMessage.error(e.message)
   } finally {
     loading.value = false
   }
+}
+
+async function loadFilters() {
+  try {
+    const [catRes, levelRes] = await Promise.all([getCategories(), getEducationLevels()])
+    categories.value = catRes.items
+    educationLevels.value = levelRes.items
+  } catch (e: any) {
+    ElMessage.error(e.message)
+  }
+}
+
+function handleSearch() {
+  page.value = 1
+  loadBooks()
+}
+
+function handleSizeChange(newSize: number) {
+  size.value = newSize
+  page.value = 1
+  loadBooks()
+}
+
+function handlePageChange(newPage: number) {
+  page.value = newPage
+  loadBooks()
 }
 
 function openCreate() {
@@ -67,6 +102,7 @@ async function handleSubmit() {
     }
     dialogVisible.value = false
     loadBooks()
+    loadFilters()
   } catch (e: any) {
     ElMessage.error(e.message)
   }
@@ -78,17 +114,29 @@ async function handleDelete(book: Book) {
     await deleteBook(book.id)
     ElMessage.success('删除成功')
     loadBooks()
+    loadFilters()
   } catch (e: any) {
     ElMessage.error(e.message)
   }
 }
 
-onMounted(loadBooks)
+onMounted(() => {
+  loadBooks()
+  loadFilters()
+})
 </script>
 
 <template>
   <div class="books-view">
     <div class="toolbar">
+      <el-input
+        v-model="keyword"
+        placeholder="搜索教材名称"
+        clearable
+        style="width: 240px"
+        @keyup.enter="handleSearch"
+      />
+      <el-button type="primary" @click="handleSearch">搜索</el-button>
       <el-button type="primary" @click="openCreate">新增教材</el-button>
     </div>
 
@@ -113,16 +161,33 @@ onMounted(loadBooks)
       </el-table-column>
     </el-table>
 
+    <div class="pagination-wrapper">
+      <el-pagination
+        v-model:current-page="page"
+        v-model:page-size="size"
+        :total="totalCount"
+        :page-sizes="[10, 20, 50, 100]"
+        layout="total, sizes, prev, pager, next, jumper"
+        background
+        @size-change="handleSizeChange"
+        @current-change="handlePageChange"
+      />
+    </div>
+
     <el-dialog v-model="dialogVisible" :title="editingId ? '编辑教材' : '新增教材'" width="500px">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="80px">
         <el-form-item label="名称" prop="bookName">
           <el-input v-model="form.bookName" placeholder="如：初中英语词汇" />
         </el-form-item>
         <el-form-item label="分类" prop="category">
-          <el-input v-model="form.category" placeholder="如：初中英语" />
+          <el-select v-model="form.category" placeholder="请选择分类" clearable style="width: 100%">
+            <el-option v-for="cat in categories" :key="cat" :label="cat" :value="cat" />
+          </el-select>
         </el-form-item>
         <el-form-item label="学段" prop="educationLevel">
-          <el-input v-model="form.educationLevel" placeholder="如：初中" />
+          <el-select v-model="form.educationLevel" placeholder="请选择学段" clearable style="width: 100%">
+            <el-option v-for="level in educationLevels" :key="level" :label="level" :value="level" />
+          </el-select>
         </el-form-item>
         <el-form-item label="年级" prop="grade">
           <el-input v-model="form.grade" placeholder="如：初一" />
@@ -150,5 +215,6 @@ onMounted(loadBooks)
 
 <style scoped>
 .books-view { padding: 16px; }
-.toolbar { margin-bottom: 16px; }
+.toolbar { display: flex; gap: 12px; margin-bottom: 16px; }
+.pagination-wrapper { display: flex; justify-content: flex-end; margin-top: 16px; }
 </style>

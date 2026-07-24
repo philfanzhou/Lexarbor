@@ -24,6 +24,16 @@ export interface BookListResponse {
   data: { books: Book[] }
 }
 
+export interface BookPageData {
+  items: Book[]
+  totalCount: number
+  totalPage: number
+}
+
+export interface StringListData {
+  items: string[]
+}
+
 export interface BoolResponse {
   success: boolean
   data: { success: boolean }

@@ -175,7 +175,7 @@ public static partial class VocabularyHttpEndpoints
 
     // ==================== VocabularyBook endpoints ====================
 
-    // 5. POST /api/vocabulary-books — Add a book
+    // 5. POST /admin/vocabulary-books — Add a book
     private static async Task<IResult> AddBook(
         [FromBody] VocabularyBookDto request,
         VocabularyBookDomainService bookService)
@@ -195,7 +195,7 @@ public static partial class VocabularyHttpEndpoints
         }
     }
 
-    // 6. PUT /api/vocabulary-books — Update a book
+    // 6. PUT /admin/vocabulary-books — Update a book
     private static async Task<IResult> UpdateBook(
         [FromBody] VocabularyBookDto request,
         VocabularyBookDomainService bookService)
@@ -215,7 +215,7 @@ public static partial class VocabularyHttpEndpoints
         }
     }
 
-    // 7. GET /api/vocabulary-books/{id} — Get a book
+    // 7. GET /admin/vocabulary-books/{id} — Get a book
     private static async Task<IResult> GetBook(
         string id,
         VocabularyBookDomainService bookService)
@@ -235,7 +235,7 @@ public static partial class VocabularyHttpEndpoints
         }
     }
 
-    // 8. GET /api/vocabulary-books — Search books
+    // 8. GET /admin/vocabulary-books — Search books
     private static async Task<IResult> SearchBooks(
         [FromQuery] string keyword,
         [FromQuery] int page,
@@ -264,7 +264,7 @@ public static partial class VocabularyHttpEndpoints
         }
     }
 
-    // 9. GET /api/vocabulary-books/by-category — Get books by category
+    // 9. GET /admin/vocabulary-books/by-category — Get books by category
     private static async Task<IResult> GetBooksByCategory(
         [FromQuery] string category,
         [FromQuery] string? grade,
@@ -302,7 +302,7 @@ public static partial class VocabularyHttpEndpoints
         }
     }
 
-    // 11. GET /api/vocabulary-books/categories — Get all categories
+    // 11. GET /admin/vocabulary-books/categories — Get all categories
     private static async Task<IResult> GetAllCategories(
         VocabularyBookDomainService bookService)
     {
@@ -312,7 +312,7 @@ public static partial class VocabularyHttpEndpoints
         return VocabularyHttpResponse.Ok(res);
     }
 
-    // 12. GET /api/vocabulary-books/education-levels — Get all education levels
+    // 12. GET /admin/vocabulary-books/education-levels — Get all education levels
     private static async Task<IResult> GetAllEducationLevels(
         VocabularyBookDomainService bookService)
     {
@@ -322,7 +322,7 @@ public static partial class VocabularyHttpEndpoints
         return VocabularyHttpResponse.Ok(res);
     }
 
-    // 13. GET /api/vocabulary-books/grades — Get all grades
+    // 13. GET /admin/vocabulary-books/grades — Get all grades
     private static async Task<IResult> GetAllGrades(
         VocabularyBookDomainService bookService)
     {
@@ -332,7 +332,7 @@ public static partial class VocabularyHttpEndpoints
         return VocabularyHttpResponse.Ok(res);
     }
 
-    // 14. GET /api/vocabulary-books/grades-by-level — Get grades by education level
+    // 14. GET /admin/vocabulary-books/grades-by-level — Get grades by education level
     private static async Task<IResult> GetGradesByEducationLevel(
         [FromQuery] string value,
         VocabularyBookDomainService bookService)
@@ -343,7 +343,7 @@ public static partial class VocabularyHttpEndpoints
         return VocabularyHttpResponse.Ok(res);
     }
 
-    // 15. GET /api/vocabulary-books/{id}/words — Get words in a book
+    // 15. GET /admin/vocabulary-books/{id}/words — Get words in a book
     private static async Task<IResult> GetBookWords(
         string id,
         VocabularyBookDomainService bookService)
@@ -364,7 +364,7 @@ public static partial class VocabularyHttpEndpoints
         }
     }
 
-    // 16. DELETE /api/vocabulary-books/{id} — Delete a book
+    // 16. DELETE /admin/vocabulary-books/{id} — Delete a book
     private static async Task<IResult> DeleteBook(
         string id,
         VocabularyBookDomainService bookService)
