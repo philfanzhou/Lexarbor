@@ -1,13 +1,16 @@
 using System.Data.Common;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.IdentityModel.Tokens;
 using Ruoyu.Study.Consul.Shared;
 using Ruoyu.Study.Vocabulary.Database;
 using Ruoyu.Study.Vocabulary.Database.Repositories;
 using Ruoyu.Study.Vocabulary.Domain.Repositories;
 using Ruoyu.Study.Vocabulary.Domain.Services;
+using Ruoyu.Study.Vocabulary.Host.Authentication;
 using Ruoyu.Study.Vocabulary.Service;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -49,6 +52,94 @@ builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 builder.Services.AddScoped<VocabularyDomainService>();
 builder.Services.AddScoped<VocabularyBookDomainService>();
 
+var identityOptions = builder.Configuration
+    .GetSection(IdentityServiceOptions.SectionName)
+    .Get<IdentityServiceOptions>() ?? new IdentityServiceOptions();
+var adminAuthenticationOptions = builder.Configuration
+    .GetSection(AdminAuthenticationOptions.SectionName)
+    .Get<AdminAuthenticationOptions>() ?? new AdminAuthenticationOptions();
+
+builder.Services.Configure<IdentityServiceOptions>(
+    builder.Configuration.GetSection(IdentityServiceOptions.SectionName));
+builder.Services.Configure<AdminAuthenticationOptions>(
+    builder.Configuration.GetSection(AdminAuthenticationOptions.SectionName));
+builder.Services.AddHttpClient(
+    IdentityTokenClient.HttpClientName,
+    client =>
+    {
+        client.BaseAddress = new Uri($"{identityOptions.Authority.TrimEnd('/')}/");
+        client.Timeout = TimeSpan.FromSeconds(30);
+    });
+builder.Services.AddScoped<IIdentityTokenClient, IdentityTokenClient>();
+
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.Authority = identityOptions.Authority;
+        options.Audience = identityOptions.Audience;
+        options.RequireHttpsMetadata = false;
+        options.MapInboundClaims = false;
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidIssuer = identityOptions.Issuer,
+            ValidateAudience = true,
+            ValidAudience = identityOptions.Audience,
+            ValidateLifetime = true,
+            ClockSkew = TimeSpan.FromSeconds(30),
+            RoleClaimType = "role",
+            NameClaimType = "preferred_username"
+        };
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                var authorization = context.Request.Headers.Authorization.ToString();
+                if (!authorization.StartsWith(
+                        "Bearer ",
+                        StringComparison.OrdinalIgnoreCase) &&
+                    context.Request.Cookies.TryGetValue(
+                        adminAuthenticationOptions.CookieName,
+                        out var cookieToken))
+                {
+                    context.Token = cookieToken;
+                }
+
+                return Task.CompletedTask;
+            },
+            OnChallenge = async context =>
+            {
+                context.HandleResponse();
+                if (!context.Response.HasStarted)
+                {
+                    await VocabularyHttpResponse.WriteFailureAsync(
+                        context.Response,
+                        StatusCodes.Status401Unauthorized,
+                        "Authentication is required.");
+                }
+            },
+            OnForbidden = async context =>
+            {
+                if (!context.Response.HasStarted)
+                {
+                    await VocabularyHttpResponse.WriteFailureAsync(
+                        context.Response,
+                        StatusCodes.Status403Forbidden,
+                        "Administrator role is required.");
+                }
+            }
+        };
+    });
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("VocabularyAdmin", policy =>
+    {
+        policy.RequireAuthenticatedUser();
+        policy.RequireRole("admin");
+    });
+});
+
 var app = builder.Build();
 
 app.Logger.LogInformation("Vocabulary Service starting");
@@ -74,9 +165,10 @@ app.Logger.LogInformation(
     StartupDiagnosticsFormatter.SummarizePassword(builder.Configuration["PostgreSql:Password"]),
     StartupDiagnosticsFormatter.SummarizeValue(builder.Configuration["Database:Name"]));
 
-// Configure database initialization (Code First without Migrations)
-using (var scope = app.Services.CreateScope())
+// Configure database initialization.
+if (builder.Configuration.GetValue("Database:InitializeOnStartup", true))
 {
+    using var scope = app.Services.CreateScope();
     var dbContext = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
     var loggerFactory = scope.ServiceProvider.GetRequiredService<ILoggerFactory>();
     await DatabaseInitializer.InitializeAsync(dbContext, loggerFactory);
@@ -86,7 +178,15 @@ using (var scope = app.Services.CreateScope())
 app.UseMiddleware<VocabularyExceptionMiddleware>();
 app.UseDefaultFiles();
 app.UseStaticFiles();
+app.UseAuthentication();
+app.UseMiddleware<CookieCsrfMiddleware>();
+app.UseAuthorization();
+app.MapAdminAuthEndpoints();
 app.MapVocabularyHttpEndpoints();
 app.MapFallbackToFile("index.html");
 
 app.Run();
+
+public partial class Program
+{
+}

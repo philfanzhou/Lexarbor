@@ -28,7 +28,8 @@ public static partial class VocabularyHttpEndpoints
         apiGroup.MapGet("/vocabulary-books/all", GetAllBooks);
 
         // /admin — management frontend only
-        var adminGroup = app.MapGroup("/admin");
+        var adminGroup = app.MapGroup("/admin")
+            .RequireAuthorization("VocabularyAdmin");
         adminGroup.MapPost("/vocabulary", AddOrUpdateVocabulary);
         adminGroup.MapPost("/vocabulary-books", AddBook);
         adminGroup.MapPut("/vocabulary-books", UpdateBook);

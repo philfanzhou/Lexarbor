@@ -33,6 +33,16 @@ public static class VocabularyHttpResponse
     public static IResult NotFound(string message)
         => Results.NotFound(new { success = false, message });
 
+    public static IResult Unauthorized(string message)
+        => Results.Json(
+            new { success = false, message },
+            statusCode: StatusCodes.Status401Unauthorized);
+
+    public static IResult Forbidden(string message)
+        => Results.Json(
+            new { success = false, message },
+            statusCode: StatusCodes.Status403Forbidden);
+
     /// <summary>
     /// 409 Conflict: { "success": false, "message": "..." }
     /// </summary>
@@ -44,6 +54,16 @@ public static class VocabularyHttpResponse
     /// </summary>
     public static IResult UnprocessableEntity(string message)
         => Results.UnprocessableEntity(new { success = false, message });
+
+    public static IResult BadGateway(string message)
+        => Results.Json(
+            new { success = false, message },
+            statusCode: StatusCodes.Status502BadGateway);
+
+    public static IResult ServiceUnavailable(string message)
+        => Results.Json(
+            new { success = false, message },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
 
     /// <summary>
     /// 500 Internal Server Error: { "success": false, "message": "..." }
