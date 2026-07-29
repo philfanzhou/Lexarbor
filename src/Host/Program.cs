@@ -83,6 +83,7 @@ using (var scope = app.Services.CreateScope())
 }
 
 // Configure the HTTP request pipeline.
+app.UseMiddleware<VocabularyExceptionMiddleware>();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 app.MapVocabularyHttpEndpoints();

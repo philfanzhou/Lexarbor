@@ -34,8 +34,26 @@ public static class VocabularyHttpResponse
         => Results.NotFound(new { success = false, message });
 
     /// <summary>
+    /// 409 Conflict: { "success": false, "message": "..." }
+    /// </summary>
+    public static IResult Conflict(string message)
+        => Results.Conflict(new { success = false, message });
+
+    /// <summary>
+    /// 422 Unprocessable Entity: { "success": false, "message": "..." }
+    /// </summary>
+    public static IResult UnprocessableEntity(string message)
+        => Results.UnprocessableEntity(new { success = false, message });
+
+    /// <summary>
     /// 500 Internal Server Error: { "success": false, "message": "..." }
     /// </summary>
     public static IResult Internal(string message)
         => Results.Json(new { success = false, message }, statusCode: (int)HttpStatusCode.InternalServerError);
+
+    public static Task WriteFailureAsync(HttpResponse response, int statusCode, string message)
+    {
+        response.StatusCode = statusCode;
+        return response.WriteAsJsonAsync(new { success = false, message });
+    }
 }
