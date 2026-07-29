@@ -17,7 +17,7 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
 {
     public const string Issuer = "QuantumZhou.Identity";
     public const string Audience = "QuantumZhou.microservices";
-    public const string CookieName = "vocabularyAdminAccessToken";
+    public const string CookieName = "ruoyuVocabularyAdmin";
     public const string SigningSecret = "vocabulary-test-signing-key-2026-07-29";
 
     private readonly string _environment;
