@@ -90,6 +90,46 @@ public class VocabularyRepository : IVocabularyRepository
             .ToListAsync();
         return entities.Adapt<List<VocabularyModel>>();
     }
+
+    public async Task<List<VocabularyModel>> GetRandomByBookExceptAsync(
+        string bookId,
+        string excludeVocabularyId,
+        int count)
+    {
+        var candidateIdsQuery = _context.VocabularyMeanings
+            .AsNoTracking()
+            .Where(meaning =>
+                meaning.BookId == bookId &&
+                meaning.VocabularyId != excludeVocabularyId)
+            .Join(
+                _context.Vocabularies.AsNoTracking(),
+                meaning => meaning.VocabularyId,
+                vocabulary => vocabulary.Id,
+                (meaning, _) => meaning.VocabularyId)
+            .Distinct();
+
+        List<string> candidateIds;
+        if (_context.Database.IsRelational())
+        {
+            candidateIds = await candidateIdsQuery
+                .OrderBy(_ => EF.Functions.Random())
+                .Take(count)
+                .ToListAsync();
+        }
+        else
+        {
+            candidateIds = (await candidateIdsQuery.ToListAsync())
+                .OrderBy(_ => Guid.NewGuid())
+                .Take(count)
+                .ToList();
+        }
+
+        var entities = await _context.Vocabularies
+            .AsNoTracking()
+            .Where(vocabulary => candidateIds.Contains(vocabulary.Id))
+            .ToListAsync();
+        return entities.Adapt<List<VocabularyModel>>();
+    }
 }
 
 public class VocabularyBookRepository : IVocabularyBookRepository
@@ -329,6 +369,54 @@ public class VocabularyMeaningRepository : IVocabularyMeaningRepository
             (item.PartOfSpeech ?? string.Empty).Trim().ToLower() == normalizedPartOfSpeech &&
             item.Meaning.Trim() == normalizedMeaning);
         return entity?.Adapt<VocabularyMeaningModel>();
+    }
+
+    public async Task<List<VocabularyMeaningModel>> GetRandomDistinctVocabularyExceptAsync(
+        string bookId,
+        string excludeVocabularyId,
+        int count)
+    {
+        var candidateIdsQuery = _context.VocabularyMeanings
+            .AsNoTracking()
+            .Where(meaning =>
+                meaning.BookId == bookId &&
+                meaning.VocabularyId != excludeVocabularyId)
+            .Join(
+                _context.Vocabularies.AsNoTracking(),
+                meaning => meaning.VocabularyId,
+                vocabulary => vocabulary.Id,
+                (meaning, _) => meaning.VocabularyId)
+            .Distinct();
+
+        List<string> candidateIds;
+        if (_context.Database.IsRelational())
+        {
+            candidateIds = await candidateIdsQuery
+                .OrderBy(_ => EF.Functions.Random())
+                .Take(count)
+                .ToListAsync();
+        }
+        else
+        {
+            candidateIds = (await candidateIdsQuery.ToListAsync())
+                .OrderBy(_ => Guid.NewGuid())
+                .Take(count)
+                .ToList();
+        }
+
+        var entities = await _context.VocabularyMeanings
+            .AsNoTracking()
+            .Where(meaning =>
+                meaning.BookId == bookId &&
+                candidateIds.Contains(meaning.VocabularyId))
+            .OrderBy(meaning => meaning.VocabularyId)
+            .ThenBy(meaning => meaning.Id)
+            .ToListAsync();
+
+        return entities
+            .GroupBy(meaning => meaning.VocabularyId)
+            .Select(group => group.First())
+            .Adapt<List<VocabularyMeaningModel>>();
     }
 
     public async Task AddAsync(VocabularyMeaningModel model)

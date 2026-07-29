@@ -14,6 +14,10 @@ public interface IVocabularyRepository
     Task AddAsync(VocabularyModel model);
     Task UpdateAsync(VocabularyModel model);
     Task<List<VocabularyModel>> GetRandomExceptAsync(string excludeId, int count);
+    Task<List<VocabularyModel>> GetRandomByBookExceptAsync(
+        string bookId,
+        string excludeVocabularyId,
+        int count);
 }
 
 public interface IVocabularyBookRepository
@@ -46,6 +50,10 @@ public interface IVocabularyMeaningRepository
         string bookId,
         string normalizedPartOfSpeech,
         string meaning);
+    Task<List<VocabularyMeaningModel>> GetRandomDistinctVocabularyExceptAsync(
+        string bookId,
+        string excludeVocabularyId,
+        int count);
     Task AddAsync(VocabularyMeaningModel model);
     Task UpdateAsync(VocabularyMeaningModel model);
     Task DeleteAsync(string id);

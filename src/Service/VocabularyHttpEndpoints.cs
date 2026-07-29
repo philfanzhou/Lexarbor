@@ -132,40 +132,20 @@ public static partial class VocabularyHttpEndpoints
 
         try
         {
-            var (word, meanings) = await vocabularyService.GetDetailAsync(request.WordId, request.BookId).ConfigureAwait(false);
-            var correctMeaning = meanings.FirstOrDefault()
-                                 ?? throw new InvalidOperationException("Meaning not found");
+            var chineseToEnglish =
+                request.ChineseToEnglish ?? (Guid.NewGuid().GetHashCode() % 2 == 0);
+            var question = await vocabularyService.CreateQuestionAsync(
+                request.WordId,
+                request.BookId,
+                chineseToEnglish).ConfigureAwait(false);
 
-            bool useChineseQuestion = request.ChineseToEnglish ?? (Guid.NewGuid().GetHashCode() % 2 == 0);
-
-            if (useChineseQuestion)
+            var response = new QuestionResponse { Word = question.Word };
+            response.Options.AddRange(question.Options.Select(option => new OptionDto
             {
-                var distractorWords = await vocabularyService.GetDistractorWordsAsync(request.WordId, request.BookId, 3).ConfigureAwait(false);
-                var options = new List<OptionDto>
-                {
-                    new OptionDto { Meaning = word.Word, IsCorrect = true }
-                };
-                options.AddRange(distractorWords.Select(w => new OptionDto { Meaning = w.Word, IsCorrect = false }));
-                options = options.OrderBy(_ => Guid.NewGuid()).ToList();
-
-                var response = new QuestionResponse { Word = correctMeaning.Meaning };
-                response.Options.AddRange(options);
-                return VocabularyHttpResponse.Ok(response);
-            }
-            else
-            {
-                var distractorMeanings = await vocabularyService.GetDistractorMeaningsAsync(request.WordId, request.BookId, 3).ConfigureAwait(false);
-                var options = new List<OptionDto>
-                {
-                    new OptionDto { Meaning = correctMeaning.Meaning, IsCorrect = true }
-                };
-                options.AddRange(distractorMeanings.Select(d => new OptionDto { Meaning = d.Meaning, IsCorrect = false }));
-                options = options.OrderBy(_ => Guid.NewGuid()).ToList();
-
-                var response = new QuestionResponse { Word = word.Word };
-                response.Options.AddRange(options);
-                return VocabularyHttpResponse.Ok(response);
-            }
+                Meaning = option.Text,
+                IsCorrect = option.IsCorrect
+            }));
+            return VocabularyHttpResponse.Ok(response);
         }
         catch (Exception ex)
         {

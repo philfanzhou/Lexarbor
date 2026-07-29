@@ -94,6 +94,74 @@ public class VocabularyDomainService
         return _vocabularyRepository.GetRandomExceptAsync(wordId, count);
     }
 
+    public async Task<VocabularyQuestionModel> CreateQuestionAsync(
+        string wordId,
+        string bookId,
+        bool chineseToEnglish)
+    {
+        var (word, meanings) = await GetDetailAsync(wordId, bookId);
+        var correctMeaning = meanings.FirstOrDefault()
+                             ?? throw new ResourceNotFoundException(
+                                 "Vocabulary meaning was not found in the requested book.");
+
+        List<VocabularyQuestionOptionModel> options;
+        string questionText;
+        if (chineseToEnglish)
+        {
+            var distractors = await _vocabularyRepository.GetRandomByBookExceptAsync(
+                bookId,
+                wordId,
+                3);
+            questionText = correctMeaning.Meaning;
+            options =
+            [
+                new VocabularyQuestionOptionModel { Text = word.Word, IsCorrect = true },
+                .. distractors.Select(item =>
+                    new VocabularyQuestionOptionModel { Text = item.Word, IsCorrect = false })
+            ];
+        }
+        else
+        {
+            var distractors =
+                await _meaningRepository.GetRandomDistinctVocabularyExceptAsync(
+                    bookId,
+                    wordId,
+                    3);
+            questionText = word.Word;
+            options =
+            [
+                new VocabularyQuestionOptionModel
+                {
+                    Text = correctMeaning.Meaning,
+                    IsCorrect = true
+                },
+                .. distractors.Select(item =>
+                    new VocabularyQuestionOptionModel
+                    {
+                        Text = item.Meaning,
+                        IsCorrect = false
+                    })
+            ];
+        }
+
+        options = options
+            .Where(option => !string.IsNullOrWhiteSpace(option.Text))
+            .DistinctBy(option => option.Text, StringComparer.Ordinal)
+            .ToList();
+        if (options.Count != 4 || options.Count(option => option.IsCorrect) != 1)
+        {
+            throw new BusinessRuleException(
+                "The vocabulary book does not contain enough distinct words to create a question.");
+        }
+
+        Shuffle(options);
+        return new VocabularyQuestionModel
+        {
+            Word = questionText,
+            Options = options
+        };
+    }
+
     private async Task<VocabularyModel> ResolveVocabularyAsync(
         VocabularyModel requested,
         string normalizedWord)
@@ -227,5 +295,14 @@ public class VocabularyDomainService
         }
 
         return normalized;
+    }
+
+    private static void Shuffle<T>(IList<T> items)
+    {
+        for (var index = items.Count - 1; index > 0; index--)
+        {
+            var swapIndex = Random.Shared.Next(index + 1);
+            (items[index], items[swapIndex]) = (items[swapIndex], items[index]);
+        }
     }
 }
