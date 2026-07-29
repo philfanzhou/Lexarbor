@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Ruoyu.Study.Vocabulary.Domain.Exceptions;
 using Ruoyu.Study.Vocabulary.Domain.Models;
 using Ruoyu.Study.Vocabulary.Domain.Services;
 using Xunit;
@@ -13,7 +14,7 @@ public class VocabularyBookDomainServiceAdditionalTests : TestBase
 
     public VocabularyBookDomainServiceAdditionalTests()
     {
-        _service = new VocabularyBookDomainService(_bookRepository, _meaningRepository, _vocabularyRepository, _unitOfWork);
+        _service = new VocabularyBookDomainService(_bookRepository, _unitOfWork);
     }
 
     [Fact]
@@ -114,9 +115,10 @@ public class VocabularyBookDomainServiceAdditionalTests : TestBase
     }
 
     [Fact]
-    public async Task DeleteAsync_NonExistingBook_DoesNotThrow()
+    public async Task DeleteAsync_NonExistingBook_ThrowsResourceNotFound()
     {
-        await _service.DeleteAsync("nonexistent-id");
+        await Assert.ThrowsAsync<ResourceNotFoundException>(
+            () => _service.DeleteAsync("nonexistent-id"));
     }
 
     [Fact]

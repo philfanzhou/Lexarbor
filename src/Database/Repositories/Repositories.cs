@@ -103,23 +103,142 @@ public class VocabularyBookRepository : IVocabularyBookRepository
 
     public async Task<VocabularyBookModel?> GetByIdAsync(string id)
     {
-        var entity = await _context.VocabularyBooks.FindAsync(id);
+        var entity = await _context.VocabularyBooks
+            .AsNoTracking()
+            .FirstOrDefaultAsync(book => book.Id == id);
         return entity?.Adapt<VocabularyBookModel>();
     }
 
     public async Task<List<VocabularyBookModel>> GetAllAsync()
     {
-        var entities = await _context.VocabularyBooks.OrderBy(b => b.DisplayOrder).ToListAsync();
+        var entities = await _context.VocabularyBooks
+            .AsNoTracking()
+            .OrderBy(book => book.DisplayOrder)
+            .ToListAsync();
         return entities.Adapt<List<VocabularyBookModel>>();
     }
 
-    public async Task<List<VocabularyBookModel>> GetByCategoryAsync(string category)
+    public async Task<List<VocabularyBookModel>> GetActiveAsync()
     {
         var entities = await _context.VocabularyBooks
-            .Where(b => b.Category == category)
-            .OrderBy(b => b.DisplayOrder)
+            .AsNoTracking()
+            .Where(book => book.Status)
+            .OrderBy(book => book.DisplayOrder)
             .ToListAsync();
         return entities.Adapt<List<VocabularyBookModel>>();
+    }
+
+    public async Task<(List<VocabularyBookModel> Items, int TotalCount)> SearchAsync(
+        string keyword,
+        int page,
+        int size)
+    {
+        var query = _context.VocabularyBooks.AsNoTracking();
+        if (!string.IsNullOrWhiteSpace(keyword))
+        {
+            query = query.Where(book =>
+                book.BookName.Contains(keyword) ||
+                (book.Description != null && book.Description.Contains(keyword)));
+        }
+
+        var totalCount = await query.CountAsync();
+        var entities = await query
+            .OrderBy(book => book.DisplayOrder)
+            .ThenBy(book => book.BookName)
+            .Skip((page - 1) * size)
+            .Take(size)
+            .ToListAsync();
+        return (entities.Adapt<List<VocabularyBookModel>>(), totalCount);
+    }
+
+    public async Task<List<VocabularyBookModel>> GetByCategoryAsync(string category, string? grade)
+    {
+        var query = _context.VocabularyBooks.AsNoTracking();
+        if (!string.IsNullOrWhiteSpace(category))
+        {
+            query = query.Where(book => book.Category == category);
+        }
+
+        if (!string.IsNullOrWhiteSpace(grade))
+        {
+            query = query.Where(book => book.Grade == grade);
+        }
+
+        var entities = await query
+            .OrderBy(book => book.DisplayOrder)
+            .ThenBy(book => book.BookName)
+            .ToListAsync();
+        return entities.Adapt<List<VocabularyBookModel>>();
+    }
+
+    public Task<List<string>> GetDistinctCategoriesAsync()
+    {
+        return _context.VocabularyBooks
+            .AsNoTracking()
+            .Where(book => book.Category != null && book.Category != string.Empty)
+            .Select(book => book.Category!)
+            .Distinct()
+            .OrderBy(category => category)
+            .ToListAsync();
+    }
+
+    public Task<List<string>> GetDistinctEducationLevelsAsync()
+    {
+        return _context.VocabularyBooks
+            .AsNoTracking()
+            .Where(book => book.EducationLevel != null && book.EducationLevel != string.Empty)
+            .Select(book => book.EducationLevel!)
+            .Distinct()
+            .OrderBy(educationLevel => educationLevel)
+            .ToListAsync();
+    }
+
+    public Task<List<string>> GetDistinctGradesAsync()
+    {
+        return _context.VocabularyBooks
+            .AsNoTracking()
+            .Where(book => book.Grade != null && book.Grade != string.Empty)
+            .Select(book => book.Grade!)
+            .Distinct()
+            .OrderBy(grade => grade)
+            .ToListAsync();
+    }
+
+    public Task<List<string>> GetDistinctGradesByEducationLevelAsync(string educationLevel)
+    {
+        return _context.VocabularyBooks
+            .AsNoTracking()
+            .Where(book =>
+                book.EducationLevel == educationLevel &&
+                book.Grade != null &&
+                book.Grade != string.Empty)
+            .Select(book => book.Grade!)
+            .Distinct()
+            .OrderBy(grade => grade)
+            .ToListAsync();
+    }
+
+    public Task<bool> HasMeaningsAsync(string bookId)
+    {
+        return _context.VocabularyMeanings
+            .AsNoTracking()
+            .AnyAsync(meaning => meaning.BookId == bookId);
+    }
+
+    public async Task<List<VocabularyModel>> GetWordsAsync(string bookId)
+    {
+        var entities = await _context.VocabularyMeanings
+            .AsNoTracking()
+            .Where(meaning => meaning.BookId == bookId)
+            .Join(
+                _context.Vocabularies.AsNoTracking(),
+                meaning => meaning.VocabularyId,
+                vocabulary => vocabulary.Id,
+                (_, vocabulary) => vocabulary)
+            .Distinct()
+            .OrderBy(vocabulary => vocabulary.Word)
+            .ToListAsync();
+        return entities.Adapt<List<VocabularyModel>>();
     }
 
     public async Task AddAsync(VocabularyBookModel model)

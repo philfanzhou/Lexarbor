@@ -20,7 +20,15 @@ public interface IVocabularyBookRepository
 {
     Task<VocabularyBookModel?> GetByIdAsync(string id);
     Task<List<VocabularyBookModel>> GetAllAsync();
-    Task<List<VocabularyBookModel>> GetByCategoryAsync(string category);
+    Task<List<VocabularyBookModel>> GetActiveAsync();
+    Task<(List<VocabularyBookModel> Items, int TotalCount)> SearchAsync(string keyword, int page, int size);
+    Task<List<VocabularyBookModel>> GetByCategoryAsync(string category, string? grade);
+    Task<List<string>> GetDistinctCategoriesAsync();
+    Task<List<string>> GetDistinctEducationLevelsAsync();
+    Task<List<string>> GetDistinctGradesAsync();
+    Task<List<string>> GetDistinctGradesByEducationLevelAsync(string educationLevel);
+    Task<bool> HasMeaningsAsync(string bookId);
+    Task<List<VocabularyModel>> GetWordsAsync(string bookId);
     Task AddAsync(VocabularyBookModel model);
     Task UpdateAsync(VocabularyBookModel model);
     Task DeleteAsync(string id);
