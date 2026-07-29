@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
+    "test:types": "vue-tsc -p tsconfig.type-tests.json --noEmit",
     "preview": "vite preview"
   },
   "dependencies": {

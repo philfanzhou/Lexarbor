@@ -4,6 +4,7 @@ import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { getBooks } from '@/services/bookApi'
 import { addVocabulary } from '@/services/vocabularyApi'
+import { getApiError } from '@/services/apiError'
 import type { Book } from '@/types'
 
 const formRef = ref<FormInstance>()
@@ -33,8 +34,8 @@ async function loadBooks() {
   try {
     const data = await getBooks()
     books.value = data.items
-  } catch (e: any) {
-    ElMessage.error(e.message)
+  } catch (error: unknown) {
+    ElMessage.error(getApiError(error).message)
   }
 }
 
@@ -57,8 +58,17 @@ async function handleSubmit() {
     })
     ElMessage.success('导入成功')
     resetForm()
-  } catch (e: any) {
-    ElMessage.error(e.message)
+  } catch (error: unknown) {
+    const apiError = getApiError(error)
+    if (apiError.status === 404) {
+      ElMessage.error('所选教材不存在，请刷新后重新选择')
+    } else if (apiError.status === 409) {
+      ElMessage.error('该单词或词义与现有数据冲突')
+    } else if (apiError.status === 422) {
+      ElMessage.error('导入内容不符合业务规则')
+    } else {
+      ElMessage.error(apiError.message)
+    }
   } finally {
     loading.value = false
   }

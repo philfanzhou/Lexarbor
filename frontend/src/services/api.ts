@@ -1,19 +1,43 @@
 import axios from 'axios'
 import type { AxiosRequestConfig } from 'axios'
+import { ApiError, getApiError } from './apiError'
 
-const api = axios.create({ timeout: 30000 })
+type AuthFailureHandler = () => void
+
+let onUnauthorized: AuthFailureHandler = () => {}
+let onForbidden: AuthFailureHandler = () => {}
+
+export function setAuthFailureHandlers(
+  unauthorizedHandler: AuthFailureHandler,
+  forbiddenHandler: AuthFailureHandler
+) {
+  onUnauthorized = unauthorizedHandler
+  onForbidden = forbiddenHandler
+}
+
+const api = axios.create({
+  timeout: 30000,
+  withCredentials: true,
+  headers: { 'X-Requested-With': 'XMLHttpRequest' }
+})
 
 api.interceptors.response.use(
   (resp) => {
     const body = resp.data
     if (body && body.success === false) {
-      return Promise.reject(new Error(body.message || 'Request failed'))
+      return Promise.reject(new ApiError(body.message || 'Request failed', resp.status))
     }
     return body?.data ?? body
   },
-  (err) => {
-    const msg = err.response?.data?.message || err.message || 'Network error'
-    return Promise.reject(new Error(msg))
+  (error: unknown) => {
+    const apiError = getApiError(error)
+    if (apiError.status === 401) {
+      onUnauthorized()
+    } else if (apiError.status === 403) {
+      onForbidden()
+    }
+
+    return Promise.reject(apiError)
   }
 )
 

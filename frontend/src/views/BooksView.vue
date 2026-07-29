@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { getBooks, addBook, updateBook, deleteBook, getCategories, getEducationLevels } from '@/services/bookApi'
+import { getApiError } from '@/services/apiError'
 import type { Book } from '@/types'
 
 const books = ref<Book[]>([])
@@ -41,8 +42,8 @@ async function loadBooks() {
     const data = await getBooks({ keyword: keyword.value || undefined, page: page.value, size: size.value })
     books.value = data.items
     totalCount.value = data.totalCount
-  } catch (e: any) {
-    ElMessage.error(e.message)
+  } catch (error: unknown) {
+    ElMessage.error(getApiError(error).message)
   } finally {
     loading.value = false
   }
@@ -53,8 +54,8 @@ async function loadFilters() {
     const [catRes, levelRes] = await Promise.all([getCategories(), getEducationLevels()])
     categories.value = catRes.items
     educationLevels.value = levelRes.items
-  } catch (e: any) {
-    ElMessage.error(e.message)
+  } catch (error: unknown) {
+    ElMessage.error(getApiError(error).message)
   }
 }
 
@@ -103,8 +104,17 @@ async function handleSubmit() {
     dialogVisible.value = false
     loadBooks()
     loadFilters()
-  } catch (e: any) {
-    ElMessage.error(e.message)
+  } catch (error: unknown) {
+    const apiError = getApiError(error)
+    if (apiError.status === 404) {
+      ElMessage.error('教材不存在或已被删除')
+    } else if (apiError.status === 409) {
+      ElMessage.error('教材数据已发生冲突，请刷新后重试')
+    } else if (apiError.status === 422) {
+      ElMessage.error('教材信息不符合业务规则')
+    } else {
+      ElMessage.error(apiError.message)
+    }
   }
 }
 
@@ -115,8 +125,15 @@ async function handleDelete(book: Book) {
     ElMessage.success('删除成功')
     loadBooks()
     loadFilters()
-  } catch (e: any) {
-    ElMessage.error(e.message)
+  } catch (error: unknown) {
+    const apiError = getApiError(error)
+    if (apiError.status === 404) {
+      ElMessage.error('教材不存在或已被删除')
+    } else if (apiError.status === 409) {
+      ElMessage.error('教材已被词义引用，不能删除；请编辑并禁用该教材')
+    } else {
+      ElMessage.error(apiError.message)
+    }
   }
 }
 
