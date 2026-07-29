@@ -422,9 +422,9 @@ public class VocabularyMeaningRepository : IVocabularyMeaningRepository
                                 ON v.id = m.vocabulary_id
                             WHERE m.book_id = {bookId}
                               AND m.vocabulary_id <> {excludeVocabularyId}
+                              AND lower(btrim(m.meaning)) <> {normalizedExcludeMeaning}
                             ORDER BY m.vocabulary_id, random()
                         ) AS per_word
-                        WHERE lower(btrim(per_word.meaning)) <> {normalizedExcludeMeaning}
                         ORDER BY lower(btrim(per_word.meaning)), random()
                     ) AS candidate
                     ORDER BY random()
@@ -446,10 +446,10 @@ public class VocabularyMeaningRepository : IVocabularyMeaningRepository
                         vocabulary => vocabulary.Id,
                         (meaning, _) => meaning)
                     .ToListAsync())
-                .GroupBy(meaning => meaning.VocabularyId)
-                .Select(group => group.OrderBy(meaning => meaning.Id).First())
                 .Where(meaning =>
                     meaning.Meaning.Trim().ToLowerInvariant() != normalizedExcludeMeaning)
+                .GroupBy(meaning => meaning.VocabularyId)
+                .Select(group => group.OrderBy(meaning => meaning.Id).First())
                 .GroupBy(
                     meaning => meaning.Meaning.Trim().ToLowerInvariant(),
                     StringComparer.Ordinal)

@@ -96,6 +96,32 @@ public class VocabularyQuestionTests : TestBase
     }
 
     [Fact]
+    public async Task CreateQuestionAsync_EnglishToChinese_UsesAlternativeMeaningWhenCorrectTextMatches()
+    {
+        var book = await CreateBookAsync();
+        var correct = await SeedWordAsync(book.Id, "apple", "fruit");
+        var banana = await SeedWordAsync(book.Id, "banana", "fruit");
+        await _service.AddOrUpdateAsync(
+            new VocabularyModel { Id = banana.Id, Word = banana.Word },
+            new VocabularyMeaningModel
+            {
+                BookId = book.Id,
+                Meaning = "yellow fruit"
+            });
+        _ = await SeedWordAsync(book.Id, "cherry", "red fruit");
+        _ = await SeedWordAsync(book.Id, "date", "sweet fruit");
+
+        var question = await _service.CreateQuestionAsync(
+            correct.Id,
+            book.Id,
+            chineseToEnglish: false);
+
+        AssertQuestionOptions(
+            question,
+            ["fruit", "yellow fruit", "red fruit", "sweet fruit"]);
+    }
+
+    [Fact]
     public async Task CreateQuestionAsync_ChineseToEnglish_ExcludesHistoricalEquivalentWord()
     {
         var book = await CreateBookAsync();

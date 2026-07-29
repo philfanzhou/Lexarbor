@@ -26,23 +26,22 @@ public sealed class AdminAccessTokenValidator
         try
         {
             var options = _optionsMonitor.Get(JwtBearerDefaults.AuthenticationScheme);
-            var validationParameters = options.TokenValidationParameters.Clone();
-            if (options.ConfigurationManager != null)
+            var result = await ValidateOnceAsync(
+                accessToken,
+                options,
+                cancellationToken);
+            if (!result.IsValid &&
+                result.Exception is SecurityTokenSignatureKeyNotFoundException &&
+                options.RefreshOnIssuerKeyNotFound &&
+                options.ConfigurationManager != null)
             {
-                var configuration =
-                    await options.ConfigurationManager.GetConfigurationAsync(cancellationToken);
-                validationParameters.IssuerSigningKeys =
-                    (validationParameters.IssuerSigningKeys ?? [])
-                    .Concat(configuration.SigningKeys);
+                options.ConfigurationManager.RequestRefresh();
+                result = await ValidateOnceAsync(
+                    accessToken,
+                    options,
+                    cancellationToken);
             }
 
-            var handler = new JsonWebTokenHandler
-            {
-                MapInboundClaims = options.MapInboundClaims
-            };
-            var result = await handler.ValidateTokenAsync(
-                accessToken,
-                validationParameters);
             if (!result.IsValid || result.ClaimsIdentity == null)
             {
                 _logger.LogWarning(
@@ -62,5 +61,27 @@ public sealed class AdminAccessTokenValidator
                 exception.GetType().Name);
             return null;
         }
+    }
+
+    private static async Task<TokenValidationResult> ValidateOnceAsync(
+        string accessToken,
+        JwtBearerOptions options,
+        CancellationToken cancellationToken)
+    {
+        var validationParameters = options.TokenValidationParameters.Clone();
+        if (options.ConfigurationManager != null)
+        {
+            var configuration =
+                await options.ConfigurationManager.GetConfigurationAsync(cancellationToken);
+            validationParameters.IssuerSigningKeys =
+                (validationParameters.IssuerSigningKeys ?? [])
+                .Concat(configuration.SigningKeys);
+        }
+
+        var handler = new JsonWebTokenHandler
+        {
+            MapInboundClaims = options.MapInboundClaims
+        };
+        return await handler.ValidateTokenAsync(accessToken, validationParameters);
     }
 }
