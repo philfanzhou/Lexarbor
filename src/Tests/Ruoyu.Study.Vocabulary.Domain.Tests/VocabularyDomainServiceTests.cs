@@ -1,6 +1,6 @@
 using System;
-using System.Collections.Generic;
 using System.Threading.Tasks;
+using Ruoyu.Study.Vocabulary.Domain.Exceptions;
 using Ruoyu.Study.Vocabulary.Domain.Models;
 using Ruoyu.Study.Vocabulary.Domain.Services;
 using Xunit;
@@ -13,16 +13,21 @@ public class VocabularyDomainServiceTests : TestBase
 
     public VocabularyDomainServiceTests()
     {
-        _service = new VocabularyDomainService(_vocabularyRepository, _meaningRepository, _unitOfWork);
+        _service = new VocabularyDomainService(
+            _vocabularyRepository,
+            _bookRepository,
+            _meaningRepository,
+            _unitOfWork);
     }
 
     [Fact]
     public async Task AddOrUpdateAsync_NewWord_CreatesWordAndMeaning()
     {
+        var book = await CreateBookAsync();
         var vocabulary = new VocabularyModel { Word = "apple", Phonetic = "/ˈæp.əl/" };
         var meaning = new VocabularyMeaningModel
         {
-            BookId = "book-1",
+            BookId = book.Id,
             PartOfSpeech = "n.",
             Meaning = "苹果",
             Example = "I eat an apple."
@@ -43,10 +48,11 @@ public class VocabularyDomainServiceTests : TestBase
     [Fact]
     public async Task AddOrUpdateAsync_ExistingWord_UpdatesWordAndAddsNewMeaning()
     {
+        var book = await CreateBookAsync();
         var vocabulary = new VocabularyModel { Word = "apple", Phonetic = "/ˈæp.əl/" };
         var meaning1 = new VocabularyMeaningModel
         {
-            BookId = "book-1",
+            BookId = book.Id,
             PartOfSpeech = "n.",
             Meaning = "苹果"
         };
@@ -55,7 +61,7 @@ public class VocabularyDomainServiceTests : TestBase
         var updatedVocabulary = new VocabularyModel { Id = existingWord.Id, Word = "apple", Phonetic = "/ˈæp.əl/ (updated)" };
         var meaning2 = new VocabularyMeaningModel
         {
-            BookId = "book-1",
+            BookId = book.Id,
             PartOfSpeech = "v.",
             Meaning = "提供苹果"
         };
@@ -69,10 +75,11 @@ public class VocabularyDomainServiceTests : TestBase
     [Fact]
     public async Task AddOrUpdateAsync_ExistingMeaning_UpdatesMeaning()
     {
+        var book = await CreateBookAsync();
         var vocabulary = new VocabularyModel { Word = "book", Phonetic = "/bʊk/" };
         var meaning = new VocabularyMeaningModel
         {
-            BookId = "book-1",
+            BookId = book.Id,
             PartOfSpeech = "n.",
             Meaning = "书"
         };
@@ -81,6 +88,7 @@ public class VocabularyDomainServiceTests : TestBase
         var updateMeaning = new VocabularyMeaningModel
         {
             Id = createdMeaning.Id,
+            BookId = book.Id,
             PartOfSpeech = "n.",
             Meaning = "书本",
             Example = "I read a book."
@@ -95,16 +103,17 @@ public class VocabularyDomainServiceTests : TestBase
     [Fact]
     public async Task GetDetailAsync_ExistingWord_ReturnsWordAndMeanings()
     {
+        var book = await CreateBookAsync();
         var vocabulary = new VocabularyModel { Word = "test", Phonetic = "/test/" };
         var meaning = new VocabularyMeaningModel
         {
-            BookId = "book-1",
+            BookId = book.Id,
             PartOfSpeech = "n.",
             Meaning = "测试"
         };
         var (createdWord, _) = await _service.AddOrUpdateAsync(vocabulary, meaning);
 
-        var (word, meanings) = await _service.GetDetailAsync(createdWord.Id, "book-1");
+        var (word, meanings) = await _service.GetDetailAsync(createdWord.Id, book.Id);
 
         Assert.NotNull(word);
         Assert.Equal("test", word.Word);
@@ -113,15 +122,18 @@ public class VocabularyDomainServiceTests : TestBase
     }
 
     [Fact]
-    public async Task GetDetailAsync_NonExistingWord_ThrowsKeyNotFoundException()
+    public async Task GetDetailAsync_NonExistingWord_ThrowsResourceNotFoundException()
     {
-        await Assert.ThrowsAsync<KeyNotFoundException>(
-            () => _service.GetDetailAsync("nonexistent-id", "book-1"));
+        var book = await CreateBookAsync();
+
+        await Assert.ThrowsAsync<ResourceNotFoundException>(
+            () => _service.GetDetailAsync("nonexistent-id", book.Id));
     }
 
     [Fact]
     public async Task SearchAsync_ByKeyword_ReturnsMatchingWords()
     {
+        _ = await CreateBookAsync(id: "b1");
         await _service.AddOrUpdateAsync(
             new VocabularyModel { Word = "apple" },
             new VocabularyMeaningModel { BookId = "b1", Meaning = "苹果" });
@@ -141,6 +153,7 @@ public class VocabularyDomainServiceTests : TestBase
     [Fact]
     public async Task SearchAsync_NoKeyword_ReturnsAllWords()
     {
+        _ = await CreateBookAsync(id: "b1");
         await _service.AddOrUpdateAsync(
             new VocabularyModel { Word = "apple" },
             new VocabularyMeaningModel { BookId = "b1", Meaning = "苹果" });
@@ -156,6 +169,7 @@ public class VocabularyDomainServiceTests : TestBase
     [Fact]
     public async Task SearchAsync_Pagination_Works()
     {
+        _ = await CreateBookAsync(id: "b1");
         for (int i = 0; i < 15; i++)
         {
             await _service.AddOrUpdateAsync(

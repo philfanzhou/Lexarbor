@@ -22,7 +22,7 @@ public class VocabularyMeaningDto
 {
     public string Id { get; set; } = string.Empty;
     public string VocabularyId { get; set; } = string.Empty;
-    public string? BookId { get; set; }
+    public string BookId { get; set; } = string.Empty;
     public string? PartOfSpeech { get; set; }
     public string Meaning { get; set; } = string.Empty;
     public string? Example { get; set; }

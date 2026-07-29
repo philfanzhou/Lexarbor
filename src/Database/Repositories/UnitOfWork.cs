@@ -1,7 +1,6 @@
-using System;
-using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using Ruoyu.Study.Vocabulary.Domain.Exceptions;
 using Ruoyu.Study.Vocabulary.Domain.Repositories;
 
 namespace Ruoyu.Study.Vocabulary.Database.Repositories;
@@ -21,9 +20,15 @@ public class UnitOfWork : IUnitOfWork
         {
             return await _dbContext.SaveChangesAsync();
         }
-        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: "23505" })
+        catch (DbUpdateException exception)
+            when (exception.InnerException is PostgresException
+            {
+                SqlState: PostgresErrorCodes.UniqueViolation or PostgresErrorCodes.ForeignKeyViolation
+            })
         {
-            throw new InvalidOperationException("违反了唯一性约束，可能尝试插入了重复的单词或数据。", ex);
+            throw new ConflictException(
+                "The requested vocabulary data conflicts with existing data.",
+                exception);
         }
     }
 }

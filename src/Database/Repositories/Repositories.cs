@@ -31,6 +31,13 @@ public class VocabularyRepository : IVocabularyRepository
         return entity?.Adapt<VocabularyModel>();
     }
 
+    public async Task<VocabularyModel?> GetByNormalizedWordAsync(string normalizedWord)
+    {
+        var entity = await _context.Vocabularies
+            .FirstOrDefaultAsync(vocabulary => vocabulary.Word.Trim().ToLower() == normalizedWord);
+        return entity?.Adapt<VocabularyModel>();
+    }
+
     public async Task<List<VocabularyModel>> GetByIdsAsync(IReadOnlyCollection<string> ids)
     {
         if (ids == null || ids.Count == 0)
@@ -188,6 +195,21 @@ public class VocabularyMeaningRepository : IVocabularyMeaningRepository
             .Take(count)
             .ToListAsync();
         return entities.Adapt<List<VocabularyMeaningModel>>();
+    }
+
+    public async Task<VocabularyMeaningModel?> GetEquivalentAsync(
+        string vocabularyId,
+        string bookId,
+        string normalizedPartOfSpeech,
+        string meaning)
+    {
+        var normalizedMeaning = meaning.Trim();
+        var entity = await _context.VocabularyMeanings.FirstOrDefaultAsync(item =>
+            item.VocabularyId == vocabularyId &&
+            item.BookId == bookId &&
+            (item.PartOfSpeech ?? string.Empty).Trim().ToLower() == normalizedPartOfSpeech &&
+            item.Meaning.Trim() == normalizedMeaning);
+        return entity?.Adapt<VocabularyMeaningModel>();
     }
 
     public async Task AddAsync(VocabularyMeaningModel model)
