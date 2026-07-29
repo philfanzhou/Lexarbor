@@ -108,7 +108,7 @@ Vocabulary 后端使用以下配置：
    - `SameSite=Strict`
    - `Path=/`
    - `Secure` 由 `AdminAuthentication:CookieSecure` 控制
-   - 过期时间不晚于 JWT `expiresAt`
+   - `Max-Age` 使用 Identity 返回的 `expiresIn`；响应无有效值时回退为一小时，JWT 本身仍独立校验过期时间
 9. 登录响应只返回成功状态和必要的非敏感用户展示信息，不返回 access token 或 refresh token。
 10. Identity 返回的 refresh token 立即丢弃，前端和 Vocabulary 均不持久化。
 
@@ -366,10 +366,13 @@ normalizedWord = word.Trim().ToLowerInvariant()
 
 - Vocabulary 容器内 HTTP 端口固定为 5008。
 - Vue 构建产物继续由 Vocabulary Dockerfile 复制到后端 `wwwroot`。
-- `start.sh` 默认传入：
+- `start.sh` 默认把部署变量映射为 .NET 配置：
 
   ```text
-  IdentityService__Authority=http://ruoyu-identity:5002
+  VOCABULARY_IDENTITY_AUTHORITY（默认 http://ruoyu-identity:5002）→ IdentityService__Authority
+  VOCABULARY_IDENTITY_APP_ID → IdentityService__AppId
+  VOCABULARY_IDENTITY_APP_SECRET → IdentityService__AppSecret
+  VOCABULARY_COOKIE_SECURE（默认 false）→ AdminAuthentication__CookieSecure
   ```
 
 - AppId/AppSecret 由部署环境传入 Vocabulary，不打印到控制台。
@@ -420,7 +423,7 @@ normalizedWord = word.Trim().ToLowerInvariant()
 - 验证 400、401、403、404、409、422、500、502、503 的状态和统一信封。
 - fake Identity HTTP handler 验证请求字段及服务端 AppId/AppSecret 请求头。
 - 模拟仓储异常，确认 500 响应不包含内部异常消息。
-- 未知 `/api/*` 和 `/admin/*` 返回 404 信封。
+- 未知 `/api/*` 返回 404 信封；未知 `/admin/*` 对匿名请求返回 401，对管理员请求返回 404 信封。
 - SPA、静态文件、登录页和健康检查保持匿名可访问。
 
 ### 15.5 交付验证命令
@@ -433,6 +436,7 @@ dotnet build Ruoyu.Study.Vocabulary.sln --configuration Release
 
 ```bash
 cd src/services/ruoyu.vocabulary/frontend
+npm run test:types
 npm run build
 ```
 

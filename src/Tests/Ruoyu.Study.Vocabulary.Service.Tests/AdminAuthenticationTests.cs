@@ -148,6 +148,9 @@ public class AdminAuthenticationTests :
         var afterLogout = await client.GetAsync("/admin/vocabulary-books?page=1&size=20");
 
         logout.StatusCode.Should().Be(HttpStatusCode.OK);
+        var setCookie = logout.Headers.GetValues("Set-Cookie").Single();
+        setCookie.Should().Contain(VocabularyWebApplicationFactory.CookieName);
+        setCookie.ToLowerInvariant().Should().Contain("expires=");
         await AssertFailureAsync(afterLogout, HttpStatusCode.Unauthorized);
     }
 

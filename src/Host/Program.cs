@@ -164,6 +164,14 @@ app.Logger.LogInformation(
     StartupDiagnosticsFormatter.SummarizeValue(builder.Configuration["PostgreSql:Username"]),
     StartupDiagnosticsFormatter.SummarizePassword(builder.Configuration["PostgreSql:Password"]),
     StartupDiagnosticsFormatter.SummarizeValue(builder.Configuration["Database:Name"]));
+if (!app.Environment.IsDevelopment() &&
+    !app.Environment.IsEnvironment("Testing") &&
+    (string.IsNullOrWhiteSpace(identityOptions.AppId) ||
+     string.IsNullOrWhiteSpace(identityOptions.AppSecret)))
+{
+    app.Logger.LogError(
+        "Administrator login is not configured because Identity service application credentials are missing. The service will continue running.");
+}
 
 // Configure database initialization.
 if (builder.Configuration.GetValue("Database:InitializeOnStartup", true))

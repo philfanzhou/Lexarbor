@@ -121,6 +121,16 @@ public class VocabularyHttpEndpointTests :
     }
 
     [Fact]
+    public async Task UnknownAdminPath_WithAdminToken_Returns404Envelope()
+    {
+        using var client = CreateAdminClient();
+
+        var response = await client.GetAsync("/admin/not-a-real-endpoint");
+
+        await AssertFailureAsync(response, HttpStatusCode.NotFound);
+    }
+
+    [Fact]
     public async Task Health_IsAnonymousAndUsesEnvelope()
     {
         using var client = _factory.CreateClient();
