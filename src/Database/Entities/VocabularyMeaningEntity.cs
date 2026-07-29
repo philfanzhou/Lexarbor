@@ -15,7 +15,7 @@ public class VocabularyMeaningEntity
     public string VocabularyId { get; set; } = string.Empty;
 
     [Column("book_id")]
-    public string? BookId { get; set; }
+    public string BookId { get; set; } = string.Empty;
 
     [Column("part_of_speech")]
     public string? PartOfSpeech { get; set; }
@@ -34,4 +34,7 @@ public class VocabularyMeaningEntity
 
     [ForeignKey("VocabularyId")]
     public virtual VocabularyEntity? Vocabulary { get; set; }
+
+    [ForeignKey("BookId")]
+    public virtual VocabularyBookEntity? Book { get; set; }
 }

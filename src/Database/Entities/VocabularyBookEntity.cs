@@ -7,6 +7,11 @@ namespace Ruoyu.Study.Vocabulary.Database.Entities;
 [Table("vocabulary_book")]
 public class VocabularyBookEntity
 {
+    public VocabularyBookEntity()
+    {
+        Meanings = new HashSet<VocabularyMeaningEntity>();
+    }
+
     [Key]
     [Column("id")]
     public string Id { get; set; } = string.Empty;
@@ -43,4 +48,6 @@ public class VocabularyBookEntity
 
     [Column("updated_at")]
     public DateTimeOffset UpdatedAt { get; set; }
+
+    public virtual ICollection<VocabularyMeaningEntity> Meanings { get; set; }
 }

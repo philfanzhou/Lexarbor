@@ -25,12 +25,18 @@ public class VocabularyDbContext : DbContext
         modelBuilder.Entity<VocabularyMeaningEntity>(entity =>
         {
             entity.HasIndex(e => e.VocabularyId);
-            entity.HasIndex(e => e.BookId);
+            entity.HasIndex(e => new { e.BookId, e.VocabularyId });
+            entity.Property(e => e.BookId).IsRequired();
 
             entity.HasOne(e => e.Vocabulary)
                   .WithMany()
                   .HasForeignKey(e => e.VocabularyId)
                   .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.Book)
+                  .WithMany(e => e.Meanings)
+                  .HasForeignKey(e => e.BookId)
+                  .OnDelete(DeleteBehavior.Restrict);
         });
     }
 }

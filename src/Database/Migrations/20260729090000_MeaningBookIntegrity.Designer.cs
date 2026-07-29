@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Ruoyu.Study.Vocabulary.Database;
@@ -11,9 +12,11 @@ using Ruoyu.Study.Vocabulary.Database;
 namespace Ruoyu.Study.Vocabulary.Database.Migrations
 {
     [DbContext(typeof(VocabularyDbContext))]
-    partial class VocabularyDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260729090000_MeaningBookIntegrity")]
+    partial class MeaningBookIntegrity
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
