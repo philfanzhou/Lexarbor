@@ -9,6 +9,10 @@ const router = useRouter()
 const loading = ref(false)
 
 async function returnToLogin() {
+  if (loading.value) {
+    return
+  }
+
   loading.value = true
   try {
     await logout()

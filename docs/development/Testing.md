@@ -80,6 +80,7 @@
 | 普通用户 JWT | 403 信封 |
 | 管理员 fake Identity 登录 | 设置 HttpOnly Cookie |
 | 错误凭据 | 401，不设置 Cookie |
+| Identity 返回无效 JWT | 502，不设置 Cookie |
 | 管理员 Cookie/Bearer | 可访问管理端点 |
 | 登出 | 响应过期 Cookie，后续管理请求 401 |
 | Identity 不可达/配置缺失 | 502/503 |

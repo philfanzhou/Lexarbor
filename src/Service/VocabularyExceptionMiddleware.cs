@@ -47,6 +47,9 @@ public sealed class VocabularyExceptionMiddleware
         exception switch
         {
             DomainValidationException => (StatusCodes.Status400BadRequest, exception.Message),
+            BadHttpRequestException => (
+                StatusCodes.Status400BadRequest,
+                "The request is invalid."),
             ResourceNotFoundException => (StatusCodes.Status404NotFound, exception.Message),
             ConflictException => (StatusCodes.Status409Conflict, exception.Message),
             BusinessRuleException => (StatusCodes.Status422UnprocessableEntity, exception.Message),

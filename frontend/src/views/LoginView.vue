@@ -28,6 +28,10 @@ function getRedirectTarget() {
 }
 
 async function handleLogin() {
+  if (loading.value) {
+    return
+  }
+
   await formRef.value?.validate()
   loading.value = true
   try {

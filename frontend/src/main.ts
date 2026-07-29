@@ -10,7 +10,8 @@ import './styles/app.scss'
 setAuthFailureHandlers(
   () => {
     clearSession()
-    if (router.currentRoute.value.name !== 'login') {
+    const routeName = router.currentRoute.value.name
+    if (routeName && routeName !== 'login') {
       void router.replace({
         name: 'login',
         query: { redirect: router.currentRoute.value.fullPath }
@@ -19,7 +20,8 @@ setAuthFailureHandlers(
   },
   () => {
     clearSession()
-    if (router.currentRoute.value.name !== 'forbidden') {
+    const routeName = router.currentRoute.value.name
+    if (routeName && routeName !== 'forbidden') {
       void router.replace({ name: 'forbidden' })
     }
   }

@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using FluentAssertions;
 using Microsoft.AspNetCore.Hosting;
@@ -38,6 +39,20 @@ public class VocabularyHttpEndpointTests :
     }
 
     [Fact]
+    public async Task AdminWrite_MalformedJson_Returns400Envelope()
+    {
+        using var client = CreateAdminClient();
+        using var content = new StringContent(
+            "{ \"bookName\": ",
+            Encoding.UTF8,
+            "application/json");
+
+        var response = await client.PostAsync("/admin/vocabulary-books", content);
+
+        await AssertFailureAsync(response, HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task UpdateUnknownBook_Returns404Envelope()
     {
         using var client = CreateAdminClient();
@@ -52,6 +67,23 @@ public class VocabularyHttpEndpointTests :
             });
 
         await AssertFailureAsync(response, HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task CreateBook_WithNonEmptyId_Returns400Envelope()
+    {
+        using var client = CreateAdminClient();
+
+        var response = await client.PostAsJsonAsync(
+            "/admin/vocabulary-books",
+            new
+            {
+                id = "must-not-update-through-create",
+                bookName = "Create only",
+                status = true
+            });
+
+        await AssertFailureAsync(response, HttpStatusCode.BadRequest);
     }
 
     [Fact]
@@ -245,10 +277,10 @@ public class VocabularyHttpEndpointTests :
         public Task<List<VocabularyModel>> GetByIdsAsync(IReadOnlyCollection<string> ids) => throw Unused();
         public Task AddAsync(VocabularyModel model) => throw Unused();
         public Task UpdateAsync(VocabularyModel model) => throw Unused();
-        public Task<List<VocabularyModel>> GetRandomExceptAsync(string excludeId, int count) => throw Unused();
         public Task<List<VocabularyModel>> GetRandomByBookExceptAsync(
             string bookId,
             string excludeVocabularyId,
+            string excludeWord,
             int count) => throw Unused();
 
         private static NotSupportedException Unused() => new();

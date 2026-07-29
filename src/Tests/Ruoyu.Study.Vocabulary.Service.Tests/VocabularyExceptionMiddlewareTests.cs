@@ -12,6 +12,7 @@ public class VocabularyExceptionMiddlewareTests
         new()
         {
             { new DomainValidationException("Invalid request."), StatusCodes.Status400BadRequest, "Invalid request." },
+            { new BadHttpRequestException("Sensitive JSON parser details."), StatusCodes.Status400BadRequest, "The request is invalid." },
             { new ResourceNotFoundException("Vocabulary not found."), StatusCodes.Status404NotFound, "Vocabulary not found." },
             { new ConflictException("Vocabulary already exists."), StatusCodes.Status409Conflict, "Vocabulary already exists." },
             { new BusinessRuleException("Vocabulary cannot be deleted."), StatusCodes.Status422UnprocessableEntity, "Vocabulary cannot be deleted." }

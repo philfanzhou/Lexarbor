@@ -19,6 +19,7 @@ public static class AdminAuthEndpoints
         AdminLoginRequest request,
         HttpContext context,
         IIdentityTokenClient identityTokenClient,
+        AdminAccessTokenValidator accessTokenValidator,
         IOptions<IdentityServiceOptions> identityOptions,
         IOptions<AdminAuthenticationOptions> authenticationOptions,
         IHostEnvironment environment,
@@ -57,7 +58,16 @@ public static class AdminAuthEndpoints
         }
 
         var token = result.TokenResponse;
-        if (!token.UserInfo.Roles.Contains("admin", StringComparer.OrdinalIgnoreCase))
+        var principal = await accessTokenValidator.ValidateAsync(
+            token.AccessToken,
+            cancellationToken);
+        if (principal == null)
+        {
+            return VocabularyHttpResponse.BadGateway(
+                "Identity service returned an invalid access token.");
+        }
+
+        if (!principal.IsInRole("admin"))
         {
             return VocabularyHttpResponse.Forbidden("Administrator role is required.");
         }
@@ -74,8 +84,12 @@ public static class AdminAuthEndpoints
 
         return VocabularyHttpResponse.Ok(new
         {
-            username = token.UserInfo.Username,
-            roles = token.UserInfo.Roles
+            username =
+                principal.FindFirstValue("preferred_username") ??
+                principal.Identity?.Name ??
+                principal.FindFirstValue("sub") ??
+                token.UserInfo.Username,
+            roles = principal.FindAll("role").Select(claim => claim.Value).ToArray()
         });
     }
 

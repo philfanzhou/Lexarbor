@@ -75,6 +75,68 @@ public class VocabularyQuestionTests : TestBase
         AssertQuestionOptions(question, ["apple", "banana", "cherry", "date"]);
     }
 
+    [Fact]
+    public async Task CreateQuestionAsync_EnglishToChinese_DeduplicatesMeaningTextBeforeLimit()
+    {
+        var book = await CreateBookAsync();
+        var correct = await SeedWordAsync(book.Id, "apple", "fruit");
+        _ = await SeedWordAsync(book.Id, "banana", "shared meaning");
+        _ = await SeedWordAsync(book.Id, "cherry", "shared meaning");
+        _ = await SeedWordAsync(book.Id, "date", "red fruit");
+        _ = await SeedWordAsync(book.Id, "elderberry", "sweet fruit");
+
+        var question = await _service.CreateQuestionAsync(
+            correct.Id,
+            book.Id,
+            chineseToEnglish: false);
+
+        AssertQuestionOptions(
+            question,
+            ["fruit", "shared meaning", "red fruit", "sweet fruit"]);
+    }
+
+    [Fact]
+    public async Task CreateQuestionAsync_ChineseToEnglish_ExcludesHistoricalEquivalentWord()
+    {
+        var book = await CreateBookAsync();
+        var correct = await SeedWordAsync(book.Id, "apple", "fruit");
+        var now = DateTimeOffset.UtcNow;
+        var historicalDuplicate = new VocabularyModel
+        {
+            Id = Guid.NewGuid().ToString(),
+            Word = " APPLE ",
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+        await _vocabularyRepository.AddAsync(historicalDuplicate);
+        await _meaningRepository.AddAsync(new VocabularyMeaningModel
+        {
+            Id = Guid.NewGuid().ToString(),
+            VocabularyId = historicalDuplicate.Id,
+            BookId = book.Id,
+            Meaning = "historical duplicate",
+            CreatedAt = now,
+            UpdatedAt = now
+        });
+        _ = await SeedWordAsync(book.Id, "banana", "yellow fruit");
+        _ = await SeedWordAsync(book.Id, "cherry", "red fruit");
+        _ = await SeedWordAsync(book.Id, "date", "sweet fruit");
+        await _unitOfWork.SaveChangesAsync();
+
+        var question = await _service.CreateQuestionAsync(
+            correct.Id,
+            book.Id,
+            chineseToEnglish: true);
+
+        AssertQuestionOptions(question, ["apple", "banana", "cherry", "date"]);
+        Assert.Equal(
+            4,
+            question.Options
+                .Select(option => option.Text.Trim().ToLowerInvariant())
+                .Distinct()
+                .Count());
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]

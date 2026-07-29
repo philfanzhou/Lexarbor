@@ -14,6 +14,20 @@ public class UnitOfWork : IUnitOfWork
         _dbContext = dbContext;
     }
 
+    public async Task<T> ExecuteInTransactionAsync<T>(Func<Task<T>> action)
+    {
+        if (!_dbContext.Database.IsRelational())
+        {
+            return await action();
+        }
+
+        await using var transaction =
+            await _dbContext.Database.BeginTransactionAsync();
+        var result = await action();
+        await transaction.CommitAsync();
+        return result;
+    }
+
     public async Task<int> SaveChangesAsync()
     {
         try

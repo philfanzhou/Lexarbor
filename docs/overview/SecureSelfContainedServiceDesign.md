@@ -102,15 +102,16 @@ Vocabulary 后端使用以下配置：
 
 5. Vocabulary 后端在请求头加入服务端配置的 `X-Admin-AppId` 和 `X-Admin-AppSecret`。
 6. Identity 返回 `success=false` 时，Vocabulary 返回 401 和通用的凭据错误，不透传 Identity 内部消息。
-7. Identity 返回成功后，Vocabulary 检查 `userInfo.roles` 包含 `admin`；普通用户返回 403，且不设置 Cookie。
-8. 管理员 JWT 写入 `ruoyuVocabularyAdmin` Cookie。Cookie 使用：
+7. Identity 返回成功后，Vocabulary 使用与请求认证相同的 Issuer、Audience、签名密钥和 lifetime 参数验证 access token；无效或配置不匹配的令牌返回 502，且不设置 Cookie。
+8. Vocabulary 从已验证 JWT 的 `role` claim 判断管理员身份；普通用户返回 403，且不设置 Cookie。
+9. 管理员 JWT 写入 `ruoyuVocabularyAdmin` Cookie。Cookie 使用：
    - `HttpOnly=true`
    - `SameSite=Strict`
    - `Path=/`
    - `Secure` 由 `AdminAuthentication:CookieSecure` 控制
    - `Max-Age` 使用 Identity 返回的 `expiresIn`；响应无有效值时回退为一小时，JWT 本身仍独立校验过期时间
-9. 登录响应只返回成功状态和必要的非敏感用户展示信息，不返回 access token 或 refresh token。
-10. Identity 返回的 refresh token 立即丢弃，前端和 Vocabulary 均不持久化。
+10. 登录响应只返回成功状态和已验证 JWT 中必要的非敏感用户展示信息，不返回 access token 或 refresh token。
+11. Identity 返回的 refresh token 立即丢弃，前端和 Vocabulary 均不持久化。
 
 Identity 超时、网络错误或无有效响应时返回 502；配置缺失返回 503。任何日志都不得包含密码、JWT、Cookie、AppSecret 或完整 Identity 响应。
 
@@ -243,6 +244,7 @@ normalizedWord = word.Trim().ToLowerInvariant()
 - 新增词义时词书不存在返回 404；词书已禁用返回 422。
 - 同一 `VocabularyId`、`BookId`、规范化词性和去除首尾空格后的释义视为同一词义。
 - 重复导入返回成功并复用原词义；提供了新的音标或例句时按既有更新语义更新，不新增重复行。
+- PostgreSQL 导入事务按等价词义逻辑键获取事务级 advisory lock，并在锁内重新查询，保证多实例并发导入不会同时提交重复词义；日志不记录逻辑键原文。
 - 唯一约束冲突、并发重复或其他数据库一致性冲突返回 409。
 
 `Category` 继续使用现有字符串字段作为正式表示。与其不一致且未被使用的整数 `BookCategories` 常量类型删除，不再维护双重表示。
@@ -276,8 +278,8 @@ normalizedWord = word.Trim().ToLowerInvariant()
    - 正确答案为当前词义；
    - 三个干扰释义只从同一词书选择。
 5. 候选按 `VocabularyId` 去重，每个干扰单词最多贡献一个选项。
-6. 候选排除当前单词和正确答案文本。
-7. 只有获得三个不同的有效干扰项时才生成题目。
+6. 仓储查询先排除当前单词和正确答案文本，再按规范化后的选项文本去重，最后随机限量为三个干扰项。
+7. 只有获得三个不同的有效干扰项时才生成题目，不得先限量再去重而误报候选不足。
 8. 候选不足返回 422 和简洁业务错误。
 9. 最终四个选项随机排序。
 

@@ -53,45 +53,37 @@ public class VocabularyDomainService
         VocabularyModel vocabulary,
         VocabularyMeaningModel meaning)
     {
-        var normalizedWord = NormalizeWord(vocabulary.Word);
-        var bookId = NormalizeRequired(meaning.BookId, "BookId is required.");
-        var normalizedMeaning = NormalizeRequired(meaning.Meaning, "Meaning is required.");
-        var normalizedPartOfSpeech = NormalizePartOfSpeech(meaning.PartOfSpeech);
-
-        var book = await _bookRepository.GetByIdAsync(bookId)
-                   ?? throw new ResourceNotFoundException("Vocabulary book was not found.");
-        var isNewMeaning = string.IsNullOrWhiteSpace(meaning.Id);
-        if (isNewMeaning && !book.Status)
+        return await _unitOfWork.ExecuteInTransactionAsync(async () =>
         {
-            throw new BusinessRuleException("New meanings cannot be added to a disabled vocabulary book.");
-        }
+            var normalizedWord = NormalizeWord(vocabulary.Word);
+            var bookId = NormalizeRequired(meaning.BookId, "BookId is required.");
+            var normalizedMeaning = NormalizeRequired(meaning.Meaning, "Meaning is required.");
+            var normalizedPartOfSpeech = NormalizePartOfSpeech(meaning.PartOfSpeech);
 
-        var existingVocabulary = await ResolveVocabularyAsync(vocabulary, normalizedWord);
-        var existingMeaning = await ResolveMeaningAsync(
-            meaning,
-            existingVocabulary.Id,
-            bookId,
-            normalizedPartOfSpeech,
-            normalizedMeaning);
+            var book = await _bookRepository.GetByIdAsync(bookId)
+                       ?? throw new ResourceNotFoundException("Vocabulary book was not found.");
+            var isNewMeaning = string.IsNullOrWhiteSpace(meaning.Id);
+            if (isNewMeaning && !book.Status)
+            {
+                throw new BusinessRuleException("New meanings cannot be added to a disabled vocabulary book.");
+            }
 
-        await _unitOfWork.SaveChangesAsync();
-        return (existingVocabulary, existingMeaning);
-    }
+            var existingVocabulary = await ResolveVocabularyAsync(vocabulary, normalizedWord);
+            await _meaningRepository.AcquireEquivalentMeaningLockAsync(
+                existingVocabulary.Id,
+                bookId,
+                normalizedPartOfSpeech,
+                normalizedMeaning);
+            var existingMeaning = await ResolveMeaningAsync(
+                meaning,
+                existingVocabulary.Id,
+                bookId,
+                normalizedPartOfSpeech,
+                normalizedMeaning);
 
-    public Task<List<VocabularyMeaningModel>> GetDistractorMeaningsAsync(
-        string wordId,
-        string bookId,
-        int count = 3)
-    {
-        return _meaningRepository.GetRandomExceptAsync(wordId, bookId, count);
-    }
-
-    public Task<List<VocabularyModel>> GetDistractorWordsAsync(
-        string wordId,
-        string bookId,
-        int count = 3)
-    {
-        return _vocabularyRepository.GetRandomExceptAsync(wordId, count);
+            await _unitOfWork.SaveChangesAsync();
+            return (existingVocabulary, existingMeaning);
+        });
     }
 
     public async Task<VocabularyQuestionModel> CreateQuestionAsync(
@@ -111,6 +103,7 @@ public class VocabularyDomainService
             var distractors = await _vocabularyRepository.GetRandomByBookExceptAsync(
                 bookId,
                 wordId,
+                word.Word,
                 3);
             questionText = correctMeaning.Meaning;
             options =
@@ -126,6 +119,7 @@ public class VocabularyDomainService
                 await _meaningRepository.GetRandomDistinctVocabularyExceptAsync(
                     bookId,
                     wordId,
+                    correctMeaning.Meaning,
                     3);
             questionText = word.Word;
             options =
@@ -239,6 +233,17 @@ public class VocabularyDomainService
                 throw new ConflictException("Vocabulary meaning belongs to a different book.");
             }
 
+            var equivalentMeaning = await _meaningRepository.GetEquivalentAsync(
+                vocabularyId,
+                bookId,
+                normalizedPartOfSpeech,
+                normalizedMeaning);
+            if (equivalentMeaning != null && equivalentMeaning.Id != existing.Id)
+            {
+                throw new ConflictException(
+                    "An equivalent vocabulary meaning already exists.");
+            }
+
             existing.PartOfSpeech = normalizedPartOfSpeech;
             existing.Meaning = normalizedMeaning;
             existing.Example = requested.Example?.Trim();
@@ -254,6 +259,44 @@ public class VocabularyDomainService
             normalizedMeaning);
         if (equivalent != null)
         {
+            var changed = false;
+            if (!string.Equals(
+                    equivalent.PartOfSpeech,
+                    normalizedPartOfSpeech,
+                    StringComparison.Ordinal))
+            {
+                equivalent.PartOfSpeech = normalizedPartOfSpeech;
+                changed = true;
+            }
+
+            if (!string.Equals(
+                    equivalent.Meaning,
+                    normalizedMeaning,
+                    StringComparison.Ordinal))
+            {
+                equivalent.Meaning = normalizedMeaning;
+                changed = true;
+            }
+
+            if (requested.Example != null)
+            {
+                var normalizedExample = requested.Example.Trim();
+                if (!string.Equals(
+                        equivalent.Example,
+                        normalizedExample,
+                        StringComparison.Ordinal))
+                {
+                    equivalent.Example = normalizedExample;
+                    changed = true;
+                }
+            }
+
+            if (changed)
+            {
+                equivalent.UpdatedAt = DateTimeOffset.UtcNow;
+                await _meaningRepository.UpdateAsync(equivalent);
+            }
+
             return equivalent;
         }
 

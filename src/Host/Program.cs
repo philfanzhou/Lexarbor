@@ -1,6 +1,7 @@
 using System.Data.Common;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -51,6 +52,10 @@ builder.Services.AddScoped<IVocabularyMeaningRepository, VocabularyMeaningReposi
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 builder.Services.AddScoped<VocabularyDomainService>();
 builder.Services.AddScoped<VocabularyBookDomainService>();
+builder.Services.Configure<RouteHandlerOptions>(options =>
+{
+    options.ThrowOnBadRequest = true;
+});
 
 var identityOptions = builder.Configuration
     .GetSection(IdentityServiceOptions.SectionName)
@@ -71,6 +76,7 @@ builder.Services.AddHttpClient(
         client.Timeout = TimeSpan.FromSeconds(30);
     });
 builder.Services.AddScoped<IIdentityTokenClient, IdentityTokenClient>();
+builder.Services.AddScoped<AdminAccessTokenValidator>();
 
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)

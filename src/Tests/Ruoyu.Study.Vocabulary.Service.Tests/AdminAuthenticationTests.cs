@@ -108,6 +108,18 @@ public class AdminAuthenticationTests :
     }
 
     [Fact]
+    public async Task Login_InvalidIdentityAccessToken_Returns502WithoutCookie()
+    {
+        _factory.Identity.AccessToken = "not-a-valid-jwt";
+        using var client = CreateClient(_factory);
+
+        var response = await LoginAsync(client);
+
+        await AssertFailureAsync(response, HttpStatusCode.BadGateway);
+        response.Headers.Should().NotContainKey("Set-Cookie");
+    }
+
+    [Fact]
     public async Task Login_ForwardsCamelCaseBodyAndServerCredentials()
     {
         using var client = CreateClient(_factory);
@@ -165,6 +177,21 @@ public class AdminAuthenticationTests :
             new { bookName = "Protected Book", status = true });
 
         await AssertFailureAsync(response, HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task InvalidCookieWrite_WithoutRequestedWithHeader_Returns401()
+    {
+        using var client = CreateClient(_factory);
+        client.DefaultRequestHeaders.Add(
+            "Cookie",
+            $"{VocabularyWebApplicationFactory.CookieName}=invalid-token");
+
+        var response = await client.PostAsJsonAsync(
+            "/admin/vocabulary-books",
+            new { bookName = "Rejected Book", status = true });
+
+        await AssertFailureAsync(response, HttpStatusCode.Unauthorized);
     }
 
     [Fact]

@@ -13,10 +13,10 @@ public interface IVocabularyRepository
     Task<(List<VocabularyModel> Items, int TotalCount)> SearchAsync(string keyword, int page, int size);
     Task AddAsync(VocabularyModel model);
     Task UpdateAsync(VocabularyModel model);
-    Task<List<VocabularyModel>> GetRandomExceptAsync(string excludeId, int count);
     Task<List<VocabularyModel>> GetRandomByBookExceptAsync(
         string bookId,
         string excludeVocabularyId,
+        string excludeWord,
         int count);
 }
 
@@ -44,8 +44,12 @@ public interface IVocabularyMeaningRepository
     Task<List<VocabularyMeaningModel>> GetByVocabularyIdAsync(string vocabularyId);
     Task<List<VocabularyMeaningModel>> GetByBookIdAsync(string bookId);
     Task<List<VocabularyMeaningModel>> GetByBookAndVocabularyIdAsync(string bookId, string vocabularyId);
-    Task<List<VocabularyMeaningModel>> GetRandomExceptAsync(string excludeVocabularyId, string bookId, int count);
     Task<VocabularyMeaningModel?> GetEquivalentAsync(
+        string vocabularyId,
+        string bookId,
+        string normalizedPartOfSpeech,
+        string meaning);
+    Task AcquireEquivalentMeaningLockAsync(
         string vocabularyId,
         string bookId,
         string normalizedPartOfSpeech,
@@ -53,6 +57,7 @@ public interface IVocabularyMeaningRepository
     Task<List<VocabularyMeaningModel>> GetRandomDistinctVocabularyExceptAsync(
         string bookId,
         string excludeVocabularyId,
+        string excludeMeaning,
         int count);
     Task AddAsync(VocabularyMeaningModel model);
     Task UpdateAsync(VocabularyMeaningModel model);

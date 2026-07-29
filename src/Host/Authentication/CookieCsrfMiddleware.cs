@@ -33,6 +33,7 @@ public sealed class CookieCsrfMiddleware
             path.Equals("/admin/auth/login") ||
             path.Equals("/admin/auth/logout") ||
             HasBearerAuthorization(context.Request) ||
+            context.User.Identity?.IsAuthenticated != true ||
             !context.Request.Cookies.ContainsKey(_options.CookieName))
         {
             await _next(context);

@@ -10,6 +10,10 @@ const router = useRouter()
 const loggingOut = ref(false)
 
 async function handleLogout() {
+  if (loggingOut.value) {
+    return
+  }
+
   loggingOut.value = true
   try {
     await logout()

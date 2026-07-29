@@ -137,6 +137,12 @@ public static partial class VocabularyHttpEndpoints
             return VocabularyHttpResponse.BadRequest("BookName is required.");
         }
 
+        if (!string.IsNullOrWhiteSpace(request.Id))
+        {
+            return VocabularyHttpResponse.BadRequest(
+                "Id must be empty when creating a vocabulary book.");
+        }
+
         await bookService.AddOrUpdateAsync(request.ToEntity());
         return VocabularyHttpResponse.Ok(new BoolResponse { Success = true });
     }

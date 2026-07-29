@@ -40,4 +40,5 @@ vocabulary_book (1) <-[RESTRICT]- vocabulary_meaning -[CASCADE]-> (1) vocabulary
 - 更新词义时必须确认词义属于当前单词和词书。
 - 单词规范值为 `word.Trim().ToLowerInvariant()`。
 - 同一单词、词书、规范化词性和去首尾空格释义的重复导入是幂等操作。
+- PostgreSQL 写入在同一事务内按上述逻辑键获取事务级 advisory lock，再重新查询并写入，避免多实例并发请求同时插入等价词义；锁键只使用本地 SHA-256 派生的数值，不把词义文本写入日志。
 - `Category` 的正式表示为 `vocabulary_book.category` 字符串，不再维护整数分类常量。
