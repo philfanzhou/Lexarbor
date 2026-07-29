@@ -1,33 +1,24 @@
-using System;
-using System.Linq;
-using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
-using Microsoft.Extensions.Logging;
+using Ruoyu.Study.Vocabulary.Domain.Exceptions;
 using Ruoyu.Study.Vocabulary.Domain.Services;
 using Ruoyu.Study.Vocabulary.Service.Dtos;
 
 namespace Ruoyu.Study.Vocabulary.Service;
 
-/// <summary>
-/// Vocabulary HTTP endpoints (16 total: 4 Vocabulary + 12 VocabularyBook, migrated 1:1 from gRPC).
-/// Business logic delegates to VocabularyDomainService / VocabularyBookDomainService,
-/// identical to the original gRPC impl, only protocol adapted (proto → JSON).
-/// </summary>
 public static partial class VocabularyHttpEndpoints
 {
-    public static IEndpointRouteBuilder MapVocabularyHttpEndpoints(this IEndpointRouteBuilder app)
+    public static IEndpointRouteBuilder MapVocabularyHttpEndpoints(
+        this IEndpointRouteBuilder app)
     {
-        // /api — external business systems (student, question bank, homework)
         var apiGroup = app.MapGroup("/api");
         apiGroup.MapGet("/vocabulary/{wordId}", GetVocabulary);
         apiGroup.MapGet("/vocabulary", SearchVocabulary);
         apiGroup.MapPost("/vocabulary/question", GetQuestion);
         apiGroup.MapGet("/vocabulary-books/all", GetAllBooks);
 
-        // /admin — management frontend only
         var adminGroup = app.MapGroup("/admin")
             .RequireAuthorization("VocabularyAdmin");
         adminGroup.MapPost("/vocabulary", AddOrUpdateVocabulary);
@@ -39,328 +30,267 @@ public static partial class VocabularyHttpEndpoints
         adminGroup.MapGet("/vocabulary-books/categories", GetAllCategories);
         adminGroup.MapGet("/vocabulary-books/education-levels", GetAllEducationLevels);
         adminGroup.MapGet("/vocabulary-books/grades", GetAllGrades);
-        adminGroup.MapGet("/vocabulary-books/grades-by-level", GetGradesByEducationLevel);
+        adminGroup.MapGet(
+            "/vocabulary-books/grades-by-level",
+            GetGradesByEducationLevel);
         adminGroup.MapGet("/vocabulary-books/{id}/words", GetBookWords);
         adminGroup.MapDelete("/vocabulary-books/{id}", DeleteBook);
 
         return app;
     }
 
-    // ==================== Vocabulary endpoints ====================
-
-    // 1. GET /api/vocabulary/{wordId} — Get vocabulary detail
     private static async Task<IResult> GetVocabulary(
         string wordId,
-        [FromQuery] string bookId,
+        [FromQuery] string? bookId,
         VocabularyDomainService vocabularyService)
     {
         if (string.IsNullOrWhiteSpace(wordId))
-            return VocabularyHttpResponse.BadRequest("ID is required");
-        if (string.IsNullOrWhiteSpace(bookId))
-            return VocabularyHttpResponse.BadRequest("Book ID is required");
+        {
+            return VocabularyHttpResponse.BadRequest("ID is required.");
+        }
 
-        try
+        if (string.IsNullOrWhiteSpace(bookId))
         {
-            var (word, meanings) = await vocabularyService.GetDetailAsync(wordId, bookId).ConfigureAwait(false);
-            var dto = word.ToDto();
-            dto.Meanings.AddRange(meanings.Select(m => m.ToDto()));
-            return VocabularyHttpResponse.Ok(dto);
+            return VocabularyHttpResponse.BadRequest("Book ID is required.");
         }
-        catch (Exception ex)
-        {
-            return VocabularyHttpResponse.Internal(ex.Message);
-        }
+
+        var (word, meanings) = await vocabularyService.GetDetailAsync(wordId, bookId);
+        var dto = word.ToDto();
+        dto.Meanings.AddRange(meanings.Select(meaning => meaning.ToDto()));
+        return VocabularyHttpResponse.Ok(dto);
     }
 
-    // 2. GET /api/vocabulary — Search vocabulary
     private static async Task<IResult> SearchVocabulary(
-        [FromQuery] string keyword,
+        [FromQuery] string? keyword,
         [FromQuery] int page,
         [FromQuery] int size,
         VocabularyDomainService vocabularyService)
     {
         if (string.IsNullOrWhiteSpace(keyword))
-            return VocabularyHttpResponse.BadRequest("Keyword is required");
-
-        try
         {
-            var normalizedPage = page > 0 ? page : 1;
-            var normalizedSize = size > 0 ? size : 20;
-
-            var (items, totalCount) = await vocabularyService.SearchAsync(keyword, normalizedPage, normalizedSize).ConfigureAwait(false);
-            var totalPages = (int)Math.Ceiling(totalCount / (double)normalizedSize);
-
-            var result = new VocabularyPageResponse
-            {
-                TotalPage = totalPages,
-                TotalCount = totalCount
-            };
-            result.Items.AddRange(items.Select(e => e.ToDto()));
-            return VocabularyHttpResponse.Ok(result);
+            return VocabularyHttpResponse.BadRequest("Keyword is required.");
         }
-        catch (Exception ex)
+
+        var paging = NormalizePaging(page, size);
+        var (items, totalCount) = await vocabularyService.SearchAsync(
+            keyword,
+            paging.Page,
+            paging.Size);
+        var result = new VocabularyPageResponse
         {
-            return VocabularyHttpResponse.Internal(ex.Message);
-        }
+            TotalPage = (int)Math.Ceiling(totalCount / (double)paging.Size),
+            TotalCount = totalCount
+        };
+        result.Items.AddRange(items.Select(item => item.ToDto()));
+        return VocabularyHttpResponse.Ok(result);
     }
 
-    // 3. POST /api/vocabulary — Add or update vocabulary
     private static async Task<IResult> AddOrUpdateVocabulary(
         [FromBody] AddOrUpdateRequest request,
         VocabularyDomainService vocabularyService)
     {
         if (request.Word == null || request.Meaning == null)
-            return VocabularyHttpResponse.BadRequest("Word and Meaning are required");
+        {
+            return VocabularyHttpResponse.BadRequest(
+                "Word and Meaning are required.");
+        }
 
-        try
-        {
-            await vocabularyService.AddOrUpdateAsync(request.Word.ToEntity(), request.Meaning.ToEntity()).ConfigureAwait(false);
-            return VocabularyHttpResponse.Ok(new BoolResponse { Success = true });
-        }
-        catch (Exception ex)
-        {
-            return VocabularyHttpResponse.Internal(ex.Message);
-        }
+        await vocabularyService.AddOrUpdateAsync(
+            request.Word.ToEntity(),
+            request.Meaning.ToEntity());
+        return VocabularyHttpResponse.Ok(new BoolResponse { Success = true });
     }
 
-    // 4. POST /api/vocabulary/question — Get a quiz question
     private static async Task<IResult> GetQuestion(
         [FromBody] GetQuestionRequest request,
         VocabularyDomainService vocabularyService)
     {
-        if (string.IsNullOrWhiteSpace(request.WordId) || string.IsNullOrWhiteSpace(request.BookId))
-            return VocabularyHttpResponse.BadRequest("WordId and BookId are required");
-
-        try
+        if (string.IsNullOrWhiteSpace(request.WordId) ||
+            string.IsNullOrWhiteSpace(request.BookId))
         {
-            var chineseToEnglish =
-                request.ChineseToEnglish ?? (Guid.NewGuid().GetHashCode() % 2 == 0);
-            var question = await vocabularyService.CreateQuestionAsync(
-                request.WordId,
-                request.BookId,
-                chineseToEnglish).ConfigureAwait(false);
+            return VocabularyHttpResponse.BadRequest(
+                "WordId and BookId are required.");
+        }
 
-            var response = new QuestionResponse { Word = question.Word };
-            response.Options.AddRange(question.Options.Select(option => new OptionDto
-            {
-                Meaning = option.Text,
-                IsCorrect = option.IsCorrect
-            }));
-            return VocabularyHttpResponse.Ok(response);
-        }
-        catch (Exception ex)
+        var chineseToEnglish =
+            request.ChineseToEnglish ?? Random.Shared.Next(2) == 0;
+        var question = await vocabularyService.CreateQuestionAsync(
+            request.WordId,
+            request.BookId,
+            chineseToEnglish);
+
+        var response = new QuestionResponse { Word = question.Word };
+        response.Options.AddRange(question.Options.Select(option => new OptionDto
         {
-            return VocabularyHttpResponse.Internal(ex.Message);
-        }
+            Meaning = option.Text,
+            IsCorrect = option.IsCorrect
+        }));
+        return VocabularyHttpResponse.Ok(response);
     }
 
-    // ==================== VocabularyBook endpoints ====================
-
-    // 5. POST /admin/vocabulary-books — Add a book
     private static async Task<IResult> AddBook(
         [FromBody] VocabularyBookDto request,
         VocabularyBookDomainService bookService)
     {
         if (string.IsNullOrWhiteSpace(request.BookName))
-            return VocabularyHttpResponse.BadRequest("BookName is required");
+        {
+            return VocabularyHttpResponse.BadRequest("BookName is required.");
+        }
 
-        try
-        {
-            var entity = request.ToEntity();
-            await bookService.AddOrUpdateAsync(entity).ConfigureAwait(false);
-            return VocabularyHttpResponse.Ok(new BoolResponse { Success = true });
-        }
-        catch (Exception ex)
-        {
-            return VocabularyHttpResponse.Internal(ex.Message);
-        }
+        await bookService.AddOrUpdateAsync(request.ToEntity());
+        return VocabularyHttpResponse.Ok(new BoolResponse { Success = true });
     }
 
-    // 6. PUT /admin/vocabulary-books — Update a book
     private static async Task<IResult> UpdateBook(
         [FromBody] VocabularyBookDto request,
         VocabularyBookDomainService bookService)
     {
         if (string.IsNullOrWhiteSpace(request.Id))
-            return VocabularyHttpResponse.BadRequest("Id is required");
+        {
+            return VocabularyHttpResponse.BadRequest("Id is required.");
+        }
 
-        try
-        {
-            var entity = request.ToEntity();
-            await bookService.AddOrUpdateAsync(entity).ConfigureAwait(false);
-            return VocabularyHttpResponse.Ok(new BoolResponse { Success = true });
-        }
-        catch (Exception ex)
-        {
-            return VocabularyHttpResponse.Internal(ex.Message);
-        }
+        await bookService.AddOrUpdateAsync(request.ToEntity());
+        return VocabularyHttpResponse.Ok(new BoolResponse { Success = true });
     }
 
-    // 7. GET /admin/vocabulary-books/{id} — Get a book
     private static async Task<IResult> GetBook(
         string id,
         VocabularyBookDomainService bookService)
     {
         if (string.IsNullOrWhiteSpace(id))
-            return VocabularyHttpResponse.BadRequest("Id is required");
+        {
+            return VocabularyHttpResponse.BadRequest("Id is required.");
+        }
 
-        try
-        {
-            var entity = await bookService.GetAsync(id).ConfigureAwait(false)
-                         ?? throw new InvalidOperationException("Book not found");
-            return VocabularyHttpResponse.Ok(entity.ToDto());
-        }
-        catch (Exception ex)
-        {
-            return VocabularyHttpResponse.Internal(ex.Message);
-        }
+        var book = await bookService.GetAsync(id)
+                   ?? throw new ResourceNotFoundException(
+                       "Vocabulary book was not found.");
+        return VocabularyHttpResponse.Ok(book.ToDto());
     }
 
-    // 8. GET /admin/vocabulary-books — Search books
     private static async Task<IResult> SearchBooks(
-        [FromQuery] string keyword,
+        [FromQuery] string? keyword,
         [FromQuery] int page,
         [FromQuery] int size,
         VocabularyBookDomainService bookService)
     {
-        try
+        var paging = NormalizePaging(page, size);
+        var (books, totalCount) = await bookService.SearchAsync(
+            keyword ?? string.Empty,
+            paging.Page,
+            paging.Size);
+        var result = new VocabularyBookPageResponse
         {
-            var normalizedPage = page > 0 ? page : 1;
-            var normalizedSize = size > 0 ? size : 20;
-
-            var (entities, totalCount) = await bookService.SearchAsync(keyword ?? string.Empty, normalizedPage, normalizedSize).ConfigureAwait(false);
-            var totalPages = (int)Math.Ceiling(totalCount / (double)normalizedSize);
-
-            var result = new VocabularyBookPageResponse
-            {
-                TotalPage = totalPages,
-                TotalCount = totalCount
-            };
-            result.Items.AddRange(entities.Select(e => e.ToDto()));
-            return VocabularyHttpResponse.Ok(result);
-        }
-        catch (Exception ex)
-        {
-            return VocabularyHttpResponse.Internal(ex.Message);
-        }
+            TotalPage = (int)Math.Ceiling(totalCount / (double)paging.Size),
+            TotalCount = totalCount
+        };
+        result.Items.AddRange(books.Select(book => book.ToDto()));
+        return VocabularyHttpResponse.Ok(result);
     }
 
-    // 9. GET /admin/vocabulary-books/by-category — Get books by category
     private static async Task<IResult> GetBooksByCategory(
-        [FromQuery] string category,
+        [FromQuery] string? category,
         [FromQuery] string? grade,
         VocabularyBookDomainService bookService)
     {
-        try
-        {
-            var entities = await bookService.GetByCategoryAsync(category, grade).ConfigureAwait(false);
-
-            var result = new VocabularyBookListResponse();
-            result.Books.AddRange(entities.Select(e => e.ToDto()));
-            return VocabularyHttpResponse.Ok(result);
-        }
-        catch (Exception ex)
-        {
-            return VocabularyHttpResponse.Internal(ex.Message);
-        }
+        var books = await bookService.GetByCategoryAsync(
+            category ?? string.Empty,
+            grade);
+        var result = new VocabularyBookListResponse();
+        result.Books.AddRange(books.Select(book => book.ToDto()));
+        return VocabularyHttpResponse.Ok(result);
     }
 
-    // 10. GET /api/vocabulary-books/all — Get all books
     private static async Task<IResult> GetAllBooks(
         VocabularyBookDomainService bookService)
     {
-        try
-        {
-            var entities = await bookService.GetAllAsync().ConfigureAwait(false);
-
-            var result = new VocabularyBookListResponse();
-            result.Books.AddRange(entities.Select(e => e.ToDto()));
-            return VocabularyHttpResponse.Ok(result);
-        }
-        catch (Exception ex)
-        {
-            return VocabularyHttpResponse.Internal(ex.Message);
-        }
+        var books = await bookService.GetAllAsync();
+        var result = new VocabularyBookListResponse();
+        result.Books.AddRange(books.Select(book => book.ToDto()));
+        return VocabularyHttpResponse.Ok(result);
     }
 
-    // 11. GET /admin/vocabulary-books/categories — Get all categories
     private static async Task<IResult> GetAllCategories(
         VocabularyBookDomainService bookService)
     {
-        var list = await bookService.GetAllCategoriesAsync().ConfigureAwait(false);
-        var res = new StringListResponse();
-        res.Items.AddRange(list);
-        return VocabularyHttpResponse.Ok(res);
+        var result = new StringListResponse();
+        result.Items.AddRange(await bookService.GetAllCategoriesAsync());
+        return VocabularyHttpResponse.Ok(result);
     }
 
-    // 12. GET /admin/vocabulary-books/education-levels — Get all education levels
     private static async Task<IResult> GetAllEducationLevels(
         VocabularyBookDomainService bookService)
     {
-        var list = await bookService.GetAllEducationLevelsAsync().ConfigureAwait(false);
-        var res = new StringListResponse();
-        res.Items.AddRange(list);
-        return VocabularyHttpResponse.Ok(res);
+        var result = new StringListResponse();
+        result.Items.AddRange(await bookService.GetAllEducationLevelsAsync());
+        return VocabularyHttpResponse.Ok(result);
     }
 
-    // 13. GET /admin/vocabulary-books/grades — Get all grades
     private static async Task<IResult> GetAllGrades(
         VocabularyBookDomainService bookService)
     {
-        var list = await bookService.GetAllGradesAsync().ConfigureAwait(false);
-        var res = new StringListResponse();
-        res.Items.AddRange(list);
-        return VocabularyHttpResponse.Ok(res);
+        var result = new StringListResponse();
+        result.Items.AddRange(await bookService.GetAllGradesAsync());
+        return VocabularyHttpResponse.Ok(result);
     }
 
-    // 14. GET /admin/vocabulary-books/grades-by-level — Get grades by education level
     private static async Task<IResult> GetGradesByEducationLevel(
-        [FromQuery] string value,
+        [FromQuery] string? value,
         VocabularyBookDomainService bookService)
     {
-        var list = await bookService.GetGradesByEducationLevelAsync(value).ConfigureAwait(false);
-        var res = new StringListResponse();
-        res.Items.AddRange(list);
-        return VocabularyHttpResponse.Ok(res);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return VocabularyHttpResponse.BadRequest(
+                "Education level is required.");
+        }
+
+        var result = new StringListResponse();
+        result.Items.AddRange(
+            await bookService.GetGradesByEducationLevelAsync(value));
+        return VocabularyHttpResponse.Ok(result);
     }
 
-    // 15. GET /admin/vocabulary-books/{id}/words — Get words in a book
     private static async Task<IResult> GetBookWords(
         string id,
         VocabularyBookDomainService bookService)
     {
         if (string.IsNullOrWhiteSpace(id))
-            return VocabularyHttpResponse.BadRequest("BookId is required");
+        {
+            return VocabularyHttpResponse.BadRequest("BookId is required.");
+        }
 
-        try
-        {
-            var words = await bookService.GetWordsAsync(id).ConfigureAwait(false);
-            var result = new VocabularyListResponse();
-            result.Words.AddRange(words.Select(e => e.ToDto()));
-            return VocabularyHttpResponse.Ok(result);
-        }
-        catch (Exception ex)
-        {
-            return VocabularyHttpResponse.Internal(ex.Message);
-        }
+        var result = new VocabularyListResponse();
+        result.Words.AddRange(
+            (await bookService.GetWordsAsync(id)).Select(word => word.ToDto()));
+        return VocabularyHttpResponse.Ok(result);
     }
 
-    // 16. DELETE /admin/vocabulary-books/{id} — Delete a book
     private static async Task<IResult> DeleteBook(
         string id,
         VocabularyBookDomainService bookService)
     {
         if (string.IsNullOrWhiteSpace(id))
-            return VocabularyHttpResponse.BadRequest("Id is required");
+        {
+            return VocabularyHttpResponse.BadRequest("Id is required.");
+        }
 
-        try
+        await bookService.DeleteAsync(id);
+        return VocabularyHttpResponse.Ok(new BoolResponse { Success = true });
+    }
+
+    private static (int Page, int Size) NormalizePaging(int page, int size)
+    {
+        page = page == 0 ? 1 : page;
+        size = size == 0 ? 20 : size;
+        if (page < 1 ||
+            size < 1 ||
+            size > 100 ||
+            (long)(page - 1) * size > int.MaxValue)
         {
-            await bookService.DeleteAsync(id).ConfigureAwait(false);
-            return VocabularyHttpResponse.Ok(new BoolResponse { Success = true });
+            throw new DomainValidationException("Paging parameters are invalid.");
         }
-        catch (Exception ex)
-        {
-            return VocabularyHttpResponse.Internal(ex.Message);
-        }
+
+        return (page, size);
     }
 }

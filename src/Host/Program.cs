@@ -183,7 +183,30 @@ app.UseMiddleware<CookieCsrfMiddleware>();
 app.UseAuthorization();
 app.MapAdminAuthEndpoints();
 app.MapVocabularyHttpEndpoints();
-app.MapFallbackToFile("index.html");
+app.MapGet(
+        "/health",
+        () => VocabularyHttpResponse.Ok(new { status = "healthy" }))
+    .AllowAnonymous();
+
+string[] allHttpMethods =
+[
+    HttpMethods.Get,
+    HttpMethods.Post,
+    HttpMethods.Put,
+    HttpMethods.Patch,
+    HttpMethods.Delete,
+    HttpMethods.Options
+];
+app.MapMethods(
+    "/api/{**path}",
+    allHttpMethods,
+    () => VocabularyHttpResponse.NotFound("API endpoint was not found."));
+app.MapMethods(
+        "/admin/{**path}",
+        allHttpMethods,
+        () => VocabularyHttpResponse.NotFound("Admin endpoint was not found."))
+    .RequireAuthorization("VocabularyAdmin");
+app.MapFallbackToFile("index.html").AllowAnonymous();
 
 app.Run();
 

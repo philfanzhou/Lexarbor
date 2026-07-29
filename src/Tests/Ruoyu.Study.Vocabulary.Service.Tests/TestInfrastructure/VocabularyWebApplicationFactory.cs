@@ -22,6 +22,7 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
 
     private readonly string _environment;
     private readonly bool _includeAppCredentials;
+    private readonly string _databaseName;
 
     public VocabularyWebApplicationFactory()
         : this("Testing", includeAppCredentials: true)
@@ -34,6 +35,7 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
     {
         _environment = environment;
         _includeAppCredentials = includeAppCredentials;
+        _databaseName = $"vocabulary-http-{Guid.NewGuid():N}";
         Identity = new FakeIdentityState();
         Identity.AccessToken = CreateToken("admin");
     }
@@ -85,7 +87,7 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
             services.RemoveAll<DbContextOptions<VocabularyDbContext>>();
             services.RemoveAll<VocabularyDbContext>();
             services.AddDbContext<VocabularyDbContext>(options =>
-                options.UseInMemoryDatabase($"vocabulary-http-{Guid.NewGuid():N}"));
+                options.UseInMemoryDatabase(_databaseName));
 
             services.AddSingleton(Identity);
             services.AddTransient<FakeIdentityHandler>();
