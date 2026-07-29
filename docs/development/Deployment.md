@@ -3,7 +3,11 @@
 ## 构建与部署
 
 - Dockerfile：`src/Host/Dockerfile`
-- 部署脚本：`scripts/7.vocabulary/2.deploy/start.sh`
+- 部署脚本：`start.sh`
+- 前端构建目录：`frontend/`
+- 后端静态文件目录：`src/Host/wwwroot/`（构建产物，不提交）
+
+Dockerfile 先构建 Vue 前端，再发布 .NET 后端，并把前端产物复制到 Host 的 `wwwroot`。运行时仍是一个镜像、一个容器、一个端口。
 
 ## 配置项
 
@@ -15,6 +19,33 @@
 | host 映射端口 | — | host 访问容器服务的映射端口（`start.sh` 的 `Port` 变量，`-p ${Port}:5008`） |
 
 > **HTTP 监听端口固定为 5008**：硬编码在 `Program.cs` 的 `ConfigureKestrel` 中，不通过 `ASPNETCORE_URLS` 环境变量控制，Dockerfile 也不再设置 `ENV ASPNETCORE_URLS`。host 端口映射通过 `start.sh` 的 `Port` 变量控制。
+
+### Identity 管理员认证
+
+| 配置键 | 登录所需 | 默认值 | 生产来源 |
+|--------|----------|--------|----------|
+| `IdentityService:Authority` | 是 | `http://localhost:5002` | Consul 或 `IdentityService__Authority` |
+| `IdentityService:Issuer` | 是 | `QuantumZhou.Identity` | 配置 |
+| `IdentityService:Audience` | 是 | `QuantumZhou.microservices` | 配置 |
+| `IdentityService:AppId` | 生产是 | 空 | `VOCABULARY_IDENTITY_APP_ID` |
+| `IdentityService:AppSecret` | 生产是 | 空 | `VOCABULARY_IDENTITY_APP_SECRET` |
+| `AdminAuthentication:CookieName` | 是 | `ruoyuVocabularyAdmin` | 配置 |
+| `AdminAuthentication:CookieSecure` | TLS 是 | `false` | `VOCABULARY_COOKIE_SECURE` |
+
+容器默认使用 `http://ruoyu-identity:5002`。AppId/AppSecret 只由服务端环境或 Consul 注入，不进入前端、默认配置或日志。
+
+服务缺少 AppId/AppSecret 时仍可启动；生产管理员登录返回 503，直到部署人员为 Vocabulary 注册 Identity 应用并配置凭据。TLS 部署必须设置 `VOCABULARY_COOKIE_SECURE=true`。
+
+### 认证入口
+
+| 路径 | 匿名 | 说明 |
+|------|------|------|
+| `POST /admin/auth/login` | 是 | 代理 Identity password grant，成功后设置 HttpOnly Cookie |
+| `GET /admin/auth/session` | 否 | 要求 `role=admin`，供前端恢复状态 |
+| `POST /admin/auth/logout` | 是 | 幂等删除 Cookie |
+| `GET /health` | 是 | 服务存活检查 |
+
+除认证入口外的全部 `/admin/*` 要求 `role=admin`。四个既有 `/api/*` 业务接口保持匿名。
 
 ### 数据库
 
@@ -30,3 +61,15 @@
   }
   ```
 - 生产环境的 PostgreSQL 主机/端口/账号/密码由 Consul 的 `PostgreSql:*` 键覆盖，无需写入 `appsettings.json`
+
+启动时先执行迁移和缺表修复，再执行词义到词书约束的幂等完整性检查。历史异常只记录计数并继续启动，不自动删除数据。
+
+## 部署后检查
+
+```bash
+curl http://localhost:5008/health
+curl -i http://localhost:5008/admin/vocabulary-books
+curl http://localhost:5008/api/vocabulary-books/all
+```
+
+预期：健康检查为 200；匿名管理请求为 401；公开词书请求不因管理员认证返回 401 或 403。

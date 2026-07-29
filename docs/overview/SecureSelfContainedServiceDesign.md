@@ -15,7 +15,7 @@ Vocabulary 服务位于 `src/services/ruoyu.vocabulary`，使用 .NET 8、ASP.NE
 - 中译英干扰单词来自全词库，题目可能跨词书污染或出现重复选项。
 - 多个端点直接把 `Exception.Message` 返回客户端。
 - 词书搜索、筛选和分页会先加载全表。
-- 仓库级 `PROJECT.md` 仍把实际使用 5008 的 Vocabulary 端口记录为 20100。
+- 仓库级 `PROJECT.md` 曾记录旧端口，与实际使用的 5008 不一致。
 - Vocabulary 缺少完整的正式文档入口和 `frontend/docs/frontend-spec.md`。
 
 本设计以保持既有四个 `/api/*` 业务接口兼容为前提，完善认证、数据边界、错误处理、查询性能、前端登录和验证体系。
@@ -374,7 +374,7 @@ normalizedWord = word.Trim().ToLowerInvariant()
 
 - AppId/AppSecret 由部署环境传入 Vocabulary，不打印到控制台。
 - TLS 部署设置 `AdminAuthentication__CookieSecure=true`。
-- `PROJECT.md` 中 Vocabulary 的协议端口、架构图和端口总表统一从 20100 修正为 5008。
+- `PROJECT.md` 中 Vocabulary 的协议端口、架构图和端口总表统一记录为 5008。
 - `PROJECT.md` 服务间通信矩阵增加 Vocabulary → Identity 的登录代理和 JWKS 校验依赖。
 - Identity 需要预先注册 Vocabulary 服务应用并提供 AppId/AppSecret；不修改 Identity 现有管理员引导逻辑。
 
