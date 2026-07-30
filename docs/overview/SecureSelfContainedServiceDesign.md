@@ -78,8 +78,8 @@ Vocabulary 后端使用以下配置：
 }
 ```
 
-- `Authority` 在容器部署时指向 `http://ruoyu-identity:5002`。
-- `AppId` 和 `AppSecret` 只从 Consul或环境变量注入，不写入前端或仓库默认配置。
+- `Authority` 由 Consul KV `config/ruoyu/service-endpoints.json` 提供（容器部署时为 `http://ruoyu-identity:5002`），Consul 不可达时回退到 `appsettings.json` 的本地默认值 `http://localhost:5002`，不再通过 `start.sh` 环境变量注入。
+- `AppId` 和 `AppSecret` 只从环境变量注入，不写入前端或仓库默认配置。
 - 服务在缺少 AppId/AppSecret 时仍可启动；生产登录请求返回统一信封的 503，并记录不含密钥的配置错误。
 - `Issuer`、`Audience`、签名、公钥轮换和过期时间由 JWT Bearer 校验。
 - JWT 关闭入站 claim 映射并显式使用 `role` 作为角色 claim，管理员策略要求 `admin`。
@@ -371,12 +371,12 @@ normalizedWord = word.Trim().ToLowerInvariant()
 - `start.sh` 默认把部署变量映射为 .NET 配置：
 
   ```text
-  VOCABULARY_IDENTITY_AUTHORITY（默认 http://ruoyu-identity:5002）→ IdentityService__Authority
   VOCABULARY_IDENTITY_APP_ID → IdentityService__AppId
   VOCABULARY_IDENTITY_APP_SECRET → IdentityService__AppSecret
   VOCABULARY_COOKIE_SECURE（默认 false）→ AdminAuthentication__CookieSecure
   ```
 
+- `IdentityService:Authority` 不再通过 `start.sh` 注入，统一由 Consul KV `config/ruoyu/service-endpoints.json` 提供（生产 = `http://ruoyu-identity:5002`），Consul 不可达时回退到 `appsettings.json` 的本地默认值 `http://localhost:5002`。
 - AppId/AppSecret 由部署环境传入 Vocabulary，不打印到控制台。
 - TLS 部署设置 `AdminAuthentication__CookieSecure=true`。
 - `PROJECT.md` 中 Vocabulary 的协议端口、架构图和端口总表统一记录为 5008。

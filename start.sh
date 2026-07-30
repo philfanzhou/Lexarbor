@@ -12,7 +12,6 @@ Port="5008"
 
 CONSUL_HTTP_ADDR="${CONSUL_HTTP_ADDR:-host.docker.internal:8500}"
 CONSUL_TOKEN="${CONSUL_TOKEN:-}"
-IDENTITY_AUTHORITY="${VOCABULARY_IDENTITY_AUTHORITY:-http://ruoyu-identity:5002}"
 IDENTITY_APP_ID="${VOCABULARY_IDENTITY_APP_ID:-}"
 IDENTITY_APP_SECRET="${VOCABULARY_IDENTITY_APP_SECRET:-}"
 COOKIE_SECURE="${VOCABULARY_COOKIE_SECURE:-false}"
@@ -40,7 +39,6 @@ docker run -d \
   -e CONSUL_HTTP_ADDR="${CONSUL_HTTP_ADDR}" \
   -e CONSUL_TOKEN="${CONSUL_TOKEN}" \
   -e Database__Name="${DB_NAME}" \
-  -e IdentityService__Authority="${IDENTITY_AUTHORITY}" \
   -e IdentityService__AppId="${IDENTITY_APP_ID}" \
   -e IdentityService__AppSecret="${IDENTITY_APP_SECRET}" \
   -e AdminAuthentication__CookieSecure="${COOKIE_SECURE}" \

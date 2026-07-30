@@ -25,7 +25,7 @@ Dockerfile 先构建 Vue 前端，再发布 .NET 后端，并把前端产物复�
 
 | 配置键 | 登录所需 | 默认值 | 生产来源 |
 |--------|----------|--------|----------|
-| `IdentityService:Authority` | 是 | `http://localhost:5002` | Consul 或 `VOCABULARY_IDENTITY_AUTHORITY` |
+| `IdentityService:Authority` | 是 | `http://localhost:5002` | Consul KV `config/ruoyu/service-endpoints.json` |
 | `IdentityService:Issuer` | 是 | `QuantumZhou.Identity` | 配置 |
 | `IdentityService:Audience` | 是 | `QuantumZhou.microservices` | 配置 |
 | `IdentityService:AppId` | 生产是 | 空 | `VOCABULARY_IDENTITY_APP_ID` |
@@ -33,7 +33,7 @@ Dockerfile 先构建 Vue 前端，再发布 .NET 后端，并把前端产物复�
 | `AdminAuthentication:CookieName` | 是 | `ruoyuVocabularyAdmin` | 配置 |
 | `AdminAuthentication:CookieSecure` | TLS 是 | `false` | `VOCABULARY_COOKIE_SECURE` |
 
-`start.sh` 将 `VOCABULARY_IDENTITY_AUTHORITY`、`VOCABULARY_IDENTITY_APP_ID`、`VOCABULARY_IDENTITY_APP_SECRET` 和 `VOCABULARY_COOKIE_SECURE` 映射为对应的 .NET 配置键；容器 Authority 默认使用 `http://ruoyu-identity:5002`。AppId/AppSecret 只由服务端环境或 Consul 注入，不进入前端、默认配置或日志。
+`start.sh` 将 `VOCABULARY_IDENTITY_APP_ID`、`VOCABULARY_IDENTITY_APP_SECRET` 和 `VOCABULARY_COOKIE_SECURE` 映射为对应的 .NET 配置键。`IdentityService:Authority` 不再通过 `start.sh` 注入，统一由 Consul KV 提供（生产 = `http://ruoyu-identity:5002`），Consul 不可达时回退到 `appsettings.json` 的本地默认值。AppId/AppSecret 只由服务端环境注入，不进入前端、默认配置或日志。
 
 服务缺少 AppId/AppSecret 时仍可启动；生产管理员登录返回 503，直到部署人员为 Vocabulary 注册 Identity 应用并配置凭据。TLS 部署必须设置 `VOCABULARY_COOKIE_SECURE=true`。
 
