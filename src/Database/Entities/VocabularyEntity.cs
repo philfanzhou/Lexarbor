@@ -14,8 +14,11 @@ public class VocabularyEntity
     [Column("word")]
     public string Word { get; set; } = string.Empty;
 
-    [Column("phonetic")]
-    public string? Phonetic { get; set; }
+    [Column("phonetic_uk")]
+    public string? PhoneticUk { get; set; }
+
+    [Column("phonetic_us")]
+    public string? PhoneticUs { get; set; }
 
     [Column("created_at")]
     public DateTimeOffset CreatedAt { get; set; }

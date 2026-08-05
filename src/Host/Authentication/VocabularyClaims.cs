@@ -10,8 +10,7 @@ namespace Ruoyu.Study.Vocabulary.Host.Authentication;
 /// shape stay valid until they expire, so both shapes are accepted here. Accepting both
 /// also keeps the service off any single issuer's serialization choice.
 ///
-/// Mirrors the convention already used by DocLibrary and
-/// <c>Ruoyu.Study.Common.Authentication.ClaimsPrincipalExtensions</c>.
+/// Mirrors the claim convention used by the platform's other Identity consumers.
 /// </summary>
 public static class VocabularyClaims
 {

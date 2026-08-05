@@ -1,9 +1,6 @@
 using System;
-using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Linq;
-using System.Security.Cryptography;
-using System.Text;
 using System.Threading.Tasks;
 using Mapster;
 using Microsoft.EntityFrameworkCore;
@@ -52,7 +49,7 @@ public class VocabularyRepository : IVocabularyRepository
         return entities.Adapt<List<VocabularyModel>>();
     }
 
-    public async Task<(List<VocabularyModel> Items, int TotalCount)> SearchAsync(string keyword, int page, int size)
+    public async Task<(List<VocabularyModel> Items, int TotalCount)> SearchAsync(string? keyword, int page, int size)
     {
         var query = _context.Vocabularies
             .AsNoTracking()
@@ -97,52 +94,22 @@ public class VocabularyRepository : IVocabularyRepository
         string excludeWord,
         int count)
     {
-        List<VocabularyEntity> entities;
         var normalizedExcludeWord = excludeWord.Trim().ToLowerInvariant();
-        if (_context.Database.IsRelational())
-        {
-            entities = await _context.Vocabularies
-                .FromSqlInterpolated($"""
-                    SELECT candidate.*
-                    FROM (
-                        SELECT DISTINCT ON (lower(btrim(v.word))) v.*
-                        FROM vocabulary AS v
-                        INNER JOIN vocabulary_meaning AS m
-                            ON m.vocabulary_id = v.id
-                        WHERE m.book_id = {bookId}
-                          AND v.id <> {excludeVocabularyId}
-                          AND lower(btrim(v.word)) <> {normalizedExcludeWord}
-                        ORDER BY lower(btrim(v.word)), random()
-                    ) AS candidate
-                    ORDER BY random()
-                    LIMIT {count}
-                    """)
-                .AsNoTracking()
-                .ToListAsync();
-        }
-        else
-        {
-            entities = (await _context.VocabularyMeanings
-                    .AsNoTracking()
-                    .Where(meaning =>
-                        meaning.BookId == bookId &&
-                        meaning.VocabularyId != excludeVocabularyId)
-                    .Join(
-                        _context.Vocabularies.AsNoTracking(),
-                        meaning => meaning.VocabularyId,
-                        vocabulary => vocabulary.Id,
-                        (_, vocabulary) => vocabulary)
-                    .ToListAsync())
-                .Where(vocabulary =>
-                    vocabulary.Word.Trim().ToLowerInvariant() != normalizedExcludeWord)
-                .GroupBy(
-                    vocabulary => vocabulary.Word.Trim().ToLowerInvariant(),
-                    StringComparer.Ordinal)
-                .Select(group => group.First())
-                .OrderBy(_ => Guid.NewGuid())
-                .Take(count)
-                .ToList();
-        }
+        var entities = await _context.Vocabularies
+            .FromSqlInterpolated($"""
+                SELECT v.*
+                FROM vocabulary AS v
+                INNER JOIN vocabulary_meaning AS m
+                    ON m.vocabulary_id = v.id
+                WHERE m.book_id = {bookId}
+                  AND v.id <> {excludeVocabularyId}
+                  AND lower(trim(v.word)) <> {normalizedExcludeWord}
+                GROUP BY lower(trim(v.word))
+                ORDER BY random()
+                LIMIT {count}
+                """)
+            .AsNoTracking()
+            .ToListAsync();
 
         return entities.Adapt<List<VocabularyModel>>();
     }
@@ -185,7 +152,7 @@ public class VocabularyBookRepository : IVocabularyBookRepository
     }
 
     public async Task<(List<VocabularyBookModel> Items, int TotalCount)> SearchAsync(
-        string keyword,
+        string? keyword,
         int page,
         int size)
     {
@@ -207,7 +174,7 @@ public class VocabularyBookRepository : IVocabularyBookRepository
         return (entities.Adapt<List<VocabularyBookModel>>(), totalCount);
     }
 
-    public async Task<List<VocabularyBookModel>> GetByCategoryAsync(string category, string? grade)
+    public async Task<List<VocabularyBookModel>> GetByCategoryAsync(string? category, string? grade)
     {
         var query = _context.VocabularyBooks.AsNoTracking();
         if (!string.IsNullOrWhiteSpace(category))
@@ -377,87 +344,53 @@ public class VocabularyMeaningRepository : IVocabularyMeaningRepository
         return entity?.Adapt<VocabularyMeaningModel>();
     }
 
-    public async Task AcquireEquivalentMeaningLockAsync(
-        string vocabularyId,
-        string bookId,
-        string normalizedPartOfSpeech,
-        string meaning)
-    {
-        if (!_context.Database.IsRelational())
-        {
-            return;
-        }
-
-        var material =
-            $"{vocabularyId.Length}:{vocabularyId}" +
-            $"{bookId.Length}:{bookId}" +
-            $"{normalizedPartOfSpeech.Length}:{normalizedPartOfSpeech}" +
-            $"{meaning.Length}:{meaning}";
-        var digest = SHA256.HashData(Encoding.UTF8.GetBytes(material));
-        var lockKey = BinaryPrimitives.ReadInt64LittleEndian(digest);
-        await _context.Database.ExecuteSqlInterpolatedAsync(
-            $"SELECT pg_advisory_xact_lock({lockKey})");
-    }
-
     public async Task<List<VocabularyMeaningModel>> GetRandomDistinctVocabularyExceptAsync(
         string bookId,
         string excludeVocabularyId,
         string excludeMeaning,
         int count)
     {
-        List<VocabularyMeaningEntity> entities;
         var normalizedExcludeMeaning = excludeMeaning.Trim().ToLowerInvariant();
-        if (_context.Database.IsRelational())
-        {
-            entities = await _context.VocabularyMeanings
-                .FromSqlInterpolated($"""
-                    SELECT candidate.*
-                    FROM (
-                        SELECT DISTINCT ON (lower(btrim(per_word.meaning)))
-                            per_word.*
-                        FROM (
-                            SELECT DISTINCT ON (m.vocabulary_id) m.*
-                            FROM vocabulary_meaning AS m
-                            INNER JOIN vocabulary AS v
-                                ON v.id = m.vocabulary_id
-                            WHERE m.book_id = {bookId}
-                              AND m.vocabulary_id <> {excludeVocabularyId}
-                              AND lower(btrim(m.meaning)) <> {normalizedExcludeMeaning}
-                            ORDER BY m.vocabulary_id, random()
-                        ) AS per_word
-                        ORDER BY lower(btrim(per_word.meaning)), random()
-                    ) AS candidate
-                    ORDER BY random()
-                    LIMIT {count}
-                    """)
-                .AsNoTracking()
-                .ToListAsync();
-        }
-        else
-        {
-            entities = (await _context.VocabularyMeanings
-                    .AsNoTracking()
-                    .Where(meaning =>
-                        meaning.BookId == bookId &&
-                        meaning.VocabularyId != excludeVocabularyId)
-                    .Join(
-                        _context.Vocabularies.AsNoTracking(),
-                        meaning => meaning.VocabularyId,
-                        vocabulary => vocabulary.Id,
-                        (meaning, _) => meaning)
-                    .ToListAsync())
-                .Where(meaning =>
-                    meaning.Meaning.Trim().ToLowerInvariant() != normalizedExcludeMeaning)
-                .GroupBy(meaning => meaning.VocabularyId)
-                .Select(group => group.OrderBy(meaning => meaning.Id).First())
-                .GroupBy(
-                    meaning => meaning.Meaning.Trim().ToLowerInvariant(),
-                    StringComparer.Ordinal)
-                .Select(group => group.First())
-                .OrderBy(_ => Guid.NewGuid())
-                .Take(count)
-                .ToList();
-        }
+        var entities = await _context.VocabularyMeanings
+            .FromSqlInterpolated($"""
+                WITH per_word AS (
+                    SELECT
+                        m.*,
+                        row_number() OVER (
+                            PARTITION BY m.vocabulary_id
+                            ORDER BY random()) AS word_rank
+                    FROM vocabulary_meaning AS m
+                    WHERE m.book_id = {bookId}
+                      AND m.vocabulary_id <> {excludeVocabularyId}
+                      AND lower(trim(m.meaning)) <> {normalizedExcludeMeaning}
+                ),
+                distinct_meaning AS (
+                    SELECT
+                        per_word.*,
+                        row_number() OVER (
+                            PARTITION BY lower(trim(per_word.meaning))
+                            ORDER BY random()) AS meaning_rank
+                    FROM per_word
+                    WHERE word_rank = 1
+                )
+                SELECT
+                    id,
+                    vocabulary_id,
+                    book_id,
+                    part_of_speech,
+                    meaning,
+                    normalized_part_of_speech,
+                    normalized_meaning,
+                    example,
+                    created_at,
+                    updated_at
+                FROM distinct_meaning
+                WHERE meaning_rank = 1
+                ORDER BY random()
+                LIMIT {count}
+                """)
+            .AsNoTracking()
+            .ToListAsync();
 
         return entities.Adapt<List<VocabularyMeaningModel>>();
     }

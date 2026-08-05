@@ -1,4 +1,5 @@
 using System;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Ruoyu.Study.Vocabulary.Database;
 using Ruoyu.Study.Vocabulary.Database.Repositories;
@@ -9,6 +10,7 @@ namespace Ruoyu.Study.Vocabulary.Domain.Tests;
 
 public class TestBase : IDisposable
 {
+    private readonly SqliteConnection _connection;
     protected readonly VocabularyDbContext _dbContext;
     protected readonly IVocabularyRepository _vocabularyRepository;
     protected readonly IVocabularyBookRepository _bookRepository;
@@ -17,8 +19,10 @@ public class TestBase : IDisposable
 
     public TestBase()
     {
+        _connection = new SqliteConnection("Data Source=:memory:");
+        _connection.Open();
         var options = new DbContextOptionsBuilder<VocabularyDbContext>()
-            .UseInMemoryDatabase($"vocabulary_test_{Guid.NewGuid():N}")
+            .UseSqlite(_connection)
             .Options;
 
         _dbContext = new VocabularyDbContext(options);
@@ -50,5 +54,6 @@ public class TestBase : IDisposable
     public void Dispose()
     {
         _dbContext.Dispose();
+        _connection.Dispose();
     }
 }

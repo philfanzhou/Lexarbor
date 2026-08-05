@@ -64,7 +64,7 @@ pipeline {
                     set -e
                     cd "$REPO_DIR"
                     bash "$BUILD_SCRIPT"
-                    docker images ruoyu-vocabulary --format '{{.Repository}}:{{.Tag}} {{.CreatedSince}} {{.Size}}'
+                    docker images ruoyu.study.vocabulary --format '{{.Repository}}:{{.Tag}} {{.CreatedSince}} {{.Size}}'
                 '''
             }
         }
@@ -75,13 +75,7 @@ pipeline {
                     set -e
                     mkdir -p "$REPORT_DIR"
                     cd "$SERVICE_DIR"
-                    # Clean ALL stale obj/bin under ruoyu.common and this service —
-                    # a previous Docker build leaves incomplete project.assets.json
-                    # (empty projectReferences -> CS0234) and missing ref DLLs
-                    # (obj/Release/net8.0/ref/ empty -> CS0006) for every transitively
-                    # restored project, not just Tests.
-                    COMMON_DIR="$REPO_DIR/src/ruoyu.common"
-                    find "$COMMON_DIR" -type d \\( -name obj -o -name bin \\) -prune -exec rm -rf {} + 2>/dev/null || true
+                    # Clean stale outputs from this self-contained service before restore.
                     find "$SERVICE_DIR" -type d \\( -name obj -o -name bin \\) -prune -exec rm -rf {} + 2>/dev/null || true
                     dotnet restore "$TEST_PROJ" --source "$NUGET_SOURCE"
                     dotnet test "$TEST_PROJ" \

@@ -264,7 +264,7 @@ public class VocabularyHttpEndpointTests :
         }
 
         public Task<(List<VocabularyModel> Items, int TotalCount)> SearchAsync(
-            string keyword,
+            string? keyword,
             int page,
             int size)
         {

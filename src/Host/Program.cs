@@ -1,7 +1,7 @@
-using System.Data.Common;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
@@ -9,7 +9,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
-using Ruoyu.Study.Consul.Shared;
 using Ruoyu.Study.Vocabulary.Database;
 using Ruoyu.Study.Vocabulary.Database.Repositories;
 using Ruoyu.Study.Vocabulary.Domain.Repositories;
@@ -19,15 +18,6 @@ using Ruoyu.Study.Vocabulary.Host.Authentication.Providers;
 using Ruoyu.Study.Vocabulary.Service;
 
 var builder = WebApplication.CreateBuilder(args);
-
-// ========== Consul Configuration Source ==========
-builder.Configuration.AddRuoyuConsulConfiguration(builder.Configuration);
-var consulOptions = RuoyuConsulOptions.Bind(builder.Configuration);
-var consulRuntimeState = RuoyuConsulRuntimeState.Instance;
-
-// ========== Serilog (Console + Grafana Loki) ==========
-builder.Configuration.AddRuoyuLokiSink();
-builder.Host.UseRuoyuSerilog("Ruoyu.Study.Vocabulary");
 
 // HTTP listen port is hardcoded to 5008 (not configurable via ASPNETCORE_URLS).
 // host port mapping is controlled by start.sh: -p ${Port}:5008.
@@ -42,12 +32,12 @@ builder.WebHost.ConfigureKestrel(options =>
 });
 
 // Add services to the container.
-var connectionString = SharedPostgreSqlConnectionStringFactory.BuildOrFallback(
-    builder.Configuration,
-    builder.Configuration.GetConnectionString("Default"));
+var connectionString = BuildSqliteConnectionString(
+    builder.Configuration.GetConnectionString("Default"),
+    builder.Environment.ContentRootPath);
 builder.Services.AddDbContext<VocabularyDbContext>(options =>
 {
-    options.UseNpgsql(connectionString);
+    options.UseSqlite(connectionString);
 });
 
 builder.Services.AddScoped<IVocabularyRepository, VocabularyRepository>();
@@ -186,27 +176,9 @@ builder.Services.AddAuthorization(options =>
 var app = builder.Build();
 
 app.Logger.LogInformation("Vocabulary Service starting");
-app.Logger.LogInformation(
-    "Consul startup diagnostics: Address={Address}, Token={Token}, Source={Source}, KeyCount={KeyCount}, Prefixes={Prefixes}, LastError={LastError}",
-    $"{consulOptions.Host}:{consulOptions.Port}",
-    StartupDiagnosticsFormatter.MaskSecret(consulOptions.Token),
-    consulRuntimeState.Source,
-    consulRuntimeState.KeyCount,
-    StartupDiagnosticsFormatter.SummarizePrefixes(consulRuntimeState.LoadedPrefixes),
-    StartupDiagnosticsFormatter.SummarizeError(consulRuntimeState.LastError));
 app.Logger.LogInformation("Listening: http://+:{Port}", httpPort);
-if (!string.IsNullOrEmpty(connectionString))
-{
-    var csb = new DbConnectionStringBuilder { ConnectionString = connectionString };
-    app.Logger.LogInformation("Database: PostgreSQL {Host}:{Port}/{Database}", csb["Host"], csb.TryGetValue("Port", out var dbPort) ? dbPort : "5432", csb["Database"]);
-}
-app.Logger.LogInformation(
-    "Effective configuration diagnostics: PostgreSqlHost={PostgreSqlHost}, PostgreSqlPort={PostgreSqlPort}, PostgreSqlUsername={PostgreSqlUsername}, PostgreSqlPassword={PostgreSqlPassword}, DatabaseName={DatabaseName}",
-    StartupDiagnosticsFormatter.SummarizeValue(builder.Configuration["PostgreSql:Host"]),
-    StartupDiagnosticsFormatter.SummarizeValue(builder.Configuration["PostgreSql:Port"]),
-    StartupDiagnosticsFormatter.SummarizeValue(builder.Configuration["PostgreSql:Username"]),
-    StartupDiagnosticsFormatter.SummarizePassword(builder.Configuration["PostgreSql:Password"]),
-    StartupDiagnosticsFormatter.SummarizeValue(builder.Configuration["Database:Name"]));
+var sqliteConnection = new SqliteConnectionStringBuilder(connectionString);
+app.Logger.LogInformation("Database: SQLite {DatabasePath}", sqliteConnection.DataSource);
 if (!app.Environment.IsDevelopment() &&
     !app.Environment.IsEnvironment("Testing"))
 {
@@ -265,6 +237,30 @@ app.MapMethods(
 app.MapFallbackToFile("index.html").AllowAnonymous();
 
 app.Run();
+
+static string BuildSqliteConnectionString(
+    string? configuredConnectionString,
+    string contentRootPath)
+{
+    var builder = new SqliteConnectionStringBuilder(
+        string.IsNullOrWhiteSpace(configuredConnectionString)
+            ? "Data Source=data/vocabulary.db"
+            : configuredConnectionString);
+    if (string.IsNullOrWhiteSpace(builder.DataSource))
+    {
+        throw new InvalidOperationException(
+            "ConnectionStrings:Default must define a SQLite data source.");
+    }
+
+    if (!string.Equals(builder.DataSource, ":memory:", StringComparison.OrdinalIgnoreCase) &&
+        !Path.IsPathRooted(builder.DataSource))
+    {
+        builder.DataSource = Path.GetFullPath(
+            Path.Combine(contentRootPath, builder.DataSource));
+    }
+
+    return builder.ToString();
+}
 
 public partial class Program
 {

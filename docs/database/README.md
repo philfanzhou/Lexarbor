@@ -1,6 +1,6 @@
 # Vocabulary 数据库
 
-Vocabulary 使用 PostgreSQL 数据库 `ruoyu_study_vocabulary`，EF Core 模型、迁移和 `DatabaseInitializer` 建表 SQL 必须保持一致。
+Vocabulary 仅支持 SQLite。默认数据库文件为 `data/vocabulary.db`，EF Core 模型与单一 `InitialCreate` 迁移描述完整结构；服务未上线，不保留旧 PostgreSQL 迁移链。
 
 ## 核心关系
 
@@ -10,19 +10,32 @@ vocabulary_book (1) <-[RESTRICT]- vocabulary_meaning -[CASCADE]-> (1) vocabulary
 
 | 表 | 主责 | 关键约束 |
 |----|------|----------|
-| `vocabulary` | 单词及音标 | `word` 唯一；新写入使用去首尾空格的小写规范值 |
+| `vocabulary` | 单词及英美音标 | `word` 唯一；`phonetic_uk`、`phonetic_us` 可空 |
 | `vocabulary_book` | 词书元数据和启用状态 | `status=false` 表示禁用 |
-| `vocabulary_meaning` | 单词在指定词书中的词义 | `vocabulary_id`、`book_id` 必填并分别关联单词和词书 |
+| `vocabulary_meaning` | 单词在指定词书中的词义 | 双外键必填；规范化逻辑键唯一 |
 
 删除单词时通过 `ON DELETE CASCADE` 清理词义。删除词书使用 `ON DELETE RESTRICT`；存在关联词义时业务层返回 409，管理员应将词书设置为禁用。
 
-## 约束建立方式
+等价词义的数据库逻辑键为：
 
-`book_id` 的非空约束、指向词书的外键和 `(book_id, vocabulary_id)` 复合索引由迁移 `20260729090000_MeaningBookIntegrity` 建立；表缺失时由 `DatabaseInitializer` 的建表 SQL 直接以强形式建立。
+```text
+(vocabulary_id, book_id, lower(trim(coalesce(part_of_speech, ''))), trim(meaning))
+```
 
-启动时不执行存量数据修复，也不执行完整性诊断。该机制原为 PostgreSQL 存量脏数据设计，服务未上线因而不存在此类存量，相关代码与测试已移除，渐进式约束收紧逻辑仅保留在上述迁移内。存储改为 SQLite 后该迁移将一并重建，见 [ADR-003](../adr/ADR-003-sqlite-only-storage.md)。
+后两项由 SQLite stored generated columns 保存并建立唯一索引，防止绕过应用层产生重复数据。
 
-公开查询仍必须通过有效且启用的词书关系取数。
+## 首次建库与启动词书
+
+连接串默认是 `Data Source=data/vocabulary.db`。启动顺序固定为：
+
+1. 在迁移前判断配置的数据文件是否存在；
+2. 创建父目录并执行 SQLite 迁移；
+3. 仅当文件原先不存在时，读取程序集内嵌的 `SeedData/starter-vocabulary.tsv`；
+4. 在一个事务中写入 `Starter English 300`、300 个唯一单词及其词义。
+
+每个启动词条都包含英式音标、美式音标、词性和中文释义。已有文件只执行迁移，绝不重新加载种子，因此使用者后续添加的数据不会被启动逻辑覆盖或重复。
+
+数据库文件必须位于持久卷。Docker 默认挂载宿主 `data/` 到 `/app/data`；不得把预构建 `.db` 放进镜像。
 
 ## 写入一致性
 
@@ -30,6 +43,6 @@ vocabulary_book (1) <-[RESTRICT]- vocabulary_meaning -[CASCADE]-> (1) vocabulary
 - 更新携带单词、词书或词义 ID 时，对象不存在返回 404，不得转为新增。
 - 更新词义时必须确认词义属于当前单词和词书。
 - 单词规范值为 `word.Trim().ToLowerInvariant()`。
-- 同一单词、词书、规范化词性和去首尾空格释义的重复导入是幂等操作。
-- PostgreSQL 写入在同一事务内按上述逻辑键获取事务级 advisory lock，再重新查询并写入，避免多实例并发请求同时插入等价词义；锁键只使用本地 SHA-256 派生的数值，不把词义文本写入日志。
-- `Category` 的正式表示为 `vocabulary_book.category` 字符串，不再维护整数分类常量。
+- 同一单词、词书、规范化词性和释义的重复导入是幂等操作。
+- SQLite 部署限定单实例；进程级写事务锁串行化管理写入，数据库唯一索引是最后防线。
+- SQLite 约束错误由 `UnitOfWork` 映射为 409，不向客户端暴露内部错误。

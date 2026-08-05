@@ -34,9 +34,9 @@ AuthenticateAsync(username, password) -> { Status, AccessToken?, ExpiresIn? }
 
 | 配置 | 归属 | 理由 |
 |------|------|------|
-| `IdentityService:{Authority,Issuer,Audience}` | 保持不变 | 语义是"信任哪个签发方"，由共享 Consul KV `config/ruoyu/service-endpoints.json` 发布给所有服务，是平台级契约，非本服务可改名 |
+| `IdentityService:{Authority,Issuer,Audience}` | 保持不变 | 语义是"信任哪个签发方"；由 appsettings、环境变量或其他标准 .NET 配置 Provider 提供 |
 | `AdminAuthentication:Provider` / `RequiredRole` | 新增 | 服务本地 |
-| `AdminAuthentication:QuantumZhou:{Authority,TokenPath,AppId,AppSecret}` | 由 `IdentityService:*` 迁出 | 语义是"怎么换令牌"，且 AppId/AppSecret 本就不经 Consul，只由部署环境注入 |
+| `AdminAuthentication:QuantumZhou:{Authority,TokenPath,AppId,AppSecret}` | 与 `IdentityService:*` 分离 | 语义是"怎么换令牌"，AppId/AppSecret 只由部署环境注入 |
 | `AdminAuthentication:Oidc:{TokenEndpoint,ClientId,ClientSecret,Scope}` | 新增 | 同上 |
 
 `QuantumZhou:Authority` 可选，缺省回落到 `IdentityService:Authority`，使登录端点与 JWKS 端点可以不同源。
@@ -62,6 +62,6 @@ Vocabulary 此前配置 `RoleClaimType = "role"` 并使用 `RequireRole("admin")
 ## 影响
 
 - 部署需改用 `AdminAuthentication__QuantumZhou__AppId` / `__AppSecret` 环境变量（`start.sh` 已更新）。服务尚未上线，无存量部署需要迁移。
-- Consul KV 无需改动。
+- Vocabulary 不再直接加载 Consul；容器通过 `VOCABULARY_IDENTITY_AUTHORITY` 提供 Identity 地址，本地运行使用 appsettings 默认值。
 - PD-004 落地时，改动收敛到 `QuantumZhouIdentityAuthenticator` 单个类。
 - 公开 `/api/*` 的路径、请求字段和响应结构不变。

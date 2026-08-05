@@ -2,7 +2,7 @@ import api from './api'
 import type { VocabularyMeaning } from '@/types'
 
 export interface AddVocabularyPayload {
-  word: { word: string; phonetic?: string }
+  word: { word: string; phoneticUk?: string; phoneticUs?: string }
   meaning: VocabularyMeaning
 }
 

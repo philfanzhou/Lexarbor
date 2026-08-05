@@ -1,5 +1,6 @@
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using Ruoyu.Study.Common.Database;
 
 namespace Ruoyu.Study.Vocabulary.Database;
 
@@ -10,62 +11,53 @@ public static class DatabaseInitializer
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken = default)
     {
-        await Common.Database.DatabaseInitializer.InitializeAsync(context, loggerFactory, GetTableCreationSql);
+        var logger = loggerFactory.CreateLogger(nameof(DatabaseInitializer));
+        var databasePath = GetDatabasePath(context);
+        var isNewDatabase = databasePath != null && !File.Exists(databasePath);
+
+        if (databasePath != null)
+        {
+            var directory = Path.GetDirectoryName(databasePath);
+            if (!string.IsNullOrWhiteSpace(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+        }
+
+        await context.Database.MigrateAsync(cancellationToken);
+
+        if (isNewDatabase)
+        {
+            await VocabularySeedData.ApplyAsync(context, cancellationToken);
+            logger.LogInformation(
+                "Created SQLite database and loaded the bundled starter vocabulary at {DatabasePath}",
+                databasePath);
+        }
+        else
+        {
+            logger.LogInformation(
+                "Applied SQLite migrations without reloading starter vocabulary");
+        }
     }
 
-    private static string? GetTableCreationSql(string tableName)
+    private static string? GetDatabasePath(VocabularyDbContext context)
     {
-        return tableName switch
+        var connectionString = context.Database.GetConnectionString();
+        if (string.IsNullOrWhiteSpace(connectionString))
         {
-            "vocabulary" => @"
-                CREATE TABLE IF NOT EXISTS vocabulary (
-                    id character varying(36) NOT NULL,
-                    word character varying(255) NOT NULL,
-                    phonetic character varying(100) NULL,
-                    created_at timestamp with time zone NOT NULL,
-                    updated_at timestamp with time zone NOT NULL,
-                    CONSTRAINT PK_vocabulary PRIMARY KEY (id)
-                );
-                CREATE UNIQUE INDEX IF NOT EXISTS IX_vocabulary_word ON vocabulary (word);",
+            throw new InvalidOperationException(
+                "The SQLite connection string is not configured.");
+        }
 
-            "vocabulary_book" => @"
-                CREATE TABLE IF NOT EXISTS vocabulary_book (
-                    id character varying(36) NOT NULL,
-                    book_name character varying(255) NOT NULL,
-                    description text NULL,
-                    publisher character varying(255) NULL,
-                    education_level character varying(100) NULL,
-                    grade character varying(50) NULL,
-                    category character varying(50) NULL,
-                    display_order integer NOT NULL,
-                    status boolean NOT NULL,
-                    icon_url text NULL,
-                    created_at timestamp with time zone NOT NULL,
-                    updated_at timestamp with time zone NOT NULL,
-                    CONSTRAINT PK_vocabulary_book PRIMARY KEY (id)
-                );",
+        var builder = new SqliteConnectionStringBuilder(connectionString);
+        if (string.IsNullOrWhiteSpace(builder.DataSource))
+        {
+            throw new InvalidOperationException(
+                "The SQLite data source is not configured.");
+        }
 
-            "vocabulary_meaning" => @"
-                CREATE TABLE IF NOT EXISTS vocabulary_meaning (
-                    id character varying(36) NOT NULL,
-                    vocabulary_id character varying(36) NOT NULL,
-                    book_id character varying(36) NOT NULL,
-                    part_of_speech character varying(50) NULL,
-                    meaning text NOT NULL,
-                    example text NULL,
-                    created_at timestamp with time zone NOT NULL,
-                    updated_at timestamp with time zone NOT NULL,
-                    CONSTRAINT PK_vocabulary_meaning PRIMARY KEY (id),
-                    CONSTRAINT FK_vocabulary_meaning_vocabulary_vocabulary_id 
-                        FOREIGN KEY (vocabulary_id) REFERENCES vocabulary(id) ON DELETE CASCADE,
-                    CONSTRAINT FK_vocabulary_meaning_vocabulary_book_book_id
-                        FOREIGN KEY (book_id) REFERENCES vocabulary_book(id) ON DELETE RESTRICT
-                );
-                CREATE INDEX IF NOT EXISTS IX_vocabulary_meaning_vocabulary_id ON vocabulary_meaning (vocabulary_id);
-                CREATE INDEX IF NOT EXISTS IX_vocabulary_meaning_book_id_vocabulary_id
-                    ON vocabulary_meaning (book_id, vocabulary_id);",
-
-            _ => null
-        };
+        return string.Equals(builder.DataSource, ":memory:", StringComparison.OrdinalIgnoreCase)
+            ? null
+            : Path.GetFullPath(builder.DataSource);
     }
 }

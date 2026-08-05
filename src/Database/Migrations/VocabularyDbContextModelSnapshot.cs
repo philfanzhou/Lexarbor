@@ -3,7 +3,6 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
-using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Ruoyu.Study.Vocabulary.Database;
 
 #nullable disable
@@ -16,61 +15,57 @@ namespace Ruoyu.Study.Vocabulary.Database.Migrations
         protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
-            modelBuilder
-                .HasAnnotation("ProductVersion", "8.0.11")
-                .HasAnnotation("Relational:MaxIdentifierLength", 63);
-
-            NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
+            modelBuilder.HasAnnotation("ProductVersion", "8.0.11");
 
             modelBuilder.Entity("Ruoyu.Study.Vocabulary.Database.Entities.VocabularyBookEntity", b =>
                 {
                     b.Property<string>("Id")
-                        .HasColumnType("text")
+                        .HasColumnType("TEXT")
                         .HasColumnName("id");
 
                     b.Property<string>("BookName")
                         .IsRequired()
-                        .HasColumnType("text")
+                        .HasColumnType("TEXT")
                         .HasColumnName("book_name");
 
                     b.Property<string>("Category")
-                        .HasColumnType("text")
+                        .HasColumnType("TEXT")
                         .HasColumnName("category");
 
                     b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("TEXT")
                         .HasColumnName("created_at");
 
                     b.Property<string>("Description")
-                        .HasColumnType("text")
+                        .HasColumnType("TEXT")
                         .HasColumnName("description");
 
                     b.Property<int>("DisplayOrder")
-                        .HasColumnType("integer")
+                        .HasColumnType("INTEGER")
                         .HasColumnName("display_order");
 
                     b.Property<string>("EducationLevel")
-                        .HasColumnType("text")
+                        .HasColumnType("TEXT")
                         .HasColumnName("education_level");
 
                     b.Property<string>("Grade")
-                        .HasColumnType("text")
+                        .HasColumnType("TEXT")
                         .HasColumnName("grade");
 
                     b.Property<string>("IconUrl")
-                        .HasColumnType("text")
+                        .HasColumnType("TEXT")
                         .HasColumnName("icon_url");
 
                     b.Property<string>("Publisher")
-                        .HasColumnType("text")
+                        .HasColumnType("TEXT")
                         .HasColumnName("publisher");
 
                     b.Property<bool>("Status")
-                        .HasColumnType("boolean")
+                        .HasColumnType("INTEGER")
                         .HasColumnName("status");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("TEXT")
                         .HasColumnName("updated_at");
 
                     b.HasKey("Id");
@@ -81,24 +76,28 @@ namespace Ruoyu.Study.Vocabulary.Database.Migrations
             modelBuilder.Entity("Ruoyu.Study.Vocabulary.Database.Entities.VocabularyEntity", b =>
                 {
                     b.Property<string>("Id")
-                        .HasColumnType("text")
+                        .HasColumnType("TEXT")
                         .HasColumnName("id");
 
                     b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("TEXT")
                         .HasColumnName("created_at");
 
-                    b.Property<string>("Phonetic")
-                        .HasColumnType("text")
-                        .HasColumnName("phonetic");
+                    b.Property<string>("PhoneticUk")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("phonetic_uk");
+
+                    b.Property<string>("PhoneticUs")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("phonetic_us");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("TEXT")
                         .HasColumnName("updated_at");
 
                     b.Property<string>("Word")
                         .IsRequired()
-                        .HasColumnType("text")
+                        .HasColumnType("TEXT")
                         .HasColumnName("word");
 
                     b.HasKey("Id");
@@ -112,38 +111,52 @@ namespace Ruoyu.Study.Vocabulary.Database.Migrations
             modelBuilder.Entity("Ruoyu.Study.Vocabulary.Database.Entities.VocabularyMeaningEntity", b =>
                 {
                     b.Property<string>("Id")
-                        .HasColumnType("text")
+                        .HasColumnType("TEXT")
                         .HasColumnName("id");
 
                     b.Property<string>("BookId")
                         .IsRequired()
-                        .HasColumnType("text")
+                        .HasColumnType("TEXT")
                         .HasColumnName("book_id");
 
                     b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("TEXT")
                         .HasColumnName("created_at");
 
                     b.Property<string>("Example")
-                        .HasColumnType("text")
+                        .HasColumnType("TEXT")
                         .HasColumnName("example");
 
                     b.Property<string>("Meaning")
                         .IsRequired()
-                        .HasColumnType("text")
+                        .HasColumnType("TEXT")
                         .HasColumnName("meaning");
 
+                    b.Property<string>("NormalizedMeaning")
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("normalized_meaning")
+                        .HasComputedColumnSql("trim(meaning)", true);
+
+                    b.Property<string>("NormalizedPartOfSpeech")
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("normalized_part_of_speech")
+                        .HasComputedColumnSql("lower(trim(coalesce(part_of_speech, '')))", true);
+
                     b.Property<string>("PartOfSpeech")
-                        .HasColumnType("text")
+                        .HasColumnType("TEXT")
                         .HasColumnName("part_of_speech");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
+                        .HasColumnType("TEXT")
                         .HasColumnName("updated_at");
 
                     b.Property<string>("VocabularyId")
                         .IsRequired()
-                        .HasColumnType("text")
+                        .HasColumnType("TEXT")
                         .HasColumnName("vocabulary_id");
 
                     b.HasKey("Id");
@@ -151,6 +164,9 @@ namespace Ruoyu.Study.Vocabulary.Database.Migrations
                     b.HasIndex("VocabularyId");
 
                     b.HasIndex("BookId", "VocabularyId");
+
+                    b.HasIndex("VocabularyId", "BookId", "NormalizedPartOfSpeech", "NormalizedMeaning")
+                        .IsUnique();
 
                     b.ToTable("vocabulary_meaning");
                 });

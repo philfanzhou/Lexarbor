@@ -26,7 +26,21 @@ public class VocabularyDbContext : DbContext
         {
             entity.HasIndex(e => e.VocabularyId);
             entity.HasIndex(e => new { e.BookId, e.VocabularyId });
+            entity.HasIndex(e => new
+                {
+                    e.VocabularyId,
+                    e.BookId,
+                    e.NormalizedPartOfSpeech,
+                    e.NormalizedMeaning
+                })
+                .IsUnique();
             entity.Property(e => e.BookId).IsRequired();
+            entity.Property(e => e.NormalizedPartOfSpeech)
+                .HasComputedColumnSql(
+                    "lower(trim(coalesce(part_of_speech, '')))",
+                    stored: true);
+            entity.Property(e => e.NormalizedMeaning)
+                .HasComputedColumnSql("trim(meaning)", stored: true);
 
             entity.HasOne(e => e.Vocabulary)
                   .WithMany()

@@ -36,10 +36,39 @@ public class VocabularyDbContextModelTests
                 .SequenceEqual([nameof(VocabularyMeaningEntity.BookId), nameof(VocabularyMeaningEntity.VocabularyId)]));
     }
 
+    [Fact]
+    public void Meaning_HasUniqueNormalizedLogicalKey()
+    {
+        using var dbContext = CreateDbContext();
+        var entityType = dbContext.Model.FindEntityType(typeof(VocabularyMeaningEntity));
+
+        Assert.NotNull(entityType);
+        Assert.Contains(
+            entityType.GetIndexes(),
+            index => index.IsUnique &&
+                     index.Properties.Select(property => property.Name).SequenceEqual(
+                     [
+                         nameof(VocabularyMeaningEntity.VocabularyId),
+                         nameof(VocabularyMeaningEntity.BookId),
+                         nameof(VocabularyMeaningEntity.NormalizedPartOfSpeech),
+                         nameof(VocabularyMeaningEntity.NormalizedMeaning)
+                     ]));
+    }
+
+    [Fact]
+    public void Context_UsesSqliteProvider()
+    {
+        using var dbContext = CreateDbContext();
+
+        Assert.Equal(
+            "Microsoft.EntityFrameworkCore.Sqlite",
+            dbContext.Database.ProviderName);
+    }
+
     private static VocabularyDbContext CreateDbContext()
     {
         var options = new DbContextOptionsBuilder<VocabularyDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .UseSqlite("Data Source=:memory:")
             .Options;
 
         return new VocabularyDbContext(options);

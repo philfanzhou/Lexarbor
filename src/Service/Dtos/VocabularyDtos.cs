@@ -9,7 +9,8 @@ public class VocabularyDto
 {
     public string Id { get; set; } = string.Empty;
     public string Word { get; set; } = string.Empty;
-    public string? Phonetic { get; set; }
+    public string? PhoneticUk { get; set; }
+    public string? PhoneticUs { get; set; }
 
     [JsonPropertyName("meanings")]
     public List<VocabularyMeaningDto> Meanings { get; set; } = new();

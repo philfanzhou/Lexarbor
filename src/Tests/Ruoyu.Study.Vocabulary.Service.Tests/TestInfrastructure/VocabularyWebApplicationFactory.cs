@@ -4,6 +4,7 @@ using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -23,7 +24,7 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
     private readonly string _environment;
     private readonly bool _includeAppCredentials;
     private readonly string _provider;
-    private readonly string _databaseName;
+    private readonly SqliteConnection _databaseConnection;
 
     public VocabularyWebApplicationFactory()
         : this("Testing", includeAppCredentials: true)
@@ -38,7 +39,8 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
         _environment = environment;
         _includeAppCredentials = includeAppCredentials;
         _provider = provider;
-        _databaseName = $"vocabulary-http-{Guid.NewGuid():N}";
+        _databaseConnection = new SqliteConnection("Data Source=:memory:");
+        _databaseConnection.Open();
         Identity = new FakeIdentityState();
         Identity.AccessToken = CreateToken("admin");
     }
@@ -82,7 +84,7 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
         {
             configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["Database:InitializeOnStartup"] = "false",
+                ["Database:InitializeOnStartup"] = "true",
                 ["IdentityService:Authority"] = "http://identity.test",
                 ["IdentityService:Issuer"] = Issuer,
                 ["IdentityService:Audience"] = Audience,
@@ -107,7 +109,7 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
             services.RemoveAll<DbContextOptions<VocabularyDbContext>>();
             services.RemoveAll<VocabularyDbContext>();
             services.AddDbContext<VocabularyDbContext>(options =>
-                options.UseInMemoryDatabase(_databaseName));
+                options.UseSqlite(_databaseConnection));
 
             services.AddSingleton(Identity);
             services.AddTransient<FakeIdentityHandler>();
@@ -130,5 +132,14 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
                         new SymmetricSecurityKey(Encoding.UTF8.GetBytes(SigningSecret));
                 });
         });
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+        if (disposing)
+        {
+            _databaseConnection.Dispose();
+        }
     }
 }

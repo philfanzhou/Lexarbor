@@ -15,7 +15,7 @@
 - Moq 4.20.70
 - FluentAssertions 6.12.0
 - Microsoft.AspNetCore.Mvc.Testing 8.0.0（WebApplicationFactory 集成测试）
-- Microsoft.EntityFrameworkCore.InMemory 8.0.11（隔离 HTTP 测试数据库）
+- Microsoft.EntityFrameworkCore.Sqlite 8.0.11（Domain 与 HTTP 测试均运行真实 SQLite）
 - Mapster 10.0.7（Convertor 依赖）
 - coverlet.collector 6.0.0
 
@@ -69,8 +69,10 @@
 |------|------|
 | 词义到单词关系 | 必填外键，删除单词级联 |
 | 词义到词书关系 | 必填外键，删除词书 Restrict |
-| 历史异常数据 | `NOT VALID` 约束保护新写入，启动记录计数但不删除 |
-| 干净数据库 | 自动验证约束并设置 `book_id NOT NULL` |
+| 等价词义约束 | 规范化逻辑键唯一，进程内并发导入保持幂等 |
+| 首次启动 | 数据库文件不存在时迁移并写入 300 词启动词书 |
+| 已有数据库 | 只执行迁移，不重复写入启动词书 |
+| 音标 | DTO、模型和数据库均保留英式与美式两列 |
 
 ### HTTP 认证和信封
 
@@ -105,7 +107,7 @@ npm run build
 ## 约定
 
 - Convertor 测试采用直接调用 Mapster `Adapt<>` 方法验证字段映射正确性。
-- Domain 层测试采用「真实 DomainService + Mock 仓储接口」方式。
+- Domain 层测试采用真实 DomainService、真实仓储和 SQLite 内存或临时文件数据库。
 - Convertor 测试需要 `InternalsVisibleTo`，已在 Service 项目 .csproj 中配置。
 - 断言使用 FluentAssertions。
 - 不修改被测代码以适配测试；如需可测试性改进，先更新本文档再改代码。

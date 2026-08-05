@@ -14,7 +14,8 @@ const loading = ref(false)
 const form = ref({
   bookId: '',
   word: '',
-  phonetic: '',
+  phoneticUk: '',
+  phoneticUs: '',
   partOfSpeech: '',
   meaning: '',
   example: ''
@@ -40,7 +41,15 @@ async function loadBooks() {
 }
 
 function resetForm() {
-  form.value = { bookId: '', word: '', phonetic: '', partOfSpeech: '', meaning: '', example: '' }
+  form.value = {
+    bookId: '',
+    word: '',
+    phoneticUk: '',
+    phoneticUs: '',
+    partOfSpeech: '',
+    meaning: '',
+    example: ''
+  }
 }
 
 async function handleSubmit() {
@@ -48,7 +57,11 @@ async function handleSubmit() {
   loading.value = true
   try {
     await addVocabulary({
-      word: { word: form.value.word, phonetic: form.value.phonetic || undefined },
+      word: {
+        word: form.value.word,
+        phoneticUk: form.value.phoneticUk || undefined,
+        phoneticUs: form.value.phoneticUs || undefined
+      },
       meaning: {
         bookId: form.value.bookId,
         partOfSpeech: form.value.partOfSpeech || undefined,
@@ -104,8 +117,11 @@ onMounted(loadBooks)
         <el-form-item label="单词" prop="word">
           <el-input v-model="form.word" placeholder="如：apple" />
         </el-form-item>
-        <el-form-item label="音标" prop="phonetic">
-          <el-input v-model="form.phonetic" placeholder="如：/ˈæp.əl/" />
+        <el-form-item label="英式音标" prop="phoneticUk">
+          <el-input v-model="form.phoneticUk" placeholder="如：/ˈæp.əl/" />
+        </el-form-item>
+        <el-form-item label="美式音标" prop="phoneticUs">
+          <el-input v-model="form.phoneticUs" placeholder="如：/ˈæp.əl/" />
         </el-form-item>
         <el-form-item label="词性" prop="partOfSpeech">
           <el-select v-model="form.partOfSpeech" placeholder="请选择词性" clearable style="width: 100%">

@@ -34,6 +34,8 @@ public class PublicApiCompatibilityTests :
             var result = document.RootElement.GetProperty("data");
             result.TryGetProperty("id", out _).Should().BeTrue();
             result.TryGetProperty("word", out _).Should().BeTrue();
+            result.GetProperty("phoneticUk").GetString().Should().Be("/test-uk/");
+            result.GetProperty("phoneticUs").GetString().Should().Be("/test-us/");
             result.GetProperty("meanings").ValueKind.Should().Be(JsonValueKind.Array);
         }
     }
@@ -126,6 +128,8 @@ public class PublicApiCompatibilityTests :
             {
                 Id = currentWordId,
                 Word = $"compatibility-{index}-{suffix}",
+                PhoneticUk = "/test-uk/",
+                PhoneticUs = "/test-us/",
                 CreatedAt = now,
                 UpdatedAt = now
             });

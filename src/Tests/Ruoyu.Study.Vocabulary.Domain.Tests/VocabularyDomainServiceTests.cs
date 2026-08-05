@@ -24,7 +24,12 @@ public class VocabularyDomainServiceTests : TestBase
     public async Task AddOrUpdateAsync_NewWord_CreatesWordAndMeaning()
     {
         var book = await CreateBookAsync();
-        var vocabulary = new VocabularyModel { Word = "apple", Phonetic = "/ˈæp.əl/" };
+        var vocabulary = new VocabularyModel
+        {
+            Word = "apple",
+            PhoneticUk = "/ˈæp.əl/",
+            PhoneticUs = "/ˈæp.əl/"
+        };
         var meaning = new VocabularyMeaningModel
         {
             BookId = book.Id,
@@ -38,7 +43,8 @@ public class VocabularyDomainServiceTests : TestBase
         Assert.NotNull(word);
         Assert.NotEmpty(word.Id);
         Assert.Equal("apple", word.Word);
-        Assert.Equal("/ˈæp.əl/", word.Phonetic);
+        Assert.Equal("/ˈæp.əl/", word.PhoneticUk);
+        Assert.Equal("/ˈæp.əl/", word.PhoneticUs);
         Assert.NotNull(resultMeaning);
         Assert.Equal(word.Id, resultMeaning.VocabularyId);
         Assert.Equal("n.", resultMeaning.PartOfSpeech);
@@ -49,7 +55,12 @@ public class VocabularyDomainServiceTests : TestBase
     public async Task AddOrUpdateAsync_ExistingWord_UpdatesWordAndAddsNewMeaning()
     {
         var book = await CreateBookAsync();
-        var vocabulary = new VocabularyModel { Word = "apple", Phonetic = "/ˈæp.əl/" };
+        var vocabulary = new VocabularyModel
+        {
+            Word = "apple",
+            PhoneticUk = "/ˈæp.əl/",
+            PhoneticUs = "/ˈæp.əl/"
+        };
         var meaning1 = new VocabularyMeaningModel
         {
             BookId = book.Id,
@@ -58,7 +69,13 @@ public class VocabularyDomainServiceTests : TestBase
         };
         var (existingWord, _) = await _service.AddOrUpdateAsync(vocabulary, meaning1);
 
-        var updatedVocabulary = new VocabularyModel { Id = existingWord.Id, Word = "apple", Phonetic = "/ˈæp.əl/ (updated)" };
+        var updatedVocabulary = new VocabularyModel
+        {
+            Id = existingWord.Id,
+            Word = "apple",
+            PhoneticUk = "/ˈæp.əl/ updated/",
+            PhoneticUs = "/ˈæp.əl/ updated/"
+        };
         var meaning2 = new VocabularyMeaningModel
         {
             BookId = book.Id,
@@ -68,7 +85,8 @@ public class VocabularyDomainServiceTests : TestBase
         var (word, resultMeaning) = await _service.AddOrUpdateAsync(updatedVocabulary, meaning2);
 
         Assert.Equal(existingWord.Id, word.Id);
-        Assert.Equal("/ˈæp.əl/ (updated)", word.Phonetic);
+        Assert.Equal("/ˈæp.əl/ updated/", word.PhoneticUk);
+        Assert.Equal("/ˈæp.əl/ updated/", word.PhoneticUs);
         Assert.Equal("v.", resultMeaning.PartOfSpeech);
     }
 
@@ -76,7 +94,12 @@ public class VocabularyDomainServiceTests : TestBase
     public async Task AddOrUpdateAsync_ExistingMeaning_UpdatesMeaning()
     {
         var book = await CreateBookAsync();
-        var vocabulary = new VocabularyModel { Word = "book", Phonetic = "/bʊk/" };
+        var vocabulary = new VocabularyModel
+        {
+            Word = "book",
+            PhoneticUk = "/bʊk/",
+            PhoneticUs = "/bʊk/"
+        };
         var meaning = new VocabularyMeaningModel
         {
             BookId = book.Id,
@@ -104,7 +127,12 @@ public class VocabularyDomainServiceTests : TestBase
     public async Task GetDetailAsync_ExistingWord_ReturnsWordAndMeanings()
     {
         var book = await CreateBookAsync();
-        var vocabulary = new VocabularyModel { Word = "test", Phonetic = "/test/" };
+        var vocabulary = new VocabularyModel
+        {
+            Word = "test",
+            PhoneticUk = "/test/",
+            PhoneticUs = "/test/"
+        };
         var meaning = new VocabularyMeaningModel
         {
             BookId = book.Id,

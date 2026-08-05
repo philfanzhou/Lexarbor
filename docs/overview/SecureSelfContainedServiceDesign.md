@@ -2,9 +2,9 @@
 
 ## 1. 背景
 
-Vocabulary 服务位于 `src/services/ruoyu.vocabulary`，使用 .NET 8、ASP.NET Core Minimal API、EF Core 8、PostgreSQL、Vue 3、TypeScript、Element Plus 和 Vite。后端托管前端静态文件，Docker 镜像在构建时同时产出前后端。
+Vocabulary 服务位于 `src/services/ruoyu.vocabulary`，使用 .NET 8、ASP.NET Core Minimal API、EF Core 8、SQLite、Vue 3、TypeScript、Element Plus 和 Vite。后端托管前端静态文件，Docker 镜像在构建时同时产出前后端。
 
-当前实现存在以下需要一并解决的问题：
+本设计实施前存在以下问题，现均已按后续章节处理：
 
 - `/admin/*` 没有认证或角色校验。
 - 前端没有登录状态，匿名访问者可以直接看到并调用管理功能。
@@ -18,7 +18,7 @@ Vocabulary 服务位于 `src/services/ruoyu.vocabulary`，使用 .NET 8、ASP.NE
 - 仓库级 `PROJECT.md` 曾记录旧端口，与实际使用的 5008 不一致。
 - Vocabulary 缺少完整的正式文档入口和 `frontend/docs/frontend-spec.md`。
 
-本设计以保持既有四个 `/api/*` 业务接口兼容为前提，完善认证、数据边界、错误处理、查询性能、前端登录和验证体系。
+本设计保持既有四个 `/api/*` 业务接口的路径和业务行为，并完善认证、数据边界、错误处理、查询性能、前端登录和验证体系；后续 ADR-003 另行批准了单音标到英美双音标的字段变更。
 
 ## 2. 设计目标
 
@@ -26,10 +26,10 @@ Vocabulary 服务位于 `src/services/ruoyu.vocabulary`，使用 .NET 8、ASP.NE
 2. 管理页面通过 Vocabulary 后端代理 Identity 管理员登录。
 3. 只有 Identity JWT 中包含 `role=admin` 的用户可以访问管理接口。
 4. 前端不接触 Identity 地址、AppSecret、access token 或 refresh token。
-5. 保持既有 `/api/*` 路径、请求字段和响应数据结构。
-6. 为新写入建立可靠的单词、词义和词书约束，同时兼容历史异常数据。
+5. 保持既有 `/api/*` 路径和业务语义；音标字段按 ADR-003 变更为英美双字段。
+6. 为单词、词义和词书建立可靠的 SQLite 约束和首次建库流程。
 7. 所有 HTTP 结果使用统一 `VocabularyHttpResponse` 信封。
-8. 筛选、计数和分页尽量由 PostgreSQL 完成。
+8. 筛选、计数、分页和随机候选尽量由 SQLite 完成。
 
 ## 3. 非目标
 
@@ -38,7 +38,7 @@ Vocabulary 服务位于 `src/services/ruoyu.vocabulary`，使用 .NET 8、ASP.NE
 - 不为公开 `/api/*` 复用管理员 Cookie 作为服务间认证。
 - 不引入前端状态管理库或新的 UI 框架。
 - 不实现 refresh token 自动续期；管理员 JWT 过期后重新登录。
-- 不自动删除、伪造归属或静默重写历史孤儿词义。
+- 不提供 PostgreSQL 到 SQLite 的存量数据迁移；服务未上线，无存量数据库。
 
 ## 4. 总体架构
 
@@ -88,7 +88,7 @@ Vocabulary 后端使用以下配置：
 
 配置约定：
 
-- `IdentityService:*` 描述信任哪个签发方，由共享 Consul KV `config/ruoyu/service-endpoints.json` 提供（容器部署时 Authority 为 `http://ruoyu-identity:5002`），Consul 不可达时回退到 `appsettings.json` 的本地默认值 `http://localhost:5002`，不通过 `start.sh` 注入。
+- `IdentityService:*` 描述信任哪个签发方，由 appsettings、标准 .NET 环境变量或其他标准配置 Provider 提供；容器部署通过 `VOCABULARY_IDENTITY_AUTHORITY` 映射 Authority。
 - provider 凭据只从环境变量注入，不写入前端或仓库默认配置。
 - `AdminAuthentication:QuantumZhou:Authority` 可选；留空时回落到 `IdentityService:Authority`，用于登录端点与 JWKS 端点不同源的部署。
 - 服务在缺少 AppId/AppSecret 时仍可启动；生产登录请求返回统一信封的 503，并记录不含密钥的配置错误。
@@ -200,7 +200,7 @@ GET    /admin/vocabulary-books/{id}/words
 DELETE /admin/vocabulary-books/{id}
 ```
 
-## 7. 数据关系和兼容迁移
+## 7. 数据关系和 SQLite 初始迁移
 
 ### 7.1 正式关系
 
@@ -213,22 +213,11 @@ VocabularyBook 1 ─── * VocabularyMeaning * ─── 1 Vocabulary
 - 新增词义前必须确认词书存在且启用。
 - 公开详情和题目查询必须确认词书存在且启用。
 
-### 7.2 历史异常数据兼容
+### 7.2 单一初始迁移
 
-现有数据库可能包含 `BookId IS NULL` 或引用不存在词书的词义。迁移不得自动删除这些数据，也不得把它们挂到伪造词书。
+服务未上线且没有 PostgreSQL 存量数据，因此迁移历史重建为一个 SQLite `InitialCreate`。新数据库直接得到非空 `book_id`、双外键、删除行为、查询索引、英美音标列和等价词义唯一索引。EF Core 模型、迁移和模型快照必须保持一致。
 
-迁移采用以下步骤：
-
-1. 增加 `BookId IS NOT NULL` 的 `CHECK ... NOT VALID` 约束。
-2. 增加词义到词书的 `FOREIGN KEY ... ON DELETE RESTRICT NOT VALID` 约束。
-3. `NOT VALID` 约束立即限制所有新增和更新数据，但不扫描或阻断历史异常行。
-4. 如果迁移检测到历史数据干净，则验证约束，并将 `book_id` 收紧为数据库级 `NOT NULL`。
-5. 如果存在历史异常，则保留未验证约束，允许服务启动。
-6. 启动诊断记录空 `BookId`、孤儿 BookId、规范化后重复单词和重复词义的数量，不输出具体敏感数据。
-7. 所有公开查询通过有效且启用的词书关系取数，历史异常词义不可被公开 API 查询。
-8. 人工清理历史数据后，通过部署文档中的命令验证约束并收紧列。
-
-新建数据库直接得到非空 `book_id`、双外键、删除行为和查询索引。EF Core 模型、迁移、模型快照和 `DatabaseInitializer` 的建表 SQL 必须保持一致。
+启动时在迁移前判断数据库文件是否存在。文件不存在时，迁移后从内嵌 TSV 在一个事务中写入 300 词启动词书；已有文件只迁移，不重复写种子。
 
 ## 8. 单词和词义写入
 
@@ -242,8 +231,9 @@ normalizedWord = word.Trim().ToLowerInvariant()
 
 - 空白规范化结果返回 400。
 - 新单词以规范化值保存。
-- 查找历史单词时使用等价的数据库表达式，避免 `Apple`、` apple ` 和 `APPLE` 被重复导入。
-- 现有唯一索引继续保护新写入的规范化单词；历史规范化重复由启动诊断报告。
+- 查找单词时使用等价的数据库表达式，避免 `Apple`、` apple ` 和 `APPLE` 被重复导入。
+- 唯一索引保护规范化后的新写入单词。
+- 单词 DTO 使用 `phoneticUk` 和 `phoneticUs` 两个可空字符串；旧 `phonetic` 字段不再接受或返回。
 
 ### 8.2 新增与更新语义
 
@@ -254,8 +244,8 @@ normalizedWord = word.Trim().ToLowerInvariant()
 - 不允许通过词义 ID 把其他单词或其他词书的词义改写为当前数据。
 - 新增词义时词书不存在返回 404；词书已禁用返回 422。
 - 同一 `VocabularyId`、`BookId`、规范化词性和去除首尾空格后的释义视为同一词义。
-- 重复导入返回成功并复用原词义；提供了新的音标或例句时按既有更新语义更新，不新增重复行。
-- PostgreSQL 导入事务按等价词义逻辑键获取事务级 advisory lock，并在锁内重新查询，保证多实例并发导入不会同时提交重复词义；日志不记录逻辑键原文。
+- 重复导入返回成功并复用原词义；提供了新的英式音标、美式音标或例句时按既有更新语义更新，不新增重复行。
+- SQLite 部署限制为单实例。进程级写事务锁串行化管理写入，stored generated columns 上的逻辑键唯一索引提供数据库兜底。
 - 唯一约束冲突、并发重复或其他数据库一致性冲突返回 409。
 
 `Category` 继续使用现有字符串字段作为正式表示。与其不一致且未被使用的整数 `BookCategories` 常量类型删除，不再维护双重表示。
@@ -294,7 +284,7 @@ normalizedWord = word.Trim().ToLowerInvariant()
 8. 候选不足返回 422 和简洁业务错误。
 9. 最终四个选项随机排序。
 
-仓储查询在数据库侧按词书筛选、排除、去重和限量，使用 Npgsql 的 `EF.Functions.Random()` 映射 PostgreSQL `random()`。该方案适用于单本词书数万不同单词以内；如果单本词书增长到更大规模，应改为持久化随机键或预生成候选池，避免随机排序全部候选。
+仓储使用 SQLite `random()`、分组和窗口函数在数据库侧按词书筛选、排除、去重和限量。该方案适用于单本词书数万不同单词以内；如果单本词书增长到更大规模，应改为持久化随机键或预生成候选池，避免随机排序全部候选。
 
 ## 11. 查询和分页
 
@@ -385,10 +375,13 @@ normalizedWord = word.Trim().ToLowerInvariant()
   VOCABULARY_ADMIN_AUTH_PROVIDER（默认 QuantumZhou）→ AdminAuthentication__Provider
   VOCABULARY_IDENTITY_APP_ID → AdminAuthentication__QuantumZhou__AppId
   VOCABULARY_IDENTITY_APP_SECRET → AdminAuthentication__QuantumZhou__AppSecret
+  VOCABULARY_IDENTITY_AUTHORITY → IdentityService__Authority
   VOCABULARY_COOKIE_SECURE（默认 false）→ AdminAuthentication__CookieSecure
+  VOCABULARY_DATA_DIR（默认服务目录 data/）→ /app/data 持久卷
   ```
 
-- `IdentityService:Authority` 不再通过 `start.sh` 注入，统一由 Consul KV `config/ruoyu/service-endpoints.json` 提供（生产 = `http://ruoyu-identity:5002`），Consul 不可达时回退到 `appsettings.json` 的本地默认值 `http://localhost:5002`。
+- `IdentityService:Authority` 由普通配置提供；`start.sh` 默认使用 `http://ruoyu-identity:5002`，可通过 `VOCABULARY_IDENTITY_AUTHORITY` 覆盖。
+- 容器把 `VOCABULARY_DATA_DIR` 挂载到 `/app/data`，数据库连接串固定为 `Data Source=/app/data/vocabulary.db`。
 - AppId/AppSecret 由部署环境传入 Vocabulary，不打印到控制台。
 - TLS 部署设置 `AdminAuthentication__CookieSecure=true`。
 - `PROJECT.md` 中 Vocabulary 的协议端口、架构图和端口总表统一记录为 5008。
@@ -421,7 +414,7 @@ normalizedWord = word.Trim().ToLowerInvariant()
 - 空词书可以删除。
 - 禁用词书不出现在公开列表，公开详情和题目接口不能读取其词义。
 - EF 模型包含词义到单词和词书的双外键及正确删除行为。
-- PostgreSQL 可用时验证新数据库和历史异常数据库两类迁移路径。
+- 真实 SQLite 验证缺失数据库首次建库、300 词种子、已有数据库只迁移和并发幂等写入。
 
 ### 15.3 题目生成
 
@@ -454,4 +447,4 @@ npm run test:types
 npm run build
 ```
 
-在 Identity、PostgreSQL 和 Vocabulary 可运行时，补充登录、Cookie、登出、公开 API 和迁移状态的 HTTP smoke test。无法获得真实部署凭据时，自动化集成测试使用 fake Identity，不编造真实联调结果。
+在 Identity 和 Vocabulary 可运行时，补充登录、Cookie、登出、公开 API、持久卷和迁移状态的 HTTP smoke test。无法获得真实部署凭据时，自动化集成测试使用 fake Identity，不编造真实联调结果。

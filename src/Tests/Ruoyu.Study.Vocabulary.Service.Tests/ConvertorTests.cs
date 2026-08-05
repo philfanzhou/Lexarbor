@@ -25,14 +25,16 @@ public class ConvertorTests
         {
             Id = "vocab-1",
             Word = "apple",
-            Phonetic = "ˈæpəl"
+            PhoneticUk = "ˈæpəl",
+            PhoneticUs = "ˈæpəl"
         };
 
         var model = dto.ToEntity();
 
         model.Id.Should().Be("vocab-1");
         model.Word.Should().Be("apple");
-        model.Phonetic.Should().Be("ˈæpəl");
+        model.PhoneticUk.Should().Be("ˈæpəl");
+        model.PhoneticUs.Should().Be("ˈæpəl");
     }
 
     [Fact]
@@ -42,7 +44,8 @@ public class ConvertorTests
         {
             Id = "vocab-1",
             Word = "apple",
-            Phonetic = "ˈæpəl",
+            PhoneticUk = "ˈæpəl",
+            PhoneticUs = "ˈæpəl",
             CreatedAt = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero),
             UpdatedAt = new DateTimeOffset(2026, 1, 2, 0, 0, 0, TimeSpan.Zero)
         };
@@ -51,13 +54,20 @@ public class ConvertorTests
 
         dto.Id.Should().Be("vocab-1");
         dto.Word.Should().Be("apple");
-        dto.Phonetic.Should().Be("ˈæpəl");
+        dto.PhoneticUk.Should().Be("ˈæpəl");
+        dto.PhoneticUs.Should().Be("ˈæpəl");
     }
 
     [Fact]
     public void ToDto_VocabularyModel_MeaningsListStartsEmpty()
     {
-        var model = new VocabularyModel { Id = "v1", Word = "test", Phonetic = "" };
+        var model = new VocabularyModel
+        {
+            Id = "v1",
+            Word = "test",
+            PhoneticUk = "",
+            PhoneticUs = ""
+        };
 
         var dto = model.ToDto();
 
@@ -189,14 +199,16 @@ public class ConvertorTests
         {
             Id = "",
             Word = "",
-            Phonetic = ""
+            PhoneticUk = "",
+            PhoneticUs = ""
         };
 
         var model = dto.ToEntity();
 
         model.Id.Should().BeEmpty();
         model.Word.Should().BeEmpty();
-        model.Phonetic.Should().BeEmpty();
+        model.PhoneticUk.Should().BeEmpty();
+        model.PhoneticUs.Should().BeEmpty();
     }
 
     [Fact]

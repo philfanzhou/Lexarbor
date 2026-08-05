@@ -22,7 +22,7 @@ public class VocabularyBookDomainService
         return _bookRepository.GetActiveAsync();
     }
 
-    public Task<List<VocabularyBookModel>> GetByCategoryAsync(string category, string? grade)
+    public Task<List<VocabularyBookModel>> GetByCategoryAsync(string? category, string? grade)
     {
         return _bookRepository.GetByCategoryAsync(category, grade);
     }
@@ -33,11 +33,11 @@ public class VocabularyBookDomainService
     }
 
     public Task<(List<VocabularyBookModel> Items, int TotalCount)> SearchAsync(
-        string keyword,
+        string? keyword,
         int page,
         int size)
     {
-        return _bookRepository.SearchAsync(keyword ?? string.Empty, page, size);
+        return _bookRepository.SearchAsync(keyword, page, size);
     }
 
     public async Task<VocabularyBookModel> AddOrUpdateAsync(VocabularyBookModel book)

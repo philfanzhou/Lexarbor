@@ -20,9 +20,9 @@ public sealed class AdminAuthenticationOptions
 }
 
 /// <summary>
-/// Credentials for the QuantumZhou.Identity provider. Kept out of the shared
-/// <c>IdentityService</c> section because that section is published to every service via
-/// Consul KV, while these are provider specific secrets injected per deployment.
+/// Credentials for the QuantumZhou.Identity provider. Kept out of the
+/// <c>IdentityService</c> trust section because these are provider-specific secrets
+/// injected per deployment.
 /// </summary>
 public sealed class QuantumZhouProviderOptions
 {

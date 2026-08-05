@@ -1,5 +1,5 @@
 using Microsoft.EntityFrameworkCore;
-using Npgsql;
+using Microsoft.Data.Sqlite;
 using Ruoyu.Study.Vocabulary.Domain.Exceptions;
 using Ruoyu.Study.Vocabulary.Domain.Repositories;
 
@@ -7,6 +7,7 @@ namespace Ruoyu.Study.Vocabulary.Database.Repositories;
 
 public class UnitOfWork : IUnitOfWork
 {
+    private static readonly SemaphoreSlim WriteLock = new(1, 1);
     private readonly VocabularyDbContext _dbContext;
 
     public UnitOfWork(VocabularyDbContext dbContext)
@@ -16,16 +17,19 @@ public class UnitOfWork : IUnitOfWork
 
     public async Task<T> ExecuteInTransactionAsync<T>(Func<Task<T>> action)
     {
-        if (!_dbContext.Database.IsRelational())
+        await WriteLock.WaitAsync();
+        try
         {
-            return await action();
+            await using var transaction =
+                await _dbContext.Database.BeginTransactionAsync();
+            var result = await action();
+            await transaction.CommitAsync();
+            return result;
         }
-
-        await using var transaction =
-            await _dbContext.Database.BeginTransactionAsync();
-        var result = await action();
-        await transaction.CommitAsync();
-        return result;
+        finally
+        {
+            WriteLock.Release();
+        }
     }
 
     public async Task<int> SaveChangesAsync()
@@ -35,10 +39,7 @@ public class UnitOfWork : IUnitOfWork
             return await _dbContext.SaveChangesAsync();
         }
         catch (DbUpdateException exception)
-            when (exception.InnerException is PostgresException
-            {
-                SqlState: PostgresErrorCodes.UniqueViolation or PostgresErrorCodes.ForeignKeyViolation
-            })
+            when (exception.InnerException is SqliteException { SqliteErrorCode: 19 })
         {
             throw new ConflictException(
                 "The requested vocabulary data conflicts with existing data.",

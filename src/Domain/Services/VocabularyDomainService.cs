@@ -42,7 +42,7 @@ public class VocabularyDomainService
     }
 
     public Task<(List<VocabularyModel> Items, int TotalCount)> SearchAsync(
-        string keyword,
+        string? keyword,
         int page,
         int size)
     {
@@ -69,11 +69,6 @@ public class VocabularyDomainService
             }
 
             var existingVocabulary = await ResolveVocabularyAsync(vocabulary, normalizedWord);
-            await _meaningRepository.AcquireEquivalentMeaningLockAsync(
-                existingVocabulary.Id,
-                bookId,
-                normalizedPartOfSpeech,
-                normalizedMeaning);
             var existingMeaning = await ResolveMeaningAsync(
                 meaning,
                 existingVocabulary.Id,
@@ -195,10 +190,17 @@ public class VocabularyDomainService
             changed = true;
         }
 
-        if (requested.Phonetic != null &&
-            !string.Equals(existing.Phonetic, requested.Phonetic, StringComparison.Ordinal))
+        if (requested.PhoneticUk != null &&
+            !string.Equals(existing.PhoneticUk, requested.PhoneticUk, StringComparison.Ordinal))
         {
-            existing.Phonetic = requested.Phonetic;
+            existing.PhoneticUk = requested.PhoneticUk;
+            changed = true;
+        }
+
+        if (requested.PhoneticUs != null &&
+            !string.Equals(existing.PhoneticUs, requested.PhoneticUs, StringComparison.Ordinal))
+        {
+            existing.PhoneticUs = requested.PhoneticUs;
             changed = true;
         }
 

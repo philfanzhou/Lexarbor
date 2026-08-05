@@ -23,6 +23,12 @@ public class VocabularyMeaningEntity
     [Column("meaning")]
     public string Meaning { get; set; } = string.Empty;
 
+    [Column("normalized_part_of_speech")]
+    public string NormalizedPartOfSpeech { get; private set; } = string.Empty;
+
+    [Column("normalized_meaning")]
+    public string NormalizedMeaning { get; private set; } = string.Empty;
+
     [Column("example")]
     public string? Example { get; set; }
 
