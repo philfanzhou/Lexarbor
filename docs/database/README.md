@@ -16,22 +16,13 @@ vocabulary_book (1) <-[RESTRICT]- vocabulary_meaning -[CASCADE]-> (1) vocabulary
 
 删除单词时通过 `ON DELETE CASCADE` 清理词义。删除词书使用 `ON DELETE RESTRICT`；存在关联词义时业务层返回 409，管理员应将词书设置为禁用。
 
-## 历史数据兼容
+## 约束建立方式
 
-旧表允许 `book_id` 为空且没有词书外键。升级时：
+`book_id` 的非空约束、指向词书的外键和 `(book_id, vocabulary_id)` 复合索引由迁移 `20260729090000_MeaningBookIntegrity` 建立；表缺失时由 `DatabaseInitializer` 的建表 SQL 直接以强形式建立。
 
-1. 添加 `book_id IS NOT NULL` 的 `CHECK ... NOT VALID` 约束。
-2. 添加词书外键 `ON DELETE RESTRICT NOT VALID`。
-3. 新写入立即受约束，历史异常行不会被自动删除或改写。
-4. 历史数据干净时自动验证约束并设置列级 `NOT NULL`。
-5. 存在空 BookId 或孤儿 BookId 时继续启动，仅记录异常数量；公开查询必须通过有效且启用的词书关系取数。
+启动时不执行存量数据修复，也不执行完整性诊断。该机制原为 PostgreSQL 存量脏数据设计，服务未上线因而不存在此类存量，相关代码与测试已移除，渐进式约束收紧逻辑仅保留在上述迁移内。存储改为 SQLite 后该迁移将一并重建，见 [ADR-003](../adr/ADR-003-sqlite-only-storage.md)。
 
-服务启动诊断只记录以下计数，不记录具体词义内容：
-
-- 空 BookId；
-- 孤儿 BookId；
-- 规范化后重复单词组；
-- 同一单词、词书、规范化词性和释义的重复词义组。
+公开查询仍必须通过有效且启用的词书关系取数。
 
 ## 写入一致性
 
