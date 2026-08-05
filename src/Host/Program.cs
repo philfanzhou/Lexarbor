@@ -1,5 +1,8 @@
 using System.Data.Common;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
@@ -12,6 +15,7 @@ using Ruoyu.Study.Vocabulary.Database.Repositories;
 using Ruoyu.Study.Vocabulary.Domain.Repositories;
 using Ruoyu.Study.Vocabulary.Domain.Services;
 using Ruoyu.Study.Vocabulary.Host.Authentication;
+using Ruoyu.Study.Vocabulary.Host.Authentication.Providers;
 using Ruoyu.Study.Vocabulary.Service;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -68,14 +72,46 @@ builder.Services.Configure<IdentityServiceOptions>(
     builder.Configuration.GetSection(IdentityServiceOptions.SectionName));
 builder.Services.Configure<AdminAuthenticationOptions>(
     builder.Configuration.GetSection(AdminAuthenticationOptions.SectionName));
+builder.Services.Configure<QuantumZhouProviderOptions>(
+    builder.Configuration.GetSection(QuantumZhouProviderOptions.SectionName));
+builder.Services.Configure<OidcProviderOptions>(
+    builder.Configuration.GetSection(OidcProviderOptions.SectionName));
+
+// Login and JWKS need not share a host, so the provider may override the base address.
+// Providers that resolve an absolute token endpoint ignore it.
 builder.Services.AddHttpClient(
-    IdentityTokenClient.HttpClientName,
-    client =>
+    AdminAuthenticationHttpClient.Name,
+    (serviceProvider, client) =>
     {
-        client.BaseAddress = new Uri($"{identityOptions.Authority.TrimEnd('/')}/");
+        var providerOptions = serviceProvider
+            .GetRequiredService<IOptions<QuantumZhouProviderOptions>>().Value;
+        var identity = serviceProvider
+            .GetRequiredService<IOptions<IdentityServiceOptions>>().Value;
+        var authority = string.IsNullOrWhiteSpace(providerOptions.Authority)
+            ? identity.Authority
+            : providerOptions.Authority;
+        if (!string.IsNullOrWhiteSpace(authority))
+        {
+            client.BaseAddress = new Uri($"{authority.TrimEnd('/')}/");
+        }
+
         client.Timeout = TimeSpan.FromSeconds(30);
     });
-builder.Services.AddScoped<IIdentityTokenClient, IdentityTokenClient>();
+
+// Selection is resolved from options rather than from the configuration read above:
+// values injected by a test host are not visible until builder.Build() runs, and a
+// provider switch that cannot be exercised in tests is a provider switch nobody checks.
+builder.Services.AddScoped<QuantumZhouIdentityAuthenticator>();
+builder.Services.AddScoped<OidcPasswordAuthenticator>();
+builder.Services.AddScoped<IAdminCredentialAuthenticator>(serviceProvider =>
+{
+    var options = serviceProvider
+        .GetRequiredService<IOptions<AdminAuthenticationOptions>>().Value;
+    return options.Provider == AdminAuthenticationProvider.Oidc
+        ? serviceProvider.GetRequiredService<OidcPasswordAuthenticator>()
+        : serviceProvider.GetRequiredService<QuantumZhouIdentityAuthenticator>();
+});
+
 builder.Services.AddScoped<AdminAccessTokenValidator>();
 
 builder.Services
@@ -94,8 +130,8 @@ builder.Services
             ValidAudience = identityOptions.Audience,
             ValidateLifetime = true,
             ClockSkew = TimeSpan.FromSeconds(30),
-            RoleClaimType = "role",
-            NameClaimType = "preferred_username"
+            RoleClaimType = ClaimTypes.Role,
+            NameClaimType = ClaimTypes.Name
         };
         options.Events = new JwtBearerEvents
         {
@@ -137,12 +173,13 @@ builder.Services
             }
         };
     });
+builder.Services.AddSingleton<IAuthorizationHandler, AdminRoleHandler>();
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("VocabularyAdmin", policy =>
     {
         policy.RequireAuthenticatedUser();
-        policy.RequireRole("admin");
+        policy.AddRequirements(new AdminRoleRequirement());
     });
 });
 
@@ -171,12 +208,17 @@ app.Logger.LogInformation(
     StartupDiagnosticsFormatter.SummarizePassword(builder.Configuration["PostgreSql:Password"]),
     StartupDiagnosticsFormatter.SummarizeValue(builder.Configuration["Database:Name"]));
 if (!app.Environment.IsDevelopment() &&
-    !app.Environment.IsEnvironment("Testing") &&
-    (string.IsNullOrWhiteSpace(identityOptions.AppId) ||
-     string.IsNullOrWhiteSpace(identityOptions.AppSecret)))
+    !app.Environment.IsEnvironment("Testing"))
 {
-    app.Logger.LogError(
-        "Administrator login is not configured because Identity service application credentials are missing. The service will continue running.");
+    using var credentialScope = app.Services.CreateScope();
+    var authenticator = credentialScope.ServiceProvider
+        .GetRequiredService<IAdminCredentialAuthenticator>();
+    if (!authenticator.IsConfigured)
+    {
+        app.Logger.LogError(
+            "Administrator login is not configured because the {Provider} provider is missing credentials. The service will continue running.",
+            adminAuthenticationOptions.Provider);
+    }
 }
 
 // Configure database initialization.

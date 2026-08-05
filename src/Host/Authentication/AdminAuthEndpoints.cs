@@ -18,9 +18,8 @@ public static class AdminAuthEndpoints
     private static async Task<IResult> LoginAsync(
         AdminLoginRequest request,
         HttpContext context,
-        IIdentityTokenClient identityTokenClient,
+        IAdminCredentialAuthenticator authenticator,
         AdminAccessTokenValidator accessTokenValidator,
-        IOptions<IdentityServiceOptions> identityOptions,
         IOptions<AdminAuthenticationOptions> authenticationOptions,
         IHostEnvironment environment,
         CancellationToken cancellationToken)
@@ -31,76 +30,65 @@ public static class AdminAuthEndpoints
             return VocabularyHttpResponse.BadRequest("Username and password are required.");
         }
 
-        var identity = identityOptions.Value;
-        if (!environment.IsDevelopment() &&
-            !environment.IsEnvironment("Testing") &&
-            (string.IsNullOrWhiteSpace(identity.AppId) ||
-             string.IsNullOrWhiteSpace(identity.AppSecret)))
+        var adminAuthentication = authenticationOptions.Value;
+        if (!authenticator.IsConfigured &&
+            !environment.IsDevelopment() &&
+            !environment.IsEnvironment("Testing"))
         {
             return VocabularyHttpResponse.ServiceUnavailable(
                 "Administrator login is not configured.");
         }
 
-        var result = await identityTokenClient.LoginAsync(
+        var result = await authenticator.AuthenticateAsync(
             request.Username,
             request.Password,
             cancellationToken);
-        if (result.Status == IdentityLoginStatus.InvalidCredentials)
+        if (result.Status == AdminCredentialStatus.InvalidCredentials)
         {
             return VocabularyHttpResponse.Unauthorized("Invalid username or password.");
         }
 
-        if (result.Status == IdentityLoginStatus.Unavailable ||
-            result.TokenResponse?.UserInfo == null)
+        if (result.Status != AdminCredentialStatus.Success ||
+            string.IsNullOrWhiteSpace(result.AccessToken))
         {
             return VocabularyHttpResponse.BadGateway(
-                "Identity service is unavailable.");
+                "The authentication provider is unavailable.");
         }
 
-        var token = result.TokenResponse;
         var principal = await accessTokenValidator.ValidateAsync(
-            token.AccessToken,
+            result.AccessToken,
             cancellationToken);
         if (principal == null)
         {
             return VocabularyHttpResponse.BadGateway(
-                "Identity service returned an invalid access token.");
+                "The authentication provider returned an invalid access token.");
         }
 
-        if (!principal.IsInRole("admin"))
+        if (!VocabularyClaims.HasRole(principal, adminAuthentication.RequiredRole))
         {
             return VocabularyHttpResponse.Forbidden("Administrator role is required.");
         }
 
-        var adminAuthentication = authenticationOptions.Value;
         context.Response.Cookies.Append(
             adminAuthentication.CookieName,
-            token.AccessToken,
+            result.AccessToken,
             CreateCookieOptions(
                 adminAuthentication,
-                token.ExpiresIn > 0
-                    ? TimeSpan.FromSeconds(token.ExpiresIn)
-                    : TimeSpan.FromHours(1)));
+                result.ExpiresIn ?? TimeSpan.FromHours(1)));
 
+        // Every field here comes from the validated token. Whatever the provider claimed
+        // about the user in its own response envelope is never echoed back.
         return VocabularyHttpResponse.Ok(new
         {
-            username =
-                principal.FindFirstValue("preferred_username") ??
-                principal.Identity?.Name ??
-                principal.FindFirstValue("sub") ??
-                token.UserInfo.Username,
-            roles = principal.FindAll("role").Select(claim => claim.Value).ToArray()
+            username = VocabularyClaims.GetDisplayName(principal) ?? string.Empty,
+            roles = VocabularyClaims.GetRoles(principal)
         });
     }
 
     private static IResult GetSession(ClaimsPrincipal user)
     {
-        var username =
-            user.FindFirstValue("preferred_username") ??
-            user.Identity?.Name ??
-            user.FindFirstValue("sub") ??
-            string.Empty;
-        var roles = user.FindAll("role").Select(claim => claim.Value).ToArray();
+        var username = VocabularyClaims.GetDisplayName(user) ?? string.Empty;
+        var roles = VocabularyClaims.GetRoles(user);
         return VocabularyHttpResponse.Ok(new { username, roles });
     }
 

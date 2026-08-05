@@ -6,5 +6,6 @@ Vocabulary 是自包含词汇管理服务：后端、Vue 管理页面、静态�
 
 - [安全自包含服务设计](./overview/SecureSelfContainedServiceDesign.md)
 - [总览文档](./overview/README.md)
+- [架构决策记录](./adr/ADR-001-pluggable-admin-authentication.md)
 - [数据库事实](./database/README.md)
 - [开发文档](./development/README.md)

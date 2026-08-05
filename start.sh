@@ -12,6 +12,7 @@ Port="5008"
 
 CONSUL_HTTP_ADDR="${CONSUL_HTTP_ADDR:-host.docker.internal:8500}"
 CONSUL_TOKEN="${CONSUL_TOKEN:-}"
+ADMIN_AUTH_PROVIDER="${VOCABULARY_ADMIN_AUTH_PROVIDER:-QuantumZhou}"
 IDENTITY_APP_ID="${VOCABULARY_IDENTITY_APP_ID:-}"
 IDENTITY_APP_SECRET="${VOCABULARY_IDENTITY_APP_SECRET:-}"
 COOKIE_SECURE="${VOCABULARY_COOKIE_SECURE:-false}"
@@ -39,8 +40,9 @@ docker run -d \
   -e CONSUL_HTTP_ADDR="${CONSUL_HTTP_ADDR}" \
   -e CONSUL_TOKEN="${CONSUL_TOKEN}" \
   -e Database__Name="${DB_NAME}" \
-  -e IdentityService__AppId="${IDENTITY_APP_ID}" \
-  -e IdentityService__AppSecret="${IDENTITY_APP_SECRET}" \
+  -e AdminAuthentication__Provider="${ADMIN_AUTH_PROVIDER}" \
+  -e AdminAuthentication__QuantumZhou__AppId="${IDENTITY_APP_ID}" \
+  -e AdminAuthentication__QuantumZhou__AppSecret="${IDENTITY_APP_SECRET}" \
   -e AdminAuthentication__CookieSecure="${COOKIE_SECURE}" \
   "$IMAGE_NAME"
 

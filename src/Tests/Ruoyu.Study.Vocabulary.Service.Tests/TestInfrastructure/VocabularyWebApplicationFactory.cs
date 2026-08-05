@@ -22,6 +22,7 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
 
     private readonly string _environment;
     private readonly bool _includeAppCredentials;
+    private readonly string _provider;
     private readonly string _databaseName;
 
     public VocabularyWebApplicationFactory()
@@ -31,10 +32,12 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
 
     internal VocabularyWebApplicationFactory(
         string environment,
-        bool includeAppCredentials)
+        bool includeAppCredentials,
+        string provider = "QuantumZhou")
     {
         _environment = environment;
         _includeAppCredentials = includeAppCredentials;
+        _provider = provider;
         _databaseName = $"vocabulary-http-{Guid.NewGuid():N}";
         Identity = new FakeIdentityState();
         Identity.AccessToken = CreateToken("admin");
@@ -42,14 +45,21 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
 
     public FakeIdentityState Identity { get; }
 
+    /// <summary>
+    /// Mints a token in the exact shape QuantumZhou.Identity produces: it builds its
+    /// JwtPayload directly, bypassing the outbound claim type map, so claims keep their
+    /// full ClaimTypes URIs instead of the short JWT names. Emitting short names here
+    /// would make these tests assert a contract the real issuer does not implement.
+    /// </summary>
     public string CreateToken(params string[] roles)
     {
         var claims = new List<Claim>
         {
-            new(JwtRegisteredClaimNames.Sub, "identity-user"),
-            new("preferred_username", "test-user")
+            new(ClaimTypes.NameIdentifier, "identity-user"),
+            new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            new(ClaimTypes.Name, "test-user")
         };
-        claims.AddRange(roles.Select(role => new Claim("role", role)));
+        claims.AddRange(roles.Select(role => new Claim(ClaimTypes.Role, role)));
 
         var credentials = new SigningCredentials(
             new SymmetricSecurityKey(Encoding.UTF8.GetBytes(SigningSecret)),
@@ -75,10 +85,19 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
                 ["IdentityService:Authority"] = "http://identity.test",
                 ["IdentityService:Issuer"] = Issuer,
                 ["IdentityService:Audience"] = Audience,
-                ["IdentityService:AppId"] = _includeAppCredentials ? "vocabulary-app" : string.Empty,
-                ["IdentityService:AppSecret"] = _includeAppCredentials ? "vocabulary-secret" : string.Empty,
                 ["AdminAuthentication:CookieName"] = CookieName,
-                ["AdminAuthentication:CookieSecure"] = "false"
+                ["AdminAuthentication:CookieSecure"] = "false",
+                ["AdminAuthentication:Provider"] = _provider,
+                ["AdminAuthentication:QuantumZhou:AppId"] =
+                    _includeAppCredentials ? "vocabulary-app" : string.Empty,
+                ["AdminAuthentication:QuantumZhou:AppSecret"] =
+                    _includeAppCredentials ? "vocabulary-secret" : string.Empty,
+                ["AdminAuthentication:Oidc:TokenEndpoint"] =
+                    "http://identity.test/protocol/openid-connect/token",
+                ["AdminAuthentication:Oidc:ClientId"] =
+                    _includeAppCredentials ? "vocabulary-client" : string.Empty,
+                ["AdminAuthentication:Oidc:ClientSecret"] =
+                    _includeAppCredentials ? "vocabulary-client-secret" : string.Empty
             });
         });
 
@@ -98,23 +117,16 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
                 JwtBearerDefaults.AuthenticationScheme,
                 options =>
                 {
+                    // Swap the signing key and cut the network metadata lookup, but keep
+                    // the validation parameters Program.cs built. Replacing them wholesale
+                    // let the double drift away from production claim types, which is how
+                    // the role-claim mismatch stayed green.
                     options.Authority = null;
                     options.MetadataAddress = null!;
                     options.ConfigurationManager = null!;
-                    options.TokenValidationParameters = new TokenValidationParameters
-                    {
-                        ValidateIssuer = true,
-                        ValidIssuer = Issuer,
-                        ValidateAudience = true,
-                        ValidAudience = Audience,
-                        ValidateLifetime = true,
-                        ValidateIssuerSigningKey = true,
-                        IssuerSigningKey = new SymmetricSecurityKey(
-                            Encoding.UTF8.GetBytes(SigningSecret)),
-                        ClockSkew = TimeSpan.FromSeconds(30),
-                        RoleClaimType = "role",
-                        NameClaimType = "preferred_username"
-                    };
+                    options.TokenValidationParameters.ValidateIssuerSigningKey = true;
+                    options.TokenValidationParameters.IssuerSigningKey =
+                        new SymmetricSecurityKey(Encoding.UTF8.GetBytes(SigningSecret));
                 });
         });
     }

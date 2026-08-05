@@ -67,22 +67,33 @@ Vocabulary 后端使用以下配置：
   "IdentityService": {
     "Authority": "http://localhost:5002",
     "Issuer": "QuantumZhou.Identity",
-    "Audience": "QuantumZhou.microservices",
-    "AppId": "",
-    "AppSecret": ""
+    "Audience": "QuantumZhou.microservices"
   },
   "AdminAuthentication": {
     "CookieName": "ruoyuVocabularyAdmin",
-    "CookieSecure": false
+    "CookieSecure": false,
+    "Provider": "QuantumZhou",
+    "RequiredRole": "admin",
+    "QuantumZhou": {
+      "TokenPath": "/api/auth/token"
+    }
   }
 }
 ```
 
-- `Authority` 由 Consul KV `config/ruoyu/service-endpoints.json` 提供（容器部署时为 `http://ruoyu-identity:5002`），Consul 不可达时回退到 `appsettings.json` 的本地默认值 `http://localhost:5002`，不再通过 `start.sh` 环境变量注入。
-- `AppId` 和 `AppSecret` 只从环境变量注入，不写入前端或仓库默认配置。
+管理员登录通过 `IAdminCredentialAuthenticator` 抽象，由 `AdminAuthentication:Provider` 选择实现，详见 [ADR-001](../adr/ADR-001-pluggable-admin-authentication.md)：
+
+- `QuantumZhou`（默认）：Identity 私有的 `POST /api/auth/token` 契约，凭据取自 `AdminAuthentication:QuantumZhou:{AppId,AppSecret}`。
+- `Oidc`：标准 OAuth2 password grant，配置在 `AdminAuthentication:Oidc:{TokenEndpoint,ClientId,ClientSecret,Scope}`；`TokenEndpoint` 留空时从 discovery 文档解析。
+
+配置约定：
+
+- `IdentityService:*` 描述信任哪个签发方，由共享 Consul KV `config/ruoyu/service-endpoints.json` 提供（容器部署时 Authority 为 `http://ruoyu-identity:5002`），Consul 不可达时回退到 `appsettings.json` 的本地默认值 `http://localhost:5002`，不通过 `start.sh` 注入。
+- provider 凭据只从环境变量注入，不写入前端或仓库默认配置。
+- `AdminAuthentication:QuantumZhou:Authority` 可选；留空时回落到 `IdentityService:Authority`，用于登录端点与 JWKS 端点不同源的部署。
 - 服务在缺少 AppId/AppSecret 时仍可启动；生产登录请求返回统一信封的 503，并记录不含密钥的配置错误。
 - `Issuer`、`Audience`、签名、公钥轮换和过期时间由 JWT Bearer 校验。
-- JWT 关闭入站 claim 映射并显式使用 `role` 作为角色 claim，管理员策略要求 `admin`。
+- JWT 关闭入站 claim 映射。角色 claim 同时接受短名 `role` 和完整的 `ClaimTypes.Role` URI：QuantumZhou.Identity 直接构造 `JwtPayload`，绕过 outbound claim 类型映射，因此签发的是 URI 形态；标准 OIDC provider 签发短名。管理员策略要求 `AdminAuthentication:RequiredRole`（默认 `admin`），由 `AdminRoleHandler` 在评估时读取。
 - 本地 HTTP 开发环境允许 `CookieSecure=false`；TLS 部署必须配置为 `true`。
 
 ### 5.2 登录流程
@@ -371,8 +382,9 @@ normalizedWord = word.Trim().ToLowerInvariant()
 - `start.sh` 默认把部署变量映射为 .NET 配置：
 
   ```text
-  VOCABULARY_IDENTITY_APP_ID → IdentityService__AppId
-  VOCABULARY_IDENTITY_APP_SECRET → IdentityService__AppSecret
+  VOCABULARY_ADMIN_AUTH_PROVIDER（默认 QuantumZhou）→ AdminAuthentication__Provider
+  VOCABULARY_IDENTITY_APP_ID → AdminAuthentication__QuantumZhou__AppId
+  VOCABULARY_IDENTITY_APP_SECRET → AdminAuthentication__QuantumZhou__AppSecret
   VOCABULARY_COOKIE_SECURE（默认 false）→ AdminAuthentication__CookieSecure
   ```
 

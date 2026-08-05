@@ -28,14 +28,22 @@ Dockerfile 先构建 Vue 前端，再发布 .NET 后端，并把前端产物复�
 | `IdentityService:Authority` | 是 | `http://localhost:5002` | Consul KV `config/ruoyu/service-endpoints.json` |
 | `IdentityService:Issuer` | 是 | `QuantumZhou.Identity` | 配置 |
 | `IdentityService:Audience` | 是 | `QuantumZhou.microservices` | 配置 |
-| `IdentityService:AppId` | 生产是 | 空 | `VOCABULARY_IDENTITY_APP_ID` |
-| `IdentityService:AppSecret` | 生产是 | 空 | `VOCABULARY_IDENTITY_APP_SECRET` |
+| `AdminAuthentication:Provider` | 是 | `QuantumZhou` | `VOCABULARY_ADMIN_AUTH_PROVIDER` |
+| `AdminAuthentication:RequiredRole` | 是 | `admin` | 配置 |
+| `AdminAuthentication:QuantumZhou:AppId` | 生产是 | 空 | `VOCABULARY_IDENTITY_APP_ID` |
+| `AdminAuthentication:QuantumZhou:AppSecret` | 生产是 | 空 | `VOCABULARY_IDENTITY_APP_SECRET` |
+| `AdminAuthentication:QuantumZhou:Authority` | 否 | 空（回落到 `IdentityService:Authority`） | 配置 |
+| `AdminAuthentication:QuantumZhou:TokenPath` | 否 | `/api/auth/token` | 配置 |
 | `AdminAuthentication:CookieName` | 是 | `ruoyuVocabularyAdmin` | 配置 |
 | `AdminAuthentication:CookieSecure` | TLS 是 | `false` | `VOCABULARY_COOKIE_SECURE` |
 
-`start.sh` 将 `VOCABULARY_IDENTITY_APP_ID`、`VOCABULARY_IDENTITY_APP_SECRET` 和 `VOCABULARY_COOKIE_SECURE` 映射为对应的 .NET 配置键。`IdentityService:Authority` 不再通过 `start.sh` 注入，统一由 Consul KV 提供（生产 = `http://ruoyu-identity:5002`），Consul 不可达时回退到 `appsettings.json` 的本地默认值。AppId/AppSecret 只由服务端环境注入，不进入前端、默认配置或日志。
+`IdentityService:*` 描述信任哪个签发方，由共享 Consul KV 提供（生产 Authority = `http://ruoyu-identity:5002`），Consul 不可达时回退到 `appsettings.json` 的本地默认值，不通过 `start.sh` 注入。
 
-服务缺少 AppId/AppSecret 时仍可启动；生产管理员登录返回 503，直到部署人员为 Vocabulary 注册 Identity 应用并配置凭据。TLS 部署必须设置 `VOCABULARY_COOKIE_SECURE=true`。
+管理员登录凭据归属于所选 provider，见 [ADR-001](../adr/ADR-001-pluggable-admin-authentication.md)。`start.sh` 将 `VOCABULARY_ADMIN_AUTH_PROVIDER`、`VOCABULARY_IDENTITY_APP_ID`、`VOCABULARY_IDENTITY_APP_SECRET` 和 `VOCABULARY_COOKIE_SECURE` 映射为对应的 .NET 配置键。AppId/AppSecret 只由服务端环境注入，不进入前端、默认配置或日志。
+
+改用标准 OIDC provider 时设置 `VOCABULARY_ADMIN_AUTH_PROVIDER=Oidc`，并配置 `AdminAuthentication:Oidc:{ClientId,ClientSecret,Scope}`；`TokenEndpoint` 留空则从 `IdentityService:Authority` 的 discovery 文档解析。
+
+服务缺少 provider 凭据时仍可启动；生产管理员登录返回 503，直到部署人员为 Vocabulary 注册 Identity 应用并配置凭据。TLS 部署必须设置 `VOCABULARY_COOKIE_SECURE=true`。
 
 ### 认证入口
 
