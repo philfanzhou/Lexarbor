@@ -1,7 +1,7 @@
 using System;
 using System.Threading.Tasks;
 
-namespace Ruoyu.Study.Vocabulary.Domain.Repositories;
+namespace Lexarbor.Domain.Repositories;
 
 public interface IUnitOfWork
 {

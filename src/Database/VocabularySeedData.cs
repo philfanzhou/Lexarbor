@@ -1,8 +1,8 @@
 using System.Text;
 using Microsoft.EntityFrameworkCore;
-using Ruoyu.Study.Vocabulary.Database.Entities;
+using Lexarbor.Database.Entities;
 
-namespace Ruoyu.Study.Vocabulary.Database;
+namespace Lexarbor.Database;
 
 internal static class VocabularySeedData
 {

@@ -5,7 +5,7 @@ using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Options;
 
-namespace Ruoyu.Study.Vocabulary.Host.Authentication.Providers;
+namespace Lexarbor.Host.Authentication.Providers;
 
 /// <summary>
 /// Standard OAuth2 resource owner password credentials grant (RFC 6749 §4.3) against any

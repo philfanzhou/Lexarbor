@@ -1,67 +1,57 @@
-# ADR-001 管理员认证改为可插拔 Provider
+# ADR-001: Pluggable administrator credential providers
 
-- **状态**：已接受
-- **日期**：2026-08-05
-- **范围**：Vocabulary 管理员登录与授权；不改变公开 `/api/*`
+- Status: Accepted; default provider amended by ADR-004
+- Date: 2026-08-05
+- Scope: administrator login and authorization; public `/api/*` routes are unchanged
 
-## 背景
+## Context
 
-Vocabulary 的管理员登录直接内联了 QuantumZhou.Identity 的私有契约：`POST /api/auth/token`、camelCase 请求体、`X-Admin-AppId` / `X-Admin-AppSecret` 请求头、`success` 响应信封。这些细节散落在 `IdentityTokenClient`、`IdentityServiceOptions`、`Program.cs` 的 DI 和 `AdminAuthEndpoints` 四处。
+Administrator login originally embedded a provider-specific JSON contract across the HTTP client, configuration, dependency injection, and login endpoint. The contract uses `POST /api/auth/token`, a camelCase request body, `X-Admin-AppId` and `X-Admin-AppSecret` headers, and a `success` response envelope. Changes to that external service therefore required edits throughout the Host.
 
-Identity 本身位于独立仓库 `philfanzhou/QuantumZhou.Identity`，其契约变更对本仓库不可见，只能在运行时暴露。`docs/pending-decisions.md` 的 PD-004 正在讨论把该网关协议换成 HMAC 签名或 mTLS，届时改动面会跨越上述四处。
+JWT issuers also differ in how they serialize role and name claims. Tests that model only one claim shape can pass while real tokens are rejected.
 
-同时发现一处既有缺陷（见下）说明"手写一套认证接线"的成本已经实际发生。
+## Decision
 
-## 决定
+Introduce `IAdminCredentialAuthenticator` as the only seam that knows how username and password credentials are exchanged for an access token:
 
-引入 `IAdminCredentialAuthenticator` 作为唯一知晓 provider 线上协议的接缝：
-
-```
+```text
 AuthenticateAsync(username, password) -> { Status, AccessToken?, ExpiresIn? }
 ```
 
-- `QuantumZhouIdentityAuthenticator`：默认实现，保持既有私有契约。
-- `OidcPasswordAuthenticator`：标准 OAuth2 password grant（RFC 6749 §4.3），token endpoint 优先取配置，缺省时从 JWT Bearer 已缓存的 discovery 文档解析。
-- 由 `AdminAuthentication:Provider` 选择，在 DI 解析时决定，不做运行时切换。
+- `OidcPasswordAuthenticator` implements the OAuth2 resource owner password credentials grant. The token endpoint is explicitly configurable and otherwise comes from the JWT Bearer discovery document.
+- `GatewayCredentialAuthenticator` contains the optional JSON/header compatibility contract.
+- `AdminAuthentication:Provider` selects one implementation when dependency injection resolves the service; there is no per-request switching.
+- ADR-004 makes `Oidc` the standalone product default. `Gateway` remains opt-in.
 
-接缝下游（令牌校验、角色判定、Cookie 签发、CSRF、错误信封）全部 provider 无关。
+Everything downstream of credential exchange—token validation, role evaluation, Cookie issuance, CSRF checks, and public error envelopes—is provider-independent.
 
-### 结果对象只带令牌
+## Security properties
 
-`AdminCredentialResult` 不携带 provider 自报的用户信息。登录响应的 `username` 和 `roles` 一律从**已验证的 JWT** 派生。此前 username 存在一条 `?? tokenResponse.UserInfo.Username` 兜底，会把未经验证的 provider 自报字符串回显给客户端，已移除。
+`AdminCredentialResult` contains no provider-supplied user profile. The username and roles returned to the frontend are always derived from the cryptographically validated JWT.
 
-### 配置按语义拆分
+JWT validation checks issuer, audience, signature, and lifetime. Claim parsing accepts both standard short names (`sub`, `name`, `role`) and the equivalent .NET `ClaimTypes` URIs. Authorization uses `AdminRoleRequirement` and reads the required role from `AdminAuthentication:RequiredRole`.
 
-| 配置 | 归属 | 理由 |
-|------|------|------|
-| `IdentityService:{Authority,Issuer,Audience}` | 保持不变 | 语义是"信任哪个签发方"；由 appsettings、环境变量或其他标准 .NET 配置 Provider 提供 |
-| `AdminAuthentication:Provider` / `RequiredRole` | 新增 | 服务本地 |
-| `AdminAuthentication:QuantumZhou:{Authority,TokenPath,AppId,AppSecret}` | 与 `IdentityService:*` 分离 | 语义是"怎么换令牌"，AppId/AppSecret 只由部署环境注入 |
-| `AdminAuthentication:Oidc:{TokenEndpoint,ClientId,ClientSecret,Scope}` | 新增 | 同上 |
+Provider secrets remain server-side and are never written to the frontend, response body, or logs. A missing provider configuration does not prevent public API startup, but administrator login returns 503.
 
-`QuantumZhou:Authority` 可选，缺省回落到 `IdentityService:Authority`，使登录端点与 JWKS 端点可以不同源。
+## Configuration
 
-## 一并修复的缺陷
+| Configuration | Purpose |
+|---|---|
+| `IdentityService:{Authority,Issuer,Audience}` | Defines the trusted JWT issuer |
+| `AdminAuthentication:{Provider,RequiredRole,CookieName,CookieSecure}` | Defines Lexarbor login and session behavior |
+| `AdminAuthentication:Oidc:{TokenEndpoint,ClientId,ClientSecret,Scope}` | Configures OIDC credential exchange |
+| `AdminAuthentication:Gateway:{Authority,TokenPath,AppId,AppSecret}` | Configures the optional gateway contract |
 
-Identity 通过 `new JwtPayload(...)` 直接构造载荷，绕过了 outbound claim 类型映射，因此角色以完整的 `ClaimTypes.Role` URI 进入 JWT，而非短名 `role`（`Domain/ClaimsResolver.cs`、`Domain/Services/TokenService.cs`，其单测 `JwtTokenServiceTests` 断言了这一点）。`CallbackService` 的自定义 claim 白名单不含 `role`，门户回调也无法注入短名。
+`Gateway:Authority` falls back to `IdentityService:Authority`, allowing the token and JWKS endpoints to use either the same or different origins.
 
-Vocabulary 此前配置 `RoleClaimType = "role"` 并使用 `RequireRole("admin")`，因此对真实 Identity 签发的令牌，`IsInRole("admin")` 恒为 false，**全部管理接口恒返回 403**。该缺陷未被发现，是因为测试替身自行签发短名 `role` 的令牌，实现了 Identity 并不实现的契约。
+## Alternatives
 
-修复：
+- A single hard-coded provider was rejected because it couples the product to one identity implementation.
+- Trusting profile fields returned beside the access token was rejected because those fields are not independently authenticated.
+- Applying a global authorization fallback policy was rejected because the public API, health endpoint, static assets, and login page must remain anonymous.
 
-- `VocabularyClaims` 同时接受短名与 URI 两种形态，姓名解析链 `ClaimTypes.Name → preferred_username → unique_name → nickname`，回落到 subject（`NameIdentifier → sub → nameid`，与 Identity CI 的 `verify_jwt.py` 对齐）。
-- 授权改用 `AdminRoleRequirement` + `AdminRoleHandler`，从 options 读取 `RequiredRole`。
-- 测试工厂改为签发 Identity 真实形态的令牌，且不再整体替换 `TokenValidationParameters`，只替换签名密钥，claim 类型继承 `Program.cs`，防止替身再次漂移。
+## Consequences
 
-## 备选方案
-
-- **改用共享的 `AddRuoyuJwtBearer`**：被否决。它设置 `FallbackPolicy = RequireAuthenticatedUser()`，会使 Vocabulary 的匿名 `/api/*` 与 SPA fallback 全部返回 401，且不支持从 Cookie 提取令牌。
-- **只修 claim 类型，不做 provider 抽象**：可解决当前缺陷，但 PD-004 落地时仍需改动四处。
-- **保留 `IIdentityTokenClient`**：其返回类型直接暴露私有响应信封，是接口壳而非抽象。
-
-## 影响
-
-- 部署需改用 `AdminAuthentication__QuantumZhou__AppId` / `__AppSecret` 环境变量（`start.sh` 已更新）。服务尚未上线，无存量部署需要迁移。
-- Vocabulary 不再直接加载 Consul；容器通过 `VOCABULARY_IDENTITY_AUTHORITY` 提供 Identity 地址，本地运行使用 appsettings 默认值。
-- PD-004 落地时，改动收敛到 `QuantumZhouIdentityAuthenticator` 单个类。
-- 公开 `/api/*` 的路径、请求字段和响应结构不变。
+- Adding another credential protocol requires one new `IAdminCredentialAuthenticator` implementation and configuration binding.
+- OIDC deployments must explicitly support the password grant used by the current login form.
+- Public API paths, request fields, and response envelopes are unchanged.

@@ -2,7 +2,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
-namespace Ruoyu.Study.Vocabulary.Database;
+namespace Lexarbor.Database;
 
 public static class DatabaseInitializer
 {

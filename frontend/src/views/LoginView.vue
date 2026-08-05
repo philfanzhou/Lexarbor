@@ -59,8 +59,8 @@ async function handleLogin() {
     <el-card class="auth-card" shadow="never">
       <template #header>
         <div class="auth-card__heading">
-          <h1>词汇管理</h1>
-          <p>请使用 Identity 管理员账户登录</p>
+          <h1>Lexarbor</h1>
+          <p>请使用身份提供方的管理员账户登录</p>
         </div>
       </template>
       <el-form

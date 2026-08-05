@@ -1,4 +1,4 @@
-namespace Ruoyu.Study.Vocabulary.Host.Authentication;
+namespace Lexarbor.Host.Authentication;
 
 /// <summary>
 /// Selected by <c>AdminAuthentication:Provider</c>. One implementation is registered at
@@ -7,14 +7,14 @@ namespace Ruoyu.Study.Vocabulary.Host.Authentication;
 public enum AdminAuthenticationProvider
 {
     /// <summary>
-    /// QuantumZhou.Identity's proprietary <c>POST /api/auth/token</c> contract.
-    /// </summary>
-    QuantumZhou = 0,
-
-    /// <summary>
     /// Standard OAuth2 resource owner password credentials against an OIDC provider.
     /// </summary>
-    Oidc = 1
+    Oidc = 0,
+
+    /// <summary>
+    /// Optional gateway-style JSON token contract with application credentials in headers.
+    /// </summary>
+    Gateway = 1
 }
 
 public static class AdminAuthenticationHttpClient
@@ -23,5 +23,5 @@ public static class AdminAuthenticationHttpClient
     /// Named client shared by every provider so tests and policies have a single
     /// injection point.
     /// </summary>
-    public const string Name = "VocabularyIdentity";
+    public const string Name = "LexarborIdentity";
 }

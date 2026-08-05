@@ -29,7 +29,7 @@ async function handleLogout() {
 <template>
   <div class="vocabulary-admin">
     <header v-if="isAuthenticated" class="app-header">
-      <div class="brand">词汇管理</div>
+      <div class="brand">Lexarbor</div>
       <nav class="nav">
         <RouterLink to="/books">教材管理</RouterLink>
         <RouterLink to="/import">单词导入</RouterLink>

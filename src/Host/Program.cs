@@ -9,13 +9,13 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
-using Ruoyu.Study.Vocabulary.Database;
-using Ruoyu.Study.Vocabulary.Database.Repositories;
-using Ruoyu.Study.Vocabulary.Domain.Repositories;
-using Ruoyu.Study.Vocabulary.Domain.Services;
-using Ruoyu.Study.Vocabulary.Host.Authentication;
-using Ruoyu.Study.Vocabulary.Host.Authentication.Providers;
-using Ruoyu.Study.Vocabulary.Service;
+using Lexarbor.Database;
+using Lexarbor.Database.Repositories;
+using Lexarbor.Domain.Repositories;
+using Lexarbor.Domain.Services;
+using Lexarbor.Host.Authentication;
+using Lexarbor.Host.Authentication.Providers;
+using Lexarbor.Service;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -62,8 +62,8 @@ builder.Services.Configure<IdentityServiceOptions>(
     builder.Configuration.GetSection(IdentityServiceOptions.SectionName));
 builder.Services.Configure<AdminAuthenticationOptions>(
     builder.Configuration.GetSection(AdminAuthenticationOptions.SectionName));
-builder.Services.Configure<QuantumZhouProviderOptions>(
-    builder.Configuration.GetSection(QuantumZhouProviderOptions.SectionName));
+builder.Services.Configure<GatewayProviderOptions>(
+    builder.Configuration.GetSection(GatewayProviderOptions.SectionName));
 builder.Services.Configure<OidcProviderOptions>(
     builder.Configuration.GetSection(OidcProviderOptions.SectionName));
 
@@ -74,7 +74,7 @@ builder.Services.AddHttpClient(
     (serviceProvider, client) =>
     {
         var providerOptions = serviceProvider
-            .GetRequiredService<IOptions<QuantumZhouProviderOptions>>().Value;
+            .GetRequiredService<IOptions<GatewayProviderOptions>>().Value;
         var identity = serviceProvider
             .GetRequiredService<IOptions<IdentityServiceOptions>>().Value;
         var authority = string.IsNullOrWhiteSpace(providerOptions.Authority)
@@ -91,7 +91,7 @@ builder.Services.AddHttpClient(
 // Selection is resolved from options rather than from the configuration read above:
 // values injected by a test host are not visible until builder.Build() runs, and a
 // provider switch that cannot be exercised in tests is a provider switch nobody checks.
-builder.Services.AddScoped<QuantumZhouIdentityAuthenticator>();
+builder.Services.AddScoped<GatewayCredentialAuthenticator>();
 builder.Services.AddScoped<OidcPasswordAuthenticator>();
 builder.Services.AddScoped<IAdminCredentialAuthenticator>(serviceProvider =>
 {
@@ -99,7 +99,7 @@ builder.Services.AddScoped<IAdminCredentialAuthenticator>(serviceProvider =>
         .GetRequiredService<IOptions<AdminAuthenticationOptions>>().Value;
     return options.Provider == AdminAuthenticationProvider.Oidc
         ? serviceProvider.GetRequiredService<OidcPasswordAuthenticator>()
-        : serviceProvider.GetRequiredService<QuantumZhouIdentityAuthenticator>();
+        : serviceProvider.GetRequiredService<GatewayCredentialAuthenticator>();
 });
 
 builder.Services.AddScoped<AdminAccessTokenValidator>();
@@ -175,7 +175,7 @@ builder.Services.AddAuthorization(options =>
 
 var app = builder.Build();
 
-app.Logger.LogInformation("Vocabulary Service starting");
+app.Logger.LogInformation("Lexarbor starting");
 app.Logger.LogInformation("Listening: http://+:{Port}", httpPort);
 var sqliteConnection = new SqliteConnectionStringBuilder(connectionString);
 app.Logger.LogInformation("Database: SQLite {DatabasePath}", sqliteConnection.DataSource);

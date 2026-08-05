@@ -2,11 +2,11 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
-using Ruoyu.Study.Vocabulary.Domain.Exceptions;
-using Ruoyu.Study.Vocabulary.Domain.Services;
-using Ruoyu.Study.Vocabulary.Service.Dtos;
+using Lexarbor.Domain.Exceptions;
+using Lexarbor.Domain.Services;
+using Lexarbor.Service.Dtos;
 
-namespace Ruoyu.Study.Vocabulary.Service;
+namespace Lexarbor.Service;
 
 public static partial class VocabularyHttpEndpoints
 {

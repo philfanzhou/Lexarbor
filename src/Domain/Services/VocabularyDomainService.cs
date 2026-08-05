@@ -1,8 +1,8 @@
-using Ruoyu.Study.Vocabulary.Domain.Exceptions;
-using Ruoyu.Study.Vocabulary.Domain.Models;
-using Ruoyu.Study.Vocabulary.Domain.Repositories;
+using Lexarbor.Domain.Exceptions;
+using Lexarbor.Domain.Models;
+using Lexarbor.Domain.Repositories;
 
-namespace Ruoyu.Study.Vocabulary.Domain.Services;
+namespace Lexarbor.Domain.Services;
 
 public class VocabularyDomainService
 {

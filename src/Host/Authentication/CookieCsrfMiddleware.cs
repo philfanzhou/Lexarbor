@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Options;
-using Ruoyu.Study.Vocabulary.Service;
+using Lexarbor.Service;
 
-namespace Ruoyu.Study.Vocabulary.Host.Authentication;
+namespace Lexarbor.Host.Authentication;
 
 public sealed class CookieCsrfMiddleware
 {

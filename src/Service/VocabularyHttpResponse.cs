@@ -1,7 +1,7 @@
 using System.Net;
 using Microsoft.AspNetCore.Http;
 
-namespace Ruoyu.Study.Vocabulary.Service;
+namespace Lexarbor.Service;
 
 /// <summary>
 /// Unified HTTP response envelope helper for all Vocabulary HTTP endpoints.

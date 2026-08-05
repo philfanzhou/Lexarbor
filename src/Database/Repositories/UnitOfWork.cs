@@ -1,9 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Data.Sqlite;
-using Ruoyu.Study.Vocabulary.Domain.Exceptions;
-using Ruoyu.Study.Vocabulary.Domain.Repositories;
+using Lexarbor.Domain.Exceptions;
+using Lexarbor.Domain.Repositories;
 
-namespace Ruoyu.Study.Vocabulary.Database.Repositories;
+namespace Lexarbor.Database.Repositories;
 
 public class UnitOfWork : IUnitOfWork
 {

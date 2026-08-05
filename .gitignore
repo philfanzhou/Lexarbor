@@ -1,0 +1,35 @@
+# .NET
+**/bin/
+**/obj/
+*.user
+*.suo
+.vs/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+wwwroot/
+
+# Runtime data
+data/
+src/Host/data/
+*.db
+*.db-shm
+*.db-wal
+
+# Test and tooling output
+TestResults/
+reports/
+coverage/
+
+# Local configuration
+*.local
+.env
+.env.*
+!.env.example
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

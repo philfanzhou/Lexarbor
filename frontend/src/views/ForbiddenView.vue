@@ -30,7 +30,7 @@ async function returnToLogin() {
     <el-result
       icon="warning"
       title="无权访问"
-      sub-title="词汇管理服务需要 Identity 管理员角色。请更换管理员账户后重试。"
+      sub-title="Lexarbor 需要身份提供方授予管理员角色。请更换账户后重试。"
     >
       <template #extra>
         <el-button type="primary" :loading="loading" @click="returnToLogin">

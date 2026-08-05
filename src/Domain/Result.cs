@@ -1,8 +1,8 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace Ruoyu.Study.Vocabulary.Domain;
+namespace Lexarbor.Domain;
 
 public readonly record struct Result<T>(bool Success, T? Value, string? Error)
 {

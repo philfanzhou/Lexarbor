@@ -1,4 +1,4 @@
-# Vocabulary Catalog
+# Lexarbor Vocabulary Catalog
 
 Vocabulary Catalog 定义词条、词书和词义之间的稳定语言。
 

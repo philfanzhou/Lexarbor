@@ -28,6 +28,7 @@ export default defineConfig({
   },
   build: {
     outDir: '../wwwroot',
+    emptyOutDir: true,
     chunkSizeWarningLimit: 600,
     rolldownOptions: {
       onLog(_level, log) {

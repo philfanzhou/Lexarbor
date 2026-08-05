@@ -1,6 +1,6 @@
 using System;
 
-namespace Ruoyu.Study.Vocabulary.Domain.Models;
+namespace Lexarbor.Domain.Models;
 
 public class VocabularyMeaningModel
 {

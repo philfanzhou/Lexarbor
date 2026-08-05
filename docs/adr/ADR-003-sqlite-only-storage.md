@@ -6,7 +6,7 @@
 
 ## 背景
 
-实施前服务使用 PostgreSQL。连接串由 `Ruoyu.Study.Consul.Shared` 的 `SharedPostgreSqlConnectionStringFactory` 从 Consul 共享配置合成，建表修复则依赖 `Ruoyu.Study.Common` 的数据库助手。这套依赖对平台内部部署合适，但对将服务作为公开仓库分发是负担：使用者必须先准备 PostgreSQL 实例并理解共享配置约定，才能启动。
+实施前服务使用 PostgreSQL。连接串由 `旧 monorepo 的共享 Consul 组件` 的 `SharedPostgreSqlConnectionStringFactory` 从 Consul 共享配置合成，建表修复则依赖 `旧 monorepo 的共享公共组件` 的数据库助手。这套依赖对平台内部部署合适，但对将服务作为公开仓库分发是负担：使用者必须先准备 PostgreSQL 实例并理解共享配置约定，才能启动。
 
 服务尚未上线（见 ADR-001），没有存量数据需要迁移，因此更换提供程序的成本目前处于最低点。
 
@@ -43,14 +43,14 @@
 
 ## 备选方案
 
-- **SQLite 默认 + PostgreSQL 可选**：被否决。日常在 PostgreSQL 上开发、向使用者分发 SQLite，等于测试路径与分发路径不同。ADR-001 记录的角色 claim 缺陷正是此形态：测试替身实现了真实实现并不实现的契约，缺陷长期不可见。双提供程序还会使迁移、查询与冲突语义长期需要双份维护，并使公开仓库继续携带 `Ruoyu.Study.Common` 与 Consul 假设。
+- **SQLite 默认 + PostgreSQL 可选**：被否决。日常在 PostgreSQL 上开发、向使用者分发 SQLite，等于测试路径与分发路径不同。ADR-001 记录的角色 claim 缺陷正是此形态：测试替身实现了真实实现并不实现的契约，缺陷长期不可见。双提供程序还会使迁移、查询与冲突语义长期需要双份维护，并使公开仓库继续携带 `旧 monorepo 的共享公共组件` 与 Consul 假设。
 - **保持 PostgreSQL**：被否决。使用者启动前必须自备数据库实例，与公开分发目标冲突。
 
 ## 影响
 
 - **失去多实例横向扩展**。SQLite 单写者，部署必须单实例并挂载持久卷。以本服务读多写少、数据可由启动词书或导入重建的性质，判断为可接受。
 - **备份方式改变**，由平台共享 PostgreSQL 方案变为文件级备份。
-- 代码和 Dockerfile 已不再引用 `Ruoyu.Study.Common` 或 `Ruoyu.Study.Consul.Shared`。Identity 地址通过普通配置和环境变量提供。
+- 代码和 Dockerfile 已不再引用 `旧 monorepo 的共享公共组件` 或 `旧 monorepo 的共享 Consul 组件`。Identity 地址通过普通配置和环境变量提供。
 - ADR-002 第二层可简化：词典是只读参考数据，可作为预构建的 SQLite 文件以只读方式附加，不必再设计批量导入路径。具体形态在实施第二层时设计，EF Core 不原生支持跨库查询。该做法不与 ADR-002 第一层"不预置数据库文件"冲突——受约束的是服务自身可写的那个数据库文件，它必须在运行时于配置路径上创建，以便落在宿主挂载卷上。
 - 公开与管理接口路径不变；涉及单词的请求和响应以 `phoneticUk`、`phoneticUs` 取代旧 `phonetic`，这是本次有意的公共契约变更。
 - Domain 与 HTTP 测试均运行真实 SQLite；首次建库、种子数量、已有文件跳过种子和并发幂等均有自动化覆盖。

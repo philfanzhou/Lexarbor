@@ -1,4 +1,4 @@
-namespace Ruoyu.Study.Vocabulary.Domain.Exceptions;
+namespace Lexarbor.Domain.Exceptions;
 
 public sealed class ResourceNotFoundException : Exception
 {

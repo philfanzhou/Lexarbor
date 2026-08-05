@@ -1,13 +1,13 @@
 # 单元测试规范
 
-本文件描述 `ruoyu.vocabulary` 服务的单元测试项目结构、覆盖范围与约定。
+本文件描述 `Lexarbor` 服务的单元测试项目结构、覆盖范围与约定。
 
 ## 测试项目结构
 
 | 项目 | 路径 | 覆盖范围 |
 |------|------|---------|
-| `Ruoyu.Study.Vocabulary.Domain.Tests` | `src/Tests/Ruoyu.Study.Vocabulary.Domain.Tests/` | Domain 层服务 |
-| `Ruoyu.Study.Vocabulary.Service.Tests` | `src/Tests/Ruoyu.Study.Vocabulary.Service.Tests/` | DTO 转换、异常中间件、认证和 HTTP 集成 |
+| `Lexarbor.Domain.Tests` | `src/Tests/Lexarbor.Domain.Tests/` | Domain 层服务 |
+| `Lexarbor.Service.Tests` | `src/Tests/Lexarbor.Service.Tests/` | DTO 转换、异常中间件、认证和 HTTP 集成 |
 
 ## 测试框架与依赖
 
@@ -94,12 +94,12 @@
 ## 运行方式
 
 ```bash
-cd src/services/ruoyu.vocabulary/src
-dotnet test Ruoyu.Study.Vocabulary.sln --configuration Release
+cd src
+dotnet test Lexarbor.sln --configuration Release
 ```
 
 ```bash
-cd src/services/ruoyu.vocabulary/frontend
+cd frontend
 npm run test:types
 npm run build
 ```

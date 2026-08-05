@@ -4,7 +4,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 
-namespace Ruoyu.Study.Vocabulary.Host.Authentication;
+namespace Lexarbor.Host.Authentication;
 
 public sealed class AdminAccessTokenValidator
 {

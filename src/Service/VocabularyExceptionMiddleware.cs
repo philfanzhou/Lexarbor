@@ -1,8 +1,8 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
-using Ruoyu.Study.Vocabulary.Domain.Exceptions;
+using Lexarbor.Domain.Exceptions;
 
-namespace Ruoyu.Study.Vocabulary.Service;
+namespace Lexarbor.Service;
 
 public sealed class VocabularyExceptionMiddleware
 {

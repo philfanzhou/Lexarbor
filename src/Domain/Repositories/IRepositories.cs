@@ -1,8 +1,8 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using Ruoyu.Study.Vocabulary.Domain.Models;
+using Lexarbor.Domain.Models;
 
-namespace Ruoyu.Study.Vocabulary.Domain.Repositories;
+namespace Lexarbor.Domain.Repositories;
 
 public interface IVocabularyRepository
 {

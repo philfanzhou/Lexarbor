@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace Ruoyu.Study.Vocabulary.Service.Dtos;
+namespace Lexarbor.Service.Dtos;
 
 /// <summary>
 /// Vocabulary DTO (mirrors proto3 VocabularyDto).

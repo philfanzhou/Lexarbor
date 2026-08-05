@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Options;
 
-namespace Ruoyu.Study.Vocabulary.Host.Authentication;
+namespace Lexarbor.Host.Authentication;
 
 public sealed class AdminRoleRequirement : IAuthorizationRequirement;
 

@@ -1,16 +1,12 @@
 using System.Security.Claims;
 
-namespace Ruoyu.Study.Vocabulary.Host.Authentication;
+namespace Lexarbor.Host.Authentication;
 
 /// <summary>
 /// Reads identity information from a validated <see cref="ClaimsPrincipal"/>.
 ///
-/// QuantumZhou.Identity now emits the standard short names ("sub", "name", "role").
-/// It previously emitted the full <see cref="ClaimTypes"/> URIs, and tokens in that
-/// shape stay valid until they expire, so both shapes are accepted here. Accepting both
-/// also keeps the service off any single issuer's serialization choice.
-///
-/// Mirrors the claim convention used by the platform's other Identity consumers.
+/// OIDC issuers normally emit short claim names ("sub", "name", "role"). Some .NET
+/// issuers emit full <see cref="ClaimTypes"/> URIs, so both shapes are accepted.
 /// </summary>
 public static class VocabularyClaims
 {

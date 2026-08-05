@@ -1,8 +1,8 @@
-# Vocabulary 安全自包含服务设计
+# Lexarbor 安全自包含服务设计
 
 ## 1. 背景
 
-Vocabulary 服务位于 `src/services/ruoyu.vocabulary`，使用 .NET 8、ASP.NET Core Minimal API、EF Core 8、SQLite、Vue 3、TypeScript、Element Plus 和 Vite。后端托管前端静态文件，Docker 镜像在构建时同时产出前后端。
+Lexarbor 使用 .NET 8、ASP.NET Core Minimal API、EF Core 8、SQLite、Vue 3、TypeScript、Element Plus 和 Vite。后端托管前端静态文件，Docker 镜像在构建时同时产出前后端。
 
 本设计实施前存在以下问题，现均已按后续章节处理：
 
@@ -65,16 +65,22 @@ Vocabulary 后端使用以下配置：
 ```json
 {
   "IdentityService": {
-    "Authority": "http://localhost:5002",
-    "Issuer": "QuantumZhou.Identity",
-    "Audience": "QuantumZhou.microservices"
+    "Authority": "http://localhost:8080",
+    "Issuer": "http://localhost:8080",
+    "Audience": "lexarbor"
   },
   "AdminAuthentication": {
-    "CookieName": "ruoyuVocabularyAdmin",
+    "CookieName": "lexarborAdmin",
     "CookieSecure": false,
-    "Provider": "QuantumZhou",
+    "Provider": "Oidc",
     "RequiredRole": "admin",
-    "QuantumZhou": {
+    "Oidc": {
+      "TokenEndpoint": "",
+      "ClientId": "",
+      "ClientSecret": "",
+      "Scope": "openid profile"
+    },
+    "Gateway": {
       "TokenPath": "/api/auth/token"
     }
   }
@@ -83,25 +89,25 @@ Vocabulary 后端使用以下配置：
 
 管理员登录通过 `IAdminCredentialAuthenticator` 抽象，由 `AdminAuthentication:Provider` 选择实现，详见 [ADR-001](../adr/ADR-001-pluggable-admin-authentication.md)：
 
-- `QuantumZhou`（默认）：Identity 私有的 `POST /api/auth/token` 契约，凭据取自 `AdminAuthentication:QuantumZhou:{AppId,AppSecret}`。
-- `Oidc`：标准 OAuth2 password grant，配置在 `AdminAuthentication:Oidc:{TokenEndpoint,ClientId,ClientSecret,Scope}`；`TokenEndpoint` 留空时从 discovery 文档解析。
+- `Oidc`（默认）：标准 OAuth2 password grant，配置在 `AdminAuthentication:Oidc:{TokenEndpoint,ClientId,ClientSecret,Scope}`；`TokenEndpoint` 留空时从 discovery 文档解析。
+- `Gateway`（可选）：JSON password-token 兼容契约，凭据取自 `AdminAuthentication:Gateway:{AppId,AppSecret}`。
 
 配置约定：
 
-- `IdentityService:*` 描述信任哪个签发方，由 appsettings、标准 .NET 环境变量或其他标准配置 Provider 提供；容器部署通过 `VOCABULARY_IDENTITY_AUTHORITY` 映射 Authority。
+- `IdentityService:*` 描述信任哪个签发方，由 appsettings、标准 .NET 环境变量或其他标准配置 Provider 提供；容器部署通过 `LEXARBOR_IDENTITY_AUTHORITY` 映射 Authority。
 - provider 凭据只从环境变量注入，不写入前端或仓库默认配置。
-- `AdminAuthentication:QuantumZhou:Authority` 可选；留空时回落到 `IdentityService:Authority`，用于登录端点与 JWKS 端点不同源的部署。
-- 服务在缺少 AppId/AppSecret 时仍可启动；生产登录请求返回统一信封的 503，并记录不含密钥的配置错误。
+- `AdminAuthentication:Gateway:Authority` 可选；留空时回落到 `IdentityService:Authority`，用于登录端点与 JWKS 端点不同源的部署。
+- 服务在缺少所选 provider 凭据时仍可启动；登录请求返回统一信封的 503，并记录不含密钥的配置错误。
 - `Issuer`、`Audience`、签名、公钥轮换和过期时间由 JWT Bearer 校验。
-- JWT 关闭入站 claim 映射。角色 claim 同时接受短名 `role` 和完整的 `ClaimTypes.Role` URI：QuantumZhou.Identity 直接构造 `JwtPayload`，绕过 outbound claim 类型映射，因此签发的是 URI 形态；标准 OIDC provider 签发短名。管理员策略要求 `AdminAuthentication:RequiredRole`（默认 `admin`），由 `AdminRoleHandler` 在评估时读取。
+- JWT 关闭入站 claim 映射。角色 claim 同时接受短名 `role` 和完整的 `ClaimTypes.Role` URI，以兼容常见 OIDC 与 .NET issuer 的 claim 序列化。管理员策略要求 `AdminAuthentication:RequiredRole`（默认 `admin`），由 `AdminRoleHandler` 在评估时读取。
 - 本地 HTTP 开发环境允许 `CookieSecure=false`；TLS 部署必须配置为 `true`。
 
 ### 5.2 登录流程
 
 1. 浏览器向 `POST /admin/auth/login` 提交 `{ username, password }`。
 2. Vocabulary 校验必填字段，不记录请求体、密码或用户名密码组合。
-3. Vocabulary 后端调用 `${IdentityService:Authority}/api/auth/token`。
-4. 请求 JSON 使用：
+3. Lexarbor 后端调用 OIDC discovery 得到的 token endpoint，或使用显式配置的 endpoint。
+4. OIDC provider 使用 form-urlencoded password grant；可选 Gateway provider 使用以下 JSON：
 
    ```json
    {
@@ -111,11 +117,11 @@ Vocabulary 后端使用以下配置：
    }
    ```
 
-5. Vocabulary 后端在请求头加入服务端配置的 `X-Admin-AppId` 和 `X-Admin-AppSecret`。
-6. Identity 返回 `success=false` 时，Vocabulary 返回 401 和通用的凭据错误，不透传 Identity 内部消息。
+5. 仅 Gateway provider 在请求头加入服务端配置的 `X-Admin-AppId` 和 `X-Admin-AppSecret`。
+6. Provider 拒绝凭据时，Lexarbor 返回 401 和通用的凭据错误，不透传上游内部消息。
 7. Identity 返回成功后，Vocabulary 使用与请求认证相同的 Issuer、Audience、签名密钥和 lifetime 参数验证 access token；无效或配置不匹配的令牌返回 502，且不设置 Cookie。
 8. Vocabulary 从已验证 JWT 的 `role` claim 判断管理员身份；普通用户返回 403，且不设置 Cookie。
-9. 管理员 JWT 写入 `ruoyuVocabularyAdmin` Cookie。Cookie 使用：
+9. 管理员 JWT 写入 `lexarborAdmin` Cookie。Cookie 使用：
    - `HttpOnly=true`
    - `SameSite=Strict`
    - `Path=/`
@@ -131,7 +137,7 @@ Identity 超时、网络错误或无有效响应时返回 502；配置缺失返�
 JWT Bearer 按以下顺序提取令牌：
 
 1. `Authorization: Bearer <token>`
-2. `ruoyuVocabularyAdmin` HttpOnly Cookie
+2. `lexarborAdmin` HttpOnly Cookie
 
 Bearer 通道用于自动化测试和受控 API 调用；管理前端只使用 Cookie。所有管理端点使用名为 `VocabularyAdmin` 的授权策略，要求已认证且包含 `role=admin`。
 
@@ -372,21 +378,19 @@ normalizedWord = word.Trim().ToLowerInvariant()
 - `start.sh` 默认把部署变量映射为 .NET 配置：
 
   ```text
-  VOCABULARY_ADMIN_AUTH_PROVIDER（默认 QuantumZhou）→ AdminAuthentication__Provider
-  VOCABULARY_IDENTITY_APP_ID → AdminAuthentication__QuantumZhou__AppId
-  VOCABULARY_IDENTITY_APP_SECRET → AdminAuthentication__QuantumZhou__AppSecret
-  VOCABULARY_IDENTITY_AUTHORITY → IdentityService__Authority
-  VOCABULARY_COOKIE_SECURE（默认 false）→ AdminAuthentication__CookieSecure
-  VOCABULARY_DATA_DIR（默认服务目录 data/）→ /app/data 持久卷
+  LEXARBOR_ADMIN_AUTH_PROVIDER（默认 Oidc）→ AdminAuthentication__Provider
+  LEXARBOR_OIDC_CLIENT_ID → AdminAuthentication__Oidc__ClientId
+  LEXARBOR_OIDC_CLIENT_SECRET → AdminAuthentication__Oidc__ClientSecret
+  LEXARBOR_IDENTITY_AUTHORITY → IdentityService__Authority
+  LEXARBOR_COOKIE_SECURE（默认 false）→ AdminAuthentication__CookieSecure
+  LEXARBOR_DATA_DIR（默认服务目录 data/）→ /app/data 持久卷
   ```
 
-- `IdentityService:Authority` 由普通配置提供；`start.sh` 默认使用 `http://ruoyu-identity:5002`，可通过 `VOCABULARY_IDENTITY_AUTHORITY` 覆盖。
-- 容器把 `VOCABULARY_DATA_DIR` 挂载到 `/app/data`，数据库连接串固定为 `Data Source=/app/data/vocabulary.db`。
-- AppId/AppSecret 由部署环境传入 Vocabulary，不打印到控制台。
+- `IdentityService:Authority` 由普通配置提供；`start.sh` 默认使用 `http://host.docker.internal:8080`，可通过 `LEXARBOR_IDENTITY_AUTHORITY` 覆盖。
+- 容器把 `LEXARBOR_DATA_DIR` 挂载到 `/app/data`，数据库连接串固定为 `Data Source=/app/data/vocabulary.db`。
+- provider 客户端凭据由部署环境传入 Lexarbor，不打印到控制台。
 - TLS 部署设置 `AdminAuthentication__CookieSecure=true`。
-- `PROJECT.md` 中 Vocabulary 的协议端口、架构图和端口总表统一记录为 5008。
-- `PROJECT.md` 服务间通信矩阵增加 Vocabulary → Identity 的登录代理和 JWKS 校验依赖。
-- Identity 需要预先注册 Vocabulary 服务应用并提供 AppId/AppSecret；不修改 Identity 现有管理员引导逻辑。
+- Identity provider 需要预先注册 Lexarbor 客户端、允许当前 password grant，并在 JWT 中提供管理员角色。
 
 ## 15. 测试和验证
 
@@ -436,13 +440,13 @@ normalizedWord = word.Trim().ToLowerInvariant()
 ### 15.5 交付验证命令
 
 ```bash
-cd src/services/ruoyu.vocabulary/src
-dotnet test Ruoyu.Study.Vocabulary.sln --configuration Release
-dotnet build Ruoyu.Study.Vocabulary.sln --configuration Release
+cd src
+dotnet test Lexarbor.sln --configuration Release
+dotnet build Lexarbor.sln --configuration Release
 ```
 
 ```bash
-cd src/services/ruoyu.vocabulary/frontend
+cd frontend
 npm run test:types
 npm run build
 ```

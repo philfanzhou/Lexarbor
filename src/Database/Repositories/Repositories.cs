@@ -4,11 +4,11 @@ using System.Linq;
 using System.Threading.Tasks;
 using Mapster;
 using Microsoft.EntityFrameworkCore;
-using Ruoyu.Study.Vocabulary.Database.Entities;
-using Ruoyu.Study.Vocabulary.Domain.Models;
-using Ruoyu.Study.Vocabulary.Domain.Repositories;
+using Lexarbor.Database.Entities;
+using Lexarbor.Domain.Models;
+using Lexarbor.Domain.Repositories;
 
-namespace Ruoyu.Study.Vocabulary.Database.Repositories;
+namespace Lexarbor.Database.Repositories;
 
 public class VocabularyRepository : IVocabularyRepository
 {

@@ -1,4 +1,4 @@
-namespace Ruoyu.Study.Vocabulary.Host.Authentication;
+namespace Lexarbor.Host.Authentication;
 
 public enum AdminCredentialStatus
 {

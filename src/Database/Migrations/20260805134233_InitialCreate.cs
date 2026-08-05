@@ -1,9 +1,9 @@
-﻿using System;
+using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
-namespace Ruoyu.Study.Vocabulary.Database.Migrations
+namespace Lexarbor.Database.Migrations
 {
     /// <inheritdoc />
     public partial class InitialCreate : Migration

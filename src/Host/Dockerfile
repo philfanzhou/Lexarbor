@@ -1,12 +1,11 @@
 # ========== Stage 1: Build Frontend ==========
 FROM node:20-alpine AS frontend-build
-ARG NPM_REGISTRY=https://mirrors.huaweicloud.com/repository/npm/
+ARG NPM_REGISTRY=https://registry.npmjs.org/
 ENV npm_config_registry=${NPM_REGISTRY}
-ENV npm_config_replace_registry_host=always
 WORKDIR /frontend
-COPY src/services/ruoyu.vocabulary/frontend/package*json ./
+COPY frontend/package*json ./
 RUN npm ci --registry=${NPM_REGISTRY}
-COPY src/services/ruoyu.vocabulary/frontend/ ./
+COPY frontend/ ./
 RUN npm run build
 
 # ========== Stage 2: Build & Publish Backend ==========
@@ -14,17 +13,17 @@ FROM mcr.microsoft.com/dotnet/sdk:8.0 AS backend-build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
 
-COPY src/services/ruoyu.vocabulary/src/Database/Ruoyu.Study.Vocabulary.Database.csproj src/services/ruoyu.vocabulary/src/Database/
-COPY src/services/ruoyu.vocabulary/src/Domain/Ruoyu.Study.Vocabulary.Domain.csproj src/services/ruoyu.vocabulary/src/Domain/
-COPY src/services/ruoyu.vocabulary/src/Service/Ruoyu.Study.Vocabulary.Service.csproj src/services/ruoyu.vocabulary/src/Service/
-COPY src/services/ruoyu.vocabulary/src/Host/Ruoyu.Study.Vocabulary.Host.csproj src/services/ruoyu.vocabulary/src/Host/
+COPY src/Database/Lexarbor.Database.csproj src/Database/
+COPY src/Domain/Lexarbor.Domain.csproj src/Domain/
+COPY src/Service/Lexarbor.Service.csproj src/Service/
+COPY src/Host/Lexarbor.Host.csproj src/Host/
 
-RUN dotnet restore "src/services/ruoyu.vocabulary/src/Host/Ruoyu.Study.Vocabulary.Host.csproj"
+RUN dotnet restore "src/Host/Lexarbor.Host.csproj"
 
-COPY src/services/ruoyu.vocabulary/src/ src/services/ruoyu.vocabulary/src/
-COPY --from=frontend-build /wwwroot ./src/services/ruoyu.vocabulary/src/Host/wwwroot
+COPY src/ src/
+COPY --from=frontend-build /wwwroot ./src/Host/wwwroot
 
-RUN dotnet publish "src/services/ruoyu.vocabulary/src/Host/Ruoyu.Study.Vocabulary.Host.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false --no-restore
+RUN dotnet publish "src/Host/Lexarbor.Host.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false --no-restore
 
 # ========== Stage 3: Runtime ==========
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
@@ -33,4 +32,4 @@ COPY --from=backend-build /app/publish .
 RUN mkdir -p /app/data
 VOLUME ["/app/data"]
 EXPOSE 5008
-ENTRYPOINT ["dotnet", "Ruoyu.Study.Vocabulary.Host.dll"]
+ENTRYPOINT ["dotnet", "Lexarbor.Host.dll"]

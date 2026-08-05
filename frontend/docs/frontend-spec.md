@@ -1,4 +1,4 @@
-# Vocabulary 管理前端规格
+# Lexarbor 管理前端规格
 
 ## 技术栈与边界
 

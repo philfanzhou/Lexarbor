@@ -1,17 +1,17 @@
-namespace Ruoyu.Study.Vocabulary.Host.Authentication;
+namespace Lexarbor.Host.Authentication;
 
 public sealed class AdminAuthenticationOptions
 {
     public const string SectionName = "AdminAuthentication";
 
-    public string CookieName { get; set; } = "ruoyuVocabularyAdmin";
+    public string CookieName { get; set; } = "lexarborAdmin";
     public bool CookieSecure { get; set; }
 
     /// <summary>
     /// Which credential provider handles administrator login.
     /// </summary>
     public AdminAuthenticationProvider Provider { get; set; } =
-        AdminAuthenticationProvider.QuantumZhou;
+        AdminAuthenticationProvider.Oidc;
 
     /// <summary>
     /// Role required by the <c>VocabularyAdmin</c> policy and by the login endpoint.
@@ -20,13 +20,13 @@ public sealed class AdminAuthenticationOptions
 }
 
 /// <summary>
-/// Credentials for the QuantumZhou.Identity provider. Kept out of the
+/// Credentials for the optional gateway-style provider. Kept out of the
 /// <c>IdentityService</c> trust section because these are provider-specific secrets
 /// injected per deployment.
 /// </summary>
-public sealed class QuantumZhouProviderOptions
+public sealed class GatewayProviderOptions
 {
-    public const string SectionName = "AdminAuthentication:QuantumZhou";
+    public const string SectionName = "AdminAuthentication:Gateway";
 
     /// <summary>
     /// Base URL of the token endpoint. Falls back to <c>IdentityService:Authority</c>

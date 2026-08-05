@@ -2,7 +2,7 @@ using System;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
-namespace Ruoyu.Study.Vocabulary.Database.Entities;
+namespace Lexarbor.Database.Entities;
 
 [Table("vocabulary_meaning")]
 public class VocabularyMeaningEntity

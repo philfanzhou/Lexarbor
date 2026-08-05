@@ -1,8 +1,8 @@
 using Mapster;
-using Ruoyu.Study.Vocabulary.Domain.Models;
-using Ruoyu.Study.Vocabulary.Service.Dtos;
+using Lexarbor.Domain.Models;
+using Lexarbor.Service.Dtos;
 
-namespace Ruoyu.Study.Vocabulary.Service;
+namespace Lexarbor.Service;
 
 internal static class Convertor
 {
