@@ -5,11 +5,10 @@ namespace Ruoyu.Study.Vocabulary.Host.Authentication;
 /// <summary>
 /// Reads identity information from a validated <see cref="ClaimsPrincipal"/>.
 ///
-/// QuantumZhou.Identity builds its JWT payload directly (<c>new JwtPayload(...)</c>),
-/// which bypasses the outbound claim type map, so roles arrive as the full
-/// <see cref="ClaimTypes.Role"/> URI rather than the short "role" name. Standard OIDC
-/// providers emit the short names instead. Both shapes are accepted so the service is
-/// not tied to one issuer's serialization choice.
+/// QuantumZhou.Identity now emits the standard short names ("sub", "name", "role").
+/// It previously emitted the full <see cref="ClaimTypes"/> URIs, and tokens in that
+/// shape stay valid until they expire, so both shapes are accepted here. Accepting both
+/// also keeps the service off any single issuer's serialization choice.
 ///
 /// Mirrors the convention already used by DocLibrary and
 /// <c>Ruoyu.Study.Common.Authentication.ClaimsPrincipalExtensions</c>.
@@ -20,6 +19,7 @@ public static class VocabularyClaims
 
     private static readonly string[] NameClaimTypes =
     [
+        "name",
         ClaimTypes.Name,
         "preferred_username",
         "unique_name",

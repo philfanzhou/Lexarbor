@@ -46,20 +46,21 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
     public FakeIdentityState Identity { get; }
 
     /// <summary>
-    /// Mints a token in the exact shape QuantumZhou.Identity produces: it builds its
-    /// JwtPayload directly, bypassing the outbound claim type map, so claims keep their
-    /// full ClaimTypes URIs instead of the short JWT names. Emitting short names here
-    /// would make these tests assert a contract the real issuer does not implement.
+    /// Mints a token in the exact shape QuantumZhou.Identity produces: the standard
+    /// short names "sub", "name" and "role". The issuer used to emit the full ClaimTypes
+    /// URIs; IdentityClaimShapeTests still pins that older shape so tokens minted before
+    /// the switch keep working until they expire. This default must track whatever the
+    /// issuer emits today, otherwise the suite passes against a contract nobody serves.
     /// </summary>
     public string CreateToken(params string[] roles)
     {
         var claims = new List<Claim>
         {
-            new(ClaimTypes.NameIdentifier, "identity-user"),
+            new("sub", "identity-user"),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
-            new(ClaimTypes.Name, "test-user")
+            new("name", "test-user")
         };
-        claims.AddRange(roles.Select(role => new Claim(ClaimTypes.Role, role)));
+        claims.AddRange(roles.Select(role => new Claim("role", role)));
 
         var credentials = new SigningCredentials(
             new SymmetricSecurityKey(Encoding.UTF8.GetBytes(SigningSecret)),

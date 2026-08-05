@@ -16,13 +16,15 @@ namespace Ruoyu.Study.Vocabulary.Service.Tests;
 /// <summary>
 /// Pins the claim shapes this service must accept.
 ///
-/// QuantumZhou.Identity signs tokens via <c>new JwtPayload(...)</c>, which skips the
-/// outbound claim type map, so roles land in the token as the full
-/// <see cref="ClaimTypes.Role"/> URI. Vocabulary previously configured
-/// <c>RoleClaimType = "role"</c> and only ever saw short names because its own test
-/// double minted them, so every admin request against the real issuer would have been
-/// rejected with 403. Standard OIDC providers emit the short names, so both shapes
-/// have to keep working.
+/// QuantumZhou.Identity emits the standard short names ("sub", "name", "role"). It
+/// previously emitted the full <see cref="ClaimTypes"/> URIs, and tokens minted before
+/// that switch stay valid until they expire, so both shapes have to keep working —
+/// do not delete the long-URI cases here.
+///
+/// This service runs with <c>MapInboundClaims = false</c>, so nothing rewrites claim
+/// names on the way in: whatever the issuer wrote is what the handlers see. That is why
+/// every read goes through <see cref="VocabularyClaims"/> rather than
+/// <c>User.Identity.Name</c> or <c>IsInRole</c>, which can only match one shape.
 /// </summary>
 public class IdentityClaimShapeTests :
     IClassFixture<VocabularyWebApplicationFactory>
@@ -65,15 +67,23 @@ public class IdentityClaimShapeTests :
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
-    [Fact]
-    public async Task Session_ResolvesUsernameFromIdentityNameClaim()
+    /// <summary>
+    /// The pairs mirror whole tokens rather than a cross-product: an issuer emits one
+    /// shape or the other, never a mix.
+    /// </summary>
+    [Theory]
+    [InlineData("role", "name")]
+    [InlineData(ClaimTypes.Role, ClaimTypes.Name)]
+    public async Task Session_ResolvesUsernameFromIdentityNameClaim(
+        string roleClaimType,
+        string nameClaimType)
     {
         using var client = CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer",
             CreateToken(
-                new Claim(ClaimTypes.Role, "admin"),
-                new Claim(ClaimTypes.Name, "bootstrap-admin")));
+                new Claim(roleClaimType, "admin"),
+                new Claim(nameClaimType, "bootstrap-admin")));
 
         var response = await client.GetAsync("/admin/auth/session");
 
@@ -87,15 +97,19 @@ public class IdentityClaimShapeTests :
     /// Identity omits the display name claim when the account has no display name. The
     /// session must still resolve, falling back to the subject identifier.
     /// </summary>
-    [Fact]
-    public async Task Session_FallsBackToSubjectWhenNameClaimIsAbsent()
+    [Theory]
+    [InlineData("role", "sub")]
+    [InlineData(ClaimTypes.Role, ClaimTypes.NameIdentifier)]
+    public async Task Session_FallsBackToSubjectWhenNameClaimIsAbsent(
+        string roleClaimType,
+        string subjectClaimType)
     {
         using var client = CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer",
             CreateToken(
-                new Claim(ClaimTypes.Role, "admin"),
-                new Claim(ClaimTypes.NameIdentifier, "account-42")));
+                new Claim(roleClaimType, "admin"),
+                new Claim(subjectClaimType, "account-42")));
 
         var response = await client.GetAsync("/admin/auth/session");
 
