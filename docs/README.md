@@ -6,6 +6,7 @@ Vocabulary 是自包含词汇管理服务：后端、Vue 管理页面、静态�
 
 - [安全自包含服务设计](./overview/SecureSelfContainedServiceDesign.md)
 - [总览文档](./overview/README.md)
-- [架构决策记录](./adr/ADR-001-pluggable-admin-authentication.md)
+- [ADR-001 管理员认证改为可插拔 Provider](./adr/ADR-001-pluggable-admin-authentication.md)
+- [ADR-002 内置词库数据的分层与分发](./adr/ADR-002-bundled-vocabulary-data.md)
 - [数据库事实](./database/README.md)
 - [开发文档](./development/README.md)
