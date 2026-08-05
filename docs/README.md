@@ -12,3 +12,4 @@ Lexarbor 是自包含词汇管理与出题服务：后端、Vue 管理页面、�
 - [ADR-004 从 monorepo 提取为 Lexarbor](./adr/ADR-004-standalone-lexarbor-repository.md)
 - [数据库事实](./database/README.md)
 - [开发文档](./development/README.md)
+- [待决事项](./pending-decisions.md)
