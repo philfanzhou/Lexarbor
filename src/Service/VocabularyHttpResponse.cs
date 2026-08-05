@@ -1,0 +1,79 @@
+using System.Net;
+using Microsoft.AspNetCore.Http;
+
+namespace Ruoyu.Study.Vocabulary.Service;
+
+/// <summary>
+/// Unified HTTP response envelope helper for all Vocabulary HTTP endpoints.
+/// Response format:
+///   Success: { "success": true, "data": ... } / { "success": true }
+///   Failure: { "success": false, "message": "..." }
+/// </summary>
+public static class VocabularyHttpResponse
+{
+    /// <summary>
+    /// Success response: { "success": true, "data": ... }
+    /// </summary>
+    public static IResult Ok<T>(T data) => Results.Ok(new { success = true, data });
+
+    /// <summary>
+    /// Success response (no data, just success=true).
+    /// </summary>
+    public static IResult Ok() => Results.Ok(new { success = true });
+
+    /// <summary>
+    /// 400 Bad Request: { "success": false, "message": "..." }
+    /// </summary>
+    public static IResult BadRequest(string message)
+        => Results.BadRequest(new { success = false, message });
+
+    /// <summary>
+    /// 404 Not Found: { "success": false, "message": "..." }
+    /// </summary>
+    public static IResult NotFound(string message)
+        => Results.NotFound(new { success = false, message });
+
+    public static IResult Unauthorized(string message)
+        => Results.Json(
+            new { success = false, message },
+            statusCode: StatusCodes.Status401Unauthorized);
+
+    public static IResult Forbidden(string message)
+        => Results.Json(
+            new { success = false, message },
+            statusCode: StatusCodes.Status403Forbidden);
+
+    /// <summary>
+    /// 409 Conflict: { "success": false, "message": "..." }
+    /// </summary>
+    public static IResult Conflict(string message)
+        => Results.Conflict(new { success = false, message });
+
+    /// <summary>
+    /// 422 Unprocessable Entity: { "success": false, "message": "..." }
+    /// </summary>
+    public static IResult UnprocessableEntity(string message)
+        => Results.UnprocessableEntity(new { success = false, message });
+
+    public static IResult BadGateway(string message)
+        => Results.Json(
+            new { success = false, message },
+            statusCode: StatusCodes.Status502BadGateway);
+
+    public static IResult ServiceUnavailable(string message)
+        => Results.Json(
+            new { success = false, message },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+
+    /// <summary>
+    /// 500 Internal Server Error: { "success": false, "message": "..." }
+    /// </summary>
+    public static IResult Internal(string message)
+        => Results.Json(new { success = false, message }, statusCode: (int)HttpStatusCode.InternalServerError);
+
+    public static Task WriteFailureAsync(HttpResponse response, int statusCode, string message)
+    {
+        response.StatusCode = statusCode;
+        return response.WriteAsJsonAsync(new { success = false, message });
+    }
+}
