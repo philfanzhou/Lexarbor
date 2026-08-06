@@ -30,8 +30,6 @@ public sealed class CookieCsrfMiddleware
         var path = context.Request.Path;
         if (!path.StartsWithSegments("/admin") ||
             SafeMethods.Contains(context.Request.Method) ||
-            path.Equals("/admin/auth/login") ||
-            path.Equals("/admin/auth/logout") ||
             HasBearerAuthorization(context.Request) ||
             context.User.Identity?.IsAuthenticated != true ||
             !context.Request.Cookies.ContainsKey(_options.CookieName))

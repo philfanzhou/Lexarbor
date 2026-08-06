@@ -21,8 +21,8 @@ Third-party Actions are pinned to full commit SHAs. Dependabot keeps those pins 
 
 CI runs on pushes to `main`, pull requests targeting `main`, manual dispatches, and calls from the release workflow. Its jobs run in parallel:
 
-- Backend: Release build, xUnit tests, TRX output, Coverlet Cobertura coverage, and a GitHub job summary. Results remain downloadable for 14 days.
-- Frontend: type checks, production build, and Playwright Chromium scenarios covering session restoration, login, catalog rendering, and catalog creation. Failure traces, screenshots, videos, and the HTML report remain downloadable for 7 days.
+- Backend: direct/transitive NuGet vulnerability audit, Release build, xUnit tests, TRX output, Coverlet Cobertura coverage, and a GitHub job summary. Results remain downloadable for 14 days.
+- Frontend: npm vulnerability audit, type checks, production build, and Playwright Chromium scenarios covering session restoration, login, catalog rendering, and catalog creation. Failure traces, screenshots, videos, and the HTML report remain downloadable for 7 days.
 - Container: image build, health check without a bind mount, first-start database/configuration creation, preservation of pre-mounted files, and a blocking scan for fixable critical vulnerabilities.
 
 Superseded runs on the same branch are canceled. Every job has an explicit timeout.

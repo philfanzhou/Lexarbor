@@ -156,7 +156,7 @@ public class AdminAuthenticationTests :
         using var client = CreateClient(_factory);
         (await LoginAsync(client)).EnsureSuccessStatusCode();
 
-        var logout = await client.PostAsync("/admin/auth/logout", content: null);
+        var logout = await LogoutAsync(client);
         var afterLogout = await client.GetAsync("/admin/vocabulary-books?page=1&size=20");
 
         logout.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -164,6 +164,17 @@ public class AdminAuthenticationTests :
         setCookie.Should().Contain(VocabularyWebApplicationFactory.CookieName);
         setCookie.ToLowerInvariant().Should().Contain("expires=");
         await AssertFailureAsync(afterLogout, HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Logout_WithoutRequestedWithHeader_Returns403()
+    {
+        using var client = CreateClient(_factory);
+        (await LoginAsync(client)).EnsureSuccessStatusCode();
+
+        var response = await client.PostAsync("/admin/auth/logout", content: null);
+
+        await AssertFailureAsync(response, HttpStatusCode.Forbidden);
     }
 
     [Fact]
@@ -222,6 +233,13 @@ public class AdminAuthenticationTests :
         return client.PostAsJsonAsync(
             "/admin/auth/login",
             new { username = "admin", password = "test-password" });
+    }
+
+    private static Task<HttpResponseMessage> LogoutAsync(HttpClient client)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/admin/auth/logout");
+        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+        return client.SendAsync(request);
     }
 
     private static async Task AssertFailureAsync(

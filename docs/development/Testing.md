@@ -11,13 +11,13 @@
 
 ## 测试框架与依赖
 
-- xUnit 2.6.2
+- xUnit 2.9.3
 - Moq 4.20.70
 - FluentAssertions 6.12.0
-- Microsoft.AspNetCore.Mvc.Testing 8.0.0（WebApplicationFactory 集成测试）
-- Microsoft.EntityFrameworkCore.Sqlite 8.0.11（Domain 与 HTTP 测试均运行真实 SQLite）
+- Microsoft.AspNetCore.Mvc.Testing 8.0.29（WebApplicationFactory 集成测试）
+- Microsoft.EntityFrameworkCore.Sqlite 8.0.29（Domain 与 HTTP 测试均运行真实 SQLite）
 - Mapster 10.0.7（Convertor 依赖）
-- coverlet.collector 6.0.0
+- coverlet.collector 6.0.4
 
 ## Service.Tests 覆盖范围
 

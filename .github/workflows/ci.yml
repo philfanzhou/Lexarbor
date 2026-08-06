@@ -34,6 +34,10 @@ jobs:
       - name: Restore dependencies
         run: dotnet restore src/Lexarbor.sln
 
+      - name: Audit direct and transitive packages
+        shell: pwsh
+        run: ./.github/scripts/assert-no-vulnerable-dotnet-packages.ps1
+
       - name: Build
         run: dotnet build src/Lexarbor.sln --configuration Release --no-restore
 
@@ -80,6 +84,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Audit dependencies
+        run: npm audit --audit-level=moderate --registry=https://registry.npmjs.org/
 
       - name: Check types
         run: npm run test:types
