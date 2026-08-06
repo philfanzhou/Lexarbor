@@ -4,40 +4,123 @@ on:
   push:
     branches: [main]
   pull_request:
+    branches: [main]
+  workflow_call:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  # Keep this distinct from callers such as release.yml. In a reusable workflow,
+  # github.workflow is the caller's name and could otherwise cancel that caller.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   backend:
+    name: Backend tests
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-dotnet@v5
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
           dotnet-version: 8.0.x
-      - run: dotnet restore src/Lexarbor.sln
-      - run: dotnet build src/Lexarbor.sln --configuration Release --no-restore
-      - run: dotnet test src/Lexarbor.sln --configuration Release --no-build
+
+      - name: Restore dependencies
+        run: dotnet restore src/Lexarbor.sln
+
+      - name: Build
+        run: dotnet build src/Lexarbor.sln --configuration Release --no-restore
+
+      - name: Test with coverage
+        run: >-
+          dotnet test src/Lexarbor.sln
+          --configuration Release
+          --no-build
+          --logger "trx;LogFilePrefix=lexarbor"
+          --results-directory TestResults
+          --collect "XPlat Code Coverage"
+
+      - name: Write test summary
+        if: always()
+        shell: pwsh
+        run: ./.github/scripts/write-test-summary.ps1 -ResultsDirectory TestResults
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: backend-test-results
+          path: TestResults/
+          if-no-files-found: error
+          retention-days: 14
 
   frontend:
+    name: Frontend build and browser tests
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 20
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - run: npm ci
-      - run: npm run test:types
-      - run: npm run build
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check types
+        run: npm run test:types
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run browser tests
+        run: npm run test:e2e
+
+      - name: Upload browser test report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: frontend-browser-test-report
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
 
   container:
+    name: Container integration and vulnerability scan
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
-      - run: docker build -f src/Host/Dockerfile -t lexarbor:ci .
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Build image
+        run: docker build -f src/Host/Dockerfile -t lexarbor:ci .
+
+      - name: Test startup and persistent files
+        run: bash .github/scripts/test-container.sh lexarbor:ci
+
+      - name: Scan image for fixable critical vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: lexarbor:ci
+          format: table
+          exit-code: 1
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL

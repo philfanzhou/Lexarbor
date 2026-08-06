@@ -21,6 +21,8 @@ src/Host/data/
 TestResults/
 reports/
 coverage/
+frontend/playwright-report/
+frontend/test-results/
 
 # Local configuration
 *.local

@@ -100,9 +100,15 @@ dotnet test Lexarbor.sln --configuration Release
 
 ```bash
 cd frontend
+npm ci
 npm run test:types
-npm run build
+npx playwright install chromium
+npm run test:e2e
 ```
+
+`npm run test:e2e` 会先执行生产构建，再用 Playwright Chromium 验证管理员会话恢复、登录、教材列表和新增教材流程。浏览器测试拦截管理 API，以固定响应验证前端行为；真实认证、HTTP 契约和数据库行为仍由 .NET 集成测试负责。
+
+GitHub Actions 还会收集 TRX 与 Cobertura 覆盖率、运行容器健康检查和持久化测试，并保留失败时的 Playwright trace、截图和视频。完整说明见 [Repository automation](./Automation.md)。
 
 ## 约定
 

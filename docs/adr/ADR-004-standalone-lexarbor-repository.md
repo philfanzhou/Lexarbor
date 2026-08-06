@@ -13,7 +13,7 @@ The vocabulary service had become operationally self-contained: it used SQLite, 
 - Rename .NET assemblies and namespaces from the monorepo-qualified name to `Lexarbor.*`.
 - Keep the existing public and administration HTTP paths and the SQLite schema unchanged.
 - Use OIDC as the default external administrator credential provider. Keep the former JSON/header token contract as an optional, generically named `Gateway` adapter.
-- Build Docker images from the standalone repository root and provide repository-local GitHub Actions and Jenkins workflows.
+- Build Docker images from the standalone repository root and provide a repository-local GitHub Actions workflow.
 - Distribute the project and the original bundled starter vocabulary under the MIT License.
 
 ## Consequences

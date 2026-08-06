@@ -13,6 +13,14 @@ The multi-stage build compiles the Vue frontend, publishes the .NET backend, and
 - `/app/data/vocabulary.db` contains the SQLite database.
 - `/app/data/appsettings.json` contains the operator-managed application configuration.
 
+Tagged releases publish SBOM-enabled images with build provenance for AMD64 and ARM64 to `ghcr.io/philfanzhou/lexarbor`. For example:
+
+```bash
+docker pull ghcr.io/philfanzhou/lexarbor:1.2.3
+```
+
+Stable releases also update the `latest`, major, and major/minor tags. Pre-releases such as `v1.2.3-rc.1` publish only their full version tag.
+
 ## Start the container
 
 ```bash
