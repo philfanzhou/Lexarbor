@@ -9,7 +9,7 @@ Lexarbor is a self-hosted vocabulary catalog and quiz service. It combines a .NE
 - Generate four-option translation questions from one vocabulary book.
 - Serve the public API and administration UI from one HTTP endpoint.
 - Protect administration routes with an external OIDC identity provider and an administrator role.
-- Run as a single container with one persistent SQLite file.
+- Run as a single container with one persistent data and configuration directory.
 
 ## Run locally
 
@@ -37,7 +37,7 @@ docker build -f src/Host/Dockerfile -t lexarbor:latest .
 bash start.sh
 ```
 
-The container publishes port 5008 and stores the database under `./data` by default. `start.sh` accepts `LEXARBOR_PORT`, `LEXARBOR_DATA_DIR`, `LEXARBOR_IMAGE`, and the authentication variables documented in [Deployment](docs/development/Deployment.md).
+The container publishes port 5008 and stores both `vocabulary.db` and a persistent `appsettings.json` under `./data` by default. The configuration file is copied from the image defaults on first startup and is never overwritten afterward. `start.sh` accepts `LEXARBOR_PORT`, `LEXARBOR_DATA_DIR`, `LEXARBOR_IMAGE`, and the authentication variables documented in [Deployment](docs/development/Deployment.md).
 
 ## Authentication
 

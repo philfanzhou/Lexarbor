@@ -375,19 +375,20 @@ normalizedWord = word.Trim().ToLowerInvariant()
 
 - Vocabulary 容器内 HTTP 端口固定为 5008。
 - Vue 构建产物继续由 Vocabulary Dockerfile 复制到后端 `wwwroot`。
-- `start.sh` 默认把部署变量映射为 .NET 配置：
+- `start.sh` 只把显式提供的部署变量映射为 .NET 配置：
 
   ```text
-  LEXARBOR_ADMIN_AUTH_PROVIDER（默认 Oidc）→ AdminAuthentication__Provider
+  LEXARBOR_ADMIN_AUTH_PROVIDER → AdminAuthentication__Provider
   LEXARBOR_OIDC_CLIENT_ID → AdminAuthentication__Oidc__ClientId
   LEXARBOR_OIDC_CLIENT_SECRET → AdminAuthentication__Oidc__ClientSecret
   LEXARBOR_IDENTITY_AUTHORITY → IdentityService__Authority
-  LEXARBOR_COOKIE_SECURE（默认 false）→ AdminAuthentication__CookieSecure
+  LEXARBOR_COOKIE_SECURE → AdminAuthentication__CookieSecure
   LEXARBOR_DATA_DIR（默认服务目录 data/）→ /app/data 持久卷
   ```
 
-- `IdentityService:Authority` 由普通配置提供；`start.sh` 默认使用 `http://host.docker.internal:8080`，可通过 `LEXARBOR_IDENTITY_AUTHORITY` 覆盖。
-- 容器把 `LEXARBOR_DATA_DIR` 挂载到 `/app/data`，数据库连接串固定为 `Data Source=/app/data/vocabulary.db`。
+- `IdentityService:Authority` 由持久化配置提供，也可通过显式的 `LEXARBOR_IDENTITY_AUTHORITY` 覆盖。
+- 容器把 `LEXARBOR_DATA_DIR` 挂载到 `/app/data`。首次启动把镜像内置配置复制为 `/app/data/appsettings.json`，已有文件保持不变；同一目录保存默认的 `vocabulary.db`，无需增加第二个挂载项。
+- 配置优先级为镜像默认值、持久化 `appsettings.json`、显式环境变量、命令行参数。
 - provider 客户端凭据由部署环境传入 Lexarbor，不打印到控制台。
 - TLS 部署设置 `AdminAuthentication__CookieSecure=true`。
 - Identity provider 需要预先注册 Lexarbor 客户端、允许当前 password grant，并在 JWT 中提供管理员角色。

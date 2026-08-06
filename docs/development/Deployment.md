@@ -8,7 +8,10 @@ The root of the repository is the Docker build context:
 docker build -f src/Host/Dockerfile -t lexarbor:latest .
 ```
 
-The multi-stage build compiles the Vue frontend, publishes the .NET backend, and copies the static files into the Host output. The runtime image exposes HTTP port 5008 and stores all durable state in `/app/data/vocabulary.db`.
+The multi-stage build compiles the Vue frontend, publishes the .NET backend, and copies the static files into the Host output. The runtime image exposes HTTP port 5008 and stores durable state in `/app/data`:
+
+- `/app/data/vocabulary.db` contains the SQLite database.
+- `/app/data/appsettings.json` contains the operator-managed application configuration.
 
 ## Start the container
 
@@ -16,7 +19,7 @@ The multi-stage build compiles the Vue frontend, publishes the .NET backend, and
 bash start.sh
 ```
 
-`start.sh` creates a `lexarbor-net` Docker network, replaces an existing container with the same name, mounts the data directory, and starts the image. Its general settings are:
+`start.sh` creates a `lexarbor-net` Docker network, replaces an existing container with the same name, mounts one data directory, and starts the image. No separate configuration-file mount is required. Its general settings are:
 
 | Environment variable | Default | Purpose |
 |---|---|---|
@@ -27,6 +30,15 @@ bash start.sh
 | `LEXARBOR_DATA_DIR` | `<repository>/data` | Host directory mounted at `/app/data` |
 
 The deployment is single-instance only. Do not mount the same SQLite file into multiple running containers.
+
+On the first container startup, Lexarbor copies the image's built-in `appsettings.json` to `/app/data/appsettings.json`. If that file already exists, Lexarbor loads it without modifying it. Configuration precedence is:
+
+1. image defaults;
+2. `/app/data/appsettings.json`;
+3. explicitly supplied environment variables;
+4. command-line arguments.
+
+Therefore the persistent file controls normal deployments, while an explicit environment variable remains available for secret injection or an emergency override. When `/app/data` is not bound to a host directory or named volume, Docker's image-declared anonymous volume still lets the application run, but a newly created container will not automatically reuse that data.
 
 ## Database
 
@@ -43,17 +55,17 @@ The administration UI submits a username and password to Lexarbor. The backend e
 
 | Environment variable | Default | .NET configuration key |
 |---|---|---|
-| `LEXARBOR_IDENTITY_AUTHORITY` | `http://host.docker.internal:8080` | `IdentityService:Authority` |
-| `LEXARBOR_IDENTITY_ISSUER` | same as Authority | `IdentityService:Issuer` |
-| `LEXARBOR_IDENTITY_AUDIENCE` | `lexarbor` | `IdentityService:Audience` |
-| `LEXARBOR_ADMIN_AUTH_PROVIDER` | `Oidc` | `AdminAuthentication:Provider` |
-| `LEXARBOR_OIDC_TOKEN_ENDPOINT` | discovery document | `AdminAuthentication:Oidc:TokenEndpoint` |
-| `LEXARBOR_OIDC_CLIENT_ID` | empty | `AdminAuthentication:Oidc:ClientId` |
-| `LEXARBOR_OIDC_CLIENT_SECRET` | empty | `AdminAuthentication:Oidc:ClientSecret` |
-| `LEXARBOR_OIDC_SCOPE` | `openid profile` | `AdminAuthentication:Oidc:Scope` |
-| `LEXARBOR_COOKIE_SECURE` | `false` | `AdminAuthentication:CookieSecure` |
+| `LEXARBOR_IDENTITY_AUTHORITY` | not supplied | `IdentityService:Authority` |
+| `LEXARBOR_IDENTITY_ISSUER` | Authority when Authority is explicitly supplied | `IdentityService:Issuer` |
+| `LEXARBOR_IDENTITY_AUDIENCE` | not supplied | `IdentityService:Audience` |
+| `LEXARBOR_ADMIN_AUTH_PROVIDER` | not supplied | `AdminAuthentication:Provider` |
+| `LEXARBOR_OIDC_TOKEN_ENDPOINT` | not supplied | `AdminAuthentication:Oidc:TokenEndpoint` |
+| `LEXARBOR_OIDC_CLIENT_ID` | not supplied | `AdminAuthentication:Oidc:ClientId` |
+| `LEXARBOR_OIDC_CLIENT_SECRET` | not supplied | `AdminAuthentication:Oidc:ClientSecret` |
+| `LEXARBOR_OIDC_SCOPE` | not supplied | `AdminAuthentication:Oidc:Scope` |
+| `LEXARBOR_COOKIE_SECURE` | not supplied | `AdminAuthentication:CookieSecure` |
 
-The validated token must contain `role=admin` by default. Override `AdminAuthentication__RequiredRole` to use another role. Set `LEXARBOR_COOKIE_SECURE=true` whenever the browser accesses Lexarbor over HTTPS. Missing credential-provider settings do not prevent startup; administration login returns 503 until configured.
+When these variables are not supplied, values come from the persistent file and ultimately from the image defaults. The validated token must contain `role=admin` by default. Override `AdminAuthentication__RequiredRole` to use another role. Set `LEXARBOR_COOKIE_SECURE=true` whenever the browser accesses Lexarbor over HTTPS. Missing credential-provider settings do not prevent startup; administration login returns 503 until configured.
 
 Example:
 

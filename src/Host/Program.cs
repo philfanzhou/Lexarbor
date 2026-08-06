@@ -13,11 +13,31 @@ using Lexarbor.Database;
 using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Repositories;
 using Lexarbor.Domain.Services;
+using Lexarbor.Host;
 using Lexarbor.Host.Authentication;
 using Lexarbor.Host.Authentication.Providers;
 using Lexarbor.Service;
 
 var builder = WebApplication.CreateBuilder(args);
+
+PersistentConfigurationFile? persistentConfiguration = null;
+if (PersistentConfigurationBootstrapper.IsRunningInContainer())
+{
+    persistentConfiguration = PersistentConfigurationBootstrapper.EnsureFile(
+        builder.Environment.ContentRootPath);
+    builder.Configuration.AddJsonFile(
+        persistentConfiguration.Path,
+        optional: false,
+        reloadOnChange: false);
+
+    // Keep the standard .NET precedence: explicit deployment settings override
+    // the persisted file, and the persisted file overrides the image defaults.
+    builder.Configuration.AddEnvironmentVariables();
+    if (args.Length > 0)
+    {
+        builder.Configuration.AddCommandLine(args);
+    }
+}
 
 // HTTP listen port is hardcoded to 5008 (not configurable via ASPNETCORE_URLS).
 // host port mapping is controlled by start.sh: -p ${Port}:5008.
@@ -177,6 +197,14 @@ var app = builder.Build();
 
 app.Logger.LogInformation("Lexarbor starting");
 app.Logger.LogInformation("Listening: http://+:{Port}", httpPort);
+if (persistentConfiguration != null)
+{
+    app.Logger.LogInformation(
+        persistentConfiguration.Created
+            ? "Created persistent configuration from image defaults at {ConfigurationPath}"
+            : "Loaded persistent configuration from {ConfigurationPath}",
+        persistentConfiguration.Path);
+}
 var sqliteConnection = new SqliteConnectionStringBuilder(connectionString);
 app.Logger.LogInformation("Database: SQLite {DatabasePath}", sqliteConnection.DataSource);
 if (!app.Environment.IsDevelopment() &&
