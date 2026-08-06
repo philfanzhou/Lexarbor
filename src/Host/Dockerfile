@@ -26,7 +26,7 @@ COPY --from=frontend-build /wwwroot ./src/Host/wwwroot
 RUN dotnet publish "src/Host/Lexarbor.Host.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false --no-restore
 
 # ========== Stage 3: Runtime ==========
-FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
 COPY --from=backend-build /app/publish .
 RUN mkdir -p /app/data
