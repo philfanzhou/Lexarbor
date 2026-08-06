@@ -48,7 +48,7 @@ The browser tests mock only the external administration API contract. Backend au
 
 CodeQL uses the extended security query suite for workflow, backend, and frontend code. Dependency Review runs only for pull requests and prevents newly introduced high- or critical-severity vulnerable dependencies. Trivy examines both operating-system and application packages in the final image and blocks fixable critical vulnerabilities.
 
-Dependabot checks four ecosystems every Monday in the `Asia/Singapore` timezone and groups related updates to reduce pull-request noise. Repository vulnerability alerts and Dependabot security updates must also remain enabled in GitHub repository settings.
+Dependabot checks four ecosystems every Monday in the `Asia/Singapore` timezone and groups related updates to reduce pull-request noise. Routine version updates stay within the current major version; deliberate platform-major upgrades remain maintainer-led changes. Security updates are still generated independently. Repository vulnerability alerts and Dependabot security updates must also remain enabled in GitHub repository settings.
 
 ## Releases and container tags
 
