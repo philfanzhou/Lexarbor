@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Mapster" />
+  </ItemGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Lexarbor.Domain\Lexarbor.Domain.csproj" />
+    <ProjectReference Include="..\Lexarbor.Database\Lexarbor.Database.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Lexarbor.Service.Tests" />
+  </ItemGroup>
+</Project>

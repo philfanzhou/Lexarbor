@@ -30,7 +30,7 @@ Superseded runs on the same branch are canceled. Every job has an explicit timeo
 Run the repository-owned checks locally with:
 
 ```bash
-dotnet test src/Lexarbor.sln --configuration Release --collect "XPlat Code Coverage"
+dotnet test Lexarbor.sln --configuration Release --collect "XPlat Code Coverage"
 
 cd frontend
 npm ci
@@ -38,7 +38,7 @@ npx playwright install chromium
 npm run test:e2e
 
 cd ..
-docker build -f src/Host/Dockerfile -t lexarbor:ci .
+docker build -t lexarbor:ci .
 bash .github/scripts/test-container.sh lexarbor:ci
 ```
 

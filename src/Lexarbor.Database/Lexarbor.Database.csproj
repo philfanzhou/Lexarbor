@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" />
+    <PackageReference Include="Mapster" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Lexarbor.Domain\Lexarbor.Domain.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="SeedData\starter-vocabulary.tsv" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Lexarbor.Domain.Tests" />
+  </ItemGroup>
+</Project>

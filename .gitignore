@@ -8,11 +8,10 @@
 # Frontend
 frontend/node_modules/
 frontend/dist/
-wwwroot/
 
 # Runtime data
 data/
-src/Host/data/
+src/Lexarbor.Host/data/
 *.db
 *.db-shm
 *.db-wal

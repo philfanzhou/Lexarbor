@@ -16,7 +16,7 @@ Lexarbor 使用 .NET 8、ASP.NET Core Minimal API、EF Core 8、SQLite、Vue 3�
 - 多个端点直接把 `Exception.Message` 返回客户端。
 - 词书搜索、筛选和分页会先加载全表。
 - 仓库级 `PROJECT.md` 曾记录旧端口，与实际使用的 5008 不一致。
-- Vocabulary 缺少完整的正式文档入口和 `frontend/docs/frontend-spec.md`。
+- Vocabulary 缺少完整的正式文档入口和 `docs/frontend/README.md`。
 
 本设计保持既有四个 `/api/*` 业务接口的路径和业务行为，并完善认证、数据边界、错误处理、查询性能、前端登录和验证体系；后续 ADR-003 另行批准了单音标到英美双音标的字段变更。
 
@@ -375,7 +375,7 @@ normalizedWord = word.Trim().ToLowerInvariant()
 
 - Vocabulary 容器内 HTTP 端口固定为 5008。
 - Vue 构建产物继续由 Vocabulary Dockerfile 复制到后端 `wwwroot`。
-- `start.sh` 只把显式提供的部署变量映射为 .NET 配置：
+- `scripts/start.sh` 只把显式提供的部署变量映射为 .NET 配置：
 
   ```text
   LEXARBOR_ADMIN_AUTH_PROVIDER → AdminAuthentication__Provider
