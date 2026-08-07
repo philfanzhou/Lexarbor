@@ -64,7 +64,7 @@ echo "Checking first-start configuration and database creation"
 start_container "$FRESH_CONTAINER" --volume "$fresh_data:/app/data"
 test -s "$fresh_data/appsettings.json"
 test -s "$fresh_data/vocabulary.db"
-cmp --silent src/Host/appsettings.json "$fresh_data/appsettings.json"
+cmp --silent src/Lexarbor.Host/appsettings.json "$fresh_data/appsettings.json"
 docker rm -f "$FRESH_CONTAINER" >/dev/null
 
 existing_data="$TEST_ROOT/existing"

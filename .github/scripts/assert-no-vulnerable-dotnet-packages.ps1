@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-$jsonOutput = & dotnet list src/Lexarbor.sln package `
+$jsonOutput = & dotnet list Lexarbor.sln package `
     --vulnerable `
     --include-transitive `
     --format json

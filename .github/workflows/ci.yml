@@ -32,18 +32,18 @@ jobs:
           dotnet-version: 8.0.x
 
       - name: Restore dependencies
-        run: dotnet restore src/Lexarbor.sln
+        run: dotnet restore Lexarbor.sln
 
       - name: Audit direct and transitive packages
         shell: pwsh
         run: ./.github/scripts/assert-no-vulnerable-dotnet-packages.ps1
 
       - name: Build
-        run: dotnet build src/Lexarbor.sln --configuration Release --no-restore
+        run: dotnet build Lexarbor.sln --configuration Release --no-restore
 
       - name: Test with coverage
         run: >-
-          dotnet test src/Lexarbor.sln
+          dotnet test Lexarbor.sln
           --configuration Release
           --no-build
           --logger "trx;LogFilePrefix=lexarbor"
@@ -117,7 +117,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Build image
-        run: docker build -f src/Host/Dockerfile -t lexarbor:ci .
+        run: docker build -t lexarbor:ci .
 
       - name: Test startup and persistent files
         run: bash .github/scripts/test-container.sh lexarbor:ci

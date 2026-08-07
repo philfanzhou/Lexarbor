@@ -19,8 +19,8 @@ Lexarbor is a self-hosted vocabulary catalog and quiz service. It combines a .NE
 Requirements: .NET SDK 8 and Node.js 20 or later.
 
 ```bash
-dotnet restore src/Lexarbor.sln
-dotnet run --project src/Host/Lexarbor.Host.csproj
+dotnet restore Lexarbor.sln
+dotnet run --project src/Lexarbor.Host/Lexarbor.Host.csproj
 ```
 
 In another terminal:
@@ -31,16 +31,16 @@ npm ci
 npm run dev
 ```
 
-The API listens on `http://localhost:5008`; the Vite development server listens on `http://localhost:5175` and proxies administration requests to the API. On first startup Lexarbor creates `src/Host/data/vocabulary.db` and imports the bundled starter book.
+The API listens on `http://localhost:5008`; the Vite development server listens on `http://localhost:5175` and proxies administration requests to the API. On first startup Lexarbor creates `src/Lexarbor.Host/data/vocabulary.db` and imports the bundled starter book.
 
 ## Run with Docker
 
 ```bash
-docker build -f src/Host/Dockerfile -t lexarbor:latest .
-bash start.sh
+docker build -t lexarbor:latest .
+bash scripts/start.sh
 ```
 
-The container publishes port 5008 and stores both `vocabulary.db` and a persistent `appsettings.json` under `./data` by default. The configuration file is copied from the image defaults on first startup and is never overwritten afterward. `start.sh` accepts `LEXARBOR_PORT`, `LEXARBOR_DATA_DIR`, `LEXARBOR_IMAGE`, and the authentication variables documented in [Deployment](docs/development/Deployment.md).
+The container publishes port 5008 and stores both `vocabulary.db` and a persistent `appsettings.json` under `./data` by default. The configuration file is copied from the image defaults on first startup and is never overwritten afterward. `scripts/start.sh` accepts `LEXARBOR_PORT`, `LEXARBOR_DATA_DIR`, `LEXARBOR_IMAGE`, and the authentication variables documented in [Deployment](docs/development/Deployment.md).
 
 ## Authentication
 
@@ -51,8 +51,8 @@ OIDC is the default credential provider. The current adapter uses the OAuth2 res
 ## Verify
 
 ```bash
-dotnet build src/Lexarbor.sln --configuration Release
-dotnet test src/Lexarbor.sln --configuration Release --no-build
+dotnet build Lexarbor.sln --configuration Release
+dotnet test Lexarbor.sln --configuration Release --no-build
 
 cd frontend
 npm ci
@@ -63,12 +63,32 @@ npm run test:e2e
 
 GitHub Actions repeats these checks on pushes and pull requests, tests the built container and its persistent files, scans the image and source, and publishes versioned multi-platform images to GitHub Container Registry when a `v*.*.*` tag is pushed. See [Automation](docs/development/Automation.md) for the workflow and release contract.
 
+## Repository layout
+
+```text
+├── .github/                  GitHub workflows and collaboration templates
+├── docs/                     Architecture, operations, and frontend documentation
+├── frontend/                 Vue administration application and browser tests
+├── scripts/                  Operator-facing scripts
+├── src/Lexarbor.*/           Production .NET projects
+├── tests/Lexarbor.*.Tests/   .NET unit and integration tests
+├── Directory.Build.props     Shared .NET build settings
+├── Directory.Packages.props  Central NuGet package versions
+├── Dockerfile                Production container build
+└── Lexarbor.sln              Repository-level .NET solution
+```
+
+See [Repository layout](docs/development/RepositoryLayout.md) for ownership and placement rules.
+
 ## Documentation
 
 - [Documentation index](docs/README.md)
 - [Architecture and behavior](docs/overview/SecureSelfContainedServiceDesign.md)
+- [Administration frontend](docs/frontend/README.md)
 - [Database model](docs/database/README.md)
 - [Testing](docs/development/Testing.md)
+
+Contributions should follow [CONTRIBUTING.md](CONTRIBUTING.md). Please report vulnerabilities according to [SECURITY.md](SECURITY.md), not through a public issue.
 
 ## License
 

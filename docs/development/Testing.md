@@ -6,22 +6,22 @@
 
 | 项目 | 路径 | 覆盖范围 |
 |------|------|---------|
-| `Lexarbor.Domain.Tests` | `src/Tests/Lexarbor.Domain.Tests/` | Domain 层服务 |
-| `Lexarbor.Service.Tests` | `src/Tests/Lexarbor.Service.Tests/` | DTO 转换、异常中间件、认证和 HTTP 集成 |
+| `Lexarbor.Domain.Tests` | `tests/Lexarbor.Domain.Tests/` | Domain 层服务 |
+| `Lexarbor.Service.Tests` | `tests/Lexarbor.Service.Tests/` | DTO 转换、异常中间件、认证和 HTTP 集成 |
 
 ## 测试框架与依赖
 
 - xUnit 2.9.3
-- Moq 4.20.70
-- FluentAssertions 6.12.0
+- Moq 4.20.72
+- FluentAssertions 6.12.2
 - Microsoft.AspNetCore.Mvc.Testing 8.0.29（WebApplicationFactory 集成测试）
 - Microsoft.EntityFrameworkCore.Sqlite 8.0.29（Domain 与 HTTP 测试均运行真实 SQLite）
-- Mapster 10.0.7（Convertor 依赖）
+- Mapster 10.0.11（DTO 映射扩展依赖）
 - coverlet.collector 6.0.4
 
 ## Service.Tests 覆盖范围
 
-### Convertor 测试场景（Mapster DTO ↔ Model）
+### DTO 映射扩展测试场景（Mapster DTO ↔ Model）
 
 | 场景 | 期望 |
 |------|------|
@@ -94,7 +94,6 @@
 ## 运行方式
 
 ```bash
-cd src
 dotnet test Lexarbor.sln --configuration Release
 ```
 
@@ -112,9 +111,9 @@ GitHub Actions 还会收集 TRX 与 Cobertura 覆盖率、运行容器健康检�
 
 ## 约定
 
-- Convertor 测试采用直接调用 Mapster `Adapt<>` 方法验证字段映射正确性。
+- DTO 映射扩展测试采用公开的 `ToEntity()` / `ToDto()` 扩展方法验证字段映射正确性。
 - Domain 层测试采用真实 DomainService、真实仓储和 SQLite 内存或临时文件数据库。
-- Convertor 测试需要 `InternalsVisibleTo`，已在 Service 项目 .csproj 中配置。
+- DTO 映射扩展测试需要 `InternalsVisibleTo`，已在 Service 项目 `.csproj` 中配置。
 - 断言使用 FluentAssertions。
 - 不修改被测代码以适配测试；如需可测试性改进，先更新本文档再改代码。
 - Identity 使用完整契约的 fake HTTP handler；JWT 使用测试签名密钥，不依赖真实管理员密码。

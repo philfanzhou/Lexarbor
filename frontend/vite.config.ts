@@ -27,7 +27,7 @@ export default defineConfig({
     }
   },
   build: {
-    outDir: '../wwwroot',
+    outDir: 'dist',
     emptyOutDir: true,
     chunkSizeWarningLimit: 600,
     rolldownOptions: {

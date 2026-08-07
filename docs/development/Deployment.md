@@ -5,7 +5,7 @@
 The root of the repository is the Docker build context:
 
 ```bash
-docker build -f src/Host/Dockerfile -t lexarbor:latest .
+docker build -t lexarbor:latest .
 ```
 
 The multi-stage build compiles the Vue frontend, publishes the .NET backend, and copies the static files into the Host output. The runtime image exposes HTTP port 5008 and stores durable state in `/app/data`:
@@ -24,10 +24,10 @@ Stable releases also update the `latest`, major, and major/minor tags. Pre-relea
 ## Start the container
 
 ```bash
-bash start.sh
+bash scripts/start.sh
 ```
 
-`start.sh` creates a `lexarbor-net` Docker network, replaces an existing container with the same name, mounts one data directory, and starts the image. No separate configuration-file mount is required. Its general settings are:
+`scripts/start.sh` creates a `lexarbor-net` Docker network, replaces an existing container with the same name, mounts one data directory, and starts the image. No separate configuration-file mount is required. Its general settings are:
 
 | Environment variable | Default | Purpose |
 |---|---|---|
@@ -84,7 +84,7 @@ export LEXARBOR_IDENTITY_AUDIENCE=lexarbor
 export LEXARBOR_OIDC_CLIENT_ID=lexarbor-admin
 export LEXARBOR_OIDC_CLIENT_SECRET=replace-me
 export LEXARBOR_COOKIE_SECURE=true
-bash start.sh
+bash scripts/start.sh
 ```
 
 ## Gateway adapter (optional)

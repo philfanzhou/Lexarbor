@@ -12,7 +12,7 @@
 
 数据模型的两个既有约束决定了可行解：
 
-- `vocabulary_book` 没有教材单元层级（`Domain/Models/VocabularyBookModel.cs`），词书直接挂词义，因此任意扁平词表都能一对一映射成一本词书，不存在结构阻抗；
+- `vocabulary_book` 没有教材单元层级（`src/Lexarbor.Domain/Models/VocabularyBookModel.cs`），词书直接挂词义，因此任意扁平词表都能一对一映射成一本词书，不存在结构阻抗；
 - `vocabulary_meaning.BookId` 非空且带 RESTRICT 外键（`docs/database/README.md`），释义按词书隔离，同一个词在不同词书可以有不同释义和例句。
 
 第二条意味着通用词典的释义不归属任何词书，无法直接写入 `vocabulary_meaning`。
@@ -31,7 +31,7 @@
 
 #### 种子以数据文件分发，不预置数据库文件
 
-示例词书以 `Database/SeedData/starter-vocabulary.tsv` 随仓库分发，并作为程序集资源进入镜像，**不预先构建 `.db` 文件打进镜像**。启动时判断配置路径上的数据库文件是否存在：不存在则创建数据库、迁移并写入种子；已存在则只迁移，不写入种子。
+示例词书以 `src/Lexarbor.Database/SeedData/starter-vocabulary.tsv` 随仓库分发，并作为程序集资源进入镜像，**不预先构建 `.db` 文件打进镜像**。启动时判断配置路径上的数据库文件是否存在：不存在则创建数据库、迁移并写入种子；已存在则只迁移，不写入种子。
 
 理由是容器挂载 `data` 目录后，数据库文件必须落在宿主卷上，后续新增的数据才随卷持久化。镜像内预置 `.db` 会造成两种结果之一：挂载点遮蔽镜像内的文件使种子不可见，或数据写入镜像层内随容器销毁而丢失。
 

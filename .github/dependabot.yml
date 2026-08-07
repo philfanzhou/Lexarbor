@@ -16,7 +16,7 @@ updates:
     open-pull-requests-limit: 5
 
   - package-ecosystem: nuget
-    directory: /src
+    directory: /
     schedule:
       interval: weekly
       day: monday
@@ -31,7 +31,7 @@ updates:
     open-pull-requests-limit: 5
 
   - package-ecosystem: docker
-    directory: /src/Host
+    directory: /
     schedule:
       interval: weekly
       day: monday

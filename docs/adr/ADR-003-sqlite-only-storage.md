@@ -10,12 +10,12 @@
 
 服务尚未上线（见 ADR-001），没有存量数据需要迁移，因此更换提供程序的成本目前处于最低点。
 
-代码中已存在按 `_context.Database.IsRelational()` 分流的双路径（`Database/Repositories/Repositories.cs`），但该分支的非关系分支服务于测试用的内存提供程序，**SQLite 同样满足 `IsRelational()`**，会落入 PostgreSQL 分支。以下位置为 PostgreSQL 专属：
+代码中已存在按 `_context.Database.IsRelational()` 分流的双路径（`src/Lexarbor.Database/Repositories/VocabularyRepositories.cs`），但该分支的非关系分支服务于测试用的内存提供程序，**SQLite 同样满足 `IsRelational()`**，会落入 PostgreSQL 分支。以下位置为 PostgreSQL 专属：
 
 | 位置 | 专属特性 |
 |------|----------|
-| `Repositories.cs` 干扰项查询 | `DISTINCT ON`、`btrim` |
-| `Repositories.cs` `AcquireEquivalentMeaningLockAsync` | `pg_advisory_xact_lock` |
+| `VocabularyRepositories.cs` 干扰项查询 | `DISTINCT ON`、`btrim` |
+| `VocabularyRepositories.cs` `AcquireEquivalentMeaningLockAsync` | `pg_advisory_xact_lock` |
 | `DatabaseInitializer.cs` | `CHECK` / `FOREIGN KEY ... NOT VALID` |
 | `UnitOfWork.cs` | `PostgresException` 与 `PostgresErrorCodes` 异常映射 |
 
