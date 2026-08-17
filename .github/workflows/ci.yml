@@ -41,14 +41,19 @@ jobs:
       - name: Build
         run: dotnet build Lexarbor.sln --configuration Release --no-restore
 
+      # Arguments after `--` go to Microsoft.Testing.Platform, which replaces the
+      # VSTest --logger/--collect options. Report file names are left at their
+      # defaults so the two test projects do not overwrite each other's output.
       - name: Test with coverage
         run: >-
           dotnet test Lexarbor.sln
           --configuration Release
           --no-build
-          --logger "trx;LogFilePrefix=lexarbor"
           --results-directory TestResults
-          --collect "XPlat Code Coverage"
+          --
+          --report-xunit-trx
+          --coverage
+          --coverage-output-format cobertura
 
       - name: Write test summary
         if: always()

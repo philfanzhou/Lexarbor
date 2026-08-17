@@ -44,7 +44,8 @@ public class IdentityClaimShapeTests :
             "Bearer",
             CreateToken(new Claim(roleClaimType, "admin")));
 
-        var response = await client.GetAsync("/admin/vocabulary-books?page=1&size=20");
+        var response = await client.GetAsync("/admin/vocabulary-books?page=1&size=20",
+            TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
@@ -59,7 +60,8 @@ public class IdentityClaimShapeTests :
             "Bearer",
             CreateToken(new Claim(roleClaimType, "student")));
 
-        var response = await client.GetAsync("/admin/vocabulary-books?page=1&size=20");
+        var response = await client.GetAsync("/admin/vocabulary-books?page=1&size=20",
+            TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
@@ -82,10 +84,11 @@ public class IdentityClaimShapeTests :
                 new Claim(roleClaimType, "admin"),
                 new Claim(nameClaimType, "bootstrap-admin")));
 
-        var response = await client.GetAsync("/admin/auth/session");
+        var response = await client.GetAsync("/admin/auth/session",
+            TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var body = await response.Content.ReadAsStringAsync();
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
         Assert.Contains("bootstrap-admin", body);
         Assert.Contains("admin", body);
     }
@@ -108,10 +111,11 @@ public class IdentityClaimShapeTests :
                 new Claim(roleClaimType, "admin"),
                 new Claim(subjectClaimType, "account-42")));
 
-        var response = await client.GetAsync("/admin/auth/session");
+        var response = await client.GetAsync("/admin/auth/session",
+            TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Contains("account-42", await response.Content.ReadAsStringAsync());
+        Assert.Contains("account-42", await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
     }
 
     /// <summary>
@@ -135,12 +139,14 @@ public class IdentityClaimShapeTests :
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer",
             CreateToken(new Claim(ClaimTypes.Role, "vocabulary-curator")));
-        var curator = await client.GetAsync("/admin/vocabulary-books?page=1&size=20");
+        var curator = await client.GetAsync("/admin/vocabulary-books?page=1&size=20",
+            TestContext.Current.CancellationToken);
 
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer",
             CreateToken(new Claim(ClaimTypes.Role, "admin")));
-        var admin = await client.GetAsync("/admin/vocabulary-books?page=1&size=20");
+        var admin = await client.GetAsync("/admin/vocabulary-books?page=1&size=20",
+            TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, curator.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, admin.StatusCode);

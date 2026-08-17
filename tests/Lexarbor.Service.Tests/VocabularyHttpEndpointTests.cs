@@ -32,7 +32,7 @@ public class VocabularyHttpEndpointTests :
     {
         using var client = _factory.CreateClient();
 
-        var response = await client.GetAsync(path);
+        var response = await client.GetAsync(path, TestContext.Current.CancellationToken);
 
         await AssertFailureAsync(response, HttpStatusCode.BadRequest);
     }
@@ -46,7 +46,8 @@ public class VocabularyHttpEndpointTests :
             Encoding.UTF8,
             "application/json");
 
-        var response = await client.PostAsync("/admin/vocabulary-books", content);
+        var response = await client.PostAsync("/admin/vocabulary-books", content,
+            TestContext.Current.CancellationToken);
 
         await AssertFailureAsync(response, HttpStatusCode.BadRequest);
     }
@@ -63,7 +64,7 @@ public class VocabularyHttpEndpointTests :
                 id = $"missing-{Guid.NewGuid():N}",
                 bookName = "Missing Book",
                 status = true
-            });
+            }, TestContext.Current.CancellationToken);
 
         await AssertFailureAsync(response, HttpStatusCode.NotFound);
     }
@@ -80,7 +81,7 @@ public class VocabularyHttpEndpointTests :
                 id = "must-not-update-through-create",
                 bookName = "Create only",
                 status = true
-            });
+            }, TestContext.Current.CancellationToken);
 
         await AssertFailureAsync(response, HttpStatusCode.BadRequest);
     }
@@ -91,7 +92,8 @@ public class VocabularyHttpEndpointTests :
         var (bookId, _) = await SeedBookAsync(distractorCount: 0);
         using var client = CreateAdminClient();
 
-        var response = await client.DeleteAsync($"/admin/vocabulary-books/{bookId}");
+        var response = await client.DeleteAsync($"/admin/vocabulary-books/{bookId}",
+            TestContext.Current.CancellationToken);
 
         await AssertFailureAsync(response, HttpStatusCode.Conflict);
     }
@@ -104,7 +106,7 @@ public class VocabularyHttpEndpointTests :
 
         var response = await client.PostAsJsonAsync(
             "/api/vocabulary/question",
-            new { wordId, bookId, chineseToEnglish = true });
+            new { wordId, bookId, chineseToEnglish = true }, TestContext.Current.CancellationToken);
 
         await AssertFailureAsync(response, HttpStatusCode.UnprocessableEntity);
     }
@@ -125,10 +127,10 @@ public class VocabularyHttpEndpointTests :
         using var client = factory.CreateClient();
 
         var response = await client.GetAsync(
-            "/api/vocabulary?keyword=test&page=1&size=20");
+            "/api/vocabulary?keyword=test&page=1&size=20", TestContext.Current.CancellationToken);
 
         await AssertFailureAsync(response, HttpStatusCode.InternalServerError);
-        Assert.DoesNotContain(secret, await response.Content.ReadAsStringAsync());
+        Assert.DoesNotContain(secret, await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -136,7 +138,8 @@ public class VocabularyHttpEndpointTests :
     {
         using var client = _factory.CreateClient();
 
-        var response = await client.GetAsync("/api/not-a-real-endpoint");
+        var response = await client.GetAsync("/api/not-a-real-endpoint",
+            TestContext.Current.CancellationToken);
 
         await AssertFailureAsync(response, HttpStatusCode.NotFound);
     }
@@ -146,7 +149,8 @@ public class VocabularyHttpEndpointTests :
     {
         using var client = _factory.CreateClient();
 
-        var response = await client.GetAsync("/admin/not-a-real-endpoint");
+        var response = await client.GetAsync("/admin/not-a-real-endpoint",
+            TestContext.Current.CancellationToken);
 
         await AssertFailureAsync(response, HttpStatusCode.Unauthorized);
     }
@@ -156,7 +160,8 @@ public class VocabularyHttpEndpointTests :
     {
         using var client = CreateAdminClient();
 
-        var response = await client.GetAsync("/admin/not-a-real-endpoint");
+        var response = await client.GetAsync("/admin/not-a-real-endpoint",
+            TestContext.Current.CancellationToken);
 
         await AssertFailureAsync(response, HttpStatusCode.NotFound);
     }
@@ -166,10 +171,11 @@ public class VocabularyHttpEndpointTests :
     {
         using var client = _factory.CreateClient();
 
-        var response = await client.GetAsync("/health");
+        var response = await client.GetAsync("/health", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        using var body = JsonDocument.Parse(
+            await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         Assert.True(body.RootElement.GetProperty("success").GetBoolean());
         Assert.Equal(
             "healthy",

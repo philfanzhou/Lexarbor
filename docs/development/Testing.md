@@ -11,12 +11,33 @@
 
 ## 测试框架与依赖
 
-- xUnit 2.9.3（断言统一使用 xUnit 内置的 `Assert.*`，不引入第三方断言库）
+- xUnit.net v3 4.0.0（断言统一使用 xUnit 内置的 `Assert.*`，不引入第三方断言库）
 - Moq 4.20.72
 - Microsoft.AspNetCore.Mvc.Testing 10.0.11（WebApplicationFactory 集成测试）
 - Microsoft.EntityFrameworkCore.Sqlite 10.0.11（Domain 与 HTTP 测试均运行真实 SQLite）
 - Mapster 10.0.11（DTO 映射扩展依赖）
-- coverlet.collector 6.0.4
+- Microsoft.Testing.Extensions.CodeCoverage 18.10.0
+
+## 测试执行方式
+
+测试通过 **Microsoft.Testing.Platform**（MTP）运行，而非旧的 VSTest —— .NET 10 SDK
+已不再支持用 VSTest 运行 xUnit v3。相关约定：
+
+- 根目录 `global.json` 里的 `test.runner` 声明让 `dotnet test` 走 MTP。
+- 两个测试项目都是可执行文件（`<OutputType>Exe</OutputType>` 加
+  `<UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>`），
+  因此也可以直接运行生成的 exe 来跑测试。
+- MTP 的参数写在 `--` 之后，替代 VSTest 的 `--logger` / `--collect`：
+
+  ```
+  dotnet test Lexarbor.sln --results-directory TestResults -- \
+    --report-xunit-trx --coverage --coverage-output-format cobertura
+  ```
+
+  不要指定报告文件名：两个测试项目会写入同一目录，固定文件名会互相覆盖，
+  而默认名带运行标识可以避免冲突。
+- xUnit v3 的 xUnit1051 分析器要求异步调用传入
+  `TestContext.Current.CancellationToken`，以便测试能响应取消和超时。
 
 ## Service.Tests 覆盖范围
 

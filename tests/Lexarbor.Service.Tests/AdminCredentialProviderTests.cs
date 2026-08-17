@@ -133,7 +133,7 @@ public class AdminCredentialProviderTests
         var response = await LoginAsync(client);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var body = await response.Content.ReadAsStringAsync();
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
 
         // FakeIdentityHandler reports this userId in its envelope; the JWT does not
         // carry it as a display name, so it must not surface.

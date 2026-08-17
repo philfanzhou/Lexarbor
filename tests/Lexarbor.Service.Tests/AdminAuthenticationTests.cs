@@ -24,7 +24,8 @@ public class AdminAuthenticationTests :
     {
         using var client = CreateClient(_factory);
 
-        var response = await client.GetAsync("/admin/vocabulary-books?page=1&size=20");
+        var response = await client.GetAsync("/admin/vocabulary-books?page=1&size=20",
+            TestContext.Current.CancellationToken);
 
         await AssertFailureAsync(response, HttpStatusCode.Unauthorized);
     }
@@ -36,7 +37,8 @@ public class AdminAuthenticationTests :
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", _factory.CreateToken("student"));
 
-        var response = await client.GetAsync("/admin/vocabulary-books?page=1&size=20");
+        var response = await client.GetAsync("/admin/vocabulary-books?page=1&size=20",
+            TestContext.Current.CancellationToken);
 
         await AssertFailureAsync(response, HttpStatusCode.Forbidden);
     }
@@ -53,7 +55,7 @@ public class AdminAuthenticationTests :
         Assert.Contains(VocabularyWebApplicationFactory.CookieName, setCookie);
         Assert.Contains("httponly", setCookie.ToLowerInvariant());
         Assert.Contains("samesite=strict", setCookie.ToLowerInvariant());
-        var loginBody = await response.Content.ReadAsStringAsync();
+        var loginBody = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
         Assert.DoesNotContain(_factory.Identity.AccessToken, loginBody);
         Assert.DoesNotContain("identity-refresh-token", loginBody);
     }
@@ -143,8 +145,10 @@ public class AdminAuthenticationTests :
         (await LoginAsync(client)).EnsureSuccessStatusCode();
 
         var books = await client.GetAsync(
-            "/admin/vocabulary-books?keyword=test&page=1&size=20");
-        var categories = await client.GetAsync("/admin/vocabulary-books/categories");
+            "/admin/vocabulary-books?keyword=test&page=1&size=20",
+                TestContext.Current.CancellationToken);
+        var categories = await client.GetAsync("/admin/vocabulary-books/categories",
+            TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, books.StatusCode);
         Assert.Equal(HttpStatusCode.OK, categories.StatusCode);
@@ -157,7 +161,8 @@ public class AdminAuthenticationTests :
         (await LoginAsync(client)).EnsureSuccessStatusCode();
 
         var logout = await LogoutAsync(client);
-        var afterLogout = await client.GetAsync("/admin/vocabulary-books?page=1&size=20");
+        var afterLogout = await client.GetAsync("/admin/vocabulary-books?page=1&size=20",
+            TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, logout.StatusCode);
         var setCookie = logout.Headers.GetValues("Set-Cookie").Single();
@@ -172,7 +177,8 @@ public class AdminAuthenticationTests :
         using var client = CreateClient(_factory);
         (await LoginAsync(client)).EnsureSuccessStatusCode();
 
-        var response = await client.PostAsync("/admin/auth/logout", content: null);
+        var response = await client.PostAsync("/admin/auth/logout", content: null,
+            TestContext.Current.CancellationToken);
 
         await AssertFailureAsync(response, HttpStatusCode.Forbidden);
     }
@@ -185,7 +191,8 @@ public class AdminAuthenticationTests :
 
         var response = await client.PostAsJsonAsync(
             "/admin/vocabulary-books",
-            new { bookName = "Protected Book", status = true });
+            new { bookName = "Protected Book", status = true },
+                TestContext.Current.CancellationToken);
 
         await AssertFailureAsync(response, HttpStatusCode.Forbidden);
     }
@@ -200,7 +207,8 @@ public class AdminAuthenticationTests :
 
         var response = await client.PostAsJsonAsync(
             "/admin/vocabulary-books",
-            new { bookName = "Rejected Book", status = true });
+            new { bookName = "Rejected Book", status = true },
+                TestContext.Current.CancellationToken);
 
         await AssertFailureAsync(response, HttpStatusCode.Unauthorized);
     }
@@ -214,7 +222,7 @@ public class AdminAuthenticationTests :
 
         var response = await client.PostAsJsonAsync(
             "/admin/vocabulary-books",
-            new { bookName = "Bearer Book", status = true });
+            new { bookName = "Bearer Book", status = true }, TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }

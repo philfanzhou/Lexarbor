@@ -25,7 +25,8 @@ public class PublicApiCompatibilityTests :
         using var client = _factory.CreateClient();
 
         var response = await client.GetAsync(
-            $"/api/vocabulary/{data.WordId}?bookId={data.BookId}");
+            $"/api/vocabulary/{data.WordId}?bookId={data.BookId}",
+                TestContext.Current.CancellationToken);
 
         var document = await AssertPublicSuccessAsync(response);
         using (document)
@@ -45,7 +46,8 @@ public class PublicApiCompatibilityTests :
         using var client = _factory.CreateClient();
 
         var response = await client.GetAsync(
-            "/api/vocabulary?keyword=compatibility&page=1&size=20");
+            "/api/vocabulary?keyword=compatibility&page=1&size=20",
+                TestContext.Current.CancellationToken);
 
         var document = await AssertPublicSuccessAsync(response);
         using (document)
@@ -70,7 +72,7 @@ public class PublicApiCompatibilityTests :
                 wordId = data.WordId,
                 bookId = data.BookId,
                 chineseToEnglish = true
-            });
+            }, TestContext.Current.CancellationToken);
 
         var document = await AssertPublicSuccessAsync(response);
         using (document)
@@ -86,7 +88,8 @@ public class PublicApiCompatibilityTests :
     {
         using var client = _factory.CreateClient();
 
-        var response = await client.GetAsync("/api/vocabulary-books/all");
+        var response = await client.GetAsync("/api/vocabulary-books/all",
+            TestContext.Current.CancellationToken);
 
         var document = await AssertPublicSuccessAsync(response);
         using (document)

@@ -26,7 +26,7 @@ public class VocabularyBookLifecycleTests : TestBase
                 Status = true
             }));
 
-        Assert.Equal(0, await _dbContext.VocabularyBooks.CountAsync());
+        Assert.Equal(0, await _dbContext.VocabularyBooks.CountAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -59,7 +59,7 @@ public class VocabularyBookLifecycleTests : TestBase
             () => _service.DeleteAsync(book.Id));
 
         Assert.Contains("Disable it instead", exception.Message, StringComparison.Ordinal);
-        Assert.Equal(1, await _dbContext.VocabularyBooks.CountAsync());
+        Assert.Equal(1, await _dbContext.VocabularyBooks.CountAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -69,7 +69,7 @@ public class VocabularyBookLifecycleTests : TestBase
 
         await _service.DeleteAsync(book.Id);
 
-        Assert.Equal(0, await _dbContext.VocabularyBooks.CountAsync());
+        Assert.Equal(0, await _dbContext.VocabularyBooks.CountAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
