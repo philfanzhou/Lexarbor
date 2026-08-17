@@ -14,8 +14,8 @@
 - xUnit 2.9.3
 - Moq 4.20.72
 - FluentAssertions 6.12.2
-- Microsoft.AspNetCore.Mvc.Testing 8.0.29（WebApplicationFactory 集成测试）
-- Microsoft.EntityFrameworkCore.Sqlite 8.0.29（Domain 与 HTTP 测试均运行真实 SQLite）
+- Microsoft.AspNetCore.Mvc.Testing 10.0.11（WebApplicationFactory 集成测试）
+- Microsoft.EntityFrameworkCore.Sqlite 10.0.11（Domain 与 HTTP 测试均运行真实 SQLite）
 - Mapster 10.0.11（DTO 映射扩展依赖）
 - coverlet.collector 6.0.4
 
