@@ -2,7 +2,6 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
-using FluentAssertions;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Lexarbor.Service.Tests.TestInfrastructure;
 
@@ -49,13 +48,14 @@ public class AdminAuthenticationTests :
 
         var response = await LoginAsync(client);
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var setCookie = response.Headers.GetValues("Set-Cookie").Single();
-        setCookie.Should().Contain(VocabularyWebApplicationFactory.CookieName);
-        setCookie.ToLowerInvariant().Should().Contain("httponly");
-        setCookie.ToLowerInvariant().Should().Contain("samesite=strict");
-        (await response.Content.ReadAsStringAsync()).Should().NotContain(_factory.Identity.AccessToken);
-        (await response.Content.ReadAsStringAsync()).Should().NotContain("identity-refresh-token");
+        Assert.Contains(VocabularyWebApplicationFactory.CookieName, setCookie);
+        Assert.Contains("httponly", setCookie.ToLowerInvariant());
+        Assert.Contains("samesite=strict", setCookie.ToLowerInvariant());
+        var loginBody = await response.Content.ReadAsStringAsync();
+        Assert.DoesNotContain(_factory.Identity.AccessToken, loginBody);
+        Assert.DoesNotContain("identity-refresh-token", loginBody);
     }
 
     [Fact]
@@ -67,7 +67,7 @@ public class AdminAuthenticationTests :
         var response = await LoginAsync(client);
 
         await AssertFailureAsync(response, HttpStatusCode.Unauthorized);
-        response.Headers.Should().NotContainKey("Set-Cookie");
+        Assert.False(response.Headers.Contains("Set-Cookie"));
     }
 
     [Fact]
@@ -80,7 +80,7 @@ public class AdminAuthenticationTests :
         var response = await LoginAsync(client);
 
         await AssertFailureAsync(response, HttpStatusCode.Forbidden);
-        response.Headers.Should().NotContainKey("Set-Cookie");
+        Assert.False(response.Headers.Contains("Set-Cookie"));
     }
 
     [Fact]
@@ -116,7 +116,7 @@ public class AdminAuthenticationTests :
         var response = await LoginAsync(client);
 
         await AssertFailureAsync(response, HttpStatusCode.BadGateway);
-        response.Headers.Should().NotContainKey("Set-Cookie");
+        Assert.False(response.Headers.Contains("Set-Cookie"));
     }
 
     [Fact]
@@ -126,14 +126,14 @@ public class AdminAuthenticationTests :
 
         var response = await LoginAsync(client);
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         using var body = JsonDocument.Parse(_factory.Identity.LastRequestBody!);
-        body.RootElement.GetProperty("grantType").GetString().Should().Be("password");
-        body.RootElement.GetProperty("username").GetString().Should().Be("admin");
-        body.RootElement.GetProperty("password").GetString().Should().Be("test-password");
-        body.RootElement.TryGetProperty("GrantType", out _).Should().BeFalse();
-        _factory.Identity.LastAppId.Should().Be("vocabulary-app");
-        _factory.Identity.LastAppSecret.Should().Be("vocabulary-secret");
+        Assert.Equal("password", body.RootElement.GetProperty("grantType").GetString());
+        Assert.Equal("admin", body.RootElement.GetProperty("username").GetString());
+        Assert.Equal("test-password", body.RootElement.GetProperty("password").GetString());
+        Assert.False(body.RootElement.TryGetProperty("GrantType", out _));
+        Assert.Equal("vocabulary-app", _factory.Identity.LastAppId);
+        Assert.Equal("vocabulary-secret", _factory.Identity.LastAppSecret);
     }
 
     [Fact]
@@ -146,8 +146,8 @@ public class AdminAuthenticationTests :
             "/admin/vocabulary-books?keyword=test&page=1&size=20");
         var categories = await client.GetAsync("/admin/vocabulary-books/categories");
 
-        books.StatusCode.Should().Be(HttpStatusCode.OK);
-        categories.StatusCode.Should().Be(HttpStatusCode.OK);
+        Assert.Equal(HttpStatusCode.OK, books.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, categories.StatusCode);
     }
 
     [Fact]
@@ -159,10 +159,10 @@ public class AdminAuthenticationTests :
         var logout = await LogoutAsync(client);
         var afterLogout = await client.GetAsync("/admin/vocabulary-books?page=1&size=20");
 
-        logout.StatusCode.Should().Be(HttpStatusCode.OK);
+        Assert.Equal(HttpStatusCode.OK, logout.StatusCode);
         var setCookie = logout.Headers.GetValues("Set-Cookie").Single();
-        setCookie.Should().Contain(VocabularyWebApplicationFactory.CookieName);
-        setCookie.ToLowerInvariant().Should().Contain("expires=");
+        Assert.Contains(VocabularyWebApplicationFactory.CookieName, setCookie);
+        Assert.Contains("expires=", setCookie.ToLowerInvariant());
         await AssertFailureAsync(afterLogout, HttpStatusCode.Unauthorized);
     }
 
@@ -216,7 +216,7 @@ public class AdminAuthenticationTests :
             "/admin/vocabulary-books",
             new { bookName = "Bearer Book", status = true });
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     private static HttpClient CreateClient(VocabularyWebApplicationFactory factory)
@@ -246,9 +246,10 @@ public class AdminAuthenticationTests :
         HttpResponseMessage response,
         HttpStatusCode expectedStatus)
     {
-        response.StatusCode.Should().Be(expectedStatus);
+        Assert.Equal(expectedStatus, response.StatusCode);
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        body.RootElement.GetProperty("success").GetBoolean().Should().BeFalse();
-        body.RootElement.GetProperty("message").GetString().Should().NotBeNullOrWhiteSpace();
+        Assert.False(body.RootElement.GetProperty("success").GetBoolean());
+        Assert.False(string.IsNullOrWhiteSpace(
+            body.RootElement.GetProperty("message").GetString()));
     }
 }

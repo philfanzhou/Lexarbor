@@ -3,7 +3,6 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
-using FluentAssertions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -129,7 +128,7 @@ public class VocabularyHttpEndpointTests :
             "/api/vocabulary?keyword=test&page=1&size=20");
 
         await AssertFailureAsync(response, HttpStatusCode.InternalServerError);
-        (await response.Content.ReadAsStringAsync()).Should().NotContain(secret);
+        Assert.DoesNotContain(secret, await response.Content.ReadAsStringAsync());
     }
 
     [Fact]
@@ -169,11 +168,12 @@ public class VocabularyHttpEndpointTests :
 
         var response = await client.GetAsync("/health");
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        body.RootElement.GetProperty("success").GetBoolean().Should().BeTrue();
-        body.RootElement.GetProperty("data").GetProperty("status").GetString()
-            .Should().Be("healthy");
+        Assert.True(body.RootElement.GetProperty("success").GetBoolean());
+        Assert.Equal(
+            "healthy",
+            body.RootElement.GetProperty("data").GetProperty("status").GetString());
     }
 
     private HttpClient CreateAdminClient()
@@ -248,10 +248,11 @@ public class VocabularyHttpEndpointTests :
         HttpResponseMessage response,
         HttpStatusCode expectedStatus)
     {
-        response.StatusCode.Should().Be(expectedStatus);
+        Assert.Equal(expectedStatus, response.StatusCode);
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        body.RootElement.GetProperty("success").GetBoolean().Should().BeFalse();
-        body.RootElement.GetProperty("message").GetString().Should().NotBeNullOrWhiteSpace();
+        Assert.False(body.RootElement.GetProperty("success").GetBoolean());
+        Assert.False(string.IsNullOrWhiteSpace(
+            body.RootElement.GetProperty("message").GetString()));
     }
 
     private sealed class ThrowingVocabularyRepository : IVocabularyRepository

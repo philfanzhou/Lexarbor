@@ -2,7 +2,6 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Web;
-using FluentAssertions;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Lexarbor.Host.Authentication;
@@ -24,7 +23,7 @@ public class AdminCredentialProviderTests
     {
         var options = new AdminAuthenticationOptions();
 
-        options.Provider.Should().Be(AdminAuthenticationProvider.Oidc);
+        Assert.Equal(AdminAuthenticationProvider.Oidc, options.Provider);
     }
 
     [Fact]
@@ -36,7 +35,7 @@ public class AdminCredentialProviderTests
         var authenticator = scope.ServiceProvider
             .GetRequiredService<IAdminCredentialAuthenticator>();
 
-        authenticator.Should().BeOfType<OidcPasswordAuthenticator>();
+        Assert.IsType<OidcPasswordAuthenticator>(authenticator);
     }
 
     [Fact]
@@ -47,24 +46,26 @@ public class AdminCredentialProviderTests
 
         var response = await LoginAsync(client);
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-        response.Headers.GetValues("Set-Cookie").Single()
-            .Should().Contain(VocabularyWebApplicationFactory.CookieName);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains(
+            VocabularyWebApplicationFactory.CookieName,
+            response.Headers.GetValues("Set-Cookie").Single());
 
-        factory.Identity.LastContentType.Should().Be("application/x-www-form-urlencoded");
-        factory.Identity.LastRequestUri.Should()
-            .Be("http://identity.test/protocol/openid-connect/token");
+        Assert.Equal("application/x-www-form-urlencoded", factory.Identity.LastContentType);
+        Assert.Equal(
+            "http://identity.test/protocol/openid-connect/token",
+            factory.Identity.LastRequestUri);
 
         var form = HttpUtility.ParseQueryString(factory.Identity.LastRequestBody!);
-        form["grant_type"].Should().Be("password");
-        form["username"].Should().Be("admin");
-        form["password"].Should().Be("test-password");
-        form["client_id"].Should().Be("vocabulary-client");
-        form["client_secret"].Should().Be("vocabulary-client-secret");
+        Assert.Equal("password", form["grant_type"]);
+        Assert.Equal("admin", form["username"]);
+        Assert.Equal("test-password", form["password"]);
+        Assert.Equal("vocabulary-client", form["client_id"]);
+        Assert.Equal("vocabulary-client-secret", form["client_secret"]);
 
         // The proprietary headers belong to the other provider only.
-        factory.Identity.LastAppId.Should().BeNull();
-        factory.Identity.LastAppSecret.Should().BeNull();
+        Assert.Null(factory.Identity.LastAppId);
+        Assert.Null(factory.Identity.LastAppSecret);
     }
 
     [Fact]
@@ -76,8 +77,8 @@ public class AdminCredentialProviderTests
 
         var response = await LoginAsync(client);
 
-        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
-        response.Headers.Should().NotContainKey("Set-Cookie");
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.False(response.Headers.Contains("Set-Cookie"));
     }
 
     [Fact]
@@ -89,7 +90,7 @@ public class AdminCredentialProviderTests
 
         var response = await LoginAsync(client);
 
-        response.StatusCode.Should().Be(HttpStatusCode.BadGateway);
+        Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
     }
 
     [Fact]
@@ -101,8 +102,8 @@ public class AdminCredentialProviderTests
 
         var response = await LoginAsync(client);
 
-        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
-        response.Headers.Should().NotContainKey("Set-Cookie");
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.False(response.Headers.Contains("Set-Cookie"));
     }
 
     [Fact]
@@ -116,7 +117,7 @@ public class AdminCredentialProviderTests
 
         var response = await LoginAsync(client);
 
-        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
     }
 
     /// <summary>
@@ -131,18 +132,19 @@ public class AdminCredentialProviderTests
 
         var response = await LoginAsync(client);
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await response.Content.ReadAsStringAsync();
 
         // FakeIdentityHandler reports this userId in its envelope; the JWT does not
         // carry it as a display name, so it must not surface.
-        body.Should().NotContain("identity-user");
+        Assert.DoesNotContain("identity-user", body);
         using var document = JsonDocument.Parse(body);
-        document.RootElement
-            .GetProperty("data")
-            .GetProperty("username")
-            .GetString()
-            .Should().Be("test-user");
+        Assert.Equal(
+            "test-user",
+            document.RootElement
+                .GetProperty("data")
+                .GetProperty("username")
+                .GetString());
     }
 
     private static VocabularyWebApplicationFactory CreateOidcFactory()
