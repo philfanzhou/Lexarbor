@@ -136,3 +136,23 @@ jobs:
           ignore-unfixed: true
           vuln-type: os,library
           severity: CRITICAL
+
+      # The release workflow publishes linux/amd64 and linux/arm64, and a tag is
+      # the first moment ARM64 would otherwise be built at all. The Dockerfile
+      # pins both build stages to the build platform, so the ARM64 leg is only
+      # the runtime stage and this check stays cheap. It runs last because the
+      # steps above give the faster signal, and it cannot load a multi-platform
+      # result into the daemon, so nothing is exported.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Build multi-platform image
+        run: >-
+          docker buildx build
+          --platform linux/amd64,linux/arm64
+          --file Dockerfile
+          --output type=cacheonly
+          .

@@ -1,5 +1,15 @@
+# Both build stages are pinned to the machine running the build rather than to
+# the image being produced. The release workflow builds linux/amd64 and
+# linux/arm64, and without this pin the ARM64 leg re-runs the whole Node and
+# .NET build under QEMU emulation. Nothing either stage produces is
+# architecture-specific: the frontend emits static assets, and the backend
+# publishes framework-dependent IL with UseAppHost=false and no
+# RuntimeIdentifier, so native dependencies such as SQLitePCLRaw ship as
+# runtimes/<rid>/native/ and are selected when the application loads. Only the
+# runtime stage below is pulled per target architecture.
+
 # ========== Stage 1: Build Frontend ==========
-FROM node:20-alpine AS frontend-build
+FROM --platform=$BUILDPLATFORM node:20-alpine AS frontend-build
 ARG NPM_REGISTRY=https://registry.npmjs.org/
 ENV npm_config_registry=${NPM_REGISTRY}
 WORKDIR /frontend
@@ -9,7 +19,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # ========== Stage 2: Build & Publish Backend ==========
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS backend-build
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS backend-build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
 
