@@ -23,7 +23,7 @@ CI runs on pushes to `main`, pull requests targeting `main`, manual dispatches, 
 
 - Backend: direct/transitive NuGet vulnerability audit, Release build, xUnit tests on Microsoft.Testing.Platform, TRX output, Cobertura coverage from `Microsoft.Testing.Extensions.CodeCoverage`, and a GitHub job summary. Results remain downloadable for 14 days.
 - Frontend: npm vulnerability audit, type checks, production build, and Playwright Chromium scenarios covering session restoration, login, catalog rendering, and catalog creation. Failure traces, screenshots, videos, and the HTML report remain downloadable for 7 days.
-- Container: image build, health check without a bind mount, first-start database/configuration creation, preservation of pre-mounted files, a blocking scan for fixable critical vulnerabilities, and a build of the same AMD64/ARM64 pair the release workflow publishes.
+- Container: image build, health check without a bind mount, first-start database/configuration creation, preservation of pre-mounted files, a blocking scan for fixable critical vulnerabilities, and a build of the same AMD64/ARM64 pair the release workflow publishes. The image is built with a synthetic version that the health check must find reported back, so the argument the release workflow uses to stamp a tag is exercised on every run.
 
 Superseded runs on the same branch are canceled. Every job has an explicit timeout.
 
@@ -65,6 +65,8 @@ Accepted tags are `vMAJOR.MINOR.PATCH` and optional pre-release variants such as
 2. publish the versioned image to `ghcr.io/<owner>/<repository>`;
 3. attach OCI labels, an SBOM, maximum BuildKit provenance, and a GitHub artifact attestation;
 4. create a GitHub Release with generated notes.
+
+The tag without its `v` prefix is passed into the image build as the `APP_VERSION` argument and becomes the assembly version, which the application reports as `version` in its `/health` response. A build that does not pass the argument reports `0.0.0-dev`, so an image built outside the release workflow is always distinguishable from a released one. No file in the repository stores the version, which means there is nothing to bump before tagging and no stored value that can disagree with the tag.
 
 Steps 1 to 3 run in `publish-container` and step 4 in `publish-release`, which depends on it. A release therefore never announces a version whose image failed to publish. Both jobs additionally guard on `startsWith(github.ref, 'refs/tags/')`, which is redundant against the tag-only trigger and is kept so that adding a branch trigger or a manual dispatch later cannot publish from a non-tag ref.
 

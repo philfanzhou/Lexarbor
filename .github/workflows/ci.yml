@@ -117,15 +117,20 @@ jobs:
     name: Container integration and vulnerability scan
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      # Deliberately a value no release and no default can produce, so the
+      # startup check proves the version travelled from the build argument
+      # through to the running application instead of matching by coincidence.
+      APP_VERSION: 0.0.0-ci.${{ github.run_id }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Build image
-        run: docker build -t lexarbor:ci .
+        run: docker build --build-arg APP_VERSION="$APP_VERSION" -t lexarbor:ci .
 
       - name: Test startup and persistent files
-        run: bash .github/scripts/test-container.sh lexarbor:ci
+        run: bash .github/scripts/test-container.sh lexarbor:ci "$APP_VERSION"
 
       - name: Scan image for fixable critical vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
@@ -154,5 +159,6 @@ jobs:
           docker buildx build
           --platform linux/amd64,linux/arm64
           --file Dockerfile
+          --build-arg APP_VERSION=$APP_VERSION
           --output type=cacheonly
           .
