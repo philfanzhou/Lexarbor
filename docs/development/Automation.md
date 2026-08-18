@@ -23,7 +23,7 @@ CI runs on pushes to `main`, pull requests targeting `main`, manual dispatches, 
 
 - Backend: direct/transitive NuGet vulnerability audit, Release build, xUnit tests on Microsoft.Testing.Platform, TRX output, Cobertura coverage from `Microsoft.Testing.Extensions.CodeCoverage`, and a GitHub job summary. Results remain downloadable for 14 days.
 - Frontend: npm vulnerability audit, type checks, production build, and Playwright Chromium scenarios covering session restoration, login, catalog rendering, and catalog creation. Failure traces, screenshots, videos, and the HTML report remain downloadable for 7 days.
-- Container: image build, health check without a bind mount, first-start database/configuration creation, preservation of pre-mounted files, and a blocking scan for fixable critical vulnerabilities.
+- Container: image build, health check without a bind mount, first-start database/configuration creation, preservation of pre-mounted files, a blocking scan for fixable critical vulnerabilities, and a build of the same AMD64/ARM64 pair the release workflow publishes.
 
 Superseded runs on the same branch are canceled. Every job has an explicit timeout.
 
