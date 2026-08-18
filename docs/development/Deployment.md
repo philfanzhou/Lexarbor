@@ -21,6 +21,14 @@ docker pull ghcr.io/philfanzhou/lexarbor:1.2.3
 
 Stable releases also update the `latest`, major, and major/minor tags. Pre-releases such as `v1.2.3-rc.1` publish only their full version tag.
 
+Pushes to `main` publish `edge`, which always points at the newest development build and never at a release:
+
+```bash
+docker pull ghcr.io/philfanzhou/lexarbor:edge
+```
+
+It passes the same CI the release images do, but it is unversioned and moves without notice, so it suits trying an unreleased change rather than running a deployment.
+
 Because `latest` and the major tags are repointed by later releases, ask the running container which version it actually is rather than relying on the tag it was pulled with:
 
 ```bash
