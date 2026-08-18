@@ -29,7 +29,11 @@ public class VocabularyImportIntegrityTests : TestBase
             new VocabularyMeaningModel { BookId = book.Id, Meaning = " apple " });
 
         Assert.Equal("apple", word.Word);
-        Assert.Equal("apple", await _dbContext.Vocabularies.Select(item => item.Word).SingleAsync());
+        Assert.Equal(
+            "apple",
+            await _dbContext.Vocabularies
+                .Select(item => item.Word)
+                .SingleAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -45,8 +49,8 @@ public class VocabularyImportIntegrityTests : TestBase
             new VocabularyMeaningModel { BookId = book.Id, Meaning = "company" });
 
         Assert.Equal(firstWord.Id, secondWord.Id);
-        Assert.Equal(1, await _dbContext.Vocabularies.CountAsync());
-        Assert.Equal(2, await _dbContext.VocabularyMeanings.CountAsync());
+        Assert.Equal(1, await _dbContext.Vocabularies.CountAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(2, await _dbContext.VocabularyMeanings.CountAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -74,8 +78,8 @@ public class VocabularyImportIntegrityTests : TestBase
         Assert.Equal(firstMeaning.Id, secondMeaning.Id);
         Assert.Equal("n.", secondMeaning.PartOfSpeech);
         Assert.Equal("fruit", secondMeaning.Meaning);
-        Assert.Equal(1, await _dbContext.Vocabularies.CountAsync());
-        Assert.Equal(1, await _dbContext.VocabularyMeanings.CountAsync());
+        Assert.Equal(1, await _dbContext.Vocabularies.CountAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(1, await _dbContext.VocabularyMeanings.CountAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -107,8 +111,8 @@ public class VocabularyImportIntegrityTests : TestBase
             "New example.",
             await _dbContext.VocabularyMeanings
                 .Select(item => item.Example)
-                .SingleAsync());
-        Assert.Equal(1, await _dbContext.VocabularyMeanings.CountAsync());
+                .SingleAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(1, await _dbContext.VocabularyMeanings.CountAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -143,7 +147,7 @@ public class VocabularyImportIntegrityTests : TestBase
                 Meaning = "fruit"
             }));
 
-        Assert.Equal(2, await _dbContext.VocabularyMeanings.CountAsync());
+        Assert.Equal(2, await _dbContext.VocabularyMeanings.CountAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -190,8 +194,8 @@ public class VocabularyImportIntegrityTests : TestBase
             new VocabularyModel { Word = "apple" },
             new VocabularyMeaningModel { BookId = "missing-book", Meaning = "fruit" }));
 
-        Assert.Equal(0, await _dbContext.Vocabularies.CountAsync());
-        Assert.Equal(0, await _dbContext.VocabularyMeanings.CountAsync());
+        Assert.Equal(0, await _dbContext.Vocabularies.CountAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(0, await _dbContext.VocabularyMeanings.CountAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -203,8 +207,8 @@ public class VocabularyImportIntegrityTests : TestBase
             new VocabularyModel { Word = "apple" },
             new VocabularyMeaningModel { BookId = book.Id, Meaning = "fruit" }));
 
-        Assert.Equal(0, await _dbContext.Vocabularies.CountAsync());
-        Assert.Equal(0, await _dbContext.VocabularyMeanings.CountAsync());
+        Assert.Equal(0, await _dbContext.Vocabularies.CountAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(0, await _dbContext.VocabularyMeanings.CountAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -216,8 +220,8 @@ public class VocabularyImportIntegrityTests : TestBase
             new VocabularyModel { Id = "missing-word", Word = "apple" },
             new VocabularyMeaningModel { BookId = book.Id, Meaning = "fruit" }));
 
-        Assert.Equal(0, await _dbContext.Vocabularies.CountAsync());
-        Assert.Equal(0, await _dbContext.VocabularyMeanings.CountAsync());
+        Assert.Equal(0, await _dbContext.Vocabularies.CountAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(0, await _dbContext.VocabularyMeanings.CountAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -237,8 +241,8 @@ public class VocabularyImportIntegrityTests : TestBase
                 Meaning = "company"
             }));
 
-        Assert.Equal(1, await _dbContext.Vocabularies.CountAsync());
-        Assert.Equal(1, await _dbContext.VocabularyMeanings.CountAsync());
+        Assert.Equal(1, await _dbContext.Vocabularies.CountAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(1, await _dbContext.VocabularyMeanings.CountAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -262,8 +266,8 @@ public class VocabularyImportIntegrityTests : TestBase
             }));
 
         Assert.NotEqual(firstWord.Id, secondWord.Id);
-        Assert.Equal(2, await _dbContext.Vocabularies.CountAsync());
-        Assert.Equal(2, await _dbContext.VocabularyMeanings.CountAsync());
+        Assert.Equal(2, await _dbContext.Vocabularies.CountAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(2, await _dbContext.VocabularyMeanings.CountAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -284,8 +288,12 @@ public class VocabularyImportIntegrityTests : TestBase
                 Meaning = "changed"
             }));
 
-        Assert.Equal(1, await _dbContext.VocabularyMeanings.CountAsync());
-        Assert.Equal(firstBook.Id, await _dbContext.VocabularyMeanings.Select(item => item.BookId).SingleAsync());
+        Assert.Equal(1, await _dbContext.VocabularyMeanings.CountAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(
+            firstBook.Id,
+            await _dbContext.VocabularyMeanings
+                .Select(item => item.BookId)
+                .SingleAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]

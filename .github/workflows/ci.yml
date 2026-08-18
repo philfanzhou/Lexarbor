@@ -29,7 +29,7 @@ jobs:
       - name: Set up .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: 10.0.x
 
       - name: Restore dependencies
         run: dotnet restore Lexarbor.sln
@@ -41,14 +41,19 @@ jobs:
       - name: Build
         run: dotnet build Lexarbor.sln --configuration Release --no-restore
 
+      # Arguments after `--` go to Microsoft.Testing.Platform, which replaces the
+      # VSTest --logger/--collect options. Report file names are left at their
+      # defaults so the two test projects do not overwrite each other's output.
       - name: Test with coverage
         run: >-
           dotnet test Lexarbor.sln
           --configuration Release
           --no-build
-          --logger "trx;LogFilePrefix=lexarbor"
           --results-directory TestResults
-          --collect "XPlat Code Coverage"
+          --
+          --report-xunit-trx
+          --coverage
+          --coverage-output-format cobertura
 
       - name: Write test summary
         if: always()

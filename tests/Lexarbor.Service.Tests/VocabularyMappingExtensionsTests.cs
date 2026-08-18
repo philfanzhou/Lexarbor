@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using FluentAssertions;
 using Moq;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
@@ -31,10 +30,10 @@ public class VocabularyMappingExtensionsTests
 
         var model = dto.ToEntity();
 
-        model.Id.Should().Be("vocab-1");
-        model.Word.Should().Be("apple");
-        model.PhoneticUk.Should().Be("ˈæpəl");
-        model.PhoneticUs.Should().Be("ˈæpəl");
+        Assert.Equal("vocab-1", model.Id);
+        Assert.Equal("apple", model.Word);
+        Assert.Equal("ˈæpəl", model.PhoneticUk);
+        Assert.Equal("ˈæpəl", model.PhoneticUs);
     }
 
     [Fact]
@@ -52,10 +51,10 @@ public class VocabularyMappingExtensionsTests
 
         var dto = model.ToDto();
 
-        dto.Id.Should().Be("vocab-1");
-        dto.Word.Should().Be("apple");
-        dto.PhoneticUk.Should().Be("ˈæpəl");
-        dto.PhoneticUs.Should().Be("ˈæpəl");
+        Assert.Equal("vocab-1", dto.Id);
+        Assert.Equal("apple", dto.Word);
+        Assert.Equal("ˈæpəl", dto.PhoneticUk);
+        Assert.Equal("ˈæpəl", dto.PhoneticUs);
     }
 
     [Fact]
@@ -71,7 +70,7 @@ public class VocabularyMappingExtensionsTests
 
         var dto = model.ToDto();
 
-        dto.Meanings.Should().BeEmpty();
+        Assert.Empty(dto.Meanings);
     }
 
     // ==================== VocabularyMeaningDto <-> VocabularyMeaningModel ====================
@@ -91,12 +90,12 @@ public class VocabularyMappingExtensionsTests
 
         var model = dto.ToEntity();
 
-        model.Id.Should().Be("meaning-1");
-        model.VocabularyId.Should().Be("vocab-1");
-        model.BookId.Should().Be("book-1");
-        model.PartOfSpeech.Should().Be("n");
-        model.Meaning.Should().Be("苹果");
-        model.Example.Should().Be("I like apples.");
+        Assert.Equal("meaning-1", model.Id);
+        Assert.Equal("vocab-1", model.VocabularyId);
+        Assert.Equal("book-1", model.BookId);
+        Assert.Equal("n", model.PartOfSpeech);
+        Assert.Equal("苹果", model.Meaning);
+        Assert.Equal("I like apples.", model.Example);
     }
 
     [Fact]
@@ -116,12 +115,12 @@ public class VocabularyMappingExtensionsTests
 
         var dto = model.ToDto();
 
-        dto.Id.Should().Be("meaning-1");
-        dto.VocabularyId.Should().Be("vocab-1");
-        dto.BookId.Should().Be("book-1");
-        dto.PartOfSpeech.Should().Be("v");
-        dto.Meaning.Should().Be("苹果公司");
-        dto.Example.Should().Be("Apple is a tech company.");
+        Assert.Equal("meaning-1", dto.Id);
+        Assert.Equal("vocab-1", dto.VocabularyId);
+        Assert.Equal("book-1", dto.BookId);
+        Assert.Equal("v", dto.PartOfSpeech);
+        Assert.Equal("苹果公司", dto.Meaning);
+        Assert.Equal("Apple is a tech company.", dto.Example);
     }
 
     // ==================== VocabularyBookDto <-> VocabularyBookModel ====================
@@ -145,16 +144,16 @@ public class VocabularyMappingExtensionsTests
 
         var model = dto.ToEntity();
 
-        model.Id.Should().Be("book-1");
-        model.BookName.Should().Be("Test Book");
-        model.Description.Should().Be("A test book");
-        model.Publisher.Should().Be("Test Publisher");
-        model.EducationLevel.Should().Be("primary");
-        model.Grade.Should().Be("1");
-        model.Category.Should().Be("math");
-        model.DisplayOrder.Should().Be(5);
-        model.Status.Should().BeTrue();
-        model.IconUrl.Should().Be("http://example.com/icon.png");
+        Assert.Equal("book-1", model.Id);
+        Assert.Equal("Test Book", model.BookName);
+        Assert.Equal("A test book", model.Description);
+        Assert.Equal("Test Publisher", model.Publisher);
+        Assert.Equal("primary", model.EducationLevel);
+        Assert.Equal("1", model.Grade);
+        Assert.Equal("math", model.Category);
+        Assert.Equal(5, model.DisplayOrder);
+        Assert.True(model.Status);
+        Assert.Equal("http://example.com/icon.png", model.IconUrl);
     }
 
     [Fact]
@@ -178,16 +177,16 @@ public class VocabularyMappingExtensionsTests
 
         var dto = model.ToDto();
 
-        dto.Id.Should().Be("book-1");
-        dto.BookName.Should().Be("Test Book");
-        dto.Description.Should().Be("A test book");
-        dto.Publisher.Should().Be("Test Publisher");
-        dto.EducationLevel.Should().Be("primary");
-        dto.Grade.Should().Be("1");
-        dto.Category.Should().Be("math");
-        dto.DisplayOrder.Should().Be(5);
-        dto.Status.Should().BeTrue();
-        dto.IconUrl.Should().Be("http://example.com/icon.png");
+        Assert.Equal("book-1", dto.Id);
+        Assert.Equal("Test Book", dto.BookName);
+        Assert.Equal("A test book", dto.Description);
+        Assert.Equal("Test Publisher", dto.Publisher);
+        Assert.Equal("primary", dto.EducationLevel);
+        Assert.Equal("1", dto.Grade);
+        Assert.Equal("math", dto.Category);
+        Assert.Equal(5, dto.DisplayOrder);
+        Assert.True(dto.Status);
+        Assert.Equal("http://example.com/icon.png", dto.IconUrl);
     }
 
     // ==================== Boundary scenarios ====================
@@ -205,10 +204,12 @@ public class VocabularyMappingExtensionsTests
 
         var model = dto.ToEntity();
 
-        model.Id.Should().BeEmpty();
-        model.Word.Should().BeEmpty();
-        model.PhoneticUk.Should().BeEmpty();
-        model.PhoneticUs.Should().BeEmpty();
+        Assert.Empty(model.Id);
+        Assert.Empty(model.Word);
+        // These two are string? on the model, so compare against the empty string
+        // rather than Assert.Empty, which would need a null-forgiving operator.
+        Assert.Equal(string.Empty, model.PhoneticUk);
+        Assert.Equal(string.Empty, model.PhoneticUs);
     }
 
     [Fact]
@@ -218,7 +219,7 @@ public class VocabularyMappingExtensionsTests
 
         var model = dto.ToEntity();
 
-        model.Id.Should().BeEmpty(); // ToEntity does not generate Id, DomainService does
-        model.BookName.Should().Be("New Book");
+        Assert.Empty(model.Id); // ToEntity does not generate Id, DomainService does
+        Assert.Equal("New Book", model.BookName);
     }
 }
