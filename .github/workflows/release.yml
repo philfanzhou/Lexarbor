@@ -2,6 +2,9 @@ name: Release
 
 on:
   push:
+    # Tags publish a release. Default-branch pushes publish the moving edge
+    # image through the same jobs, so nothing here is a shortcut around them.
+    branches: [main]
     tags:
       - "v*.*.*"
 
@@ -24,8 +27,20 @@ jobs:
       - name: Validate semantic version
         id: version
         env:
+          IS_TAG: ${{ startsWith(github.ref, 'refs/tags/') }}
           VERSION_TAG: ${{ github.ref_name }}
         run: |
+          # A default-branch push carries no version. Both outputs stay empty
+          # rather than being derived from the ref, because ${VERSION_TAG#v}
+          # strips nothing off a branch name and would quietly pass "main" to
+          # the build as a version number.
+          if [[ "$IS_TAG" != "true" ]]; then
+            echo "prerelease=" >> "$GITHUB_OUTPUT"
+            echo "number=" >> "$GITHUB_OUTPUT"
+            echo "Ref ${GITHUB_REF} is not a tag; building without a version."
+            exit 0
+          fi
+
           if [[ ! "$VERSION_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
             echo "Tag must use semantic versioning, for example v1.2.3 or v1.2.3-rc.1" >&2
             exit 1
@@ -47,12 +62,13 @@ jobs:
 
   publish-container:
     name: Publish container image
-    # This workflow only triggers on tag pushes, so the ref guard is redundant
-    # today. It is kept as defence in depth: if a branch trigger or a
-    # workflow_dispatch is ever added here, publishing still cannot fire from a
-    # non-tag ref, which is the one mistake that is not recoverable once an
-    # image is public.
-    if: startsWith(github.ref, 'refs/tags/')
+    # The two refs this workflow may publish from, named explicitly rather than
+    # inferred from the trigger. Anything else added to the trigger later, or a
+    # workflow_dispatch, cannot publish without also being listed here, which is
+    # the one mistake that is not recoverable once an image is public.
+    if: >-
+      startsWith(github.ref, 'refs/tags/')
+      || github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     needs: [validate-version, verify]
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -91,11 +107,17 @@ jobs:
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ steps.image.outputs.name }}
+          # The semver rules read the tag out of the ref and produce nothing on
+          # a branch, so edge and the release tags cannot appear together. The
+          # latest rule has no such ref of its own, so it carries the tag test
+          # explicitly: without it, the first default-branch push would move
+          # latest onto a development build.
           tags: |
+            type=edge,branch=${{ github.event.repository.default_branch }}
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}},enable=${{ needs.validate-version.outputs.prerelease == 'false' }}
-            type=semver,pattern={{major}},enable=${{ needs.validate-version.outputs.prerelease == 'false' }}
-            type=raw,value=latest,enable=${{ needs.validate-version.outputs.prerelease == 'false' }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ startsWith(github.ref, 'refs/tags/v') && needs.validate-version.outputs.prerelease == 'false' }}
+            type=semver,pattern={{major}},enable=${{ startsWith(github.ref, 'refs/tags/v') && needs.validate-version.outputs.prerelease == 'false' }}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') && needs.validate-version.outputs.prerelease == 'false' }}
 
       - name: Build and publish multi-platform image
         id: publish
@@ -104,8 +126,10 @@ jobs:
           context: .
           file: Dockerfile
           platforms: linux/amd64,linux/arm64
-          build-args: |
-            APP_VERSION=${{ needs.validate-version.outputs.number }}
+          # Passed only when a tag supplied a version. An empty build argument
+          # would override the Dockerfile default rather than fall back to it,
+          # so an edge image would lose its placeholder version.
+          build-args: ${{ needs.validate-version.outputs.number != '' && format('APP_VERSION={0}', needs.validate-version.outputs.number) || '' }}
           push: true
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}

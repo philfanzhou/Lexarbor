@@ -61,7 +61,7 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-GitHub Actions repeats these checks on pushes and pull requests, tests the built container and its persistent files, scans the image and source, and publishes versioned multi-platform images to GitHub Container Registry when a `v*.*.*` tag is pushed. See [Automation](docs/development/Automation.md) for the workflow and release contract.
+GitHub Actions repeats these checks on pushes and pull requests, tests the built container and its persistent files, scans the image and source, and publishes versioned multi-platform images to GitHub Container Registry when a `v*.*.*` tag is pushed, and a moving `edge` image on every push to `main`. See [Automation](docs/development/Automation.md) for the workflow and release contract.
 
 ## Repository layout
 
