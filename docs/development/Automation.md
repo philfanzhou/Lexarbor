@@ -9,19 +9,19 @@ Lexarbor keeps automation under `.github/` and separates workflows by responsibi
 | `.github/workflows/ci.yml` | Backend tests and coverage, frontend type/build/browser checks, container integration, and image vulnerability scanning |
 | `.github/workflows/dependency-review.yml` | Reject high- or critical-severity dependency vulnerabilities introduced by a pull request |
 | `.github/workflows/security.yml` | CodeQL analysis for GitHub Actions, C#, and JavaScript/TypeScript on changes and weekly |
-| `.github/workflows/release.yml` | Verify a version tag, publish the multi-platform GHCR image, attest it, and create a GitHub Release |
+| `.github/workflows/release.yml` | Verify a version tag, publish and attest the multi-platform GHCR image, then create a GitHub Release |
 | `.github/dependabot.yml` | Weekly grouped updates for npm, NuGet, Docker base images, and GitHub Actions |
 | `.github/release.yml` | Categories used by GitHub's generated release notes |
 | `.github/scripts/` | Repository-owned scripts used by workflows and runnable locally |
 | `frontend/e2e/` | Playwright administration UI scenarios with deterministic API fixtures |
 
-Third-party Actions are pinned to full commit SHAs. Dependabot keeps those pins current and preserves the release tag in the adjacent comment. Workflows set read-only permissions by default and grant write access only to the release job and CodeQL result upload.
+Third-party Actions are pinned to full commit SHAs. Dependabot keeps those pins current and preserves the release tag in the adjacent comment. Workflows set read-only permissions by default and grant write access only to the two publishing jobs and the CodeQL result upload. Each publishing job requests only the scopes it needs: `publish-container` holds the registry and attestation scopes, `publish-release` holds `contents: write` alone.
 
 ## Continuous integration
 
 CI runs on pushes to `main`, pull requests targeting `main`, manual dispatches, and calls from the release workflow. Its jobs run in parallel:
 
-- Backend: direct/transitive NuGet vulnerability audit, Release build, xUnit tests, TRX output, Coverlet Cobertura coverage, and a GitHub job summary. Results remain downloadable for 14 days.
+- Backend: direct/transitive NuGet vulnerability audit, Release build, xUnit tests on Microsoft.Testing.Platform, TRX output, Cobertura coverage from `Microsoft.Testing.Extensions.CodeCoverage`, and a GitHub job summary. Results remain downloadable for 14 days.
 - Frontend: npm vulnerability audit, type checks, production build, and Playwright Chromium scenarios covering session restoration, login, catalog rendering, and catalog creation. Failure traces, screenshots, videos, and the HTML report remain downloadable for 7 days.
 - Container: image build, health check without a bind mount, first-start database/configuration creation, preservation of pre-mounted files, and a blocking scan for fixable critical vulnerabilities.
 
@@ -30,7 +30,7 @@ Superseded runs on the same branch are canceled. Every job has an explicit timeo
 Run the repository-owned checks locally with:
 
 ```bash
-dotnet test Lexarbor.sln --configuration Release --collect "XPlat Code Coverage"
+dotnet test Lexarbor.sln --configuration Release -- --coverage --coverage-output-format cobertura
 
 cd frontend
 npm ci
@@ -66,7 +66,9 @@ Accepted tags are `vMAJOR.MINOR.PATCH` and optional pre-release variants such as
 3. attach OCI labels, an SBOM, maximum BuildKit provenance, and a GitHub artifact attestation;
 4. create a GitHub Release with generated notes.
 
-A stable `v1.2.3` publishes `1.2.3`, `1.2`, `1`, and `latest`. A pre-release publishes only its full pre-release version and is marked as a GitHub pre-release. No long-lived registry credential is required because publishing uses the release job's short-lived `GITHUB_TOKEN`.
+Steps 1 to 3 run in `publish-container` and step 4 in `publish-release`, which depends on it. A release therefore never announces a version whose image failed to publish. Both jobs additionally guard on `startsWith(github.ref, 'refs/tags/')`, which is redundant against the tag-only trigger and is kept so that adding a branch trigger or a manual dispatch later cannot publish from a non-tag ref.
+
+A stable `v1.2.3` publishes `1.2.3`, `1.2`, `1`, and `latest`. A pre-release publishes only its full pre-release version and is marked as a GitHub pre-release. No long-lived registry credential is required because publishing uses the publishing jobs' short-lived `GITHUB_TOKEN`.
 
 GitHub may create the container package as private on its first publication. For anonymous pulls from this public repository, open the package settings once, connect it to this repository if necessary, and change its visibility to public. Package visibility is deliberately not changed by the workflow.
 
