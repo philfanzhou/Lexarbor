@@ -32,7 +32,9 @@ $summary.Add("")
 $summary.Add("## Line coverage")
 $summary.Add("")
 
-$coverageFiles = @(Get-ChildItem -Path $ResultsDirectory -Recurse -Filter "coverage.cobertura.xml" -ErrorAction SilentlyContinue)
+# Microsoft.Testing.Platform names each project's report after a run GUID, so match
+# on the suffix rather than a fixed file name.
+$coverageFiles = @(Get-ChildItem -Path $ResultsDirectory -Recurse -Filter "*.cobertura.xml" -ErrorAction SilentlyContinue)
 if ($coverageFiles.Count -eq 0) {
     $summary.Add("No Cobertura coverage results were produced.")
 } else {

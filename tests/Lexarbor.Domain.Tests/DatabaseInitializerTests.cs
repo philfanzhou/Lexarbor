@@ -21,14 +21,14 @@ public sealed class DatabaseInitializerTests : IDisposable
         {
             await DatabaseInitializer.InitializeAsync(
                 context,
-                NullLoggerFactory.Instance);
+                NullLoggerFactory.Instance, TestContext.Current.CancellationToken);
 
             Assert.True(File.Exists(databasePath));
-            Assert.Equal(1, await context.VocabularyBooks.CountAsync());
-            Assert.Equal(300, await context.Vocabularies.CountAsync());
-            Assert.Equal(300, await context.VocabularyMeanings.CountAsync());
+            Assert.Equal(1, await context.VocabularyBooks.CountAsync(TestContext.Current.CancellationToken));
+            Assert.Equal(300, await context.Vocabularies.CountAsync(TestContext.Current.CancellationToken));
+            Assert.Equal(300, await context.VocabularyMeanings.CountAsync(TestContext.Current.CancellationToken));
             Assert.All(
-                await context.Vocabularies.ToListAsync(),
+                await context.Vocabularies.ToListAsync(TestContext.Current.CancellationToken),
                 item =>
                 {
                     Assert.False(string.IsNullOrWhiteSpace(item.PhoneticUk));
@@ -45,13 +45,13 @@ public sealed class DatabaseInitializerTests : IDisposable
                 CreatedAt = DateTimeOffset.UtcNow,
                 UpdatedAt = DateTimeOffset.UtcNow
             });
-            await context.SaveChangesAsync();
+            await context.SaveChangesAsync(TestContext.Current.CancellationToken);
             await DatabaseInitializer.InitializeAsync(
                 context,
-                NullLoggerFactory.Instance);
+                NullLoggerFactory.Instance, TestContext.Current.CancellationToken);
 
-            Assert.Equal(301, await context.Vocabularies.CountAsync());
-            Assert.Equal(1, await context.VocabularyBooks.CountAsync());
+            Assert.Equal(301, await context.Vocabularies.CountAsync(TestContext.Current.CancellationToken));
+            Assert.Equal(1, await context.VocabularyBooks.CountAsync(TestContext.Current.CancellationToken));
         }
     }
 
@@ -60,15 +60,15 @@ public sealed class DatabaseInitializerTests : IDisposable
     {
         Directory.CreateDirectory(_temporaryDirectory);
         var databasePath = Path.Combine(_temporaryDirectory, "existing.db");
-        await File.WriteAllBytesAsync(databasePath, []);
+        await File.WriteAllBytesAsync(databasePath, [], TestContext.Current.CancellationToken);
 
         await using var context = CreateContext(databasePath);
         await DatabaseInitializer.InitializeAsync(
             context,
-            NullLoggerFactory.Instance);
+            NullLoggerFactory.Instance, TestContext.Current.CancellationToken);
 
-        Assert.Equal(0, await context.VocabularyBooks.CountAsync());
-        Assert.Equal(0, await context.Vocabularies.CountAsync());
+        Assert.Equal(0, await context.VocabularyBooks.CountAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(0, await context.Vocabularies.CountAsync(TestContext.Current.CancellationToken));
     }
 
     public void Dispose()

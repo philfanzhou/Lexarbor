@@ -1,4 +1,3 @@
-using FluentAssertions;
 using Lexarbor.Host;
 
 namespace Lexarbor.Service.Tests;
@@ -20,12 +19,11 @@ public sealed class PersistentConfigurationBootstrapperTests : IDisposable
 
         var result = PersistentConfigurationBootstrapper.EnsureFile(_contentRoot);
 
-        result.Created.Should().BeTrue();
-        result.Path.Should().Be(Path.Combine(
-            _contentRoot,
-            "data",
-            PersistentConfigurationBootstrapper.FileName));
-        File.ReadAllText(result.Path).Should().Be(expected);
+        Assert.True(result.Created);
+        Assert.Equal(
+            Path.Combine(_contentRoot, "data", PersistentConfigurationBootstrapper.FileName),
+            result.Path);
+        Assert.Equal(expected, File.ReadAllText(result.Path));
     }
 
     [Fact]
@@ -43,9 +41,9 @@ public sealed class PersistentConfigurationBootstrapperTests : IDisposable
 
         var result = PersistentConfigurationBootstrapper.EnsureFile(_contentRoot);
 
-        result.Created.Should().BeFalse();
-        result.Path.Should().Be(persistentPath);
-        File.ReadAllText(persistentPath).Should().Be("operator settings");
+        Assert.False(result.Created);
+        Assert.Equal(persistentPath, result.Path);
+        Assert.Equal("operator settings", File.ReadAllText(persistentPath));
     }
 
     [Fact]
@@ -56,8 +54,8 @@ public sealed class PersistentConfigurationBootstrapperTests : IDisposable
         var action = () =>
             PersistentConfigurationBootstrapper.EnsureFile(_contentRoot);
 
-        action.Should().Throw<FileNotFoundException>()
-            .WithMessage("*built-in appsettings.json template*");
+        var exception = Assert.Throws<FileNotFoundException>(action);
+        Assert.Contains("built-in appsettings.json template", exception.Message);
     }
 
     public void Dispose()

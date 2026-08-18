@@ -1,5 +1,4 @@
 using System.Text.Json;
-using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 using Lexarbor.Domain.Exceptions;
@@ -27,10 +26,10 @@ public class VocabularyExceptionMiddlewareTests
     {
         var response = await InvokeMiddlewareAsync(exception);
 
-        response.StatusCode.Should().Be(expectedStatusCode);
-        response.ContentType.Should().StartWith("application/json");
-        response.Success.Should().BeFalse();
-        response.Message.Should().Be(expectedMessage);
+        Assert.Equal(expectedStatusCode, response.StatusCode);
+        Assert.StartsWith("application/json", response.ContentType);
+        Assert.False(response.Success);
+        Assert.Equal(expectedMessage, response.Message);
     }
 
     [Fact]
@@ -40,11 +39,11 @@ public class VocabularyExceptionMiddlewareTests
 
         var response = await InvokeMiddlewareAsync(new InvalidOperationException(secret));
 
-        response.StatusCode.Should().Be(StatusCodes.Status500InternalServerError);
-        response.Success.Should().BeFalse();
-        response.Message.Should().Be("An unexpected error occurred.");
-        response.RawBody.Should().NotContain(secret);
-        response.RawBody.Should().NotContain(nameof(InvalidOperationException));
+        Assert.Equal(StatusCodes.Status500InternalServerError, response.StatusCode);
+        Assert.False(response.Success);
+        Assert.Equal("An unexpected error occurred.", response.Message);
+        Assert.DoesNotContain(secret, response.RawBody);
+        Assert.DoesNotContain(nameof(InvalidOperationException), response.RawBody);
     }
 
     private static async Task<MiddlewareResponse> InvokeMiddlewareAsync(Exception exception)
