@@ -41,13 +41,21 @@ jobs:
     permissions:
       contents: read
 
-  publish:
-    name: Publish image and GitHub Release
+  publish-container:
+    name: Publish container image
+    # This workflow only triggers on tag pushes, so the ref guard is redundant
+    # today. It is kept as defence in depth: if a branch trigger or a
+    # workflow_dispatch is ever added here, publishing still cannot fire from a
+    # non-tag ref, which is the one mistake that is not recoverable once an
+    # image is public.
+    if: startsWith(github.ref, 'refs/tags/')
     needs: [validate-version, verify]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
-      contents: write
+      # A job-level block replaces the top-level default outright, so contents
+      # has to be restated here or the checkout below loses its token.
+      contents: read
       packages: write
       attestations: write
       id-token: write
@@ -104,6 +112,23 @@ jobs:
           subject-name: ${{ steps.image.outputs.name }}
           subject-digest: ${{ steps.publish.outputs.digest }}
           push-to-registry: true
+
+  publish-release:
+    name: Publish GitHub Release
+    # Same guard as publish-container, for the same reason.
+    if: startsWith(github.ref, 'refs/tags/')
+    # Depends on publish-container rather than running alongside it, so a
+    # release never announces a version whose image failed to publish.
+    needs: [validate-version, publish-container]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # Only what `gh release create` needs. The registry and attestation
+      # scopes stay in publish-container.
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Create GitHub Release
         env:
