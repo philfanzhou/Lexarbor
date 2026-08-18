@@ -1,7 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using Lexarbor.Database;
 using Lexarbor.Database.Entities;
@@ -26,17 +25,18 @@ public class PublicApiCompatibilityTests :
         using var client = _factory.CreateClient();
 
         var response = await client.GetAsync(
-            $"/api/vocabulary/{data.WordId}?bookId={data.BookId}");
+            $"/api/vocabulary/{data.WordId}?bookId={data.BookId}",
+                TestContext.Current.CancellationToken);
 
         var document = await AssertPublicSuccessAsync(response);
         using (document)
         {
             var result = document.RootElement.GetProperty("data");
-            result.TryGetProperty("id", out _).Should().BeTrue();
-            result.TryGetProperty("word", out _).Should().BeTrue();
-            result.GetProperty("phoneticUk").GetString().Should().Be("/test-uk/");
-            result.GetProperty("phoneticUs").GetString().Should().Be("/test-us/");
-            result.GetProperty("meanings").ValueKind.Should().Be(JsonValueKind.Array);
+            Assert.True(result.TryGetProperty("id", out _));
+            Assert.True(result.TryGetProperty("word", out _));
+            Assert.Equal("/test-uk/", result.GetProperty("phoneticUk").GetString());
+            Assert.Equal("/test-us/", result.GetProperty("phoneticUs").GetString());
+            Assert.Equal(JsonValueKind.Array, result.GetProperty("meanings").ValueKind);
         }
     }
 
@@ -46,15 +46,16 @@ public class PublicApiCompatibilityTests :
         using var client = _factory.CreateClient();
 
         var response = await client.GetAsync(
-            "/api/vocabulary?keyword=compatibility&page=1&size=20");
+            "/api/vocabulary?keyword=compatibility&page=1&size=20",
+                TestContext.Current.CancellationToken);
 
         var document = await AssertPublicSuccessAsync(response);
         using (document)
         {
             var result = document.RootElement.GetProperty("data");
-            result.GetProperty("items").ValueKind.Should().Be(JsonValueKind.Array);
-            result.TryGetProperty("totalPage", out _).Should().BeTrue();
-            result.TryGetProperty("totalCount", out _).Should().BeTrue();
+            Assert.Equal(JsonValueKind.Array, result.GetProperty("items").ValueKind);
+            Assert.True(result.TryGetProperty("totalPage", out _));
+            Assert.True(result.TryGetProperty("totalCount", out _));
         }
     }
 
@@ -71,14 +72,14 @@ public class PublicApiCompatibilityTests :
                 wordId = data.WordId,
                 bookId = data.BookId,
                 chineseToEnglish = true
-            });
+            }, TestContext.Current.CancellationToken);
 
         var document = await AssertPublicSuccessAsync(response);
         using (document)
         {
             var result = document.RootElement.GetProperty("data");
-            result.TryGetProperty("word", out _).Should().BeTrue();
-            result.GetProperty("options").GetArrayLength().Should().Be(4);
+            Assert.True(result.TryGetProperty("word", out _));
+            Assert.Equal(4, result.GetProperty("options").GetArrayLength());
         }
     }
 
@@ -87,15 +88,18 @@ public class PublicApiCompatibilityTests :
     {
         using var client = _factory.CreateClient();
 
-        var response = await client.GetAsync("/api/vocabulary-books/all");
+        var response = await client.GetAsync("/api/vocabulary-books/all",
+            TestContext.Current.CancellationToken);
 
         var document = await AssertPublicSuccessAsync(response);
         using (document)
         {
-            document.RootElement
-                .GetProperty("data")
-                .GetProperty("books")
-                .ValueKind.Should().Be(JsonValueKind.Array);
+            Assert.Equal(
+                JsonValueKind.Array,
+                document.RootElement
+                    .GetProperty("data")
+                    .GetProperty("books")
+                    .ValueKind);
         }
     }
 
@@ -151,13 +155,13 @@ public class PublicApiCompatibilityTests :
     private static async Task<JsonDocument> AssertPublicSuccessAsync(
         HttpResponseMessage response)
     {
-        response.StatusCode.Should().NotBe(HttpStatusCode.Unauthorized);
-        response.StatusCode.Should().NotBe(HttpStatusCode.Forbidden);
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        Assert.NotEqual(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.NotEqual(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        document.RootElement.GetProperty("success").GetBoolean().Should().BeTrue();
-        document.RootElement.TryGetProperty("data", out _).Should().BeTrue();
+        Assert.True(document.RootElement.GetProperty("success").GetBoolean());
+        Assert.True(document.RootElement.TryGetProperty("data", out _));
         return document;
     }
 }

@@ -21,7 +21,7 @@ public sealed class SqliteConcurrencyTests : IDisposable
         var databasePath = Path.Combine(_temporaryDirectory, "concurrency.db");
         await using (var setupContext = CreateContext(databasePath))
         {
-            await setupContext.Database.MigrateAsync();
+            await setupContext.Database.MigrateAsync(TestContext.Current.CancellationToken);
             var now = DateTimeOffset.UtcNow;
             setupContext.VocabularyBooks.Add(new VocabularyBookEntity
             {
@@ -31,7 +31,7 @@ public sealed class SqliteConcurrencyTests : IDisposable
                 CreatedAt = now,
                 UpdatedAt = now
             });
-            await setupContext.SaveChangesAsync();
+            await setupContext.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
         await using var firstContext = CreateContext(databasePath);
@@ -61,8 +61,8 @@ public sealed class SqliteConcurrencyTests : IDisposable
         Assert.Equal(results[0].meaning.Id, results[1].meaning.Id);
 
         await using var verificationContext = CreateContext(databasePath);
-        Assert.Equal(1, await verificationContext.Vocabularies.CountAsync());
-        Assert.Equal(1, await verificationContext.VocabularyMeanings.CountAsync());
+        Assert.Equal(1, await verificationContext.Vocabularies.CountAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(1, await verificationContext.VocabularyMeanings.CountAsync(TestContext.Current.CancellationToken));
     }
 
     public void Dispose()

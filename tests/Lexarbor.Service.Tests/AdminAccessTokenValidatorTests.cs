@@ -1,7 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
-using FluentAssertions;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -52,9 +51,9 @@ public class AdminAccessTokenValidatorTests
 
         var principal = await validator.ValidateAsync(token, CancellationToken.None);
 
-        principal.Should().NotBeNull();
-        principal!.IsInRole("admin").Should().BeTrue();
-        configurationManager.RefreshCount.Should().Be(1);
+        Assert.NotNull(principal);
+        Assert.True(principal.IsInRole("admin"));
+        Assert.Equal(1, configurationManager.RefreshCount);
     }
 
     private sealed class RolloverConfigurationManager :

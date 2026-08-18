@@ -3,7 +3,6 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Claims;
 using System.Text;
-using FluentAssertions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
@@ -45,9 +44,10 @@ public class IdentityClaimShapeTests :
             "Bearer",
             CreateToken(new Claim(roleClaimType, "admin")));
 
-        var response = await client.GetAsync("/admin/vocabulary-books?page=1&size=20");
+        var response = await client.GetAsync("/admin/vocabulary-books?page=1&size=20",
+            TestContext.Current.CancellationToken);
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     [Theory]
@@ -60,9 +60,10 @@ public class IdentityClaimShapeTests :
             "Bearer",
             CreateToken(new Claim(roleClaimType, "student")));
 
-        var response = await client.GetAsync("/admin/vocabulary-books?page=1&size=20");
+        var response = await client.GetAsync("/admin/vocabulary-books?page=1&size=20",
+            TestContext.Current.CancellationToken);
 
-        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     /// <summary>
@@ -83,12 +84,13 @@ public class IdentityClaimShapeTests :
                 new Claim(roleClaimType, "admin"),
                 new Claim(nameClaimType, "bootstrap-admin")));
 
-        var response = await client.GetAsync("/admin/auth/session");
+        var response = await client.GetAsync("/admin/auth/session",
+            TestContext.Current.CancellationToken);
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-        var body = await response.Content.ReadAsStringAsync();
-        body.Should().Contain("bootstrap-admin");
-        body.Should().Contain("admin");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        Assert.Contains("bootstrap-admin", body);
+        Assert.Contains("admin", body);
     }
 
     /// <summary>
@@ -109,10 +111,11 @@ public class IdentityClaimShapeTests :
                 new Claim(roleClaimType, "admin"),
                 new Claim(subjectClaimType, "account-42")));
 
-        var response = await client.GetAsync("/admin/auth/session");
+        var response = await client.GetAsync("/admin/auth/session",
+            TestContext.Current.CancellationToken);
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-        (await response.Content.ReadAsStringAsync()).Should().Contain("account-42");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("account-42", await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
     }
 
     /// <summary>
@@ -136,15 +139,17 @@ public class IdentityClaimShapeTests :
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer",
             CreateToken(new Claim(ClaimTypes.Role, "vocabulary-curator")));
-        var curator = await client.GetAsync("/admin/vocabulary-books?page=1&size=20");
+        var curator = await client.GetAsync("/admin/vocabulary-books?page=1&size=20",
+            TestContext.Current.CancellationToken);
 
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer",
             CreateToken(new Claim(ClaimTypes.Role, "admin")));
-        var admin = await client.GetAsync("/admin/vocabulary-books?page=1&size=20");
+        var admin = await client.GetAsync("/admin/vocabulary-books?page=1&size=20",
+            TestContext.Current.CancellationToken);
 
-        curator.StatusCode.Should().Be(HttpStatusCode.OK);
-        admin.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        Assert.Equal(HttpStatusCode.OK, curator.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, admin.StatusCode);
     }
 
     [Fact]
@@ -157,7 +162,13 @@ public class IdentityClaimShapeTests :
             new Claim("role", "student")
         ]));
 
-        VocabularyClaims.GetRoles(principal).Should().BeEquivalentTo("admin", "student");
+        // strict: true is load-bearing. Without it Assert.Equivalent only checks that
+        // every expected role is present, so a regression that stopped de-duplicating
+        // would still pass.
+        Assert.Equivalent(
+            new[] { "admin", "student" },
+            VocabularyClaims.GetRoles(principal),
+            strict: true);
     }
 
     private HttpClient CreateClient()
