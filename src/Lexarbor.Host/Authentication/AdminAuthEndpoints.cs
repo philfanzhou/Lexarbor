@@ -1,5 +1,7 @@
 using System.Security.Claims;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
+using Lexarbor.Host.RateLimiting;
 using Lexarbor.Service;
 
 namespace Lexarbor.Host.Authentication;
@@ -8,9 +10,18 @@ public static class AdminAuthEndpoints
 {
     public static IEndpointRouteBuilder MapAdminAuthEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapPost("/admin/auth/login", LoginAsync).AllowAnonymous();
+        // The only anonymous endpoint that costs anything to serve: it forwards
+        // the submitted credentials to the identity provider, so without a ceiling
+        // it is both a password-guessing oracle and a way to point traffic at that
+        // provider from an address the provider attributes to Lexarbor.
+        app.MapPost("/admin/auth/login", LoginAsync)
+            .AllowAnonymous()
+            .RequireRateLimiting(RateLimitingExtensions.AdminLoginPolicy);
         app.MapGet("/admin/auth/session", GetSession)
             .RequireAuthorization("VocabularyAdmin");
+        // Deliberately unlimited. Logout only clears a cookie, and an administrator
+        // who cannot end a session because someone else exhausted a shared ceiling
+        // is a worse outcome than the requests this would have refused.
         app.MapPost("/admin/auth/logout", Logout).AllowAnonymous();
         return app;
     }

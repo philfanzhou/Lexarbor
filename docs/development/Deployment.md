@@ -118,6 +118,54 @@ Set `LEXARBOR_ADMIN_AUTH_PROVIDER=Gateway` to use the compatibility adapter for 
 | `LEXARBOR_GATEWAY_APP_ID` | Application identifier |
 | `LEXARBOR_GATEWAY_APP_SECRET` | Application secret |
 
+## Rate limits and client addresses
+
+The two anonymous surfaces carry a per-client-address ceiling. `POST /admin/auth/login`
+forwards credentials to the identity provider, so without one it is a password-guessing
+oracle and a way to aim traffic at that provider from an address the provider attributes
+to Lexarbor. The `/api/*` routes are metered far more loosely, only to stop one caller
+monopolising a single-instance SQLite deployment. Administration routes are not limited:
+an authenticated administrator is not the threat, and metering the administration UI
+would break it long before it broke an attacker.
+
+A refused request answers `429` in the standard envelope with a `Retry-After` header.
+
+| Configuration key | Default | Purpose |
+|---|---|---|
+| `RateLimits:AdminLogin:PermitLimit` | `10` | Login attempts per window, per client address |
+| `RateLimits:AdminLogin:WindowSeconds` | `300` | Login window length |
+| `RateLimits:AdminLogin:Enabled` | `true` | Set to `false` to remove the login ceiling |
+| `RateLimits:PublicApi:PermitLimit` | `300` | Anonymous `/api/*` requests per window, per client address |
+| `RateLimits:PublicApi:WindowSeconds` | `60` | Public API window length |
+| `RateLimits:PublicApi:Enabled` | `true` | Set to `false` to remove the public API ceiling |
+
+A permit count or window below 1 fails startup rather than being clamped, so a typo in a
+ceiling cannot become a value that looks as though it took effect. Disabling a limit is
+therefore an explicit `Enabled: false`, and startup logs a warning naming the policy.
+
+### Behind a reverse proxy
+
+The ceilings partition on the address the connection reports. Behind a reverse proxy that
+is the proxy for every request, which turns a per-client limit into a shared one — and a
+shared login limit is itself a way to lock the administrator out. Name the hops to fix it:
+
+| Configuration key | Default | Purpose |
+|---|---|---|
+| `Network:TrustedProxies` | empty | Proxy addresses allowed to set `X-Forwarded-For`, for example `172.18.0.2` |
+| `Network:TrustedNetworks` | empty | Proxy ranges in CIDR form, for example `172.18.0.0/16` |
+| `Network:ForwardLimit` | `1` | Trusted hops in front of Lexarbor |
+
+Nothing is trusted until one of these is set, and forwarded headers are ignored entirely
+until then. That default is deliberate: `X-Forwarded-For` is client-supplied, and honouring
+it from an unknown source would let any caller mint a fresh partition key per request and
+pass the ceiling without ever reaching it. A degraded shared limit is a visible operational
+problem; a bypassable limit is an invisible security one. Set `ForwardLimit` to the real
+number of trusted hops — raising it further hands the extra steps back to the client, whose
+own header content occupies the left of the list.
+
+Startup logs both ceilings and whether any hop is trusted, so a misconfigured proxy is
+visible in the first lines of the container log.
+
 ## Health and smoke checks
 
 ```bash

@@ -44,7 +44,7 @@ The container publishes port 5008 and stores both `vocabulary.db` and a persiste
 
 ## Authentication
 
-Public `/api/*` routes and `GET /health` do not require authentication. Administration routes require a validated JWT containing the configured `admin` role. The administration login form exchanges credentials server-side, so access tokens and client secrets are never exposed to the browser.
+Public `/api/*` routes and `GET /health` do not require authentication. The anonymous surfaces carry a per-client-address rate limit; see [Deployment](docs/development/Deployment.md) for the ceilings and for the reverse-proxy setting that keeps them per client rather than shared. Administration routes require a validated JWT containing the configured `admin` role. The administration login form exchanges credentials server-side, so access tokens and client secrets are never exposed to the browser.
 
 OIDC is the default credential provider. The current adapter uses the OAuth2 resource owner password credentials grant, so the configured provider must explicitly support that flow. A gateway-style JSON adapter remains available for deployments with an existing token gateway. See [ADR-001](docs/adr/ADR-001-pluggable-admin-authentication.md) and [Deployment](docs/development/Deployment.md).
 
