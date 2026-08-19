@@ -29,6 +29,10 @@ frontend/test-results/
 .env.*
 !.env.example
 
+# Python bytecode from the repository-owned scripts
+__pycache__/
+*.py[cod]
+
 # Editors and operating systems
 .idea/
 .vscode/
