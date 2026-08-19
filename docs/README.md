@@ -1,19 +1,19 @@
 # Lexarbor documentation
 
-Lexarbor 是自包含词汇管理与出题服务：后端、Vue 管理页面、静态文件与 Docker 镜像由同一仓库维护，并统一通过 HTTP 5008 端口提供。
+Lexarbor is a self-contained vocabulary catalog and quiz service. The backend, the Vue administration UI, the static files, and the Docker image all live in this repository and are served together on HTTP port 5008.
 
-## 文档入口
+## Contents
 
-- [安全自包含服务设计](./overview/SecureSelfContainedServiceDesign.md)
-- [总览文档](./overview/README.md)
-- [领域语言](./overview/DomainLanguage.md)
-- [管理前端规格](./frontend/README.md)
-- [ADR-001 管理员认证改为可插拔 Provider](./adr/ADR-001-pluggable-admin-authentication.md)
-- [ADR-002 内置词库数据的分层与分发](./adr/ADR-002-bundled-vocabulary-data.md)
-- [ADR-003 存储改为仅支持 SQLite](./adr/ADR-003-sqlite-only-storage.md)
-- [ADR-004 从 monorepo 提取为 Lexarbor](./adr/ADR-004-standalone-lexarbor-repository.md)
-- [数据库事实](./database/README.md)
-- [开发文档](./development/README.md)
-- [仓库结构与文件归属](./development/RepositoryLayout.md)
+- [Secure self-contained service design](./overview/SecureSelfContainedServiceDesign.md)
+- [Overview](./overview/README.md)
+- [Domain language](./overview/DomainLanguage.md)
+- [Administration frontend specification](./frontend/README.md)
+- [ADR-001 Pluggable administrator authentication provider](./adr/ADR-001-pluggable-admin-authentication.md)
+- [ADR-002 Layering and distribution of the bundled vocabulary data](./adr/ADR-002-bundled-vocabulary-data.md)
+- [ADR-003 SQLite as the only supported storage](./adr/ADR-003-sqlite-only-storage.md)
+- [ADR-004 Extracting Lexarbor from the monorepo](./adr/ADR-004-standalone-lexarbor-repository.md)
+- [Database facts](./database/README.md)
+- [Development](./development/README.md)
+- [Repository layout and file ownership](./development/RepositoryLayout.md)
 - [Repository automation](./development/Automation.md)
-- [待决事项](./pending-decisions.md)
+- [Pending decisions](./pending-decisions.md)

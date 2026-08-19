@@ -1,7 +1,7 @@
-# 开发文档
+# Development
 
 - [Repository automation](./Automation.md)
-- [仓库结构与文件归属](./RepositoryLayout.md)
-- [部署与运维](./Deployment.md)
-- [错误处理规范](./ErrorHandling.md)
-- [测试与验证](./Testing.md)
+- [Repository layout and file ownership](./RepositoryLayout.md)
+- [Deployment and operations](./Deployment.md)
+- [Error handling conventions](./ErrorHandling.md)
+- [Testing and verification](./Testing.md)

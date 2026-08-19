@@ -1,117 +1,118 @@
-# 单元测试规范
+# Unit testing conventions
 
-本文件描述 `Lexarbor` 服务的单元测试项目结构、覆盖范围与约定。
+This document describes the structure, coverage, and conventions of the `Lexarbor` service's unit test projects.
 
-## 测试项目结构
+## Test project structure
 
-| 项目 | 路径 | 覆盖范围 |
+| Project | Path | Coverage |
 |------|------|---------|
-| `Lexarbor.Domain.Tests` | `tests/Lexarbor.Domain.Tests/` | Domain 层服务 |
-| `Lexarbor.Service.Tests` | `tests/Lexarbor.Service.Tests/` | DTO 转换、异常中间件、认证和 HTTP 集成 |
+| `Lexarbor.Domain.Tests` | `tests/Lexarbor.Domain.Tests/` | Domain layer services |
+| `Lexarbor.Service.Tests` | `tests/Lexarbor.Service.Tests/` | DTO conversion, exception middleware, authentication, and HTTP integration |
 
-## 测试框架与依赖
+## Test framework and dependencies
 
-- xUnit.net v3 4.0.0（断言统一使用 xUnit 内置的 `Assert.*`，不引入第三方断言库）
+- xUnit.net v3 4.0.0 (assertions always use xUnit's built-in `Assert.*`; no third-party assertion library)
 - Moq 4.20.72
-- Microsoft.AspNetCore.Mvc.Testing 10.0.11（WebApplicationFactory 集成测试）
-- Microsoft.EntityFrameworkCore.Sqlite 10.0.11（Domain 与 HTTP 测试均运行真实 SQLite）
-- Mapster 10.0.11（DTO 映射扩展依赖）
+- Microsoft.AspNetCore.Mvc.Testing 10.0.11 (WebApplicationFactory integration tests)
+- Microsoft.EntityFrameworkCore.Sqlite 10.0.11 (both domain and HTTP tests run against real SQLite)
+- Mapster 10.0.11 (dependency of the DTO mapping extensions)
 - Microsoft.Testing.Extensions.CodeCoverage 18.10.0
 
-## 测试执行方式
+## How tests are executed
 
-测试通过 **Microsoft.Testing.Platform**（MTP）运行，而非旧的 VSTest —— .NET 10 SDK
-已不再支持用 VSTest 运行 xUnit v3。相关约定：
+Tests run on **Microsoft.Testing.Platform** (MTP) rather than the older VSTest — the .NET 10
+SDK no longer supports running xUnit v3 under VSTest. The conventions that follow from it:
 
-- 根目录 `global.json` 里的 `test.runner` 声明让 `dotnet test` 走 MTP。
-- 两个测试项目都是可执行文件（`<OutputType>Exe</OutputType>` 加
-  `<UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>`），
-  因此也可以直接运行生成的 exe 来跑测试。
-- MTP 的参数写在 `--` 之后，替代 VSTest 的 `--logger` / `--collect`：
+- The `test.runner` declaration in the root `global.json` makes `dotnet test` go through MTP.
+- Both test projects are executables (`<OutputType>Exe</OutputType>` plus
+  `<UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>`),
+  so the produced exe can also be run directly to execute the tests.
+- MTP arguments go after `--`, replacing VSTest's `--logger` and `--collect`:
 
   ```
   dotnet test Lexarbor.sln --results-directory TestResults -- \
     --report-xunit-trx --coverage --coverage-output-format cobertura
   ```
 
-  不要指定报告文件名：两个测试项目会写入同一目录，固定文件名会互相覆盖，
-  而默认名带运行标识可以避免冲突。
-- xUnit v3 的 xUnit1051 分析器要求异步调用传入
-  `TestContext.Current.CancellationToken`，以便测试能响应取消和超时。
+  Do not specify a report file name: both test projects write into the same directory, so a
+  fixed name would have them overwrite each other, while the default name carries a run
+  identifier and avoids the collision.
+- The xUnit1051 analyzer in xUnit v3 requires asynchronous calls to be passed
+  `TestContext.Current.CancellationToken`, so that tests respond to cancellation and timeouts.
 
-## Service.Tests 覆盖范围
+## Service.Tests coverage
 
-### DTO 映射扩展测试场景（Mapster DTO ↔ Model）
+### DTO mapping extension scenarios (Mapster DTO ↔ Model)
 
-| 场景 | 期望 |
+| Scenario | Expectation |
 |------|------|
-| VocabularyDto → VocabularyModel | 字段正确映射 |
-| VocabularyModel → VocabularyDto | 字段正确映射 |
-| VocabularyMeaningDto → VocabularyMeaningModel | 字段正确映射 |
-| VocabularyMeaningModel → VocabularyMeaningDto | 字段正确映射 |
-| VocabularyBookDto → VocabularyBookModel | 字段正确映射 |
-| VocabularyBookModel → VocabularyBookDto | 字段正确映射 |
+| VocabularyDto → VocabularyModel | Fields map correctly |
+| VocabularyModel → VocabularyDto | Fields map correctly |
+| VocabularyMeaningDto → VocabularyMeaningModel | Fields map correctly |
+| VocabularyMeaningModel → VocabularyMeaningDto | Fields map correctly |
+| VocabularyBookDto → VocabularyBookModel | Fields map correctly |
+| VocabularyBookModel → VocabularyBookDto | Fields map correctly |
 
-## Domain.Tests 覆盖范围
+## Domain.Tests coverage
 
 ### VocabularyDomainService
 
-| 场景 | 期望 |
+| Scenario | Expectation |
 |------|------|
-| GetDetailAsync 成功 | 返回 (word, meanings) |
-| SearchAsync 分页 | 返回正确分页结果 |
-| 单词规范化 | 去首尾空格并统一小写 |
-| 重复导入 | 复用单词和等价词义 |
-| 词书不存在或禁用 | 分别返回 NotFound 或业务条件错误 |
-| 更新不存在 ID | 返回 NotFound，不创建新对象 |
-| 词义归属不匹配 | 返回 Conflict |
-| 题目生成 | 干扰项只来自同一词书，按单词去重 |
-| 题目候选不足 | 返回 BusinessRuleException，由 HTTP 映射为 422 |
+| GetDetailAsync succeeds | Returns (word, meanings) |
+| SearchAsync paging | Returns the correct page |
+| Word normalization | Trims surrounding whitespace and lowercases |
+| Repeated import | Reuses the word and the equivalent meaning |
+| Book missing or disabled | Returns NotFound or a business rule error respectively |
+| Update with a non-existent ID | Returns NotFound and creates no new object |
+| Meaning ownership mismatch | Returns Conflict |
+| Question generation | Distractors come only from the same book, deduplicated by word |
+| Too few question candidates | Returns BusinessRuleException, which HTTP maps to 422 |
 
 ### VocabularyBookDomainService
 
-| 场景 | 期望 |
+| Scenario | Expectation |
 |------|------|
-| GetAllAsync | 公共列表只返回启用书籍 |
-| GetByCategoryAsync 带 grade | 过滤正确 |
-| SearchAsync 分页 | 管理列表包含禁用书籍且查询在数据库侧完成 |
-| AddOrUpdateAsync | 新增正确；更新不存在 ID 返回 NotFound |
-| DeleteAsync | 空词书可删除；已使用词书返回 Conflict |
-| GetAllCategoriesAsync | 返回去重分类列表 |
-| GetAllEducationLevelsAsync | 返回去重教育阶段列表 |
-| GetAllGradesAsync | 返回去重年级列表 |
-| GetGradesByEducationLevelAsync | 按阶段过滤年级 |
-| GetWordsAsync | 根据 bookId 返回去重后的词汇列表，并按单词排序 |
+| GetAllAsync | The public list returns enabled books only |
+| GetByCategoryAsync with grade | Filters correctly |
+| SearchAsync paging | The administration list includes disabled books and the query runs on the database side |
+| AddOrUpdateAsync | Creation is correct; updating a non-existent ID returns NotFound |
+| DeleteAsync | An empty book can be deleted; a book in use returns Conflict |
+| GetAllCategoriesAsync | Returns the deduplicated category list |
+| GetAllEducationLevelsAsync | Returns the deduplicated education level list |
+| GetAllGradesAsync | Returns the deduplicated grade list |
+| GetGradesByEducationLevelAsync | Filters grades by education level |
+| GetWordsAsync | Returns the deduplicated word list for a bookId, sorted by word |
 
-### 数据库模型和迁移
+### Database model and migrations
 
-| 场景 | 期望 |
+| Scenario | Expectation |
 |------|------|
-| 词义到单词关系 | 必填外键，删除单词级联 |
-| 词义到词书关系 | 必填外键，删除词书 Restrict |
-| 等价词义约束 | 规范化逻辑键唯一，进程内并发导入保持幂等 |
-| 首次启动 | 数据库文件不存在时迁移并写入 300 词启动词书 |
-| 已有数据库 | 只执行迁移，不重复写入启动词书 |
-| 音标 | DTO、模型和数据库均保留英式与美式两列 |
+| Meaning to word relationship | Required foreign key, cascade on word deletion |
+| Meaning to book relationship | Required foreign key, restrict on book deletion |
+| Equivalent meaning constraint | The normalized logical key is unique and in-process concurrent imports stay idempotent |
+| First startup | When the database file is absent, migrate and write the 300-word starter book |
+| Existing database | Migrate only, and do not write the starter book again |
+| Phonetics | The DTO, the model, and the database all keep separate British and American columns |
 
-### HTTP 认证和信封
+### HTTP authentication and envelopes
 
-| 场景 | 期望 |
+| Scenario | Expectation |
 |------|------|
-| 匿名管理请求 | 401 信封 |
-| 普通用户 JWT | 403 信封 |
-| 管理员 fake Identity 登录 | 设置 HttpOnly Cookie |
-| 错误凭据 | 401，不设置 Cookie |
-| Identity 返回无效 JWT | 502，不设置 Cookie |
-| 管理员 Cookie/Bearer | 可访问管理端点 |
-| 登出 | 响应过期 Cookie，后续管理请求 401 |
-| Identity 不可达/配置缺失 | 502/503 |
-| Cookie 管理写请求缺少同源头 | 403 |
-| 公开 `/api/*` | 不要求管理员登录 |
-| 未知路由 | `/api/*` 为 404；匿名 `/admin/*` 为 401；管理员 `/admin/*` 为 404 |
-| 未预期异常 | 500 通用消息，不泄露内部异常 |
+| Anonymous administration request | 401 envelope |
+| Ordinary user JWT | 403 envelope |
+| Administrator login through fake Identity | Sets an HttpOnly cookie |
+| Wrong credentials | 401, no cookie set |
+| Identity returns an invalid JWT | 502, no cookie set |
+| Administrator cookie or bearer | Can reach the administration endpoints |
+| Logout | Responds with an expired cookie, and later administration requests get 401 |
+| Identity unreachable or configuration missing | 502 / 503 |
+| Cookie administration write without the same-origin header | 403 |
+| Public `/api/*` | Does not require an administrator login |
+| Unknown route | `/api/*` gives 404; anonymous `/admin/*` gives 401; administrator `/admin/*` gives 404 |
+| Unexpected exception | 500 with the generic message, leaking no internal exception |
 
-## 运行方式
+## How to run
 
 ```bash
 dotnet test Lexarbor.sln --configuration Release
@@ -125,17 +126,18 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-`npm run test:e2e` 会先执行生产构建，再用 Playwright Chromium 验证管理员会话恢复、登录、教材列表和新增教材流程。浏览器测试拦截管理 API，以固定响应验证前端行为；真实认证、HTTP 契约和数据库行为仍由 .NET 集成测试负责。
+`npm run test:e2e` first runs a production build, then uses Playwright Chromium to verify administrator session restoration, login, the book list, and the create-book flow. The browser tests intercept the administration API and verify frontend behaviour against fixed responses; real authentication, the HTTP contract, and database behaviour remain the responsibility of the .NET integration tests.
 
-GitHub Actions 还会收集 TRX 与 Cobertura 覆盖率、运行容器健康检查和持久化测试，并保留失败时的 Playwright trace、截图和视频。完整说明见 [Repository automation](./Automation.md)。
+GitHub Actions additionally collects TRX and Cobertura coverage, runs the container health check and persistence tests, and keeps the Playwright trace, screenshots, and video on failure. See [Repository automation](./Automation.md) for the full description.
 
-## 约定
+## Conventions
 
-- DTO 映射扩展测试采用公开的 `ToEntity()` / `ToDto()` 扩展方法验证字段映射正确性。
-- Domain 层测试采用真实 DomainService、真实仓储和 SQLite 内存或临时文件数据库。
-- DTO 映射扩展测试需要 `InternalsVisibleTo`，已在 Service 项目 `.csproj` 中配置。
-- 断言一律使用 xUnit 内置的 `Assert.*`，不引入 FluentAssertions 等第三方断言库；
-  这条与上文测试框架小节是同一条约定，此处只是重申适用于所有测试项目。
-- 不修改被测代码以适配测试；如需可测试性改进，先更新本文档再改代码。
-- Identity 使用完整契约的 fake HTTP handler；JWT 使用测试签名密钥，不依赖真实管理员密码。
-- 真实 Identity 凭据不可用时，不得把 fake Identity 结果表述为真实联调成功。
+- DTO mapping extension tests verify field mapping through the public `ToEntity()` and `ToDto()` extension methods.
+- Domain layer tests use the real DomainService, real repositories, and a SQLite in-memory or temporary file database.
+- DTO mapping extension tests require `InternalsVisibleTo`, which is configured in the Service project's `.csproj`.
+- Assertions always use xUnit's built-in `Assert.*`; no third-party assertion library such as
+  FluentAssertions is introduced. This is the same rule as the test framework section above,
+  restated here as applying to every test project.
+- Do not modify the code under test to suit a test; when testability needs to improve, update this document first and change the code afterwards.
+- Identity is doubled by a fake HTTP handler implementing the full contract; JWTs use a test signing key and depend on no real administrator password.
+- When real Identity credentials are unavailable, a fake Identity result must not be described as a successful real integration.

@@ -1,66 +1,66 @@
-# Lexarbor 安全自包含服务设计
+# Lexarbor secure self-contained service design
 
-## 1. 背景
+## 1. Background
 
-Lexarbor 使用 .NET 10、ASP.NET Core Minimal API、EF Core 10、SQLite、Vue 3、TypeScript、Element Plus 和 Vite。后端托管前端静态文件，Docker 镜像在构建时同时产出前后端。
+Lexarbor uses .NET 10, ASP.NET Core Minimal APIs, EF Core 10, SQLite, Vue 3, TypeScript, Element Plus, and Vite. The backend hosts the frontend's static files, and the Docker image produces both at build time.
 
-本设计实施前存在以下问题，现均已按后续章节处理：
+The following problems existed before this design was implemented, and each is addressed in a section below:
 
-- `/admin/*` 没有认证或角色校验。
-- 前端没有登录状态，匿名访问者可以直接看到并调用管理功能。
-- 词义的 `BookId` 可空且没有词书外键。
-- 更新不存在的单词、词义或词书可能转为新增。
-- 单词规范化和重复词义导入没有完整约束。
-- 禁用词书仍可能出现在公开列表，删除策略没有保护已使用词书。
-- 中译英干扰单词来自全词库，题目可能跨词书污染或出现重复选项。
-- 多个端点直接把 `Exception.Message` 返回客户端。
-- 词书搜索、筛选和分页会先加载全表。
-- 仓库级 `PROJECT.md` 曾记录旧端口，与实际使用的 5008 不一致。
-- Vocabulary 缺少完整的正式文档入口和 `docs/frontend/README.md`。
+- `/admin/*` had no authentication or role check.
+- The frontend had no login state, so an anonymous visitor could see and call the administration features directly.
+- A meaning's `BookId` was nullable and had no book foreign key.
+- Updating a non-existent word, meaning, or book could turn into an insert.
+- Word normalization and duplicate meaning imports had no complete constraint.
+- A disabled book could still appear in the public list, and the deletion strategy did not protect a book in use.
+- Chinese-to-English distractors were drawn from the whole vocabulary, so a question could be polluted across books or contain duplicate options.
+- Several endpoints returned `Exception.Message` to the client directly.
+- Book search, filtering, and paging loaded the whole table first.
+- The repository-level `PROJECT.md` recorded an old port that disagreed with the 5008 actually in use.
+- Vocabulary lacked a complete formal documentation entry point and a `docs/frontend/README.md`.
 
-本设计保持既有四个 `/api/*` 业务接口的路径和业务行为，并完善认证、数据边界、错误处理、查询性能、前端登录和验证体系；后续 ADR-003 另行批准了单音标到英美双音标的字段变更。
+This design keeps the paths and business behaviour of the four existing `/api/*` endpoints and completes authentication, data boundaries, error handling, query performance, frontend login, and the verification system. ADR-003 separately approved the later change from a single phonetic field to a British and American pair.
 
-## 2. 设计目标
+## 2. Design goals
 
-1. Vocabulary 继续以单服务、单镜像、单端口方式自包含部署。
-2. 管理页面通过 Vocabulary 后端代理 Identity 管理员登录。
-3. 只有 Identity JWT 中包含 `role=admin` 的用户可以访问管理接口。
-4. 前端不接触 Identity 地址、AppSecret、access token 或 refresh token。
-5. 保持既有 `/api/*` 路径和业务语义；音标字段按 ADR-003 变更为英美双字段。
-6. 为单词、词义和词书建立可靠的 SQLite 约束和首次建库流程。
-7. 所有 HTTP 结果使用统一 `VocabularyHttpResponse` 信封。
-8. 筛选、计数、分页和随机候选尽量由 SQLite 完成。
+1. Vocabulary continues to deploy self-contained as one service, one image, one port.
+2. The administration page proxies the Identity administrator login through the Vocabulary backend.
+3. Only a user whose Identity JWT contains `role=admin` can reach the administration endpoints.
+4. The frontend never touches the Identity address, the AppSecret, an access token, or a refresh token.
+5. The existing `/api/*` paths and business semantics are preserved; the phonetic fields change to a British and American pair per ADR-003.
+6. Words, meanings, and books get reliable SQLite constraints and a first-run database creation flow.
+7. Every HTTP result uses the shared `VocabularyHttpResponse` envelope.
+8. Filtering, counting, paging, and random candidate selection happen in SQLite wherever possible.
 
-## 3. 非目标
+## 3. Non-goals
 
-- 不修改 Identity 的管理员引导账户或 `role=admin` 注入逻辑。
-- 不把 Vocabulary 管理页面迁移到 Admin Portal。
-- 不为公开 `/api/*` 复用管理员 Cookie 作为服务间认证。
-- 不引入前端状态管理库或新的 UI 框架。
-- 不实现 refresh token 自动续期；管理员 JWT 过期后重新登录。
-- 不提供 PostgreSQL 到 SQLite 的存量数据迁移；服务未上线，无存量数据库。
+- Do not change Identity's administrator bootstrap account or its `role=admin` injection.
+- Do not move the Vocabulary administration page into the Admin Portal.
+- Do not reuse the administrator cookie as service-to-service authentication for the public `/api/*`.
+- Do not introduce a frontend state management library or a new UI framework.
+- Do not implement automatic refresh token renewal; an administrator logs in again once the JWT expires.
+- Do not provide a PostgreSQL to SQLite data migration; the service has not shipped and there is no existing database.
 
-## 4. 总体架构
+## 4. Overall architecture
 
-Vocabulary 继续监听容器端口 5008，并在同一 ASP.NET Core Host 内提供：
+Vocabulary continues to listen on container port 5008 and serves the following from one ASP.NET Core host:
 
-| 能力 | 路径 | 访问边界 |
+| Capability | Path | Access boundary |
 |------|------|----------|
-| Vue 静态文件与 SPA | `/`、静态资源、前端 hash 路由 | 匿名 |
-| 健康检查 | `GET /health` | 匿名 |
-| 管理登录 | `POST /admin/auth/login` | 匿名 |
-| 登录状态 | `GET /admin/auth/session` | `role=admin` |
-| 管理登出 | `POST /admin/auth/logout` | 匿名，可重复调用 |
-| 公开业务 API | 既有 `/api/*` | 匿名，保持兼容 |
-| 管理 API | 除认证入口外的既有 `/admin/*` | `role=admin` |
+| Vue static files and the SPA | `/`, static assets, frontend hash routes | Anonymous |
+| Health check | `GET /health` | Anonymous |
+| Administration login | `POST /admin/auth/login` | Anonymous |
+| Session state | `GET /admin/auth/session` | `role=admin` |
+| Administration logout | `POST /admin/auth/logout` | Anonymous, repeatable |
+| Public business API | The existing `/api/*` | Anonymous, kept compatible |
+| Administration API | The existing `/admin/*` other than the authentication entry points | `role=admin` |
 
-未知 `/api/*` 或 `/admin/*` 路径返回统一信封的 404，不进入 SPA fallback。SPA fallback 保持匿名可访问，避免出现未登录时无法加载登录页的死锁。
+An unknown `/api/*` or `/admin/*` path answers 404 in the shared envelope and does not fall through to the SPA. The SPA fallback stays anonymously accessible, which avoids the deadlock of being unable to load the login page while logged out.
 
-## 5. Identity 管理员认证
+## 5. Identity administrator authentication
 
-### 5.1 配置
+### 5.1 Configuration
 
-Vocabulary 后端使用以下配置：
+The Vocabulary backend uses the following configuration:
 
 ```json
 {
@@ -87,27 +87,27 @@ Vocabulary 后端使用以下配置：
 }
 ```
 
-管理员登录通过 `IAdminCredentialAuthenticator` 抽象，由 `AdminAuthentication:Provider` 选择实现，详见 [ADR-001](../adr/ADR-001-pluggable-admin-authentication.md)：
+Administrator login goes through the `IAdminCredentialAuthenticator` abstraction, whose implementation is selected by `AdminAuthentication:Provider`; see [ADR-001](../adr/ADR-001-pluggable-admin-authentication.md):
 
-- `Oidc`（默认）：标准 OAuth2 password grant，配置在 `AdminAuthentication:Oidc:{TokenEndpoint,ClientId,ClientSecret,Scope}`；`TokenEndpoint` 留空时从 discovery 文档解析。
-- `Gateway`（可选）：JSON password-token 兼容契约，凭据取自 `AdminAuthentication:Gateway:{AppId,AppSecret}`。
+- `Oidc` (default): the standard OAuth2 password grant, configured in `AdminAuthentication:Oidc:{TokenEndpoint,ClientId,ClientSecret,Scope}`; when `TokenEndpoint` is left empty it is resolved from the discovery document.
+- `Gateway` (optional): the compatible JSON password-token contract, with credentials from `AdminAuthentication:Gateway:{AppId,AppSecret}`.
 
-配置约定：
+Configuration conventions:
 
-- `IdentityService:*` 描述信任哪个签发方，由 appsettings、标准 .NET 环境变量或其他标准配置 Provider 提供；容器部署通过 `LEXARBOR_IDENTITY_AUTHORITY` 映射 Authority。
-- provider 凭据只从环境变量注入，不写入前端或仓库默认配置。
-- `AdminAuthentication:Gateway:Authority` 可选；留空时回落到 `IdentityService:Authority`，用于登录端点与 JWKS 端点不同源的部署。
-- 服务在缺少所选 provider 凭据时仍可启动；登录请求返回统一信封的 503，并记录不含密钥的配置错误。
-- `Issuer`、`Audience`、签名、公钥轮换和过期时间由 JWT Bearer 校验。
-- JWT 关闭入站 claim 映射。角色 claim 同时接受短名 `role` 和完整的 `ClaimTypes.Role` URI，以兼容常见 OIDC 与 .NET issuer 的 claim 序列化。管理员策略要求 `AdminAuthentication:RequiredRole`（默认 `admin`），由 `AdminRoleHandler` 在评估时读取。
-- 本地 HTTP 开发环境允许 `CookieSecure=false`；TLS 部署必须配置为 `true`。
+- `IdentityService:*` describes which issuer is trusted and comes from appsettings, standard .NET environment variables, or any other standard configuration provider; a container deployment maps Authority through `LEXARBOR_IDENTITY_AUTHORITY`.
+- Provider credentials are injected from environment variables only and are never written into the frontend or the repository's default configuration.
+- `AdminAuthentication:Gateway:Authority` is optional; when empty it falls back to `IdentityService:Authority`, which serves deployments whose login endpoint and JWKS endpoint are not same-origin.
+- The service still starts when the selected provider's credentials are missing; a login request answers 503 in the shared envelope and the configuration error is logged without any secret.
+- `Issuer`, `Audience`, the signature, public key rotation, and expiry are validated by JWT Bearer.
+- The JWT handler has inbound claim mapping turned off. The role claim is accepted both as the short name `role` and as the full `ClaimTypes.Role` URI, which covers how common OIDC and .NET issuers serialize claims. The administrator policy requires `AdminAuthentication:RequiredRole` (default `admin`), which `AdminRoleHandler` reads at evaluation time.
+- A local HTTP development environment may use `CookieSecure=false`; a TLS deployment must configure `true`.
 
-### 5.2 登录流程
+### 5.2 Login flow
 
-1. 浏览器向 `POST /admin/auth/login` 提交 `{ username, password }`。
-2. Vocabulary 校验必填字段，不记录请求体、密码或用户名密码组合。
-3. Lexarbor 后端调用 OIDC discovery 得到的 token endpoint，或使用显式配置的 endpoint。
-4. OIDC provider 使用 form-urlencoded password grant；可选 Gateway provider 使用以下 JSON：
+1. The browser submits `{ username, password }` to `POST /admin/auth/login`.
+2. Vocabulary validates the required fields and logs neither the request body, the password, nor the username and password combination.
+3. The Lexarbor backend calls the token endpoint obtained from OIDC discovery, or the explicitly configured endpoint.
+4. The OIDC provider uses a form-urlencoded password grant; the optional Gateway provider uses the following JSON:
 
    ```json
    {
@@ -117,31 +117,31 @@ Vocabulary 后端使用以下配置：
    }
    ```
 
-5. 仅 Gateway provider 在请求头加入服务端配置的 `X-Admin-AppId` 和 `X-Admin-AppSecret`。
-6. Provider 拒绝凭据时，Lexarbor 返回 401 和通用的凭据错误，不透传上游内部消息。
-7. Identity 返回成功后，Vocabulary 使用与请求认证相同的 Issuer、Audience、签名密钥和 lifetime 参数验证 access token；无效或配置不匹配的令牌返回 502，且不设置 Cookie。
-8. Vocabulary 从已验证 JWT 的 `role` claim 判断管理员身份；普通用户返回 403，且不设置 Cookie。
-9. 管理员 JWT 写入 `lexarborAdmin` Cookie。Cookie 使用：
+5. Only the Gateway provider adds the server-configured `X-Admin-AppId` and `X-Admin-AppSecret` request headers.
+6. When the provider rejects the credentials, Lexarbor answers 401 with a generic credential error and does not pass the upstream's internal message through.
+7. Once Identity returns success, Vocabulary validates the access token with the same issuer, audience, signing key, and lifetime parameters used for request authentication; an invalid token or one that does not match the configuration answers 502 and sets no cookie.
+8. Vocabulary decides administrator identity from the `role` claim of the validated JWT; an ordinary user gets 403 and no cookie.
+9. The administrator JWT is written into the `lexarborAdmin` cookie, which uses:
    - `HttpOnly=true`
    - `SameSite=Strict`
    - `Path=/`
-   - `Secure` 由 `AdminAuthentication:CookieSecure` 控制
-   - `Max-Age` 使用 Identity 返回的 `expiresIn`；响应无有效值时回退为一小时，JWT 本身仍独立校验过期时间
-10. 登录响应只返回成功状态和已验证 JWT 中必要的非敏感用户展示信息，不返回 access token 或 refresh token。
-11. Identity 返回的 refresh token 立即丢弃，前端和 Vocabulary 均不持久化。
+   - `Secure`, controlled by `AdminAuthentication:CookieSecure`
+   - `Max-Age`, taken from Identity's `expiresIn`; when the response carries no usable value it falls back to one hour, and the JWT's own expiry is still validated independently
+10. The login response returns only the success status and the non-sensitive display information the validated JWT requires, never an access token or a refresh token.
+11. A refresh token returned by Identity is discarded immediately and is persisted by neither the frontend nor Vocabulary.
 
-Identity 超时、网络错误或无有效响应时返回 502；配置缺失返回 503。任何日志都不得包含密码、JWT、Cookie、AppSecret 或完整 Identity 响应。
+An Identity timeout, network error, or missing usable response answers 502; missing configuration answers 503. No log may contain a password, JWT, cookie, AppSecret, or a full Identity response.
 
-### 5.3 请求认证
+### 5.3 Request authentication
 
-JWT Bearer 按以下顺序提取令牌：
+JWT Bearer extracts the token in this order:
 
 1. `Authorization: Bearer <token>`
-2. `lexarborAdmin` HttpOnly Cookie
+2. the `lexarborAdmin` HttpOnly cookie
 
-Bearer 通道用于自动化测试和受控 API 调用；管理前端只使用 Cookie。所有管理端点使用名为 `VocabularyAdmin` 的授权策略，要求已认证且包含 `role=admin`。
+The bearer channel serves automated tests and controlled API calls; the administration frontend uses the cookie only. Every administration endpoint uses the authorization policy named `VocabularyAdmin`, which requires an authenticated principal carrying `role=admin`.
 
-认证挑战和禁止访问分别返回：
+An authentication challenge and a forbidden response return, respectively:
 
 ```json
 { "success": false, "message": "Authentication is required." }
@@ -151,32 +151,32 @@ Bearer 通道用于自动化测试和受控 API 调用；管理前端只使用 C
 { "success": false, "message": "Administrator access is required." }
 ```
 
-状态码分别为 401 和 403。
+with status codes 401 and 403.
 
-### 5.4 登出和会话
+### 5.4 Logout and sessions
 
-- `GET /admin/auth/session` 由 `VocabularyAdmin` 策略保护，用于前端初始化登录状态。
-- `POST /admin/auth/logout` 匿名可调用并始终删除同名 Cookie，使过期或损坏 Cookie 也能被清理。
-- 登出后浏览器不再携带 JWT，再次访问管理接口返回 401。
-- JWT 本身是无状态令牌，删除 Cookie 不构成服务端全局吊销；由于 refresh token 不保存，浏览器无法自动恢复会话。
+- `GET /admin/auth/session` is protected by the `VocabularyAdmin` policy and lets the frontend initialize its login state.
+- `POST /admin/auth/logout` is callable anonymously and always deletes the cookie of that name, so an expired or corrupted cookie can be cleared too.
+- After logout the browser no longer carries the JWT, and a further administration request answers 401.
+- A JWT is a stateless token, so deleting the cookie is not a server-side global revocation; because the refresh token is not stored, the browser cannot restore the session by itself.
 
-### 5.5 Cookie 写请求的 CSRF 防护
+### 5.5 CSRF protection for cookie write requests
 
-`POST`、`PUT`、`PATCH`、`DELETE` 管理请求如果通过 Cookie 而非 Authorization Header 认证，必须包含：
+A `POST`, `PUT`, `PATCH`, or `DELETE` administration request authenticated by cookie rather than by an Authorization header must include:
 
 ```text
 X-Requested-With: XMLHttpRequest
 ```
 
-前端 Axios 实例统一添加该请求头。服务不开放允许任意来源携带凭据的 CORS 策略。该检查与 `SameSite=Strict` 共同降低跨站表单提交风险。
+The frontend Axios instance adds that header for all of them. The service opens no CORS policy that lets an arbitrary origin send credentials. Together with `SameSite=Strict`, this check reduces the risk of a cross-site form submission.
 
-登录和登出入口不依赖该请求头；登录不使用现有认证 Cookie，登出只执行幂等 Cookie 删除。
+The login and logout entry points do not depend on that header; login does not use an existing authentication cookie, and logout only performs an idempotent cookie deletion.
 
-## 6. 路由权限矩阵
+## 6. Route permission matrix
 
-### 6.1 公开业务接口
+### 6.1 Public business endpoints
 
-以下现有接口继续匿名可访问：
+The following existing endpoints remain anonymously accessible:
 
 ```text
 GET  /api/vocabulary/{wordId}
@@ -185,11 +185,11 @@ POST /api/vocabulary/question
 GET  /api/vocabulary-books/all
 ```
 
-本次不为这些接口引入管理员 Cookie 或新的服务间认证。如果后续需要服务间认证，应先确认真实调用方并设计独立凭据。
+No administrator cookie or new service-to-service authentication is introduced for them here. Should service-to-service authentication be needed later, the real callers should be confirmed first and a separate credential designed.
 
-### 6.2 管理接口
+### 6.2 Administration endpoints
 
-以下接口全部要求 `role=admin`，包括读取接口：
+All of the following require `role=admin`, read endpoints included:
 
 ```text
 POST   /admin/vocabulary
@@ -206,106 +206,106 @@ GET    /admin/vocabulary-books/{id}/words
 DELETE /admin/vocabulary-books/{id}
 ```
 
-## 7. 数据关系和 SQLite 初始迁移
+## 7. Data relationships and the initial SQLite migration
 
-### 7.1 正式关系
+### 7.1 The formal relationships
 
 ```text
 VocabularyBook 1 ─── * VocabularyMeaning * ─── 1 Vocabulary
 ```
 
-- `VocabularyMeaning.VocabularyId`：必填，外键到 `Vocabulary`，删除单词时级联删除词义。
-- `VocabularyMeaning.BookId`：必填，外键到 `VocabularyBook`，删除词书时限制删除。
-- 新增词义前必须确认词书存在且启用。
-- 公开详情和题目查询必须确认词书存在且启用。
+- `VocabularyMeaning.VocabularyId`: required, a foreign key to `Vocabulary`, cascading so that deleting a word deletes its meanings.
+- `VocabularyMeaning.BookId`: required, a foreign key to `VocabularyBook`, restricting the deletion of a book.
+- Before adding a meaning, the book must be confirmed to exist and be enabled.
+- The public detail and question queries must confirm the book exists and is enabled.
 
-### 7.2 单一初始迁移
+### 7.2 A single initial migration
 
-服务未上线且没有 PostgreSQL 存量数据，因此迁移历史重建为一个 SQLite `InitialCreate`。新数据库直接得到非空 `book_id`、双外键、删除行为、查询索引、英美音标列和等价词义唯一索引。EF Core 模型、迁移和模型快照必须保持一致。
+The service has not shipped and there is no existing PostgreSQL data, so the migration history is rebuilt as one SQLite `InitialCreate`. A new database gets the non-nullable `book_id`, both foreign keys, the delete behaviours, the query indexes, the British and American phonetic columns, and the equivalent-meaning unique index directly. The EF Core model, the migration, and the model snapshot must stay in agreement.
 
-启动时在迁移前判断数据库文件是否存在。文件不存在时，迁移后从内嵌 TSV 在一个事务中写入 300 词启动词书；已有文件只迁移，不重复写种子。
+At startup the database file's existence is checked before migrating. When the file is absent, the 300-word starter book is written from the embedded TSV in one transaction after migrating; when the file exists it is migrated only and the seed is not written again.
 
-## 8. 单词和词义写入
+## 8. Word and meaning writes
 
-### 8.1 单词规范化
+### 8.1 Word normalization
 
-所有写入和按名称查找使用同一规范化规则：
+Every write and every lookup by name uses the same normalization rule:
 
 ```text
 normalizedWord = word.Trim().ToLowerInvariant()
 ```
 
-- 空白规范化结果返回 400。
-- 新单词以规范化值保存。
-- 查找单词时使用等价的数据库表达式，避免 `Apple`、` apple ` 和 `APPLE` 被重复导入。
-- 唯一索引保护规范化后的新写入单词。
-- 单词 DTO 使用 `phoneticUk` 和 `phoneticUs` 两个可空字符串；旧 `phonetic` 字段不再接受或返回。
+- A value that normalizes to whitespace answers 400.
+- A new word is stored in its normalized form.
+- Lookups use the equivalent database expression, so `Apple`, ` apple `, and `APPLE` cannot be imported as duplicates.
+- A unique index protects newly written normalized words.
+- The word DTO uses the two nullable strings `phoneticUk` and `phoneticUs`; the old `phonetic` field is neither accepted nor returned.
 
-### 8.2 新增与更新语义
+### 8.2 Create and update semantics
 
-- 请求带有单词 ID 时，单词不存在返回 404，不创建新单词。
-- 请求不带单词 ID 时，按规范化名称查找；不存在才创建。
-- 请求带有词义 ID 时，词义不存在返回 404。
-- 更新词义前必须确认其 `VocabularyId` 和 `BookId` 与当前单词、词书一致。
-- 不允许通过词义 ID 把其他单词或其他词书的词义改写为当前数据。
-- 新增词义时词书不存在返回 404；词书已禁用返回 422。
-- 同一 `VocabularyId`、`BookId`、规范化词性和去除首尾空格后的释义视为同一词义。
-- 重复导入返回成功并复用原词义；提供了新的英式音标、美式音标或例句时按既有更新语义更新，不新增重复行。
-- SQLite 部署限制为单实例。进程级写事务锁串行化管理写入，stored generated columns 上的逻辑键唯一索引提供数据库兜底。
-- 唯一约束冲突、并发重复或其他数据库一致性冲突返回 409。
+- When the request carries a word ID and the word does not exist, the answer is 404 and no word is created.
+- When the request carries no word ID, the word is looked up by normalized name and created only if absent.
+- When the request carries a meaning ID and the meaning does not exist, the answer is 404.
+- Before updating a meaning, its `VocabularyId` and `BookId` must be confirmed to match the current word and book.
+- A meaning ID must not be used to rewrite another word's or another book's meaning into the current data.
+- When adding a meaning, a missing book answers 404 and a disabled book answers 422.
+- The same `VocabularyId`, `BookId`, normalized part of speech, and trimmed definition are treated as the same meaning.
+- A repeated import succeeds and reuses the existing meaning; when a new British phonetic, American phonetic, or example is supplied it is applied under the existing update semantics rather than inserting a duplicate row.
+- A SQLite deployment is limited to a single instance. A process-level write transaction lock serializes administrative writes, and the logical key's unique index over the stored generated columns is the database backstop.
+- A unique constraint violation, a concurrent duplicate, or any other database consistency conflict answers 409.
 
-`Category` 继续使用现有字符串字段作为正式表示。与其不一致且未被使用的整数 `BookCategories` 常量类型删除，不再维护双重表示。
+`Category` keeps the existing string field as its formal representation. The integer `BookCategories` constant type, which disagreed with it and was unused, is deleted so that no dual representation is maintained.
 
-## 9. 词书状态和删除
+## 9. Book state and deletion
 
-- 新建词书必须使用空 ID；服务生成新 ID。
-- 更新词书必须携带 ID；目标不存在返回 404。
-- `Status=true` 表示启用，`Status=false` 表示禁用。
-- 管理列表包含启用和禁用词书。
-- `GET /api/vocabulary-books/all` 只返回启用词书。
-- 禁用词书后，公开词汇详情和题目接口不再返回该词书的词义。
-- 管理员仍可查看禁用词书及其关联单词，以便恢复或维护。
-- 删除不存在的词书返回 404。
-- 没有关联词义的词书允许硬删除。
-- 存在任何关联词义的词书拒绝硬删除并返回 409，管理员应改为禁用。
-- 词书外键采用 `ON DELETE RESTRICT`，数据库作为最后一道防线阻止孤儿词义。
+- Creating a book must use an empty ID; the service generates a new one.
+- Updating a book must carry an ID; a missing target answers 404.
+- `Status=true` means enabled and `Status=false` means disabled.
+- The administration list contains both enabled and disabled books.
+- `GET /api/vocabulary-books/all` returns enabled books only.
+- Once a book is disabled, the public vocabulary detail and question endpoints no longer return its meanings.
+- An administrator can still view a disabled book and its words, so it can be restored or maintained.
+- Deleting a non-existent book answers 404.
+- A book with no related meanings may be hard deleted.
+- A book with any related meaning refuses the hard delete with 409, and the administrator should disable it instead.
+- The book foreign key uses `ON DELETE RESTRICT`, so the database is the last line of defence against orphaned meanings.
 
-## 10. 题目生成
+## 10. Question generation
 
-`POST /api/vocabulary/question` 保持原请求和响应 DTO，按以下规则生成四选一题目：
+`POST /api/vocabulary/question` keeps its request and response DTOs and generates a four-option question by these rules:
 
-1. 目标词书必须存在且启用。
-2. 目标单词必须存在，并在目标词书中至少有一个词义。
-3. 中译英：
-   - 题干为当前词义；
-   - 正确答案为当前单词；
-   - 三个干扰单词只从同一词书选择。
-4. 英译中：
-   - 题干为当前单词；
-   - 正确答案为当前词义；
-   - 三个干扰释义只从同一词书选择。
-5. 候选按 `VocabularyId` 去重，每个干扰单词最多贡献一个选项。
-6. 仓储查询先排除当前单词和正确答案文本，再按规范化后的选项文本去重，最后随机限量为三个干扰项。
-7. 只有获得三个不同的有效干扰项时才生成题目，不得先限量再去重而误报候选不足。
-8. 候选不足返回 422 和简洁业务错误。
-9. 最终四个选项随机排序。
+1. The target book must exist and be enabled.
+2. The target word must exist and must have at least one meaning in the target book.
+3. Chinese to English:
+   - the stem is the current meaning;
+   - the correct answer is the current word;
+   - the three distractor words are selected from the same book only.
+4. English to Chinese:
+   - the stem is the current word;
+   - the correct answer is the current meaning;
+   - the three distractor definitions are selected from the same book only.
+5. Candidates are deduplicated by `VocabularyId`, so each distractor word contributes at most one option.
+6. The repository query first excludes the current word and the correct answer text, then deduplicates by normalized option text, and only then randomly limits the result to three distractors.
+7. A question is generated only when three distinct valid distractors are obtained; limiting before deduplicating, which would falsely report too few candidates, is not allowed.
+8. Too few candidates answers 422 with a short business error.
+9. The four final options are shuffled.
 
-仓储使用 SQLite `random()`、分组和窗口函数在数据库侧按词书筛选、排除、去重和限量。该方案适用于单本词书数万不同单词以内；如果单本词书增长到更大规模，应改为持久化随机键或预生成候选池，避免随机排序全部候选。
+The repository uses SQLite's `random()`, grouping, and window functions to filter by book, exclude, deduplicate, and limit on the database side. This approach suits up to tens of thousands of distinct words per book; should a single book grow larger, it should be changed to a persisted random key or a pre-generated candidate pool so that all candidates are not randomly sorted.
 
-## 11. 查询和分页
+## 11. Queries and paging
 
-- `page` 缺省或为 0 时兼容为 1。
-- `size` 缺省或为 0 时兼容为 20。
-- `page<0`、`size<0`、`size>100` 或会造成分页算术溢出的值返回 400。
-- 单词搜索在数据库侧完成筛选、排序、计数和分页。
-- 词书搜索在数据库侧完成名称/描述筛选、排序、计数和分页。
-- 分类、学段、年级和按学段查询年级在数据库侧完成筛选和去重。
-- 词书内单词通过词义关系在数据库侧选取不同单词，避免加载全部词义后再查单词。
-- 管理查询可以访问禁用词书；公开查询只能通过启用词书关系取数。
+- A missing or zero `page` is treated as 1 for compatibility.
+- A missing or zero `size` is treated as 20 for compatibility.
+- `page<0`, `size<0`, `size>100`, or a value that would overflow the paging arithmetic answers 400.
+- Word search performs its filtering, ordering, counting, and paging on the database side.
+- Book search performs its name and description filtering, ordering, counting, and paging on the database side.
+- Categories, education levels, grades, and grades by education level perform their filtering and deduplication on the database side.
+- The words in a book are selected as distinct words through the meaning relationship on the database side, rather than loading every meaning and then looking words up.
+- An administration query may reach disabled books; a public query can only read through an enabled book's relationships.
 
-## 12. 统一错误处理
+## 12. Shared error handling
 
-所有 HTTP 结果使用：
+Every HTTP result uses:
 
 ```json
 { "success": true, "data": {} }
@@ -315,67 +315,67 @@ normalizedWord = word.Trim().ToLowerInvariant()
 { "success": false, "message": "A concise public message." }
 ```
 
-状态码约定：
+Status code conventions:
 
-| 状态码 | 场景 |
+| Status code | Situation |
 |--------|------|
-| 400 | 参数、JSON 或分页边界无效 |
-| 401 | 凭据错误、JWT 缺失或无效 |
-| 403 | 已认证但不是管理员 |
-| 404 | 单词、词义或词书不存在 |
-| 409 | 唯一约束、关联删除或其他数据冲突 |
-| 422 | 词书禁用、题目候选不足等业务条件不满足 |
-| 500 | 未预期异常 |
-| 502 | Identity 不可达或返回无效响应 |
-| 503 | 生产管理员登录配置缺失 |
+| 400 | Invalid parameters, JSON, or paging bounds |
+| 401 | Wrong credentials, or a missing or invalid JWT |
+| 403 | Authenticated but not an administrator |
+| 404 | The word, meaning, or book does not exist |
+| 409 | A unique constraint, a related deletion, or another data conflict |
+| 422 | A business precondition such as a disabled book or too few question candidates |
+| 500 | An unexpected exception |
+| 502 | Identity is unreachable or returned an invalid response |
+| 503 | Production administrator login configuration is missing |
 
-端点不再捕获通用异常并返回 `ex.Message`。统一异常处理中间件负责：
+Endpoints no longer catch a general exception and return `ex.Message`. The shared exception middleware is responsible for:
 
-- 把已知领域异常映射为 400、404、409 或 422。
-- 把数据库唯一约束和外键约束映射为 409。
-- 把 JSON 解析和 Minimal API `BadHttpRequestException` 映射为 400。
-- 把未预期异常记录为带异常对象的 Error，并返回通用 500 消息。
-- 对预期 NotFound 使用 Warning。
-- 对认证挑战、禁止访问和未知 API 路径生成相同信封。
+- mapping known domain exceptions to 400, 404, 409, or 422;
+- mapping database unique and foreign key constraint violations to 409;
+- mapping JSON parsing errors and the Minimal API `BadHttpRequestException` to 400;
+- logging an unexpected exception at Error level with the exception object and returning the generic 500 message;
+- using Warning for an expected NotFound;
+- producing the same envelope for authentication challenges, forbidden responses, and unknown API paths.
 
-任何客户端响应不得包含 SQL、连接字符串、堆栈、数据库异常或内部实现细节。
+No client response may contain SQL, a connection string, a stack trace, a database exception, or any internal implementation detail.
 
-## 13. 前端设计
+## 13. Frontend design
 
-前端继续使用 Vue 3、TypeScript、Element Plus、Axios、Vue Router 和 Vite，不新增 Pinia 或其他依赖。
+The frontend continues to use Vue 3, TypeScript, Element Plus, Axios, Vue Router, and Vite, and adds neither Pinia nor another dependency.
 
-### 13.1 路由和状态
+### 13.1 Routes and state
 
-- `/login`：用户名密码登录页。
-- `/forbidden`：非管理员提示页。
-- `/books`：教材管理。
-- `/import`：单词导入。
-- 应用启动时调用 `GET /admin/auth/session` 恢复登录状态。
-- 路由守卫在未认证时跳转登录页。
-- 管理导航和管理页面只在管理员状态下渲染。
-- 登录页不包含默认用户名或密码。
-- 页头增加登出按钮。
+- `/login`: the username and password login page.
+- `/forbidden`: the non-administrator notice page.
+- `/books`: book management.
+- `/import`: word import.
+- The application calls `GET /admin/auth/session` at startup to restore the login state.
+- The route guard redirects to the login page while unauthenticated.
+- The administration navigation and pages render only in the administrator state.
+- The login page contains no default username or password.
+- The header carries a logout button.
 
-认证状态使用小型 TypeScript 模块或 composable 维护，不引入新的全局状态库。
+Authentication state is maintained by a small TypeScript module or composable; no new global state library is introduced.
 
-### 13.2 Axios 行为
+### 13.2 Axios behaviour
 
-- 使用同源相对路径，不配置 Identity 地址。
-- 使用 Cookie 认证，不读写 access token。
-- 管理写请求添加 `X-Requested-With: XMLHttpRequest`。
-- 统一类型化 `ApiError` 保存 HTTP 状态和公开消息。
-- 401：清除本地认证状态并跳转登录页。
-- 403：跳转无权限页。
-- 400、404、409、422、500、502、503：由页面显示适合用户的错误消息。
-- 组件 catch 参数使用 `unknown`，不使用 `any`。
+- Use same-origin relative paths and configure no Identity address.
+- Authenticate by cookie and never read or write an access token.
+- Add `X-Requested-With: XMLHttpRequest` to administration write requests.
+- A shared typed `ApiError` carries the HTTP status and the public message.
+- 401: clear the local authentication state and redirect to the login page.
+- 403: redirect to the forbidden page.
+- 400, 404, 409, 422, 500, 502, 503: the page shows an error message suited to the user.
+- A component's catch parameter is `unknown`, never `any`.
 
-教材管理和单词导入的既有功能、字段和 Vite 构建方式保持可用。
+The existing features, fields, and Vite build of book management and word import all remain usable.
 
-## 14. 部署
+## 14. Deployment
 
-- Vocabulary 容器内 HTTP 端口固定为 5008。
-- Vue 构建产物继续由 Vocabulary Dockerfile 复制到后端 `wwwroot`。
-- `scripts/start.sh` 只把显式提供的部署变量映射为 .NET 配置：
+- The Vocabulary container's HTTP port is fixed at 5008.
+- The Vue build output continues to be copied into the backend's `wwwroot` by the Vocabulary Dockerfile.
+- `scripts/start.sh` maps only explicitly supplied deployment variables into .NET configuration:
 
   ```text
   LEXARBOR_ADMIN_AUTH_PROVIDER → AdminAuthentication__Provider
@@ -383,62 +383,62 @@ normalizedWord = word.Trim().ToLowerInvariant()
   LEXARBOR_OIDC_CLIENT_SECRET → AdminAuthentication__Oidc__ClientSecret
   LEXARBOR_IDENTITY_AUTHORITY → IdentityService__Authority
   LEXARBOR_COOKIE_SECURE → AdminAuthentication__CookieSecure
-  LEXARBOR_DATA_DIR（默认服务目录 data/）→ /app/data 持久卷
+  LEXARBOR_DATA_DIR (defaults to the service's data/) → the /app/data persistent volume
   ```
 
-- `IdentityService:Authority` 由持久化配置提供，也可通过显式的 `LEXARBOR_IDENTITY_AUTHORITY` 覆盖。
-- 容器把 `LEXARBOR_DATA_DIR` 挂载到 `/app/data`。首次启动把镜像内置配置复制为 `/app/data/appsettings.json`，已有文件保持不变；同一目录保存默认的 `vocabulary.db`，无需增加第二个挂载项。
-- 配置优先级为镜像默认值、持久化 `appsettings.json`、显式环境变量、命令行参数。
-- provider 客户端凭据由部署环境传入 Lexarbor，不打印到控制台。
-- TLS 部署设置 `AdminAuthentication__CookieSecure=true`。
-- Identity provider 需要预先注册 Lexarbor 客户端、允许当前 password grant，并在 JWT 中提供管理员角色。
+- `IdentityService:Authority` comes from the persistent configuration and can also be overridden by an explicit `LEXARBOR_IDENTITY_AUTHORITY`.
+- The container mounts `LEXARBOR_DATA_DIR` at `/app/data`. On first startup the image's built-in configuration is copied to `/app/data/appsettings.json`, and an existing file is left unchanged; the same directory holds the default `vocabulary.db`, so no second mount is needed.
+- Configuration precedence is the image defaults, the persistent `appsettings.json`, explicit environment variables, then command-line arguments.
+- The provider's client credentials are passed to Lexarbor by the deployment environment and are never printed to the console.
+- A TLS deployment sets `AdminAuthentication__CookieSecure=true`.
+- The Identity provider must have the Lexarbor client registered in advance, must permit the current password grant, and must supply the administrator role in the JWT.
 
-## 15. 测试和验证
+## 15. Testing and verification
 
-### 15.1 认证与权限
+### 15.1 Authentication and authorization
 
-- 未登录访问每类管理接口返回 401 信封。
-- 普通用户 JWT 访问管理接口返回 403 信封。
-- fake Identity 返回 bootstrap admin 角色时登录成功并设置 HttpOnly Cookie。
-- 错误用户名或密码返回 401，且不设置 Cookie。
-- 普通用户登录返回 403，且不设置 Cookie。
-- 管理员 Cookie 可以访问教材和单词管理接口。
-- 登出删除 Cookie；之后访问管理接口返回 401。
-- Authorization Bearer 管理员令牌也可访问管理接口。
-- 既有 `/api/*` 匿名行为保持兼容。
-- Cookie 写请求缺少 CSRF 防护头时被拒绝。
+- Reaching each class of administration endpoint while logged out answers a 401 envelope.
+- Reaching an administration endpoint with an ordinary user's JWT answers a 403 envelope.
+- When fake Identity returns the bootstrap admin role, login succeeds and sets the HttpOnly cookie.
+- A wrong username or password answers 401 and sets no cookie.
+- An ordinary user's login answers 403 and sets no cookie.
+- The administrator cookie can reach the book and word administration endpoints.
+- Logout deletes the cookie; afterwards an administration endpoint answers 401.
+- An Authorization bearer administrator token can also reach the administration endpoints.
+- The existing anonymous behaviour of `/api/*` stays compatible.
+- A cookie write request without the CSRF protection header is refused.
 
-### 15.2 领域和数据
+### 15.2 Domain and data
 
-- 不存在或禁用词书不能新增词义。
-- 更新不存在的单词、词义或词书返回 NotFound。
-- 不属于当前单词或词书的词义不能更新。
-- 规范化后的单词只创建一次。
-- 重复词义导入不新增第二条数据。
-- 已使用词书删除返回 Conflict。
-- 空词书可以删除。
-- 禁用词书不出现在公开列表，公开详情和题目接口不能读取其词义。
-- EF 模型包含词义到单词和词书的双外键及正确删除行为。
-- 真实 SQLite 验证缺失数据库首次建库、300 词种子、已有数据库只迁移和并发幂等写入。
+- A meaning cannot be added to a missing or disabled book.
+- Updating a non-existent word, meaning, or book answers NotFound.
+- A meaning that does not belong to the current word or book cannot be updated.
+- A normalized word is created only once.
+- A repeated meaning import does not insert a second row.
+- Deleting a book in use answers Conflict.
+- An empty book can be deleted.
+- A disabled book does not appear in the public list, and the public detail and question endpoints cannot read its meanings.
+- The EF model contains both foreign keys from meaning to word and book, with the correct delete behaviours.
+- Real SQLite verifies first-run creation of a missing database, the 300-word seed, migrate-only for an existing database, and idempotent concurrent writes.
 
-### 15.3 题目生成
+### 15.3 Question generation
 
-- 中译英干扰单词只来自当前词书。
-- 英译中干扰释义只来自当前词书。
-- 干扰项不包含正确答案。
-- 多词义单词不会产生重复干扰选项。
-- 不同词书的数据不会互相污染。
-- 少于三个有效干扰单词时返回 422。
+- Chinese-to-English distractor words come only from the current book.
+- English-to-Chinese distractor definitions come only from the current book.
+- Distractors never contain the correct answer.
+- A word with several meanings does not produce duplicate distractor options.
+- Data from different books never pollutes another book.
+- Fewer than three valid distractor words answers 422.
 
-### 15.4 HTTP 和错误处理
+### 15.4 HTTP and error handling
 
-- 验证 400、401、403、404、409、422、500、502、503 的状态和统一信封。
-- fake Identity HTTP handler 验证请求字段及服务端 AppId/AppSecret 请求头。
-- 模拟仓储异常，确认 500 响应不包含内部异常消息。
-- 未知 `/api/*` 返回 404 信封；未知 `/admin/*` 对匿名请求返回 401，对管理员请求返回 404 信封。
-- SPA、静态文件、登录页和健康检查保持匿名可访问。
+- Verify the status and the shared envelope for 400, 401, 403, 404, 409, 422, 500, 502, and 503.
+- The fake Identity HTTP handler verifies the request fields and the server-side AppId and AppSecret headers.
+- Simulate a repository exception and confirm the 500 response contains no internal exception message.
+- An unknown `/api/*` answers a 404 envelope; an unknown `/admin/*` answers 401 for an anonymous request and a 404 envelope for an administrator.
+- The SPA, static files, the login page, and the health check stay anonymously accessible.
 
-### 15.5 交付验证命令
+### 15.5 Delivery verification commands
 
 ```bash
 dotnet build Lexarbor.sln --configuration Release
@@ -451,4 +451,4 @@ npm run test:types
 npm run build
 ```
 
-在 Identity 和 Vocabulary 可运行时，补充登录、Cookie、登出、公开 API、持久卷和迁移状态的 HTTP smoke test。无法获得真实部署凭据时，自动化集成测试使用 fake Identity，不编造真实联调结果。
+When Identity and Vocabulary can both be run, add HTTP smoke tests for login, the cookie, logout, the public API, the persistent volume, and the migration state. When real deployment credentials are unavailable, the automated integration tests use fake Identity and no real integration result is invented.

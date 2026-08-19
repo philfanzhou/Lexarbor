@@ -1,56 +1,56 @@
-# ADR-003 存储改为仅支持 SQLite
+# ADR-003 SQLite as the only supported storage
 
-- **状态**：已接受，已实施
-- **日期**：2026-08-05
-- **范围**：Vocabulary 的数据库提供程序、迁移、并发写入策略与音标字段；路径不变，单词 DTO 的音标字段发生契约变化
+- **Status**: accepted and implemented
+- **Date**: 2026-08-05
+- **Scope**: Vocabulary's database provider, migrations, concurrent write strategy, and phonetic fields. Paths are unchanged; the word DTO's phonetic fields are a contract change
 
-## 背景
+## Context
 
-实施前服务使用 PostgreSQL。连接串由 `旧 monorepo 的共享 Consul 组件` 的 `SharedPostgreSqlConnectionStringFactory` 从 Consul 共享配置合成，建表修复则依赖 `旧 monorepo 的共享公共组件` 的数据库助手。这套依赖对平台内部部署合适，但对将服务作为公开仓库分发是负担：使用者必须先准备 PostgreSQL 实例并理解共享配置约定，才能启动。
+Before this change the service used PostgreSQL. The connection string was composed from Consul's shared configuration by `SharedPostgreSqlConnectionStringFactory` in `the former monorepo's shared Consul component`, and table repair relied on the database helpers in `the former monorepo's shared common component`. Those dependencies suited deployment inside the platform, but they are a burden for distributing the service as a public repository: a user must first provide a PostgreSQL instance and understand the shared configuration conventions before anything starts.
 
-服务尚未上线（见 ADR-001），没有存量数据需要迁移，因此更换提供程序的成本目前处于最低点。
+The service has not shipped (see ADR-001) and there is no existing data to migrate, so the cost of changing provider is at its lowest right now.
 
-代码中已存在按 `_context.Database.IsRelational()` 分流的双路径（`src/Lexarbor.Database/Repositories/VocabularyRepositories.cs`），但该分支的非关系分支服务于测试用的内存提供程序，**SQLite 同样满足 `IsRelational()`**，会落入 PostgreSQL 分支。以下位置为 PostgreSQL 专属：
+The code already had a two-way split on `_context.Database.IsRelational()` (`src/Lexarbor.Database/Repositories/VocabularyRepositories.cs`), but the non-relational side of that branch served the in-memory provider used by tests, and **SQLite satisfies `IsRelational()` as well**, so it would fall into the PostgreSQL branch. The following places were PostgreSQL-specific:
 
-| 位置 | 专属特性 |
+| Location | Provider-specific feature |
 |------|----------|
-| `VocabularyRepositories.cs` 干扰项查询 | `DISTINCT ON`、`btrim` |
-| `VocabularyRepositories.cs` `AcquireEquivalentMeaningLockAsync` | `pg_advisory_xact_lock` |
+| The distractor queries in `VocabularyRepositories.cs` | `DISTINCT ON`, `btrim` |
+| `AcquireEquivalentMeaningLockAsync` in `VocabularyRepositories.cs` | `pg_advisory_xact_lock` |
 | `DatabaseInitializer.cs` | `CHECK` / `FOREIGN KEY ... NOT VALID` |
-| `UnitOfWork.cs` | `PostgresException` 与 `PostgresErrorCodes` 异常映射 |
+| `UnitOfWork.cs` | `PostgresException` and `PostgresErrorCodes` exception mapping |
 
-## 决定
+## Decision
 
-仅支持 SQLite，移除 PostgreSQL 提供程序，不保留双提供程序能力。
+Support SQLite only, remove the PostgreSQL provider, and keep no dual-provider capability.
 
-- 连接串退化为本地文件路径，不再依赖 Consul、Common 或共享连接串工厂。
-- 删除 `IsRelational()` 分流，全部代码路径使用同一提供程序；测试与生产运行相同的数据库实现。
-- 重新生成迁移。服务未上线，不保留既有 PostgreSQL 迁移历史。
+- The connection string degrades to a local file path and no longer depends on Consul, Common, or a shared connection string factory.
+- The `IsRelational()` split is deleted and every code path uses one provider; tests and production run the same database implementation.
+- Migrations are regenerated. The service has not shipped, so the existing PostgreSQL migration history is not kept.
 
-### 并发写入
+### Concurrent writes
 
-`pg_advisory_xact_lock` 用于避免多实例并发插入等价词义。SQLite 部署限定为单实例，应用使用进程级 `SemaphoreSlim` 串行化写事务，使第二个等价请求在第一个提交后重新查询并复用记录。数据库同时用两个 stored generated columns 保存规范化词性和释义，并在完整逻辑键上建立唯一索引作为最后防线。
+`pg_advisory_xact_lock` existed to stop multiple instances from concurrently inserting an equivalent meaning. A SQLite deployment is single-instance, so the application serializes write transactions with a process-level `SemaphoreSlim`, which makes a second equivalent request re-query after the first commits and reuse the record. The database also stores the normalized part of speech and definition in two stored generated columns and carries a unique index over the full logical key as the last line of defence.
 
-### 历史数据兼容代码一并移除
+### The historical-data compatibility code is removed with it
 
-`NOT VALID` 渐进式约束收紧是为 PostgreSQL 存量脏数据设计的。全新 SQLite 库不存在该类存量，旧迁移、诊断和修复代码均已移除，约束直接以强形式建立。
+Tightening constraints progressively through `NOT VALID` was designed for existing dirty data in PostgreSQL. A brand-new SQLite database has none, so the old migrations, diagnostics, and repair code are all removed and constraints are created in their strong form directly.
 
-### 音标拆分为英美两列
+### Phonetics split into British and American columns
 
-`vocabulary.phonetic` 单列拆分为 `phonetic_uk` 与 `phonetic_us`，均可空。对应 JSON 字段为 `phoneticUk` 与 `phoneticUs`，管理导入页面分别采集两项。英美双音标是面向中文学习者的常规配置。该变更与提供程序更换落在同一次迁移重建中，无额外迁移成本。
+The single `vocabulary.phonetic` column is split into `phonetic_uk` and `phonetic_us`, both nullable. The corresponding JSON fields are `phoneticUk` and `phoneticUs`, and the administration import page collects them separately. Carrying both is the normal arrangement for Chinese learners. The change lands in the same migration rebuild as the provider change, so it costs no extra migration.
 
-外部词典若只提供单一音标，落到哪一列由导入路径显式定义，不得默认写入其中一列。该约束记入 ADR-002 第二层的选型考量。
+If an external dictionary supplies only one phonetic, the import path must define explicitly which column it lands in and must not default to either. That constraint is recorded as a selection criterion for layer two of ADR-002.
 
-## 备选方案
+## Alternatives considered
 
-- **SQLite 默认 + PostgreSQL 可选**：被否决。日常在 PostgreSQL 上开发、向使用者分发 SQLite，等于测试路径与分发路径不同。ADR-001 记录的角色 claim 缺陷正是此形态：测试替身实现了真实实现并不实现的契约，缺陷长期不可见。双提供程序还会使迁移、查询与冲突语义长期需要双份维护，并使公开仓库继续携带 `旧 monorepo 的共享公共组件` 与 Consul 假设。
-- **保持 PostgreSQL**：被否决。使用者启动前必须自备数据库实例，与公开分发目标冲突。
+- **SQLite by default with PostgreSQL optional**: rejected. Developing daily on PostgreSQL while distributing SQLite to users means the tested path and the distributed path differ. The role claim defect recorded in ADR-001 is exactly that shape: a test double implemented a contract the real implementation did not, and the defect stayed invisible for a long time. Two providers would also mean maintaining migrations, queries, and conflict semantics twice indefinitely, and would keep the public repository carrying `the former monorepo's shared common component` and its Consul assumptions.
+- **Stay on PostgreSQL**: rejected. A user must supply a database instance before starting, which conflicts with the goal of public distribution.
 
-## 影响
+## Consequences
 
-- **失去多实例横向扩展**。SQLite 单写者，部署必须单实例并挂载持久卷。以本服务读多写少、数据可由启动词书或导入重建的性质，判断为可接受。
-- **备份方式改变**，由平台共享 PostgreSQL 方案变为文件级备份。
-- 代码和 Dockerfile 已不再引用 `旧 monorepo 的共享公共组件` 或 `旧 monorepo 的共享 Consul 组件`。Identity 地址通过普通配置和环境变量提供。
-- ADR-002 第二层可简化：词典是只读参考数据，可作为预构建的 SQLite 文件以只读方式附加，不必再设计批量导入路径。具体形态在实施第二层时设计，EF Core 不原生支持跨库查询。该做法不与 ADR-002 第一层"不预置数据库文件"冲突——受约束的是服务自身可写的那个数据库文件，它必须在运行时于配置路径上创建，以便落在宿主挂载卷上。
-- 公开与管理接口路径不变；涉及单词的请求和响应以 `phoneticUk`、`phoneticUs` 取代旧 `phonetic`，这是本次有意的公共契约变更。
-- Domain 与 HTTP 测试均运行真实 SQLite；首次建库、种子数量、已有文件跳过种子和并发幂等均有自动化覆盖。
+- **Horizontal scale-out is lost.** SQLite has a single writer, so the deployment must be single-instance with a persistent volume mounted. Given that this service is read-mostly and its data can be rebuilt from the starter book or an import, that is judged acceptable.
+- **Backups change** from the platform's shared PostgreSQL arrangement to file-level backups.
+- The code and the Dockerfile no longer reference `the former monorepo's shared common component` or `the former monorepo's shared Consul component`. The Identity address is supplied through ordinary configuration and environment variables.
+- Layer two of ADR-002 can be simplified: the dictionary is read-only reference data and can be attached read-only as a prebuilt SQLite file, with no bulk import path to design. The exact shape is designed when layer two is implemented, since EF Core does not support cross-database queries natively. This does not conflict with layer one of ADR-002 not prebuilding a database file — what that constrains is the service's own writable database file, which must be created at runtime at the configured path so that it lands on the host's mounted volume.
+- The public and administration paths are unchanged; requests and responses involving a word replace the old `phonetic` with `phoneticUk` and `phoneticUs`, which is a deliberate public contract change.
+- Both the domain and HTTP tests run against real SQLite; first-run creation, seed count, skipping the seed for an existing file, and concurrent idempotence all have automated coverage.
