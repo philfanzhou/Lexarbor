@@ -1,0 +1,46 @@
+name: Registry cleanup
+
+on:
+  schedule:
+    # Weekly, deliberately off the hour: scheduled runs queue behind the peak
+    # that forms on every exact hour, and this job has no reason to compete.
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: List what would be deleted without deleting it
+        type: boolean
+        default: false
+      retention-days:
+        description: Keep unreferenced versions younger than this many days
+        type: string
+        default: "7"
+
+permissions:
+  contents: read
+
+concurrency:
+  # Two runs deleting from one package would race over the same version ids.
+  group: registry-cleanup
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    name: Prune unreferenced image versions
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Delete versions no tag reaches
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGE_OWNER: ${{ github.repository_owner }}
+          PACKAGE_NAME: ${{ github.event.repository.name }}
+          RETENTION_DAYS: ${{ inputs.retention-days || '7' }}
+          DRY_RUN: ${{ inputs.dry-run || 'false' }}
+        run: python3 .github/scripts/prune_registry_versions.py
