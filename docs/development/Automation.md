@@ -68,6 +68,12 @@ Accepted tags are `vMAJOR.MINOR.PATCH` and optional pre-release variants such as
 
 The tag without its `v` prefix is passed into the image build as the `APP_VERSION` argument and becomes the assembly version, which the application reports as `version` in its `/health` response. A build that does not pass the argument reports `0.0.0-dev`, so an image built outside the release workflow is always distinguishable from a released one. No file in the repository stores the version, which means there is nothing to bump before tagging and no stored value that can disagree with the tag.
 
+Steps 1 to 3 run in `publish-container` and step 4 in `publish-release`, which depends on it. A release therefore never announces a version whose image failed to publish. Each job names the refs it accepts instead of inferring them from the trigger: `publish-container` accepts a tag or the default branch, and `publish-release` accepts only a tag. A ref added to the trigger later, or a manual dispatch, therefore cannot publish an image or create a release without being named in those conditions as well.
+
+A stable `v1.2.3` publishes `1.2.3`, `1.2`, `1`, and `latest`. A pre-release publishes only its full pre-release version and is marked as a GitHub pre-release. No long-lived registry credential is required because publishing uses the publishing jobs' short-lived `GITHUB_TOKEN`.
+
+GitHub may create the container package as private on its first publication. For anonymous pulls from this public repository, open the package settings once, connect it to this repository if necessary, and change its visibility to public. Package visibility is deliberately not changed by the workflow.
+
 ## The edge image
 
 Every push to `main` publishes `ghcr.io/<owner>/<repository>:edge` through the same `publish-container` job a release uses, with the same dependency on a full CI pass. An edge image is therefore not a lower bar than a release image; it is the same bar without a version.
@@ -87,14 +93,6 @@ Three properties keep the edge path from reaching the release tags:
 `publish-release` carries its own `startsWith(github.ref, 'refs/tags/')` test rather than relying on the publishing job above it, so a default-branch push publishes an image and creates no GitHub Release.
 
 A default-branch push now starts CI twice, once from its own trigger and once through this workflow's `verify`, and both appear on the same ref. The CI concurrency group includes `github.workflow` so the two runs do not cancel each other.
-
-## Releases and container tag rules
-
-Steps 1 to 3 run in `publish-container` and step 4 in `publish-release`, which depends on it. A release therefore never announces a version whose image failed to publish. Both jobs additionally guard on `startsWith(github.ref, 'refs/tags/')`, which is redundant against the tag-only trigger and is kept so that adding a branch trigger or a manual dispatch later cannot publish from a non-tag ref.
-
-A stable `v1.2.3` publishes `1.2.3`, `1.2`, `1`, and `latest`. A pre-release publishes only its full pre-release version and is marked as a GitHub pre-release. No long-lived registry credential is required because publishing uses the publishing jobs' short-lived `GITHUB_TOKEN`.
-
-GitHub may create the container package as private on its first publication. For anonymous pulls from this public repository, open the package settings once, connect it to this repository if necessary, and change its visibility to public. Package visibility is deliberately not changed by the workflow.
 
 ## Recommended repository rules
 
