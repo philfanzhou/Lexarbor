@@ -146,9 +146,20 @@ def tags_of(version: dict) -> list[str]:
     return version.get("metadata", {}).get("container", {}).get("tags", []) or []
 
 
+def parse_timestamp(value: str) -> datetime:
+    """A GitHub timestamp, with or without the fractional seconds it sometimes
+    carries. Guessing one form and crashing on the other would fail a scheduled
+    run for a reason nobody would look for."""
+    text = value.replace("Z", "+00:00")
+    return datetime.fromisoformat(text).astimezone(timezone.utc)
+
+
 def main() -> int:
-    owner = require("PACKAGE_OWNER")
-    package = require("PACKAGE_NAME").lower()
+    # GITHUB_REPOSITORY is set for every event, which the repository object in a
+    # workflow payload is not guaranteed to be.
+    owner_default, _, name_default = os.environ.get("GITHUB_REPOSITORY", "").partition("/")
+    owner = require("PACKAGE_OWNER", owner_default)
+    package = require("PACKAGE_NAME", name_default).lower()
     retention_days = int(require("RETENTION_DAYS", "7"))
     dry_run = require("DRY_RUN", "true").lower() == "true"
     token = require("GH_TOKEN")
@@ -183,9 +194,7 @@ def main() -> int:
     kept, held, doomed = 0, 0, []
     for version in sorted(versions, key=lambda v: v["created_at"], reverse=True):
         digest, tags = version["name"], ",".join(tags_of(version)) or "-"
-        created = datetime.strptime(version["created_at"], "%Y-%m-%dT%H:%M:%SZ").replace(
-            tzinfo=timezone.utc
-        )
+        created = parse_timestamp(version["created_at"])
         if digest in reachable:
             kept += 1
             print(f"  keep    {tags:<22.22} {digest[7:23]}")
