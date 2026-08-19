@@ -45,11 +45,17 @@ if docker container inspect "$CONTAINER_NAME" >/dev/null 2>&1; then
     docker rm -f "$CONTAINER_NAME" >/dev/null
 fi
 
+# The image runs as its own unprivileged user, which is right for a named or
+# anonymous volume. A host bind mount keeps the host's ownership instead, so the
+# container is run as the user who owns DATA_DIR. That also leaves the database
+# and configuration files owned by whoever runs this script rather than by root,
+# which is what made backing them up require sudo before.
 docker run -d \
   --name "$CONTAINER_NAME" \
   --restart unless-stopped \
   --network "$NETWORK_NAME" \
   --add-host=host.docker.internal:host-gateway \
+  --user "$(id -u):$(id -g)" \
   -p "${HOST_PORT}:5008" \
   -v "${DATA_DIR}:/app/data" \
   -e TZ="${TZ:-UTC}" \

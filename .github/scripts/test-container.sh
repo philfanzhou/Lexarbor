@@ -65,6 +65,11 @@ check_reported_version() {
   echo "Image reports version ${reported}"
 }
 
+# The image runs as its own unprivileged user, which is what a named or anonymous
+# volume is initialised for. A host bind mount keeps the host's ownership, so a
+# bind-mounted run has to be the user owning that directory, exactly as
+# scripts/start.sh does it. Passing --user for the unmounted case instead would
+# fail, because the anonymous volume belongs to the image's user.
 start_container() {
   local container_name="$1"
   shift
@@ -76,16 +81,65 @@ start_container() {
   wait_for_health "$container_name"
 }
 
+start_bind_mounted_container() {
+  local container_name="$1"
+  local host_directory="$2"
+  shift 2
+  start_container "$container_name" \
+    --user "$(id -u):$(id -g)" \
+    --volume "$host_directory:/app/data" "$@"
+}
+
+check_runs_unprivileged() {
+  local container_name="$1"
+  local uid
+  uid="$(docker exec "$container_name" id -u)"
+  if [[ "$uid" == "0" ]]; then
+    echo "Container ${container_name} is running as root" >&2
+    return 1
+  fi
+
+  echo "Container ${container_name} runs as uid ${uid}"
+}
+
+check_healthcheck_reports_healthy() {
+  local container_name="$1"
+  local status
+  # The image declares a HEALTHCHECK, so Docker tracks a status. Without a
+  # declared check this stays "<no value>" forever, which is the regression this
+  # catches: nothing else here would notice the instruction disappearing.
+  for _ in $(seq 1 60); do
+    status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$container_name")"
+    if [[ "$status" == "healthy" ]]; then
+      echo "Container ${container_name} reports healthy"
+      return 0
+    fi
+
+    if [[ -z "$status" ]]; then
+      echo "Image declares no HEALTHCHECK" >&2
+      return 1
+    fi
+    sleep 2
+  done
+
+  docker inspect --format '{{json .State.Health}}' "$container_name" >&2 || true
+  echo "Container ${container_name} never reported healthy" >&2
+  return 1
+}
+
 echo "Checking startup without an explicit host mount"
 start_container "$UNMOUNTED_CONTAINER"
 check_reported_version "$UNMOUNTED_CONTAINER"
+check_runs_unprivileged "$UNMOUNTED_CONTAINER"
+check_healthcheck_reports_healthy "$UNMOUNTED_CONTAINER"
 docker rm -f -v "$UNMOUNTED_CONTAINER" >/dev/null
 
 fresh_data="$TEST_ROOT/fresh"
 mkdir -p "$fresh_data"
 
 echo "Checking first-start configuration and database creation"
-start_container "$FRESH_CONTAINER" --volume "$fresh_data:/app/data"
+start_bind_mounted_container "$FRESH_CONTAINER" "$fresh_data"
+check_runs_unprivileged "$FRESH_CONTAINER"
 test -s "$fresh_data/appsettings.json"
 test -s "$fresh_data/vocabulary.db"
 cmp --silent src/Lexarbor.Host/appsettings.json "$fresh_data/appsettings.json"
@@ -107,7 +161,7 @@ config_hash_before="$(sha256sum "$existing_data/appsettings.json" | cut -d ' ' -
 database_hash_before="$(sha256sum "$existing_data/vocabulary.db" | cut -d ' ' -f 1)"
 
 echo "Checking that pre-mounted configuration and database files are not overwritten"
-start_container "$EXISTING_CONTAINER" --volume "$existing_data:/app/data"
+start_bind_mounted_container "$EXISTING_CONTAINER" "$existing_data"
 config_hash_after="$(sha256sum "$existing_data/appsettings.json" | cut -d ' ' -f 1)"
 database_hash_after="$(sha256sum "$existing_data/vocabulary.db" | cut -d ' ' -f 1)"
 
