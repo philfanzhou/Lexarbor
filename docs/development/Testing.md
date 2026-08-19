@@ -112,6 +112,19 @@ SDK no longer supports running xUnit v3 under VSTest. The conventions that follo
 | Unknown route | `/api/*` gives 404; anonymous `/admin/*` gives 401; administrator `/admin/*` gives 404 |
 | Unexpected exception | 500 with the generic message, leaking no internal exception |
 
+### Rate limiting
+
+| Scenario | Expectation |
+|------|------|
+| Login beyond the permit limit | 429 envelope carrying `Retry-After` |
+| One address exhausts the login limit | Another address is still admitted |
+| Public `/api/*` beyond the permit limit | 429, unknown `/api/*` routes included |
+| Administration endpoints | Never rate limited |
+| `X-Forwarded-For` with no trusted proxy | Ignored, so a caller cannot mint its own partition |
+| `X-Forwarded-For` from a trusted proxy | Partitions on the real client address |
+| A policy disabled by configuration | Every request is admitted |
+| A permit limit or window below 1 | Startup fails rather than the limit being clamped or dropped |
+
 ## How to run
 
 ```bash
@@ -126,7 +139,7 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-`npm run test:e2e` first runs a production build, then uses Playwright Chromium to verify administrator session restoration, login, the book list, and the create-book flow. The browser tests intercept the administration API and verify frontend behaviour against fixed responses; real authentication, the HTTP contract, and database behaviour remain the responsibility of the .NET integration tests.
+`npm run test:e2e` first runs a production build, then uses Playwright Chromium to verify administrator session restoration, login, the book list, the create-book flow, and the word import flow. The import specification covers the request payload shape, the blank optional fields being omitted rather than sent empty, the form reset, client-side validation, and the status-to-message mapping — including that a status the mapping does not know falls through to the server's message and that a `success:false` envelope inside a 200 is still reported as a failure. The browser tests intercept the administration API and verify frontend behaviour against fixed responses; real authentication, the HTTP contract, and database behaviour remain the responsibility of the .NET integration tests.
 
 GitHub Actions additionally collects TRX and Cobertura coverage, runs the container health check and persistence tests, and keeps the Playwright trace, screenshots, and video on failure. See [Repository automation](./Automation.md) for the full description.
 
