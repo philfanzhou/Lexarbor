@@ -177,9 +177,10 @@ public class VocabularyHttpEndpointTests :
         using var body = JsonDocument.Parse(
             await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         Assert.True(body.RootElement.GetProperty("success").GetBoolean());
-        Assert.Equal(
-            "healthy",
-            body.RootElement.GetProperty("data").GetProperty("status").GetString());
+        var data = body.RootElement.GetProperty("data");
+        Assert.Equal("healthy", data.GetProperty("status").GetString());
+        Assert.False(string.IsNullOrWhiteSpace(
+            data.GetProperty("version").GetString()));
     }
 
     private HttpClient CreateAdminClient()

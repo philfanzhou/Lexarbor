@@ -2,6 +2,9 @@
 set -Eeuo pipefail
 
 IMAGE_NAME="${1:-lexarbor:ci}"
+# Optional. When given, the image must report exactly this version, which is how
+# the release workflow's version argument is proven to reach the application.
+EXPECTED_VERSION="${2:-}"
 RUN_SUFFIX="${GITHUB_RUN_ID:-local}-${RANDOM}"
 UNMOUNTED_CONTAINER="lexarbor-unmounted-${RUN_SUFFIX}"
 FRESH_CONTAINER="lexarbor-fresh-${RUN_SUFFIX}"
@@ -42,6 +45,26 @@ wait_for_health() {
   return 1
 }
 
+check_reported_version() {
+  local container_name="$1"
+  local mapped_port response reported
+  mapped_port="$(docker port "$container_name" 5008/tcp | head -n 1 | awk -F: '{print $NF}')"
+  response="$(curl --fail --silent --show-error "http://127.0.0.1:${mapped_port}/health")"
+  reported="$(printf '%s' "$response" | grep -o '"version":"[^"]*"' | cut -d '"' -f 4)"
+
+  if [[ -z "$reported" ]]; then
+    echo "Health response did not report a version" >&2
+    return 1
+  fi
+
+  if [[ -n "$EXPECTED_VERSION" && "$reported" != "$EXPECTED_VERSION" ]]; then
+    echo "Expected version ${EXPECTED_VERSION} but the image reports ${reported}" >&2
+    return 1
+  fi
+
+  echo "Image reports version ${reported}"
+}
+
 start_container() {
   local container_name="$1"
   shift
@@ -55,6 +78,7 @@ start_container() {
 
 echo "Checking startup without an explicit host mount"
 start_container "$UNMOUNTED_CONTAINER"
+check_reported_version "$UNMOUNTED_CONTAINER"
 docker rm -f -v "$UNMOUNTED_CONTAINER" >/dev/null
 
 fresh_data="$TEST_ROOT/fresh"

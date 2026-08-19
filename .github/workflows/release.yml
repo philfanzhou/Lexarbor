@@ -19,6 +19,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       prerelease: ${{ steps.version.outputs.prerelease }}
+      number: ${{ steps.version.outputs.number }}
     steps:
       - name: Validate semantic version
         id: version
@@ -34,6 +35,9 @@ jobs:
           else
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
           fi
+          # The tag without its v prefix, which is what MSBuild accepts as a
+          # version and what the image tags already use.
+          echo "number=${VERSION_TAG#v}" >> "$GITHUB_OUTPUT"
 
   verify:
     name: Verify release source
@@ -100,6 +104,8 @@ jobs:
           context: .
           file: Dockerfile
           platforms: linux/amd64,linux/arm64
+          build-args: |
+            APP_VERSION=${{ needs.validate-version.outputs.number }}
           push: true
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}

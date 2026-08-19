@@ -21,6 +21,18 @@ docker pull ghcr.io/philfanzhou/lexarbor:1.2.3
 
 Stable releases also update the `latest`, major, and major/minor tags. Pre-releases such as `v1.2.3-rc.1` publish only their full version tag.
 
+Because `latest` and the major tags are repointed by later releases, ask the running container which version it actually is rather than relying on the tag it was pulled with:
+
+```bash
+curl --silent http://127.0.0.1:5008/health
+```
+
+```json
+{ "success": true, "data": { "status": "healthy", "version": "1.2.3" } }
+```
+
+An image built from a local `docker build` reports `0.0.0-dev` unless `--build-arg APP_VERSION=` is given.
+
 ## Start the container
 
 ```bash

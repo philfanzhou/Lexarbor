@@ -241,7 +241,8 @@ app.MapAdminAuthEndpoints();
 app.MapVocabularyHttpEndpoints();
 app.MapGet(
         "/health",
-        () => VocabularyHttpResponse.Ok(new { status = "healthy" }))
+        () => VocabularyHttpResponse.Ok(
+            new { status = "healthy", version = ApplicationVersion.Current }))
     .AllowAnonymous();
 
 string[] allHttpMethods =
