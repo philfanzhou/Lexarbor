@@ -1,78 +1,78 @@
-# ADR-002 内置词库数据的分层与分发
+# ADR-002 Layering and distribution of the bundled vocabulary data
 
-- **状态**：已接受，第一层已实施，第二层尚未实施
-- **日期**：2026-08-05
-- **范围**：Vocabulary 的内置数据、词典补全能力与分发方式；路径契约不变，音标字段变化见 ADR-003
+- **Status**: accepted; the first layer is implemented, the second is not
+- **Date**: 2026-08-05
+- **Scope**: Vocabulary's bundled data, dictionary enrichment, and distribution. Path contracts are unchanged; the phonetic field change is covered by ADR-003
 
-## 背景
+## Context
 
-服务当前不附带任何词库数据。空库状态下词书列表为空，出题接口无内容可演示——而同词书内取干扰项正是本服务区别于通用词典 API 的地方：`VocabularyDomainService` 通过 `GetRandomByBookExceptAsync(bookId, ...)` 和 `GetRandomDistinctVocabularyExceptAsync(bookId, ...)` 在词书范围内选取干扰项，使题目难度贴合词书水平。
+The service currently ships without any vocabulary data. With an empty database the book list is empty and the question endpoint has nothing to demonstrate — and drawing distractors from within the same book is exactly what separates this service from a general dictionary API: `VocabularyDomainService` selects distractors within a book through `GetRandomByBookExceptAsync(bookId, ...)` and `GetRandomDistinctVocabularyExceptAsync(bookId, ...)`, so question difficulty matches the book's level.
 
-把服务独立为公开仓库时，"clone 之后没有数据"会把最耗时的一步留给使用者，服务退化为 schema 加 CRUD。因此需要决定内置什么数据、数据如何分发。
+Once the service becomes a public repository, "no data after cloning" leaves the most time-consuming step to the user, and the service degrades into a schema plus CRUD. So what data to bundle, and how to distribute it, has to be decided.
 
-数据模型的两个既有约束决定了可行解：
+Two existing constraints of the data model determine the feasible answers:
 
-- `vocabulary_book` 没有教材单元层级（`src/Lexarbor.Domain/Models/VocabularyBookModel.cs`），词书直接挂词义，因此任意扁平词表都能一对一映射成一本词书，不存在结构阻抗；
-- `vocabulary_meaning.BookId` 非空且带 RESTRICT 外键（`docs/database/README.md`），释义按词书隔离，同一个词在不同词书可以有不同释义和例句。
+- `vocabulary_book` has no unit hierarchy (`src/Lexarbor.Domain/Models/VocabularyBookModel.cs`), and meanings hang directly off a book, so any flat word list maps one-to-one onto a book with no structural impedance;
+- `vocabulary_meaning.BookId` is non-nullable with a RESTRICT foreign key (`docs/database/README.md`), so definitions are isolated per book and the same word can carry different definitions and examples in different books.
 
-第二条意味着通用词典的释义不归属任何词书，无法直接写入 `vocabulary_meaning`。
+The second point means a general dictionary's definitions belong to no book and cannot be written into `vocabulary_meaning` directly.
 
-## 决定
+## Decision
 
-内置数据拆成两层，按体量、许可来源和生命周期分别分发。
+Bundled data is split into two layers, distributed separately according to size, licensing origin, and lifecycle.
 
-### 第一层：示例词书（进仓库，进镜像）
+### Layer one: the sample book (in the repository, in the image)
 
-内置一本完整的 `Starter English 300`，包含 300 个自编排常用词、英式音标、美式音标、词性和中文释义。目的是让容器启动后立即存在真实词书、真实题目和真实同书干扰项。
+One complete `Starter English 300` is bundled, holding 300 self-authored common words with British phonetics, American phonetics, parts of speech, and Chinese definitions. Its purpose is that a started container immediately has a real book, real questions, and real same-book distractors.
 
-- 体积在噪声级别，随仓库和镜像分发，离线可用；
-- 镜像 tag 即锁定其版本，启动路径保持确定性；
-- 首次建库由初始化器在单一事务中批量写入；数据库文件已存在时不再写入，因此重启不产生重复数据。
+- its size is at the noise level, it ships with the repository and the image, and it works offline;
+- the image tag pins its version, and the startup path stays deterministic;
+- on first database creation the initializer writes it in bulk within a single transaction; when the database file already exists nothing is written, so a restart produces no duplicates.
 
-#### 种子以数据文件分发，不预置数据库文件
+#### The seed ships as a data file, not as a prebuilt database
 
-示例词书以 `src/Lexarbor.Database/SeedData/starter-vocabulary.tsv` 随仓库分发，并作为程序集资源进入镜像，**不预先构建 `.db` 文件打进镜像**。启动时判断配置路径上的数据库文件是否存在：不存在则创建数据库、迁移并写入种子；已存在则只迁移，不写入种子。
+The sample book ships with the repository as `src/Lexarbor.Database/SeedData/starter-vocabulary.tsv` and enters the image as an assembly resource. **No `.db` file is prebuilt into the image.** At startup the database file at the configured path is checked: if it is absent, the database is created, migrated, and seeded; if it is present, it is migrated only and not seeded.
 
-理由是容器挂载 `data` 目录后，数据库文件必须落在宿主卷上，后续新增的数据才随卷持久化。镜像内预置 `.db` 会造成两种结果之一：挂载点遮蔽镜像内的文件使种子不可见，或数据写入镜像层内随容器销毁而丢失。
+The reason is that once the `data` directory is mounted, the database file must land on the host volume for later additions to persist with it. A `.db` inside the image produces one of two outcomes: the mount point shadows the file in the image and the seed is invisible, or the writes land in the image layer and are lost with the container.
 
-文件是否存在的判定必须在迁移之前完成——SQLite 提供程序在执行迁移时会自行创建该文件，迁移之后再判断将永远得到"已存在"。
+The existence check must happen before migrating — the SQLite provider creates the file itself while running migrations, so a check made afterwards would always report "already exists".
 
-### 第二层：词典补全数据（release 附件，显式导入）
+### Layer two: dictionary enrichment data (a release asset, imported explicitly)
 
-完整词典不进 git、不进镜像、不进启动路径，发布为 release 附件，由使用者通过显式导入入口一次性载入。
+The full dictionary stays out of git, out of the image, and out of the startup path. It is published as a release asset and loaded once by the user through an explicit import entry point.
 
-其价值不是"启动即有数据"，而是导入自有词表时自动补音标、词性和候选释义，人工只做挑选与改写。
+Its value is not "data on startup" but automatically filling in phonetics, parts of speech, and candidate definitions while importing the user's own word list, leaving a person only to select and rewrite.
 
-### 词典数据的落点
+### Where the dictionary data lands
 
-| 词典字段 | 落点 | 模型变化 |
+| Dictionary field | Destination | Model change |
 |----------|------|----------|
-| 音标 | `vocabulary.phonetic_uk`、`vocabulary.phonetic_us` | 两列均挂在全局唯一的共享词行上，后续任意词书自动获得 |
-| 词性、释义、例句 | 新增词典表，仅作为导入时的候选来源 | 新增表与导入路径 |
+| Phonetics | `vocabulary.phonetic_uk`, `vocabulary.phonetic_us` | Both columns hang on the globally unique shared word row, so any later book gets them automatically |
+| Part of speech, definition, example | A new dictionary table, used only as a candidate source during import | A new table and an import path |
 
-词典表不参与出题，也不进入词书列表；`vocabulary_meaning` 仍是唯一出题数据源。
+The dictionary table takes no part in question generation and does not appear in the book list; `vocabulary_meaning` remains the only source of question data.
 
-### 批量导入不复用现有写入路径
+### Bulk import does not reuse the existing write path
 
-第二层完整词典仍需使用专门的批量路径，不复用面向管理请求的逐条领域写入。第一层由首次建库初始化器直接批量写入，数据库文件存在性判定负责防止重启重复写入，SQLite 唯一索引负责结构兜底。
+The full dictionary of layer two still needs a dedicated bulk path and does not reuse the per-record domain writes built for administration requests. Layer one is written in bulk directly by the first-run initializer, the database file existence check prevents a restart from writing again, and the SQLite unique index is the structural backstop.
 
-### 数据来源
+### Data provenance
 
-- **第一层自建**。示例词书的选词与编排由本仓库产出，不取自任何教材目录或既有出版物。单词本身不受保护，但"哪些词属于哪一册"的选择与编排是出版方的编排成果，公开分发不得复用。示例词书随代码仓库以同一许可分发。
-- **第二层采用外部开源词典**，作为独立 release 附件分发，附件单独携带其许可与署名。代码仓库与镜像不含第三方数据。
+- **Layer one is self-authored.** The sample book's word selection and arrangement are produced in this repository and taken from no textbook table of contents or existing publication. The words themselves are not protected, but the choice and arrangement of which words belong to which volume is a publisher's editorial work and must not be reused in public distribution. The sample book ships with the code repository under the same licence.
+- **Layer two uses an external open-source dictionary**, distributed as a standalone release asset that carries its own licence and attribution. Neither the code repository nor the image contains third-party data.
 
-该来源策略使第一层不依赖第二层的选型，可先行实施。
+This provenance strategy keeps layer one independent of the choice made for layer two, so it could be implemented first.
 
-## 备选方案
+## Alternatives considered
 
-- **首次启动下载完整词典**：被否决。会把网络依赖引入当前确定性的迁移与种子启动路径。失效场景具体：离线与内网部署直接不可用、跨境拉取大文件不稳定、URL 失效、下载中断后需额外定义是空库还是阻塞。
-- **完整词典提交进 git 或打进镜像**：在当前体量下被否决。git 不适合大文件，且一旦进入历史即不可撤除；打进镜像使每次拉取都负担该体积。若最终选用的是精简版词典且体积落在数十 MB，此项可重新评估，收益是完全离线。
-- **把词典作为一本禁用词书导入**：被否决。会污染词书列表；在其中出题等于从全词典抽取干扰项，丧失难度贴合；且 `status=false` 的语义是"词书被禁用"，不应挪用为"这不是一本词书"。
+- **Download the full dictionary on first startup**: rejected. It would introduce a network dependency into a migration and seed startup path that is currently deterministic. The failure cases are concrete: offline and intranet deployments simply do not work, pulling a large file across borders is unreliable, the URL can rot, and an interrupted download would need an extra rule about whether the result is an empty database or a blocked startup.
+- **Commit the full dictionary to git or bake it into the image**: rejected at the current size. Git is unsuited to large files, and once one enters history it cannot be removed; baking it into the image makes every pull carry that size. If the dictionary eventually chosen is an abridged one in the tens of megabytes, this can be reconsidered, and the gain would be working fully offline.
+- **Import the dictionary as one disabled book**: rejected. It would pollute the book list; generating questions from it would mean drawing distractors from the whole dictionary and losing the difficulty match; and `status=false` means the book is disabled, which must not be repurposed to mean this is not a book.
 
-## 影响
+## Consequences
 
-- 第一层已经实施：仓库包含 300 行唯一种子，首次建库自动创建词书、单词和词义，Docker 默认把可写数据库放入持久卷。
-- 第二层仍未实施：词典表、批量导入入口和 release 附件均未创建。
-- 数据来源策略已确定（见上）。具体词典选型与其再分发许可核实尚未完成，见 `docs/pending-decisions.md` 的 PD-016，只阻塞第二层；第一层示例词书不受阻塞。
-- 分层同时隔离了许可风险：词典作为可撤换的独立附件分发，代码仓库历史不含第三方数据，更换或下架数据源不影响代码仓库与已有 clone。
-- `/api/*` 与 `/admin/*` 路径不变；单词 DTO 的单音标字段已按 ADR-003 替换为 `phoneticUk` 与 `phoneticUs`。
+- Layer one is implemented: the repository carries 300 unique seed rows, first-run creation builds the book, the words, and the meanings automatically, and Docker puts the writable database on a persistent volume by default.
+- Layer two is still not implemented: neither the dictionary table, nor the bulk import entry point, nor the release asset exists.
+- The provenance strategy is settled (see above). Choosing a specific dictionary and verifying its redistribution licence is not done; see PD-016 in `docs/pending-decisions.md`. That blocks layer two only, not the layer one sample book.
+- The layering also isolates licensing risk: the dictionary ships as a replaceable standalone asset, the code repository's history contains no third-party data, and replacing or withdrawing a data source affects neither the code repository nor existing clones.
+- The `/api/*` and `/admin/*` paths are unchanged; the word DTO's single phonetic field has already been replaced by `phoneticUk` and `phoneticUs` per ADR-003.

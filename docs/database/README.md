@@ -1,48 +1,48 @@
-# Vocabulary 数据库
+# Vocabulary database
 
-Vocabulary 仅支持 SQLite。默认数据库文件为 `data/vocabulary.db`，EF Core 模型与单一 `InitialCreate` 迁移描述完整结构；服务未上线，不保留旧 PostgreSQL 迁移链。
+Vocabulary supports SQLite only. The default database file is `data/vocabulary.db`, and the EF Core model together with a single `InitialCreate` migration describes the complete schema. The service has not shipped, so no legacy PostgreSQL migration chain is kept.
 
-## 核心关系
+## Core relationships
 
 ```text
 vocabulary_book (1) <-[RESTRICT]- vocabulary_meaning -[CASCADE]-> (1) vocabulary
 ```
 
-| 表 | 主责 | 关键约束 |
+| Table | Responsibility | Key constraints |
 |----|------|----------|
-| `vocabulary` | 单词及英美音标 | `word` 唯一；`phonetic_uk`、`phonetic_us` 可空 |
-| `vocabulary_book` | 词书元数据和启用状态 | `status=false` 表示禁用 |
-| `vocabulary_meaning` | 单词在指定词书中的词义 | 双外键必填；规范化逻辑键唯一 |
+| `vocabulary` | Words with British and American phonetics | `word` is unique; `phonetic_uk` and `phonetic_us` are nullable |
+| `vocabulary_book` | Book metadata and enabled state | `status=false` means disabled |
+| `vocabulary_meaning` | A word's meaning within one book | Both foreign keys are required; the normalized logical key is unique |
 
-删除单词时通过 `ON DELETE CASCADE` 清理词义。删除词书使用 `ON DELETE RESTRICT`；存在关联词义时业务层返回 409，管理员应将词书设置为禁用。
+Deleting a word clears its meanings through `ON DELETE CASCADE`. Deleting a book uses `ON DELETE RESTRICT`; when related meanings exist the business layer answers 409 and the administrator should disable the book instead.
 
-等价词义的数据库逻辑键为：
+The database logical key for an equivalent meaning is:
 
 ```text
 (vocabulary_id, book_id, lower(trim(coalesce(part_of_speech, ''))), trim(meaning))
 ```
 
-后两项由 SQLite stored generated columns 保存并建立唯一索引，防止绕过应用层产生重复数据。
+The last two components are persisted as SQLite stored generated columns and carry a unique index, so duplicate data cannot be produced by going around the application layer.
 
-## 首次建库与启动词书
+## First-run creation and the starter book
 
-连接串默认是 `Data Source=data/vocabulary.db`。启动顺序固定为：
+The connection string defaults to `Data Source=data/vocabulary.db`. The startup order is fixed:
 
-1. 在迁移前判断配置的数据文件是否存在；
-2. 创建父目录并执行 SQLite 迁移；
-3. 仅当文件原先不存在时，读取程序集内嵌的 `SeedData/starter-vocabulary.tsv`；
-4. 在一个事务中写入 `Starter English 300`、300 个唯一单词及其词义。
+1. before migrating, check whether the configured data file exists;
+2. create the parent directory and run the SQLite migrations;
+3. only when the file did not previously exist, read the assembly's embedded `SeedData/starter-vocabulary.tsv`;
+4. write `Starter English 300`, its 300 unique words, and their meanings in a single transaction.
 
-每个启动词条都包含英式音标、美式音标、词性和中文释义。已有文件只执行迁移，绝不重新加载种子，因此使用者后续添加的数据不会被启动逻辑覆盖或重复。
+Every starter entry carries a British phonetic, an American phonetic, a part of speech, and a Chinese definition. An existing file is migrated only and the seed is never reloaded, so data a user adds later is neither overwritten nor duplicated by the startup logic.
 
-数据库文件必须位于持久卷。Docker 默认挂载宿主 `data/` 到 `/app/data`；不得把预构建 `.db` 放进镜像。
+The database file must live on a persistent volume. Docker mounts the host's `data/` at `/app/data` by default; never put a prebuilt `.db` into the image.
 
-## 写入一致性
+## Write consistency
 
-- 新增词义必须引用存在且启用的词书。
-- 更新携带单词、词书或词义 ID 时，对象不存在返回 404，不得转为新增。
-- 更新词义时必须确认词义属于当前单词和词书。
-- 单词规范值为 `word.Trim().ToLowerInvariant()`。
-- 同一单词、词书、规范化词性和释义的重复导入是幂等操作。
-- SQLite 部署限定单实例；进程级写事务锁串行化管理写入，数据库唯一索引是最后防线。
-- SQLite 约束错误由 `UnitOfWork` 映射为 409，不向客户端暴露内部错误。
+- A new meaning must reference a book that exists and is enabled.
+- When an update carries a word, book, or meaning ID and that object does not exist, the answer is 404; it must never become an insert.
+- Updating a meaning must confirm the meaning belongs to the current word and book.
+- The normalized value of a word is `word.Trim().ToLowerInvariant()`.
+- Re-importing the same word, book, normalized part of speech, and definition is idempotent.
+- A SQLite deployment is single-instance only; a process-level write transaction lock serializes administrative writes, and the database's unique index is the last line of defence.
+- `UnitOfWork` maps SQLite constraint errors to 409 and never exposes the internal error to the client.

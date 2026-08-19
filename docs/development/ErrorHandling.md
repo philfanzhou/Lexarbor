@@ -1,44 +1,44 @@
-# 错误处理规范
+# Error handling conventions
 
-## HTTP 状态码使用规则
+## HTTP status code rules
 
-HTTP 服务中必须使用标准的 HTTP 状态码：
+HTTP services must use the standard HTTP status codes:
 
-| 状态码 | 使用场景 | 示例 |
+| Status code | When it is used | Example |
 |---------|----------|------|
-| `400 Bad Request` | 请求、JSON 或分页参数无效 | 必填字段为空、size 超过 100 |
-| `401 Unauthorized` | 登录失败或 JWT 缺失/无效 | 匿名访问管理接口 |
-| `403 Forbidden` | 已认证但没有管理员角色，或 Cookie 写请求缺少同源头 | 普通 Identity 用户访问管理接口 |
-| `404 Not Found` | 请求的资源不存在 | 单词、词义或词书不存在 |
-| `409 Conflict` | 数据唯一性、归属或删除冲突 | 删除已有词义的词书 |
-| `422 Unprocessable Entity` | 业务前置条件不满足 | 词书禁用、题目候选不足 |
-| `429 Too Many Requests` | 匿名端点超出该客户端地址的请求上限 | 登录爆破、公开 API 被单一地址刷取 |
-| `500 Internal Server Error` | 服务内部错误 | 数据库异常、未预期的错误 |
-| `502 Bad Gateway` | Identity 不可达或响应无效 | 管理员登录代理失败 |
-| `503 Service Unavailable` | 生产登录配置缺失 | 未配置 AppId/AppSecret |
+| `400 Bad Request` | The request, its JSON, or its paging parameters are invalid | A required field is empty, size exceeds 100 |
+| `401 Unauthorized` | Login failed, or the JWT is missing or invalid | Anonymous access to an administration endpoint |
+| `403 Forbidden` | Authenticated but without the administrator role, or a cookie write request without the same-origin header | An ordinary Identity user reaching an administration endpoint |
+| `404 Not Found` | The requested resource does not exist | The word, meaning, or book does not exist |
+| `409 Conflict` | A uniqueness, ownership, or deletion conflict | Deleting a book that still has meanings |
+| `422 Unprocessable Entity` | A business precondition is not met | The book is disabled, too few question candidates |
+| `429 Too Many Requests` | An anonymous endpoint exceeded the ceiling for that client address | Login brute force, one address hammering the public API |
+| `500 Internal Server Error` | An internal service error | A database failure, an unexpected error |
+| `502 Bad Gateway` | Identity is unreachable or its response is invalid | The administrator login proxy failed |
+| `503 Service Unavailable` | Production login configuration is missing | AppId or AppSecret is not configured |
 
-## 错误信息规范
+## Error message conventions
 
-1. 错误信息使用英文，便于国际化
-2. 错误信息应简洁明确，不包含技术细节
-3. 同一类错误在各服务中使用相同的措辞
+1. Error messages are written in English, which keeps internationalization open.
+2. An error message is short and specific, and carries no technical detail.
+3. The same class of error uses the same wording across services.
 
-## 响应信封格式
+## Response envelope format
 
-所有 HTTP 端点统一使用 `VocabularyHttpResponse` 助手类返回响应：
+Every HTTP endpoint returns its response through the `VocabularyHttpResponse` helper:
 
-- 成功：`{ "success": true, "data": value }` 或 `{ "success": true }`
-- 失败：`{ "success": false, "message": "..." }`
+- success: `{ "success": true, "data": value }` or `{ "success": true }`
+- failure: `{ "success": false, "message": "..." }`
 
-## 参数验证
+## Parameter validation
 
-参数验证应在 HTTP 端点入口完成。`page` 或 `size` 为 0 时使用兼容默认值 1 和 20；负数、`size>100` 或分页算术溢出返回 400。
+Parameter validation happens at the HTTP endpoint boundary. A `page` or `size` of 0 falls back to the compatible defaults of 1 and 20; a negative value, a `size>100`, or paging arithmetic that overflows answers 400.
 
-统一异常中间件负责把领域异常、数据库冲突、JSON 错误和未预期异常映射到上述状态码。端点不得返回 `ex.Message`；500 响应固定使用通用消息。
+The shared exception middleware maps domain exceptions, database conflicts, JSON errors, and unexpected exceptions onto the status codes above. An endpoint must never return `ex.Message`; a 500 response always uses the generic message.
 
-## 日志规范
+## Logging conventions
 
-- 使用结构化日志占位符，不要使用字符串插值
-- 异常对象必须传入：使用 `LogError(ex, ...)` 而非 `LogError(ex.Message, ...)`
-- 预期内的 NotFound 使用 Warning 级别
-- 不记录密码、JWT、Cookie、AppSecret、连接字符串、SQL 或完整 Identity 响应
+- Use structured log placeholders, never string interpolation.
+- The exception object must be passed: `LogError(ex, ...)`, not `LogError(ex.Message, ...)`.
+- An expected NotFound is logged at Warning level.
+- Never log a password, JWT, cookie, AppSecret, connection string, SQL statement, or a full Identity response.

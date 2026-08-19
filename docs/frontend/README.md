@@ -1,43 +1,43 @@
-# Lexarbor 管理前端规格
+# Lexarbor administration frontend specification
 
-## 技术栈与边界
+## Stack and boundaries
 
-- Vue 3.5、TypeScript、Vue Router、Element Plus、Axios、Vite。
-- 不新增状态管理或认证依赖。
-- 前端由 Vocabulary 后端托管，生产环境与管理 API 同源。
-- 前端只调用相对 `/admin/*` 路径，不知道 Identity 地址。
-- 前端不保存或读取 access token、refresh token、AppSecret、管理员默认账号或密码。
+- Vue 3.5, TypeScript, Vue Router, Element Plus, Axios, Vite.
+- No additional state management or authentication dependency.
+- The frontend is hosted by the Vocabulary backend and is same-origin with the administration API in production.
+- The frontend calls relative `/admin/*` paths only and does not know the Identity address.
+- The frontend never stores or reads an access token, refresh token, AppSecret, default administrator account, or password.
 
-## 路由
+## Routes
 
-| 路径 | 访问条件 | 页面 |
+| Path | Access | Page |
 |------|----------|------|
-| `/login` | 匿名 | Identity 管理员用户名密码登录 |
-| `/forbidden` | 匿名 | 非管理员提示 |
-| `/books` | 管理员 | 教材管理 |
-| `/import` | 管理员 | 单词导入 |
+| `/login` | Anonymous | Identity administrator username and password login |
+| `/forbidden` | Anonymous | Non-administrator notice |
+| `/books` | Administrator | Vocabulary book management |
+| `/import` | Administrator | Word import |
 
-应用使用 hash history。首次进入保护页面时调用 `GET /admin/auth/session` 恢复 Cookie 会话；未登录跳转 `/login`，403 跳转 `/forbidden`。未认证时不渲染管理导航或可操作页面。
+The application uses hash history. On first entry to a protected page it calls `GET /admin/auth/session` to restore the cookie session; an unauthenticated response redirects to `/login` and a 403 redirects to `/forbidden`. While unauthenticated, neither the administration navigation nor any actionable page is rendered.
 
-## 认证 API
+## Authentication API
 
-| 方法与路径 | 请求/响应 |
+| Method and path | Request and response |
 |------------|-----------|
-| `POST /admin/auth/login` | `{ username, password }`；成功只返回非敏感会话信息 |
-| `GET /admin/auth/session` | 返回当前管理员会话 |
-| `POST /admin/auth/logout` | 删除服务端 Cookie，前端始终清空本地状态 |
+| `POST /admin/auth/login` | `{ username, password }`; on success returns non-sensitive session information only |
+| `GET /admin/auth/session` | Returns the current administrator session |
+| `POST /admin/auth/logout` | Deletes the server-side cookie; the frontend always clears its local state |
 
-Axios 使用 `withCredentials=true`。管理写请求发送：
+Axios uses `withCredentials=true`. Administration write requests send:
 
 ```text
 X-Requested-With: XMLHttpRequest
 ```
 
-不得添加 Authorization token、localStorage token 或 sessionStorage token。
+No Authorization token, localStorage token, or sessionStorage token may be added.
 
-## 状态与错误
+## State and errors
 
-认证状态使用项目内轻量 TypeScript 模块或 composable，维护：
+Authentication state lives in a small in-project TypeScript module or composable that maintains:
 
 ```text
 isAuthenticated
@@ -48,29 +48,29 @@ logout()
 clearSession()
 ```
 
-统一 `ApiError` 保存公开消息和可选 HTTP 状态：
+A shared `ApiError` carries the public message and an optional HTTP status:
 
-| 状态 | 前端行为 |
+| Status | Frontend behaviour |
 |------|----------|
-| 400 | 显示参数或表单错误 |
-| 401 | 清空会话并跳转登录页 |
-| 403 | 跳转无权限页 |
-| 404 | 显示资源不存在 |
-| 409 | 显示数据冲突；词书删除提示改为禁用 |
-| 422 | 显示业务条件不满足 |
-| 500/502/503 | 显示通用服务错误 |
+| 400 | Show the parameter or form error |
+| 401 | Clear the session and redirect to the login page |
+| 403 | Redirect to the forbidden page |
+| 404 | Show that the resource does not exist |
+| 409 | Show the data conflict; for a book deletion, suggest disabling it instead |
+| 422 | Show that the business precondition is not met |
+| 500/502/503 | Show the generic service error |
 
-组件使用 `catch (error: unknown)` 和统一转换函数，不使用 `any`。
+Components use `catch (error: unknown)` with the shared conversion function, never `any`.
 
-## 既有页面
+## Existing pages
 
-- 教材管理保留搜索、分页、新增、编辑、状态切换和删除。
-- 管理列表包含启用和禁用词书。
-- 删除已有词义的词书遇到 409 时提示管理员禁用。
-- 单词导入保留词书、单词、英式音标、美式音标、词性、释义和例句字段。
-- 登录成功后两项既有功能必须保持可用。
+- Book management keeps search, paging, create, edit, status toggle, and delete.
+- The administration list contains both enabled and disabled books.
+- Deleting a book that still has meanings answers 409, which prompts the administrator to disable it.
+- Word import keeps the book, word, British phonetic, American phonetic, part of speech, definition, and example sentence fields.
+- Both existing features must remain usable after a successful login.
 
-## 构建
+## Build
 
 ```bash
 npm ci
@@ -78,4 +78,4 @@ npm run test:types
 npm run build
 ```
 
-Vite 输出到前端自己的 `dist/`，根目录 Dockerfile 在镜像构建阶段把该目录复制进 .NET Host 的 `wwwroot` 发布内容。
+Vite writes to the frontend's own `dist/`, and the root Dockerfile copies that directory into the .NET Host's `wwwroot` publish content during the image build.
