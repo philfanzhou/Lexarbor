@@ -28,6 +28,8 @@ CI runs on pull requests targeting `main`, manual dispatches, and calls from the
 
 Superseded runs on the same branch are canceled. Every job has an explicit timeout.
 
+Compiler warnings fail the backend build under CI, which `Directory.Build.props` enables through the same `CI` variable that sets `ContinuousIntegrationBuild`. A local build still only warns, so an unused variable in a half-finished edit does not stop work. NuGet audit warnings are excluded from that promotion: they report a newly published advisory rather than a defect in this code, and `assert-no-vulnerable-dotnet-packages.ps1` already fails the run for them one step later with the package, version, severity, and advisory listed.
+
 Run the repository-owned checks locally with:
 
 ```bash
