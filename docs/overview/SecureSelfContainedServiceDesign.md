@@ -2,7 +2,7 @@
 
 ## 1. 背景
 
-Lexarbor 使用 .NET 8、ASP.NET Core Minimal API、EF Core 8、SQLite、Vue 3、TypeScript、Element Plus 和 Vite。后端托管前端静态文件，Docker 镜像在构建时同时产出前后端。
+Lexarbor 使用 .NET 10、ASP.NET Core Minimal API、EF Core 10、SQLite、Vue 3、TypeScript、Element Plus 和 Vite。后端托管前端静态文件，Docker 镜像在构建时同时产出前后端。
 
 本设计实施前存在以下问题，现均已按后续章节处理：
 
@@ -441,9 +441,8 @@ normalizedWord = word.Trim().ToLowerInvariant()
 ### 15.5 交付验证命令
 
 ```bash
-cd src
-dotnet test Lexarbor.sln --configuration Release
 dotnet build Lexarbor.sln --configuration Release
+dotnet test Lexarbor.sln --configuration Release --no-build
 ```
 
 ```bash
