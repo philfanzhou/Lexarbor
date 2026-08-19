@@ -19,7 +19,7 @@ Third-party Actions are pinned to full commit SHAs. Dependabot keeps those pins 
 
 ## Continuous integration
 
-CI runs on pushes to `main`, pull requests targeting `main`, manual dispatches, and calls from the release workflow. Its jobs run in parallel:
+CI runs on pull requests targeting `main`, manual dispatches, and calls from the release workflow. A push to `main` reaches it through that workflow's `verify` job rather than through a trigger of its own, so a commit is never built twice. Its jobs run in parallel:
 
 - Backend: direct/transitive NuGet vulnerability audit, Release build, xUnit tests on Microsoft.Testing.Platform, TRX output, Cobertura coverage from `Microsoft.Testing.Extensions.CodeCoverage`, and a GitHub job summary. Results remain downloadable for 14 days.
 - Frontend: npm vulnerability audit, type checks, production build, and Playwright Chromium scenarios covering session restoration, login, catalog rendering, and catalog creation. Failure traces, screenshots, videos, and the HTML report remain downloadable for 7 days.
@@ -82,7 +82,7 @@ Every push to `main` publishes `ghcr.io/<owner>/<repository>:edge` through the s
 docker pull ghcr.io/philfanzhou/lexarbor:edge
 ```
 
-`edge` is a moving name and always points at the newest `main` build. No per-commit tag is published, so the registry does not accumulate one permanent tag per push. Each push does leave the previous edge image behind as an untagged version, plus one attestation.
+`edge` is a moving name and always points at the newest `main` build. Nothing published from `main` carries a permanent name: no per-commit tag rule is configured, and the attestation is pushed into the registry only for a release, because the referrer tag it writes is named after the image digest and would otherwise leave one permanent tag behind on every push. The attestation itself is recorded in the repository's attestation store for an edge image as well, so `gh attestation verify` covers both. Each push does leave the previous edge image and its platform manifests behind as untagged versions, which belong to a registry cleanup policy rather than to a tag rule.
 
 Three properties keep the edge path from reaching the release tags:
 
@@ -92,7 +92,7 @@ Three properties keep the edge path from reaching the release tags:
 
 `publish-release` carries its own `startsWith(github.ref, 'refs/tags/')` test rather than relying on the publishing job above it, so a default-branch push publishes an image and creates no GitHub Release.
 
-A default-branch push now starts CI twice, once from its own trigger and once through this workflow's `verify`, and both appear on the same ref. The CI concurrency group includes `github.workflow` so the two runs do not cancel each other.
+A default-branch push runs CI once, through `verify`, so its checks appear under the release workflow rather than under CI. A pull request still runs CI directly and keeps the job names branch protection requires.
 
 ## Recommended repository rules
 

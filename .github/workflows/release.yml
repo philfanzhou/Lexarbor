@@ -141,7 +141,13 @@ jobs:
         with:
           subject-name: ${{ steps.image.outputs.name }}
           subject-digest: ${{ steps.publish.outputs.digest }}
-          push-to-registry: true
+          # Pushed into the registry only for a release. The referrer tag this
+          # writes is named after the image digest, so on the default branch it
+          # would leave one permanent tag behind per push, which is exactly the
+          # accumulation the moving edge name exists to avoid. The attestation
+          # is recorded in the repository's attestation store either way, so
+          # `gh attestation verify` still covers an edge image.
+          push-to-registry: ${{ startsWith(github.ref, 'refs/tags/') }}
 
   publish-release:
     name: Publish GitHub Release

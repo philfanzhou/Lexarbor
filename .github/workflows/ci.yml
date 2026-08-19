@@ -1,8 +1,10 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
+  # There is deliberately no push trigger. A push to the default branch already
+  # runs this workflow through release.yml's verify job, which publishing edge
+  # depends on, so triggering here as well would build every image a second
+  # time for the same commit without checking anything new.
   pull_request:
     branches: [main]
   workflow_call:
@@ -15,9 +17,6 @@ concurrency:
   # The ci- prefix keeps this distinct from callers such as release.yml: in a
   # reusable workflow github.workflow is the caller's name, so without the
   # prefix a called run would land in the caller's own group and cancel it.
-  # github.workflow is still part of the group because a default-branch push now
-  # starts this workflow twice on one ref, directly and again through
-  # release.yml, and the two must not cancel each other.
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
