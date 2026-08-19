@@ -9,6 +9,7 @@ Lexarbor keeps automation under `.github/` and separates workflows by responsibi
 | `.github/workflows/ci.yml` | Backend tests and coverage, frontend type/build/browser checks, container integration, and image vulnerability scanning |
 | `.github/workflows/dependency-review.yml` | Reject high- or critical-severity dependency vulnerabilities introduced by a pull request |
 | `.github/workflows/security.yml` | CodeQL analysis for GitHub Actions, C#, and JavaScript/TypeScript on changes and weekly |
+| `.github/workflows/registry-cleanup.yml` | Weekly deletion of container versions no tag reaches |
 | `.github/workflows/release.yml` | Publish and attest the multi-platform GHCR image, as `edge` on a default-branch push and as the version tags on a release tag, then create a GitHub Release for a tag |
 | `.github/dependabot.yml` | Weekly grouped updates for npm, NuGet, Docker base images, and GitHub Actions |
 | `.github/release.yml` | Categories used by GitHub's generated release notes |
@@ -82,7 +83,7 @@ Every push to `main` publishes `ghcr.io/<owner>/<repository>:edge` through the s
 docker pull ghcr.io/philfanzhou/lexarbor:edge
 ```
 
-`edge` is a moving name and always points at the newest `main` build. Nothing published from `main` carries a permanent name: no per-commit tag rule is configured, and the attestation is pushed into the registry only for a release, because the referrer tag it writes is named after the image digest and would otherwise leave one permanent tag behind on every push. The attestation itself is recorded in the repository's attestation store for an edge image as well, so `gh attestation verify` covers both. Each push does leave the previous edge image and its platform manifests behind as untagged versions, which belong to a registry cleanup policy rather than to a tag rule.
+`edge` is a moving name and always points at the newest `main` build. Nothing published from `main` carries a permanent name: no per-commit tag rule is configured, and the attestation is pushed into the registry only for a release, because the referrer tag it writes is named after the image digest and would otherwise leave one permanent tag behind on every push. The attestation itself is recorded in the repository's attestation store for an edge image as well, so `gh attestation verify` covers both. Each push does leave the previous edge image and its platform manifests behind as untagged versions, which `registry-cleanup.yml` collects.
 
 Three properties keep the edge path from reaching the release tags:
 
@@ -93,6 +94,30 @@ Three properties keep the edge path from reaching the release tags:
 `publish-release` carries its own `startsWith(github.ref, 'refs/tags/')` test rather than relying on the publishing job above it, so a default-branch push publishes an image and creates no GitHub Release.
 
 A default-branch push runs CI once, through `verify`, so its checks appear under the release workflow rather than under CI. A pull request still runs CI directly and keeps the job names branch protection requires.
+
+## Registry cleanup
+
+`registry-cleanup.yml` runs weekly and deletes container versions that no tag reaches. It can also be dispatched manually, with a dry run and a retention period as inputs.
+
+Untagged is not the same as unused. A multi-platform image is published as an index, and the platform manifests it points at carry no tags of their own, so the untagged versions sitting alongside `edge` are that image's own AMD64 manifest, ARM64 manifest, and attestation manifests. Deleting untagged versions, which is what a naive retention rule does, would delete the published image's parts and leave the tag resolving to an index whose children are gone.
+
+`prune_registry_versions.py` therefore decides by reachability instead. It starts at every version carrying an ordinary tag, follows each index into its children, and keeps a `sha256-<digest>` referrer tag only while the subject it names is still reachable, so an attestation outlives its image by exactly nothing. Whatever is left over is unreferenced.
+
+Three conditions stop the run rather than widen it, because each one would otherwise read as "nothing is reachable":
+
+- the package reports no versions at all;
+- no version carries an ordinary tag;
+- a manifest cannot be read, which is not evidence that nothing points at it.
+
+Unreferenced versions younger than the retention period, seven days by default, are held rather than deleted. A client that resolved an index moments ago may still be fetching its parts, and a publish in flight has not been tagged yet; both windows are minutes.
+
+Deletion needs a token permitted to delete versions of this package, which is not something a token advertises. Before deleting anything the script asks about a version id that cannot exist: 404 means the request was authorized and merely found nothing, and 403 means a personal access token with `delete:packages` is required instead of `GITHUB_TOKEN`.
+
+Run it locally against the real package without deleting:
+
+```bash
+GH_TOKEN=$(gh auth token) PACKAGE_OWNER=philfanzhou PACKAGE_NAME=Lexarbor   DRY_RUN=true python3 .github/scripts/prune_registry_versions.py
+```
 
 ## Recommended repository rules
 
