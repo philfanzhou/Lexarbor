@@ -5,5 +5,24 @@
     <Nullable>enable</Nullable>
     <Deterministic>true</Deterministic>
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+
+    <!-- CI only, deliberately. A warning is useful feedback while code is being
+         written and a hard stop once it is proposed for merge: a half-finished
+         edit routinely produces an unused variable or an unreachable branch, and
+         failing the local build over one turns the ratchet into an obstacle
+         people work around with a suppression. The solution currently builds
+         with zero warnings, so this costs nothing today and exists to keep that
+         true rather than to fix anything. -->
+    <TreatWarningsAsErrors Condition="'$(CI)' == 'true'">true</TreatWarningsAsErrors>
+
+    <!-- NuGet audit findings stay warnings even under the rule above. They do
+         not report a defect in this code and they appear without it changing:
+         a newly published advisory against a transitive package would otherwise
+         turn every build red at restore time, reporting a package id and an
+         advisory URL. assert-no-vulnerable-dotnet-packages.ps1 already fails CI
+         for exactly this condition, one step later, with the package, version,
+         severity and advisory in a table, so promoting them here would replace
+         a good failure with a worse one. -->
+    <WarningsNotAsErrors>NU1901;NU1902;NU1903;NU1904</WarningsNotAsErrors>
   </PropertyGroup>
 </Project>
