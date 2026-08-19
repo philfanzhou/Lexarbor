@@ -44,7 +44,26 @@ RUN dotnet publish "src/Lexarbor.Host/Lexarbor.Host.csproj" -c $BUILD_CONFIGURAT
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
 COPY --from=backend-build /app/publish .
-RUN mkdir -p /app/data
+
+# APP_UID is the unprivileged user the .NET base image already creates. The
+# chown matters for a named or anonymous volume, which Docker initialises from
+# this directory's ownership; a host bind mount keeps the host's ownership
+# instead and is handled by running the container as the owning user, which is
+# what scripts/start.sh does.
+RUN mkdir -p /app/data && chown $APP_UID:$APP_UID /app/data
 VOLUME ["/app/data"]
 EXPOSE 5008
+
+# Nothing here needs root: the application listens on 5008, which is above the
+# privileged range, and writes only under /app/data. Running as root meant any
+# flaw that reached code execution started as root, one namespace away from the
+# host, for no capability the application ever used.
+USER $APP_UID
+
+# The probe is this same assembly with an argument rather than a curl call,
+# because the runtime image ships no HTTP client and adding one would hand a
+# future remote-code-execution the download tool this image currently lacks.
+# start-period covers migrations and the 300-word seed on a first start.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD ["dotnet", "Lexarbor.Host.dll", "--health-check"]
+
 ENTRYPOINT ["dotnet", "Lexarbor.Host.dll"]

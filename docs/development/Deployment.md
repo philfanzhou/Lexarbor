@@ -59,6 +59,62 @@ bash scripts/start.sh
 
 The deployment is single-instance only. Do not mount the same SQLite file into multiple running containers.
 
+### Container user and file ownership
+
+The container runs as an unprivileged user. Nothing it does needs root: it
+listens on 5008, which is outside the privileged range, and writes only under
+`/app/data`.
+
+How that interacts with the data directory depends on how it is mounted:
+
+| Mount | Who owns `/app/data` | What runs the container |
+|---|---|---|
+| Host bind mount (what `scripts/start.sh` does) | The host user who owns the directory | `scripts/start.sh` passes `--user "$(id -u):$(id -g)"` |
+| Named or anonymous volume | The image's own unprivileged user | The image's default user, no `--user` needed |
+
+A bind mount keeps the host's ownership, so the container must run as the user
+who owns that directory — Docker cannot grant a container user rights to a host
+directory it does not own. This also means the database and configuration files
+are now owned by whoever runs the script, so backing them up no longer needs
+`sudo`.
+
+**Upgrading an existing deployment.** A container from an earlier image ran as
+root and left `data/vocabulary.db` and `data/appsettings.json` owned by root.
+After upgrading, take ownership once before starting:
+
+```bash
+sudo chown -R "$(id -u):$(id -g)" ./data
+bash scripts/start.sh
+```
+
+Skipping this leaves the application unable to open its own database, and it
+exits at startup with a permission error rather than starting in a degraded
+state. Deployments using a named or anonymous volume rather than a bind mount
+need no action.
+
+### Health status
+
+The image declares a `HEALTHCHECK`, so `docker ps` reports the application's own
+readiness rather than only whether the process is alive:
+
+```bash
+docker ps --format '{{.Names}} {{.Status}}'
+```
+
+```text
+lexarbor   Up 2 minutes (healthy)
+```
+
+The probe runs the published assembly with `--health-check`, which requests
+`/health` on loopback and exits non-zero when it does not answer. It is not a
+`curl` call, because the runtime image ships no HTTP client and adding one would
+give any future remote-code-execution a download tool the image currently lacks.
+
+The first check is deferred by 30 seconds, which covers migrations and the
+300-word seed on a first start. Note that Docker reports an unhealthy container
+but does not restart it; `--restart unless-stopped` acts on the process exiting,
+not on the health status.
+
 On the first container startup, Lexarbor copies the image's built-in `appsettings.json` to `/app/data/appsettings.json`. If that file already exists, Lexarbor loads it without modifying it. Configuration precedence is:
 
 1. image defaults;

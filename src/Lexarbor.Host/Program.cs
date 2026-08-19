@@ -19,6 +19,15 @@ using Lexarbor.Host.Authentication.Providers;
 using Lexarbor.Host.RateLimiting;
 using Lexarbor.Service;
 
+// Before anything is built. The container HEALTHCHECK runs this same assembly,
+// and a health probe that first composed configuration, opened the database and
+// started a web host would be reporting on the process it just created rather
+// than on the one already serving.
+if (args.Contains(HealthCheckCommand.Argument))
+{
+    return await HealthCheckCommand.RunAsync();
+}
+
 var builder = WebApplication.CreateBuilder(args);
 
 PersistentConfigurationFile? persistentConfiguration = null;
@@ -326,6 +335,10 @@ app.MapMethods(
 app.MapFallbackToFile("index.html").AllowAnonymous();
 
 app.Run();
+
+// Reached when the host shuts down. Present because the health check path above
+// returns a status, which makes this an int-returning entry point.
+return 0;
 
 static string BuildSqliteConnectionString(
     string? configuredConnectionString,
