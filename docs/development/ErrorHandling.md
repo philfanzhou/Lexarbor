@@ -12,6 +12,7 @@ HTTP 服务中必须使用标准的 HTTP 状态码：
 | `404 Not Found` | 请求的资源不存在 | 单词、词义或词书不存在 |
 | `409 Conflict` | 数据唯一性、归属或删除冲突 | 删除已有词义的词书 |
 | `422 Unprocessable Entity` | 业务前置条件不满足 | 词书禁用、题目候选不足 |
+| `429 Too Many Requests` | 匿名端点超出该客户端地址的请求上限 | 登录爆破、公开 API 被单一地址刷取 |
 | `500 Internal Server Error` | 服务内部错误 | 数据库异常、未预期的错误 |
 | `502 Bad Gateway` | Identity 不可达或响应无效 | 管理员登录代理失败 |
 | `503 Service Unavailable` | 生产登录配置缺失 | 未配置 AppId/AppSecret |

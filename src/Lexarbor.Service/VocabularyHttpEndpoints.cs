@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Routing;
 using Lexarbor.Domain.Exceptions;
 using Lexarbor.Domain.Services;
@@ -10,10 +11,22 @@ namespace Lexarbor.Service;
 
 public static partial class VocabularyHttpEndpoints
 {
+    /// <param name="publicApiRateLimitPolicy">
+    /// Name of the rate limit policy to apply to the anonymous <c>/api</c> group,
+    /// or null to apply none. Passed in rather than named here because the ceiling
+    /// is a hosting decision: this project describes the routes, and the policy it
+    /// would otherwise reference is defined and configured by the host.
+    /// </param>
     public static IEndpointRouteBuilder MapVocabularyHttpEndpoints(
-        this IEndpointRouteBuilder app)
+        this IEndpointRouteBuilder app,
+        string? publicApiRateLimitPolicy = null)
     {
         var apiGroup = app.MapGroup("/api");
+        if (!string.IsNullOrWhiteSpace(publicApiRateLimitPolicy))
+        {
+            apiGroup.RequireRateLimiting(publicApiRateLimitPolicy);
+        }
+
         apiGroup.MapGet("/vocabulary/{wordId}", GetVocabulary);
         apiGroup.MapGet("/vocabulary", SearchVocabulary);
         apiGroup.MapPost("/vocabulary/question", GetQuestion);

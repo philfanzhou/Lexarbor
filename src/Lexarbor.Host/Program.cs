@@ -16,6 +16,7 @@ using Lexarbor.Domain.Services;
 using Lexarbor.Host;
 using Lexarbor.Host.Authentication;
 using Lexarbor.Host.Authentication.Providers;
+using Lexarbor.Host.RateLimiting;
 using Lexarbor.Service;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -193,6 +194,9 @@ builder.Services.AddAuthorization(options =>
     });
 });
 
+builder.Services.AddLexarborForwardedHeaders(builder.Configuration);
+builder.Services.AddLexarborRateLimiting(builder.Configuration);
+
 var app = builder.Build();
 
 app.Logger.LogInformation("Lexarbor starting");
@@ -207,6 +211,44 @@ if (persistentConfiguration != null)
 }
 var sqliteConnection = new SqliteConnectionStringBuilder(connectionString);
 app.Logger.LogInformation("Database: SQLite {DatabasePath}", sqliteConnection.DataSource);
+
+var rateLimitOptions = app.Services.GetRequiredService<IOptions<RateLimitOptions>>().Value;
+var networkOptions = app.Services.GetRequiredService<IOptions<NetworkOptions>>().Value;
+LogRateLimit("admin login", rateLimitOptions.AdminLogin);
+LogRateLimit("public API", rateLimitOptions.PublicApi);
+if (networkOptions.IsConfigured)
+{
+    app.Logger.LogInformation(
+        "Trusting forwarded client addresses from {ProxyCount} proxy address(es) and {NetworkCount} network(s), {ForwardLimit} hop(s) deep",
+        networkOptions.TrustedProxies.Count,
+        networkOptions.TrustedNetworks.Count,
+        networkOptions.ForwardLimit);
+}
+else
+{
+    // Not a warning: a container with its port published directly sees the real
+    // client address and this is correct. It is logged because the alternative,
+    // a reverse proxy with no trusted hop configured, looks identical from
+    // inside and collapses every client into one rate limit partition.
+    app.Logger.LogInformation(
+        "Rate limits partition on the connecting address. Behind a reverse proxy, set Network:TrustedProxies or Network:TrustedNetworks or every client will share one partition.");
+}
+
+void LogRateLimit(string name, RateLimitPolicyOptions policy)
+{
+    if (policy.Enabled)
+    {
+        app.Logger.LogInformation(
+            "Rate limit for {Policy}: {PermitLimit} requests per {WindowSeconds}s per client address",
+            name,
+            policy.PermitLimit,
+            policy.WindowSeconds);
+    }
+    else
+    {
+        app.Logger.LogWarning("Rate limit for {Policy} is disabled by configuration", name);
+    }
+}
 if (!app.Environment.IsDevelopment() &&
     !app.Environment.IsEnvironment("Testing"))
 {
@@ -231,14 +273,31 @@ if (builder.Configuration.GetValue("Database:InitializeOnStartup", true))
 }
 
 // Configure the HTTP request pipeline.
+if (networkOptions.IsConfigured)
+{
+    // First, so that everything downstream — the rate limiter above all — sees
+    // the client's address rather than the proxy's.
+    //
+    // Added only when a hop is trusted. ForwardedHeadersMiddleware skips its
+    // origin check entirely when both KnownProxies and KnownIPNetworks are empty
+    // and then applies X-Forwarded-For from anyone, so an always-on middleware
+    // with empty trust lists trusts every caller rather than none — which would
+    // let a caller choose its own rate limit partition.
+    app.UseForwardedHeaders();
+}
+
 app.UseMiddleware<VocabularyExceptionMiddleware>();
 app.UseDefaultFiles();
 app.UseStaticFiles();
+// Ahead of authentication so a rejected caller costs a partition lookup rather
+// than a JWT validation, which for a cookie-bearing request can reach out to the
+// identity provider for signing keys.
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseMiddleware<CookieCsrfMiddleware>();
 app.UseAuthorization();
 app.MapAdminAuthEndpoints();
-app.MapVocabularyHttpEndpoints();
+app.MapVocabularyHttpEndpoints(RateLimitingExtensions.PublicApiPolicy);
 app.MapGet(
         "/health",
         () => VocabularyHttpResponse.Ok(
@@ -255,9 +314,10 @@ string[] allHttpMethods =
     HttpMethods.Options
 ];
 app.MapMethods(
-    "/api/{**path}",
-    allHttpMethods,
-    () => VocabularyHttpResponse.NotFound("API endpoint was not found."));
+        "/api/{**path}",
+        allHttpMethods,
+        () => VocabularyHttpResponse.NotFound("API endpoint was not found."))
+    .RequireRateLimiting(RateLimitingExtensions.PublicApiPolicy);
 app.MapMethods(
         "/admin/{**path}",
         allHttpMethods,
