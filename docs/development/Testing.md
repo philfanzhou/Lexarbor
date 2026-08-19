@@ -134,7 +134,8 @@ GitHub Actions 还会收集 TRX 与 Cobertura 覆盖率、运行容器健康检�
 - DTO 映射扩展测试采用公开的 `ToEntity()` / `ToDto()` 扩展方法验证字段映射正确性。
 - Domain 层测试采用真实 DomainService、真实仓储和 SQLite 内存或临时文件数据库。
 - DTO 映射扩展测试需要 `InternalsVisibleTo`，已在 Service 项目 `.csproj` 中配置。
-- 断言使用 FluentAssertions。
+- 断言一律使用 xUnit 内置的 `Assert.*`，不引入 FluentAssertions 等第三方断言库；
+  这条与上文测试框架小节是同一条约定，此处只是重申适用于所有测试项目。
 - 不修改被测代码以适配测试；如需可测试性改进，先更新本文档再改代码。
 - Identity 使用完整契约的 fake HTTP handler；JWT 使用测试签名密钥，不依赖真实管理员密码。
 - 真实 Identity 凭据不可用时，不得把 fake Identity 结果表述为真实联调成功。

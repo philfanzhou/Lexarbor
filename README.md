@@ -3,7 +3,7 @@
 [![CI](https://github.com/philfanzhou/Lexarbor/actions/workflows/ci.yml/badge.svg)](https://github.com/philfanzhou/Lexarbor/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/philfanzhou/Lexarbor/actions/workflows/security.yml/badge.svg)](https://github.com/philfanzhou/Lexarbor/actions/workflows/security.yml)
 
-Lexarbor is a self-hosted vocabulary catalog and quiz service. It combines a .NET 8 API, a Vue 3 administration UI, SQLite storage, and a bundled 300-word starter vocabulary in one deployable application.
+Lexarbor is a self-hosted vocabulary catalog and quiz service. It combines a .NET 10 API, a Vue 3 administration UI, SQLite storage, and a bundled 300-word starter vocabulary in one deployable application.
 
 ## Features
 
@@ -16,7 +16,7 @@ Lexarbor is a self-hosted vocabulary catalog and quiz service. It combines a .NE
 
 ## Run locally
 
-Requirements: .NET SDK 8 and Node.js 20 or later.
+Requirements: .NET SDK 10 and Node.js 20 or later.
 
 ```bash
 dotnet restore Lexarbor.sln
@@ -61,7 +61,7 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-GitHub Actions repeats these checks on pushes and pull requests, tests the built container and its persistent files, scans the image and source, and publishes versioned multi-platform images to GitHub Container Registry when a `v*.*.*` tag is pushed, and a moving `edge` image on every push to `main`. See [Automation](docs/development/Automation.md) for the workflow and release contract.
+GitHub Actions repeats these checks on every pull request and on every push to `main`, tests the built container and its persistent files, scans the image and source, and publishes versioned multi-platform images to GitHub Container Registry when a `v*.*.*` tag is pushed, and a moving `edge` image on every push to `main`. See [Automation](docs/development/Automation.md) for the workflow and release contract.
 
 ## Repository layout
 
