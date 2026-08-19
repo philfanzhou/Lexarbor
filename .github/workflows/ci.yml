@@ -99,8 +99,24 @@ jobs:
       - name: Check types
         run: npm run test:types
 
+      # Deliberately without --with-deps. The runner image already carries every
+      # shared library Chromium links against, which apt confirms on each run by
+      # reporting all 26 of them as already current; the only packages the flag
+      # actually installs are nine CJK, Thai, and Cyrillic font packages that
+      # exist so screenshots of arbitrary pages render. This suite has no visual
+      # assertions and no non-Latin text, so those 21 MB buy nothing and cost the
+      # step its only unreliable dependency: the Ubuntu archive, which has served
+      # that same fixed payload at anywhere from 19.6 MB/s to 63 kB/s and twice
+      # stalled outright until the job timeout killed it. The browser itself
+      # comes from Playwright's own CDN and has never been the slow part.
+      #
+      # A missing library would now surface as a fast, loud failure when the
+      # browser launches, which is a better failure than a fifteen-minute stall.
       - name: Install Chromium
-        run: npx playwright install --with-deps chromium
+        # Short enough to fail well inside the job budget, so a stalled download
+        # leaves time for nothing else to be blamed for it.
+        timeout-minutes: 5
+        run: npx playwright install chromium
 
       - name: Run browser tests
         run: npm run test:e2e
