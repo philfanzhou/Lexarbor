@@ -29,15 +29,17 @@ docker pull ghcr.io/philfanzhou/lexarbor:edge
 
 It passes the same CI the release images do, but it is unversioned and moves without notice, so it suits trying an unreleased change rather than running a deployment.
 
-Because `latest` and the major tags are repointed by later releases, ask the running container which version it actually is rather than relying on the tag it was pulled with:
+Because `latest` and the major tags are repointed by later releases, ask the running container which version it actually is rather than relying on the tag it was pulled with. The version is written once at startup:
 
 ```bash
-curl --silent http://127.0.0.1:5008/health
+docker logs lexarbor 2>&1 | grep "Lexarbor starting"
 ```
 
-```json
-{ "success": true, "data": { "status": "healthy", "version": "1.2.3" } }
+```text
+info: Lexarbor starting, version 1.2.3
 ```
+
+It is deliberately not served over HTTP. The only endpoint that could carry it is `/health`, which is anonymous so that the container probe can reach it without credentials, and telling an unauthenticated caller which release it is talking to tells it which published issues to try. Reading the version from the log requires access to the host running the container.
 
 An image built from a local `docker build` reports `0.0.0-dev` unless `--build-arg APP_VERSION=` is given.
 

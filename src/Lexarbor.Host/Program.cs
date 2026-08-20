@@ -208,7 +208,7 @@ builder.Services.AddLexarborRateLimiting(builder.Configuration);
 
 var app = builder.Build();
 
-app.Logger.LogInformation("Lexarbor starting");
+app.Logger.LogInformation("Lexarbor starting, version {Version}", ApplicationVersion.Current);
 app.Logger.LogInformation("Listening: http://+:{Port}", httpPort);
 if (persistentConfiguration != null)
 {
@@ -307,10 +307,16 @@ app.UseMiddleware<CookieCsrfMiddleware>();
 app.UseAuthorization();
 app.MapAdminAuthEndpoints();
 app.MapVocabularyHttpEndpoints(RateLimitingExtensions.PublicApiPolicy);
+// Liveness only, and deliberately nothing more. The endpoint is anonymous
+// because the container HEALTHCHECK has no credentials to present, so every
+// field here is a field any caller can read; the build version used to be one
+// of them, which told an unauthenticated caller which published release — and
+// therefore which set of known issues — it was talking to. The version is now
+// logged once at startup instead, where reading it requires access to the
+// container's logs.
 app.MapGet(
         "/health",
-        () => VocabularyHttpResponse.Ok(
-            new { status = "healthy", version = ApplicationVersion.Current }))
+        () => VocabularyHttpResponse.Ok(new { status = "healthy" }))
     .AllowAnonymous();
 
 string[] allHttpMethods =

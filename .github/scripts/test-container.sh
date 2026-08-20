@@ -45,15 +45,20 @@ wait_for_health() {
   return 1
 }
 
+# From the startup log, not from /health. That endpoint is anonymous so the
+# container probe can reach it without credentials, which makes everything it
+# returns public, so the version is not among it.
 check_reported_version() {
   local container_name="$1"
-  local mapped_port response reported
-  mapped_port="$(docker port "$container_name" 5008/tcp | head -n 1 | awk -F: '{print $NF}')"
-  response="$(curl --fail --silent --show-error "http://127.0.0.1:${mapped_port}/health")"
-  reported="$(printf '%s' "$response" | grep -o '"version":"[^"]*"' | cut -d '"' -f 4)"
+  local reported log_line
+  # `|| true` because set -e aborts on a failed substitution, which would skip
+  # the empty check below in exactly the case that check exists to report.
+  log_line="$(docker logs "$container_name" 2>&1 |
+    grep -m 1 -o 'Lexarbor starting, version [^[:space:]]*' || true)"
+  reported="${log_line##* }"
 
   if [[ -z "$reported" ]]; then
-    echo "Health response did not report a version" >&2
+    echo "Startup log did not report a version" >&2
     return 1
   fi
 
