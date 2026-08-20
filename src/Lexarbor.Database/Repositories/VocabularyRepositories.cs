@@ -92,9 +92,11 @@ public class VocabularyRepository : IVocabularyRepository
         string bookId,
         string excludeVocabularyId,
         string excludeWord,
+        string excludeEquivalentMeaning,
         int count)
     {
         var normalizedExcludeWord = excludeWord.Trim().ToLowerInvariant();
+        var normalizedExcludeMeaning = excludeEquivalentMeaning.Trim().ToLowerInvariant();
         var entities = await _context.Vocabularies
             .FromSqlInterpolated($"""
                 SELECT v.*
@@ -104,6 +106,13 @@ public class VocabularyRepository : IVocabularyRepository
                 WHERE m.book_id = {bookId}
                   AND v.id <> {excludeVocabularyId}
                   AND lower(trim(v.word)) <> {normalizedExcludeWord}
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM vocabulary_meaning AS synonym
+                      WHERE synonym.vocabulary_id = v.id
+                        AND synonym.book_id = {bookId}
+                        AND lower(trim(synonym.meaning)) = {normalizedExcludeMeaning}
+                  )
                 GROUP BY lower(trim(v.word))
                 ORDER BY random()
                 LIMIT {count}
