@@ -7,6 +7,11 @@ namespace Lexarbor.Host;
 /// version tag into the container build, so a published image reports the tag
 /// it was released under rather than the SDK default that every build would
 /// otherwise share.
+///
+/// Written to the startup log and nowhere else. It is not served over HTTP:
+/// the only endpoint that could carry it is the anonymous <c>/health</c>, and
+/// telling an unauthenticated caller which release it is talking to tells it
+/// which published issues to try.
 /// </summary>
 internal static class ApplicationVersion
 {

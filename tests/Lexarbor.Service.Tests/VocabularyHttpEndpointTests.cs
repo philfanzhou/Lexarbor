@@ -179,8 +179,12 @@ public class VocabularyHttpEndpointTests :
         Assert.True(body.RootElement.GetProperty("success").GetBoolean());
         var data = body.RootElement.GetProperty("data");
         Assert.Equal("healthy", data.GetProperty("status").GetString());
-        Assert.False(string.IsNullOrWhiteSpace(
-            data.GetProperty("version").GetString()));
+        // The endpoint is anonymous, so anything it returns is public. Asserting
+        // status is the only property keeps that surface from growing back by
+        // accident: a field added here fails this test rather than shipping.
+        Assert.Equal(
+            ["status"],
+            data.EnumerateObject().Select(property => property.Name).ToArray());
     }
 
     private HttpClient CreateAdminClient()
