@@ -292,7 +292,9 @@ normalizedWord = word.Trim().ToLowerInvariant()
 8. Too few candidates answers 422 with a short business error.
 9. The four final options are shuffled.
 
-The repository uses SQLite's `random()`, grouping, and window functions to filter by book, exclude, deduplicate, and limit on the database side. This approach suits up to tens of thousands of distinct words per book; should a single book grow larger, it should be changed to a persisted random key or a pre-generated candidate pool so that all candidates are not randomly sorted.
+The repository samples candidates rather than sorting the book. Every vocabulary id is a v4 GUID, so id order is already an arbitrary, uniform shuffle: the query starts at a random point in that order and reads a bounded window forward, wrapping to the start if the probe landed near the end. An index answers both, so the cost of a question does not depend on the size of the book it was asked about.
+
+The window can come back short -- the book may genuinely be near the end of its candidates, or the drawn words may all have been ineligible. Because a short result is what produces the 422 in rule 8, the repository then runs the exhaustive `random()`-and-window-function query it used to run on its own. That keeps 422 meaning "this book cannot produce a question" rather than "the sample was unlucky", at the cost of one slow query in exactly the case where the fast one proved nothing.
 
 ## 11. Queries and paging
 
