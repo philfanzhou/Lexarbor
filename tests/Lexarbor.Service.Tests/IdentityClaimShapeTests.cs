@@ -3,12 +3,12 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Claims;
 using System.Text;
+using Lexarbor.Host.Authentication;
+using Lexarbor.Service.Tests.TestInfrastructure;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
-using Lexarbor.Host.Authentication;
-using Lexarbor.Service.Tests.TestInfrastructure;
 
 namespace Lexarbor.Service.Tests;
 

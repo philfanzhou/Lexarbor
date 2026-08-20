@@ -1,11 +1,11 @@
+using Lexarbor.Domain.Exceptions;
+using Lexarbor.Domain.Services;
+using Lexarbor.Service.Dtos;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Routing;
-using Lexarbor.Domain.Exceptions;
-using Lexarbor.Domain.Services;
-using Lexarbor.Service.Dtos;
 
 namespace Lexarbor.Service;
 

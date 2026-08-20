@@ -1,5 +1,5 @@
-using Microsoft.EntityFrameworkCore;
 using Lexarbor.Database.Entities;
+using Microsoft.EntityFrameworkCore;
 
 namespace Lexarbor.Database;
 
@@ -27,12 +27,12 @@ public class VocabularyDbContext : DbContext
             entity.HasIndex(e => e.VocabularyId);
             entity.HasIndex(e => new { e.BookId, e.VocabularyId });
             entity.HasIndex(e => new
-                {
-                    e.VocabularyId,
-                    e.BookId,
-                    e.NormalizedPartOfSpeech,
-                    e.NormalizedMeaning
-                })
+            {
+                e.VocabularyId,
+                e.BookId,
+                e.NormalizedPartOfSpeech,
+                e.NormalizedMeaning
+            })
                 .IsUnique();
             entity.Property(e => e.BookId).IsRequired();
             entity.Property(e => e.NormalizedPartOfSpeech)

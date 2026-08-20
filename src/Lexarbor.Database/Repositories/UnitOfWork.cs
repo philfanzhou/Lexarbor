@@ -1,7 +1,7 @@
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Data.Sqlite;
 using Lexarbor.Domain.Exceptions;
 using Lexarbor.Domain.Repositories;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 
 namespace Lexarbor.Database.Repositories;
 

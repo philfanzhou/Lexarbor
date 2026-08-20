@@ -1,9 +1,9 @@
 using System.Globalization;
 using System.Net;
 using System.Threading.RateLimiting;
+using Lexarbor.Service;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Options;
-using Lexarbor.Service;
 // Microsoft.AspNetCore.HttpOverrides carries a deprecated IPNetwork of its own.
 using IPNetwork = System.Net.IPNetwork;
 

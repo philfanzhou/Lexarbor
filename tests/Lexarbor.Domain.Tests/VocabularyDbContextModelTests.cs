@@ -1,6 +1,6 @@
-using Microsoft.EntityFrameworkCore;
 using Lexarbor.Database;
 using Lexarbor.Database.Entities;
+using Microsoft.EntityFrameworkCore;
 using Xunit;
 
 namespace Lexarbor.Domain.Tests;

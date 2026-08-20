@@ -2,11 +2,11 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Web;
-using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Extensions.DependencyInjection;
 using Lexarbor.Host.Authentication;
 using Lexarbor.Host.Authentication.Providers;
 using Lexarbor.Service.Tests.TestInfrastructure;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Lexarbor.Service.Tests;
 

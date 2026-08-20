@@ -44,6 +44,14 @@ jobs:
       - name: Build
         run: dotnet build Lexarbor.sln --configuration Release --no-restore
 
+      # Whitespace, using order and analyzer fixes, all of them decided by
+      # .editorconfig rather than by this step. It runs after the build so a
+      # compile error is reported as one instead of as a formatting failure.
+      # `dotnet format` on its own rewrites the tree; --verify-no-changes only
+      # reports, so a violation fails the job rather than being silently fixed.
+      - name: Verify formatting
+        run: dotnet format Lexarbor.sln --verify-no-changes --no-restore
+
       # Arguments after `--` go to Microsoft.Testing.Platform, which replaces the
       # VSTest --logger/--collect options. Report file names are left at their
       # defaults so the two test projects do not overwrite each other's output.

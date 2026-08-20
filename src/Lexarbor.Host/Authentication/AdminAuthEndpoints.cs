@@ -1,8 +1,8 @@
 using System.Security.Claims;
-using Microsoft.AspNetCore.RateLimiting;
-using Microsoft.Extensions.Options;
 using Lexarbor.Host.RateLimiting;
 using Lexarbor.Service;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Options;
 
 namespace Lexarbor.Host.Authentication;
 

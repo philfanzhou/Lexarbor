@@ -1,7 +1,7 @@
 using System.Text.Json;
+using Lexarbor.Domain.Exceptions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
-using Lexarbor.Domain.Exceptions;
 
 namespace Lexarbor.Service.Tests;
 

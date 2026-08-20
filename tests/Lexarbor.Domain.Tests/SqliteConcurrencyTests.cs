@@ -1,9 +1,9 @@
-using Microsoft.EntityFrameworkCore;
 using Lexarbor.Database;
 using Lexarbor.Database.Entities;
 using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Services;
+using Microsoft.EntityFrameworkCore;
 using Xunit;
 
 namespace Lexarbor.Domain.Tests;
