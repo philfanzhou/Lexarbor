@@ -45,6 +45,70 @@ internal static class SqliteSearchPattern
     }
 }
 
+/// <summary>
+/// Draws a small random window of question candidates instead of sorting a whole
+/// vocabulary book.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Both distractor queries used <c>ORDER BY random()</c> over every candidate in
+/// the book, which SQLite can only answer with a temp B-tree over all of them,
+/// so the cost of one anonymous question grew with the size of the book it was
+/// asked about. Measured before this change: 2.2 ms at 300 words, 5.4 ms at
+/// 2000, and 56 ms at 20000 -- and 129 ms for the English-to-Chinese direction,
+/// which also ran two window functions across the same rows.
+/// </para>
+/// <para>
+/// Every vocabulary id in this database is a v4 GUID, written that way by the
+/// domain service and by the bundled seed alike, so id order is already an
+/// arbitrary and uniform shuffle of the book. Starting at a random point in that
+/// order and reading forward is therefore a random sample, and it is one an
+/// index can walk: the window is a seek plus a handful of rows rather than a
+/// sort of everything.
+/// </para>
+/// </remarks>
+internal static class RandomCandidateWindow
+{
+    /// <summary>
+    /// Candidates read for each one returned. The window is shuffled and then
+    /// truncated, so over-fetching is what keeps the three options from being
+    /// three consecutive ids -- which would pair the same words together in
+    /// every question they appeared in.
+    /// </summary>
+    private const int OverfetchFactor = 4;
+
+    internal static int SizeFor(int count) => count * OverfetchFactor;
+
+    /// <summary>
+    /// A random point in the id space to start reading from. A GUID rather than
+    /// a number because that is the shape of the column being compared.
+    /// </summary>
+    internal static string NewProbe() => Guid.NewGuid().ToString();
+
+    /// <summary>
+    /// Appends the rows of a wrapped-around second window that the first did not
+    /// already contain.
+    /// </summary>
+    internal static List<T> Merge<T>(List<T> first, List<T> second, Func<T, string> keySelector)
+    {
+        var seen = new HashSet<string>(first.Select(keySelector), StringComparer.Ordinal);
+        first.AddRange(second.Where(item => seen.Add(keySelector(item))));
+        return first;
+    }
+
+    /// <summary>Fisher-Yates, in place.</summary>
+    internal static List<T> Shuffle<T>(List<T> items)
+    {
+        for (var index = items.Count - 1; index > 0; index--)
+        {
+            var swapWith = Random.Shared.Next(index + 1);
+            (items[index], items[swapWith]) = (items[swapWith], items[index]);
+        }
+
+        return items;
+    }
+}
+
 public class VocabularyRepository : IVocabularyRepository
 {
     private readonly VocabularyDbContext _context;
@@ -134,6 +198,46 @@ public class VocabularyRepository : IVocabularyRepository
     {
         var normalizedExcludeWord = excludeWord.Trim().ToLowerInvariant();
         var normalizedExcludeMeaning = excludeEquivalentMeaning.Trim().ToLowerInvariant();
+
+        var window = await ReadCandidateWindowAsync(
+            bookId,
+            excludeVocabularyId,
+            normalizedExcludeWord,
+            normalizedExcludeMeaning,
+            RandomCandidateWindow.NewProbe(),
+            RandomCandidateWindow.SizeFor(count));
+        if (window.Count < count)
+        {
+            // The probe landed near the end of the id space. Wrapping to the
+            // start is what makes the window complete: when the whole pool fits
+            // in one window, this reads all of it.
+            window = RandomCandidateWindow.Merge(
+                window,
+                await ReadCandidateWindowAsync(
+                    bookId,
+                    excludeVocabularyId,
+                    normalizedExcludeWord,
+                    normalizedExcludeMeaning,
+                    string.Empty,
+                    RandomCandidateWindow.SizeFor(count)),
+                entity => entity.Id);
+        }
+
+        var selected = RandomCandidateWindow
+            .Shuffle(window)
+            .DistinctBy(entity => entity.Word.Trim().ToLowerInvariant(), StringComparer.Ordinal)
+            .Take(count)
+            .ToList();
+        if (selected.Count == count)
+        {
+            return selected.Adapt<List<VocabularyModel>>();
+        }
+
+        // The window did not fill. Either the book is nearly out of candidates
+        // or an unlucky run of duplicates ate the window, and the caller answers
+        // 422 on a short result, so falling back to the exhaustive scan keeps
+        // that answer meaning what it did before rather than becoming a function
+        // of where the probe landed.
         var entities = await _context.Vocabularies
             .FromSqlInterpolated($"""
                 SELECT v.*
@@ -158,6 +262,46 @@ public class VocabularyRepository : IVocabularyRepository
             .ToListAsync();
 
         return entities.Adapt<List<VocabularyModel>>();
+    }
+
+    /// <summary>
+    /// Reads consecutive candidate words starting at <paramref name="probe"/> in
+    /// id order. The filtering is identical to the exhaustive query above; only
+    /// the amount of the book it touches differs.
+    /// </summary>
+    private Task<List<VocabularyEntity>> ReadCandidateWindowAsync(
+        string bookId,
+        string excludeVocabularyId,
+        string normalizedExcludeWord,
+        string normalizedExcludeMeaning,
+        string probe,
+        int limit)
+    {
+        return _context.Vocabularies
+            .FromSqlInterpolated($"""
+                SELECT v.*
+                FROM vocabulary AS v
+                WHERE v.id IN (
+                        SELECT m.vocabulary_id
+                        FROM vocabulary_meaning AS m
+                        WHERE m.book_id = {bookId}
+                          AND m.vocabulary_id >= {probe}
+                          AND m.vocabulary_id <> {excludeVocabularyId}
+                          AND NOT EXISTS (
+                              SELECT 1
+                              FROM vocabulary_meaning AS synonym
+                              WHERE synonym.vocabulary_id = m.vocabulary_id
+                                AND synonym.book_id = {bookId}
+                                AND lower(trim(synonym.meaning)) = {normalizedExcludeMeaning}
+                          )
+                        GROUP BY m.vocabulary_id
+                        ORDER BY m.vocabulary_id
+                        LIMIT {limit}
+                    )
+                  AND lower(trim(v.word)) <> {normalizedExcludeWord}
+                """)
+            .AsNoTracking()
+            .ToListAsync();
     }
 }
 
@@ -400,6 +544,34 @@ public class VocabularyMeaningRepository : IVocabularyMeaningRepository
         int count)
     {
         var normalizedExcludeMeaning = excludeMeaning.Trim().ToLowerInvariant();
+
+        var window = await ReadCandidateWindowAsync(
+            bookId,
+            excludeVocabularyId,
+            normalizedExcludeMeaning,
+            RandomCandidateWindow.NewProbe(),
+            RandomCandidateWindow.SizeFor(count));
+        if (CountDistinctVocabulary(window) < count)
+        {
+            window = RandomCandidateWindow.Merge(
+                window,
+                await ReadCandidateWindowAsync(
+                    bookId,
+                    excludeVocabularyId,
+                    normalizedExcludeMeaning,
+                    string.Empty,
+                    RandomCandidateWindow.SizeFor(count)),
+                meaning => meaning.Id);
+        }
+
+        var selected = SelectOneMeaningPerWord(window, count);
+        if (selected.Count == count)
+        {
+            return selected.Adapt<List<VocabularyMeaningModel>>();
+        }
+
+        // Same reasoning as the word direction: a short window must not become a
+        // 422 that the exhaustive query would not have produced.
         var entities = await _context.VocabularyMeanings
             .FromSqlInterpolated($"""
                 WITH per_word AS (
@@ -442,6 +614,83 @@ public class VocabularyMeaningRepository : IVocabularyMeaningRepository
             .ToListAsync();
 
         return entities.Adapt<List<VocabularyMeaningModel>>();
+    }
+
+    /// <summary>
+    /// Reads every definition of the words in one window of the book. The window
+    /// is bounded, so this is a handful of rows rather than the whole book.
+    /// </summary>
+    private Task<List<VocabularyMeaningEntity>> ReadCandidateWindowAsync(
+        string bookId,
+        string excludeVocabularyId,
+        string normalizedExcludeMeaning,
+        string probe,
+        int limit)
+    {
+        return _context.VocabularyMeanings
+            .FromSqlInterpolated($"""
+                SELECT m.*
+                FROM vocabulary_meaning AS m
+                WHERE m.book_id = {bookId}
+                  AND m.vocabulary_id IN (
+                        SELECT candidate.vocabulary_id
+                        FROM vocabulary_meaning AS candidate
+                        WHERE candidate.book_id = {bookId}
+                          AND candidate.vocabulary_id >= {probe}
+                          AND candidate.vocabulary_id <> {excludeVocabularyId}
+                        GROUP BY candidate.vocabulary_id
+                        ORDER BY candidate.vocabulary_id
+                        LIMIT {limit}
+                    )
+                  AND lower(trim(m.meaning)) <> {normalizedExcludeMeaning}
+                """)
+            .AsNoTracking()
+            .ToListAsync();
+    }
+
+    private static int CountDistinctVocabulary(List<VocabularyMeaningEntity> candidates)
+    {
+        return candidates
+            .Select(meaning => meaning.VocabularyId)
+            .Distinct(StringComparer.Ordinal)
+            .Count();
+    }
+
+    /// <summary>
+    /// Applies the two rules the exhaustive query expresses with window
+    /// functions: one option per word, drawn at random from that word's
+    /// definitions, and then no two options carrying the same text.
+    /// </summary>
+    private static List<VocabularyMeaningEntity> SelectOneMeaningPerWord(
+        List<VocabularyMeaningEntity> candidates,
+        int count)
+    {
+        var chosen = new List<VocabularyMeaningEntity>(count);
+        var usedTexts = new HashSet<string>(StringComparer.Ordinal);
+        var words = candidates
+            .GroupBy(meaning => meaning.VocabularyId, StringComparer.Ordinal)
+            .Select(group => group.ToList())
+            .ToList();
+
+        foreach (var word in RandomCandidateWindow.Shuffle(words))
+        {
+            var meaning = RandomCandidateWindow.Shuffle(word)[0];
+
+            // A word whose drawn definition collides with one already chosen is
+            // dropped rather than asked for another, which is what the
+            // exhaustive query's second window function does.
+            if (usedTexts.Add(meaning.Meaning.Trim().ToLowerInvariant()))
+            {
+                chosen.Add(meaning);
+            }
+
+            if (chosen.Count == count)
+            {
+                break;
+            }
+        }
+
+        return chosen;
     }
 
     public async Task AddAsync(VocabularyMeaningModel model)

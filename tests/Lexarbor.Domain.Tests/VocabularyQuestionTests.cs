@@ -263,6 +263,102 @@ public class VocabularyQuestionTests : TestBase
             _service.CreateQuestionAsync(correct.Id, book.Id, chineseToEnglish: true));
     }
 
+    // The distractor queries no longer read the whole book: they take a window
+    // starting at a random point in id order. These three cover what that can
+    // get wrong -- reachability, completeness, and the exclusions still holding
+    // on the new path.
+
+    [Fact]
+    public async Task CreateQuestionAsync_EveryEligibleDistractorCanBeDrawn()
+    {
+        var book = await CreateBookAsync();
+        var correct = await SeedWordAsync(book.Id, "apple", "fruit");
+        var eligible = new[] { "banana", "cherry", "date", "elderberry", "fig", "grape" };
+        foreach (var word in eligible)
+        {
+            _ = await SeedWordAsync(book.Id, word, $"the {word}");
+        }
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        for (var attempt = 0; attempt < 200; attempt++)
+        {
+            var question = await _service.CreateQuestionAsync(
+                correct.Id,
+                book.Id,
+                chineseToEnglish: true);
+            foreach (var option in question.Options.Where(option => !option.IsCorrect))
+            {
+                seen.Add(option.Text);
+            }
+        }
+
+        // A window that always started at the same place, or one that could not
+        // wrap past the end of the id space, would leave part of the book
+        // permanently unaskable. Ids are random GUIDs, so a word's position in
+        // that order has nothing to do with when it was imported.
+        Assert.Equal(eligible.OrderBy(word => word), seen.OrderBy(word => word));
+    }
+
+    [Fact]
+    public async Task CreateQuestionAsync_EnglishToChinese_FallsBackWhenTheWindowIsCrowdedOut()
+    {
+        var book = await CreateBookAsync();
+        var correct = await SeedWordAsync(book.Id, "apple", "fruit");
+
+        // Sixty words carrying the correct answer's own definition, so they are
+        // all ineligible, and three that are not. The window samples words
+        // before their definitions are filtered, so it will usually come back
+        // with nothing usable and the exhaustive query has to finish the job.
+        for (var index = 0; index < 60; index++)
+        {
+            _ = await SeedWordAsync(book.Id, $"synonym{index:D2}", "fruit");
+        }
+
+        _ = await SeedWordAsync(book.Id, "banana", "yellow fruit");
+        _ = await SeedWordAsync(book.Id, "cherry", "red fruit");
+        _ = await SeedWordAsync(book.Id, "date", "sweet fruit");
+
+        for (var attempt = 0; attempt < 25; attempt++)
+        {
+            var question = await _service.CreateQuestionAsync(
+                correct.Id,
+                book.Id,
+                chineseToEnglish: false);
+
+            // Answering 422 here would be the sampler's mistake, not the book's:
+            // three valid distractors exist on every one of these runs.
+            AssertQuestionOptions(
+                question,
+                ["fruit", "yellow fruit", "red fruit", "sweet fruit"]);
+        }
+    }
+
+    [Fact]
+    public async Task CreateQuestionAsync_ChineseToEnglish_ExcludesSynonymsAcrossALargerBook()
+    {
+        var book = await CreateBookAsync();
+        var correct = await SeedWordAsync(book.Id, "apple", "fruit");
+        for (var index = 0; index < 40; index++)
+        {
+            _ = await SeedWordAsync(book.Id, $"synonym{index:D2}", "fruit");
+            _ = await SeedWordAsync(book.Id, $"distinct{index:D2}", $"meaning {index:D2}");
+        }
+
+        for (var attempt = 0; attempt < 25; attempt++)
+        {
+            var question = await _service.CreateQuestionAsync(
+                correct.Id,
+                book.Id,
+                chineseToEnglish: true);
+
+            Assert.Equal(4, question.Options.Count);
+            Assert.Single(question.Options, option => option.IsCorrect);
+            Assert.DoesNotContain(
+                question.Options,
+                option => option.Text.StartsWith("synonym", StringComparison.Ordinal));
+        }
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
