@@ -212,6 +212,80 @@ public class VocabularyBookDomainServiceTests : TestBase
         Assert.Equal(2, totalCount);
     }
 
+    // Book names keep the casing they were entered with, so the failure ran the
+    // other way from the word search: an all-lower-case keyword could not find
+    // "Junior English Vocabulary". Both directions are covered here.
+    [Theory]
+    [InlineData("english")]
+    [InlineData("English")]
+    [InlineData("ENGLISH")]
+    public async Task SearchAsync_KeywordCaseDoesNotMatter(string keyword)
+    {
+        await _service.AddOrUpdateAsync(new VocabularyBookModel
+        {
+            BookName = "Junior English Vocabulary",
+            DisplayOrder = 1,
+            Status = true
+        });
+        await _service.AddOrUpdateAsync(new VocabularyBookModel
+        {
+            BookName = "初中数学",
+            Description = "Math problems",
+            DisplayOrder = 2,
+            Status = true
+        });
+
+        var (items, totalCount) = await _service.SearchAsync(keyword, 1, 10);
+
+        Assert.Equal(1, totalCount);
+        Assert.Equal("Junior English Vocabulary", Assert.Single(items).BookName);
+    }
+
+    [Theory]
+    [InlineData("math")]
+    [InlineData("MATH")]
+    public async Task SearchAsync_DescriptionKeywordCaseDoesNotMatter(string keyword)
+    {
+        await _service.AddOrUpdateAsync(new VocabularyBookModel
+        {
+            BookName = "初中数学",
+            Description = "Math problems",
+            DisplayOrder = 1,
+            Status = true
+        });
+        await _service.AddOrUpdateAsync(new VocabularyBookModel
+        {
+            BookName = "初中英语",
+            Description = "English vocabulary",
+            DisplayOrder = 2,
+            Status = true
+        });
+
+        var (items, totalCount) = await _service.SearchAsync(keyword, 1, 10);
+
+        Assert.Equal(1, totalCount);
+        Assert.Equal("初中数学", Assert.Single(items).BookName);
+    }
+
+    [Theory]
+    [InlineData("%")]
+    [InlineData("M_th")]
+    public async Task SearchAsync_LikeWildcardsInKeywordAreLiteral(string keyword)
+    {
+        await _service.AddOrUpdateAsync(new VocabularyBookModel
+        {
+            BookName = "初中数学",
+            Description = "Math problems",
+            DisplayOrder = 1,
+            Status = true
+        });
+
+        var (items, totalCount) = await _service.SearchAsync(keyword, 1, 10);
+
+        Assert.Equal(0, totalCount);
+        Assert.Empty(items);
+    }
+
     [Fact]
     public async Task GetAllCategoriesAsync_ReturnsDistinctCategories()
     {

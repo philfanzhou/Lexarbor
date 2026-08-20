@@ -10,6 +10,41 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Lexarbor.Database.Repositories;
 
+/// <summary>
+/// Builds the substring patterns used by the keyword searches.
+/// </summary>
+/// <remarks>
+/// <c>string.Contains</c> translates to SQLite's <c>instr()</c>, which compares
+/// bytes, so a keyword had to match the stored casing exactly. Words are always
+/// stored lower-cased, which made every mixed-case public search return an empty
+/// page rather than an error. <c>LIKE</c> folds ASCII case by default -- nothing
+/// in this application sets <c>PRAGMA case_sensitive_like</c> -- and that is the
+/// same folding <c>lower()</c> already gives the question and equivalence
+/// queries, so the whole codebase now agrees on what "the same text" means.
+/// Neither operator can use an index for a leading-wildcard match, so this is
+/// not a change in query cost.
+/// </remarks>
+internal static class SqliteSearchPattern
+{
+    /// <summary>Backslash, declared to SQLite with an explicit ESCAPE clause.</summary>
+    internal const char EscapeCharacter = '\\';
+
+    /// <summary>
+    /// Wraps a user-supplied keyword in wildcards, escaping the characters LIKE
+    /// would otherwise read as wildcards. Without this, a keyword containing
+    /// <c>%</c> or <c>_</c> would silently widen the search -- something
+    /// <c>instr()</c> never did.
+    /// </summary>
+    internal static string Contains(string keyword)
+    {
+        var escaped = keyword
+            .Replace("\\", "\\\\")
+            .Replace("%", "\\%")
+            .Replace("_", "\\_");
+        return $"%{escaped}%";
+    }
+}
+
 public class VocabularyRepository : IVocabularyRepository
 {
     private readonly VocabularyDbContext _context;
@@ -61,7 +96,9 @@ public class VocabularyRepository : IVocabularyRepository
                         book.Status)));
         if (!string.IsNullOrWhiteSpace(keyword))
         {
-            query = query.Where(v => v.Word.Contains(keyword));
+            var pattern = SqliteSearchPattern.Contains(keyword);
+            query = query.Where(v =>
+                EF.Functions.Like(v.Word, pattern, SqliteSearchPattern.EscapeCharacter.ToString()));
         }
 
         var totalCount = await query.CountAsync();
@@ -168,9 +205,12 @@ public class VocabularyBookRepository : IVocabularyBookRepository
         var query = _context.VocabularyBooks.AsNoTracking();
         if (!string.IsNullOrWhiteSpace(keyword))
         {
+            var pattern = SqliteSearchPattern.Contains(keyword);
+            var escape = SqliteSearchPattern.EscapeCharacter.ToString();
             query = query.Where(book =>
-                book.BookName.Contains(keyword) ||
-                (book.Description != null && book.Description.Contains(keyword)));
+                EF.Functions.Like(book.BookName, pattern, escape) ||
+                (book.Description != null &&
+                 EF.Functions.Like(book.Description, pattern, escape)));
         }
 
         var totalCount = await query.CountAsync();
