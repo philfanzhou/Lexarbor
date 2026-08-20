@@ -156,6 +156,9 @@ public static partial class VocabularyHttpEndpoints
                 "Id must be empty when creating a vocabulary book.");
         }
 
+        // Create has nothing to overwrite, so an omitted DisplayOrder or Status
+        // takes the field's default rather than being rejected. Only the replace
+        // path below has to insist on them.
         await bookService.AddOrUpdateAsync(request.ToEntity());
         return VocabularyHttpResponse.Ok(new BoolResponse { Success = true });
     }
@@ -167,6 +170,28 @@ public static partial class VocabularyHttpEndpoints
         if (string.IsNullOrWhiteSpace(request.Id))
         {
             return VocabularyHttpResponse.BadRequest("Id is required.");
+        }
+
+        // This is a replace, not a merge: every field is written to the stored
+        // book, so one the request leaves out is not "unchanged", it is written
+        // back as the field's default. Blanking the name, or disabling the book
+        // and thereby hiding it from the public catalogue and making every word
+        // in it answer 422, is a worse outcome for a caller who only meant to
+        // edit a description than a rejected request is. So the three fields
+        // whose defaults are destructive have to be sent explicitly.
+        if (string.IsNullOrWhiteSpace(request.BookName))
+        {
+            return VocabularyHttpResponse.BadRequest("BookName is required.");
+        }
+
+        if (request.DisplayOrder == null)
+        {
+            return VocabularyHttpResponse.BadRequest("DisplayOrder is required.");
+        }
+
+        if (request.Status == null)
+        {
+            return VocabularyHttpResponse.BadRequest("Status is required.");
         }
 
         await bookService.AddOrUpdateAsync(request.ToEntity());

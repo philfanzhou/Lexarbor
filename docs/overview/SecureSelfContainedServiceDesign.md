@@ -260,6 +260,7 @@ normalizedWord = word.Trim().ToLowerInvariant()
 
 - Creating a book must use an empty ID; the service generates a new one.
 - Updating a book must carry an ID; a missing target answers 404.
+- Updating a book replaces every field rather than merging, so `bookName`, `displayOrder`, and `status` must all be sent. Omitting one answers 400 instead of writing the field's default over the stored value, because those defaults blank the name, reorder the book, and disable it.
 - `Status=true` means enabled and `Status=false` means disabled.
 - The administration list contains both enabled and disabled books.
 - `GET /api/vocabulary-books/all` returns enabled books only.
