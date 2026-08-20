@@ -11,6 +11,11 @@ indent_style = space
 indent_size = 4
 csharp_new_line_before_open_brace = all
 dotnet_sort_system_directives_first = true
+# One sorted block rather than groups separated by origin. The alternative,
+# separating System / third-party / first-party with blank lines, reads well
+# but nothing verifies where a new using belongs, so the groups drift; a single
+# alphabetical block is the order dotnet format can restore on its own.
+dotnet_separate_import_directive_groups = false
 
 [*.{csproj,props,targets,json,jsonc,yml,yaml}]
 indent_style = space

@@ -2,9 +2,9 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Lexarbor.Service.Tests.TestInfrastructure;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Options;
-using Lexarbor.Service.Tests.TestInfrastructure;
 
 namespace Lexarbor.Service.Tests;
 

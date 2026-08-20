@@ -1,6 +1,6 @@
+using Lexarbor.Domain.Exceptions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
-using Lexarbor.Domain.Exceptions;
 
 namespace Lexarbor.Service;
 

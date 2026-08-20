@@ -1,5 +1,5 @@
-using Microsoft.Extensions.Options;
 using Lexarbor.Service;
+using Microsoft.Extensions.Options;
 
 namespace Lexarbor.Host.Authentication;
 
