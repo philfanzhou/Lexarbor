@@ -178,6 +178,89 @@ public class VocabularyDomainServiceTests : TestBase
         Assert.Equal(2, items.Count);
     }
 
+    // Words are always stored lower-cased, and instr() -- what string.Contains
+    // used to translate to -- compares bytes, so before this every mixed-case
+    // keyword returned an empty page that was indistinguishable from "no such
+    // word". LIKE folds ASCII case, which is the folding used everywhere else
+    // in this codebase.
+    [Theory]
+    [InlineData("apple")]
+    [InlineData("Apple")]
+    [InlineData("APPLE")]
+    [InlineData("aPpLe")]
+    public async Task SearchAsync_KeywordCaseDoesNotMatter(string keyword)
+    {
+        _ = await CreateBookAsync(id: "b1");
+        await _service.AddOrUpdateAsync(
+            new VocabularyModel { Word = "apple" },
+            new VocabularyMeaningModel { BookId = "b1", Meaning = "苹果" });
+        await _service.AddOrUpdateAsync(
+            new VocabularyModel { Word = "banana" },
+            new VocabularyMeaningModel { BookId = "b1", Meaning = "香蕉" });
+
+        var (items, totalCount) = await _service.SearchAsync(keyword, 1, 10);
+
+        Assert.Equal(1, totalCount);
+        Assert.Equal("apple", Assert.Single(items).Word);
+    }
+
+    // instr() had no wildcards, so moving to LIKE could have widened a search
+    // silently. "%" would match every word and "a_ple" would match "apple".
+    [Theory]
+    [InlineData("%")]
+    [InlineData("a_ple")]
+    public async Task SearchAsync_LikeWildcardsInKeywordAreLiteral(string keyword)
+    {
+        _ = await CreateBookAsync(id: "b1");
+        await _service.AddOrUpdateAsync(
+            new VocabularyModel { Word = "apple" },
+            new VocabularyMeaningModel { BookId = "b1", Meaning = "苹果" });
+        await _service.AddOrUpdateAsync(
+            new VocabularyModel { Word = "banana" },
+            new VocabularyMeaningModel { BookId = "b1", Meaning = "香蕉" });
+
+        var (items, totalCount) = await _service.SearchAsync(keyword, 1, 10);
+
+        Assert.Equal(0, totalCount);
+        Assert.Empty(items);
+    }
+
+    [Fact]
+    public async Task SearchAsync_EscapeCharacterInKeywordIsLiteral()
+    {
+        _ = await CreateBookAsync(id: "b1");
+        await _service.AddOrUpdateAsync(
+            new VocabularyModel { Word = @"back\slash" },
+            new VocabularyMeaningModel { BookId = "b1", Meaning = "反斜杠" });
+        await _service.AddOrUpdateAsync(
+            new VocabularyModel { Word = "banana" },
+            new VocabularyMeaningModel { BookId = "b1", Meaning = "香蕉" });
+
+        // The keyword is the ESCAPE character itself, so it has to be doubled
+        // before it reaches SQLite or the pattern ends in a dangling escape.
+        var (items, totalCount) = await _service.SearchAsync(@"\", 1, 10);
+
+        Assert.Equal(1, totalCount);
+        Assert.Equal(@"back\slash", Assert.Single(items).Word);
+    }
+
+    [Fact]
+    public async Task SearchAsync_NonAsciiCaseIsNotFolded()
+    {
+        _ = await CreateBookAsync(id: "b1");
+        await _service.AddOrUpdateAsync(
+            new VocabularyModel { Word = "café" },
+            new VocabularyMeaningModel { BookId = "b1", Meaning = "咖啡馆" });
+
+        // SQLite folds ASCII only -- its LIKE and its lower() agree on that, and
+        // neither touches É. Pinned rather than fixed: case-folding the rest of
+        // Unicode needs FTS5 or an ICU build, which is a larger decision than
+        // this change. Stated here so the boundary is a known one.
+        Assert.Equal(1, (await _service.SearchAsync("café", 1, 10)).TotalCount);
+        Assert.Equal(1, (await _service.SearchAsync("CAF", 1, 10)).TotalCount);
+        Assert.Equal(0, (await _service.SearchAsync("CAFÉ", 1, 10)).TotalCount);
+    }
+
     [Fact]
     public async Task SearchAsync_NoKeyword_ReturnsAllWords()
     {

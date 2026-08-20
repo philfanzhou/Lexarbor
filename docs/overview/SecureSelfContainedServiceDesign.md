@@ -300,6 +300,7 @@ The repository uses SQLite's `random()`, grouping, and window functions to filte
 - `page<0`, `size<0`, `size>100`, or a value that would overflow the paging arithmetic answers 400.
 - Word search performs its filtering, ordering, counting, and paging on the database side.
 - Book search performs its name and description filtering, ordering, counting, and paging on the database side.
+- Keyword matching is case-insensitive. It uses SQLite's `LIKE`, whose default case folding covers ASCII, which is the same folding `lower()` gives the normalization and question queries. `%`, `_`, and the escape character are escaped in the keyword and matched literally, so a keyword can never widen its own search. Case outside ASCII is not folded: `CAFÉ` does not find `café`. Folding the rest of Unicode would need FTS5 or an ICU build and is not done.
 - Categories, education levels, grades, and grades by education level perform their filtering and deduplication on the database side.
 - The words in a book are selected as distinct words through the meaning relationship on the database side, rather than loading every meaning and then looking words up.
 - An administration query may reach disabled books; a public query can only read through an enabled book's relationships.
