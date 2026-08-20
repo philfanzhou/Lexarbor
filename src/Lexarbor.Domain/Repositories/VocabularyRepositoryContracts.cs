@@ -13,10 +13,16 @@ public interface IVocabularyRepository
     Task<(List<VocabularyModel> Items, int TotalCount)> SearchAsync(string? keyword, int page, int size);
     Task AddAsync(VocabularyModel model);
     Task UpdateAsync(VocabularyModel model);
+    /// <param name="excludeEquivalentMeaning">
+    /// The definition the question is asking about. A candidate that carries an
+    /// equivalent definition in the same book is a correct answer to that stem,
+    /// not a distractor, so it is excluded along with the target word itself.
+    /// </param>
     Task<List<VocabularyModel>> GetRandomByBookExceptAsync(
         string bookId,
         string excludeVocabularyId,
         string excludeWord,
+        string excludeEquivalentMeaning,
         int count);
 }
 

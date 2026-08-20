@@ -95,10 +95,15 @@ public class VocabularyDomainService
         string questionText;
         if (chineseToEnglish)
         {
+            // correctMeaning is the stem, so any word that also carries it in
+            // this book answers the question correctly and cannot be offered as
+            // a wrong option. The English-to-Chinese branch below has always
+            // excluded by meaning; this direction now matches it.
             var distractors = await _vocabularyRepository.GetRandomByBookExceptAsync(
                 bookId,
                 wordId,
                 word.Word,
+                correctMeaning.Meaning,
                 3);
             questionText = correctMeaning.Meaning;
             options =

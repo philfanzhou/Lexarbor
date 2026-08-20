@@ -163,6 +163,106 @@ public class VocabularyQuestionTests : TestBase
                 .Count());
     }
 
+    [Fact]
+    public async Task CreateQuestionAsync_ChineseToEnglish_ExcludesWordsSharingTheStemMeaning()
+    {
+        var book = await CreateBookAsync();
+        var correct = await SeedWordAsync(book.Id, "apple", "fruit");
+        _ = await SeedWordAsync(book.Id, "pear", "fruit");
+        _ = await SeedWordAsync(book.Id, "banana", "yellow fruit");
+        _ = await SeedWordAsync(book.Id, "cherry", "red fruit");
+        _ = await SeedWordAsync(book.Id, "date", "sweet fruit");
+        _ = await SeedWordAsync(book.Id, "elderberry", "dark fruit");
+
+        // Four words are eligible and three are drawn with ORDER BY random(), so
+        // a single run can miss the synonym by luck. Against the previous code
+        // this loop surfaced "pear" as a wrong option on most iterations.
+        for (var attempt = 0; attempt < 40; attempt++)
+        {
+            var question = await _service.CreateQuestionAsync(
+                correct.Id,
+                book.Id,
+                chineseToEnglish: true);
+
+            Assert.Equal("fruit", question.Word);
+            Assert.Single(question.Options, option => option.IsCorrect);
+            Assert.DoesNotContain(question.Options, option => option.Text == "pear");
+        }
+    }
+
+    [Fact]
+    public async Task CreateQuestionAsync_ChineseToEnglish_ExcludesSynonymStoredWithDifferentCase()
+    {
+        var book = await CreateBookAsync();
+        var correct = await SeedWordAsync(book.Id, "apple", "fruit");
+        // Meanings are stored trimmed but not lower-cased, so " Fruit " is a
+        // separate row from "fruit" and still answers the same stem.
+        _ = await SeedWordAsync(book.Id, "pear", " Fruit ");
+        _ = await SeedWordAsync(book.Id, "banana", "yellow fruit");
+        _ = await SeedWordAsync(book.Id, "cherry", "red fruit");
+        _ = await SeedWordAsync(book.Id, "date", "sweet fruit");
+        _ = await SeedWordAsync(book.Id, "elderberry", "dark fruit");
+
+        // Looped for the same reason as the test above: with the synonym
+        // eligible there are four candidates for three slots, so one run alone
+        // would miss it a quarter of the time.
+        for (var attempt = 0; attempt < 40; attempt++)
+        {
+            var question = await _service.CreateQuestionAsync(
+                correct.Id,
+                book.Id,
+                chineseToEnglish: true);
+
+            // The stem is "fruit"; "pear" carries " Fruit ", which lower(trim())
+            // makes the same definition, so the word must not be offered.
+            Assert.DoesNotContain(question.Options, option => option.Text == "pear");
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task CreateQuestionAsync_BothDirections_ExcludeAnEquivalentAnswer(
+        bool chineseToEnglish)
+    {
+        var book = await CreateBookAsync();
+        var correct = await SeedWordAsync(book.Id, "apple", "fruit");
+        _ = await SeedWordAsync(book.Id, "pear", "fruit");
+        _ = await SeedWordAsync(book.Id, "banana", "yellow fruit");
+        _ = await SeedWordAsync(book.Id, "cherry", "red fruit");
+        _ = await SeedWordAsync(book.Id, "date", "sweet fruit");
+
+        var question = await _service.CreateQuestionAsync(
+            correct.Id,
+            book.Id,
+            chineseToEnglish);
+
+        // "pear" answers the meaning stem and "fruit" answers the word stem, so
+        // each is a correct answer in its own direction and neither may appear
+        // as a wrong option. This pins the two directions to the same rule.
+        var equivalentAnswer = chineseToEnglish ? "pear" : "fruit";
+        Assert.DoesNotContain(
+            question.Options.Where(option => !option.IsCorrect),
+            option => option.Text == equivalentAnswer);
+    }
+
+    [Fact]
+    public async Task CreateQuestionAsync_ChineseToEnglish_SynonymsLeaveTooFewCandidates_ThrowsBusinessRule()
+    {
+        var book = await CreateBookAsync();
+        var correct = await SeedWordAsync(book.Id, "apple", "fruit");
+        _ = await SeedWordAsync(book.Id, "pear", "fruit");
+        _ = await SeedWordAsync(book.Id, "banana", "yellow fruit");
+        _ = await SeedWordAsync(book.Id, "cherry", "red fruit");
+
+        // The deliberate cost of the exclusion: a book that used to produce a
+        // question with a wrong "wrong" option now reports too few candidates
+        // instead. Refusing is the correct outcome, and pinning it here means a
+        // later change to the threshold has to face the trade-off.
+        await Assert.ThrowsAsync<BusinessRuleException>(() =>
+            _service.CreateQuestionAsync(correct.Id, book.Id, chineseToEnglish: true));
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]

@@ -280,13 +280,13 @@ normalizedWord = word.Trim().ToLowerInvariant()
 3. Chinese to English:
    - the stem is the current meaning;
    - the correct answer is the current word;
-   - the three distractor words are selected from the same book only.
+   - the three distractor words are selected from the same book only, and a word that carries an equivalent definition in that book is excluded, because such a word answers the stem correctly and cannot be a wrong option.
 4. English to Chinese:
    - the stem is the current word;
    - the correct answer is the current meaning;
    - the three distractor definitions are selected from the same book only.
 5. Candidates are deduplicated by `VocabularyId`, so each distractor word contributes at most one option.
-6. The repository query first excludes the current word and the correct answer text, then deduplicates by normalized option text, and only then randomly limits the result to three distractors.
+6. The repository query first excludes the current word and everything equivalent to the correct answer -- the answer text itself, and in the Chinese-to-English direction any other word sharing the stem's definition -- then deduplicates by normalized option text, and only then randomly limits the result to three distractors. Equivalence is `lower(trim(...))` on both sides in both directions.
 7. A question is generated only when three distinct valid distractors are obtained; limiting before deduplicating, which would falsely report too few candidates, is not allowed.
 8. Too few candidates answers 422 with a short business error.
 9. The four final options are shuffled.

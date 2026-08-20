@@ -383,6 +383,7 @@ public class VocabularyHttpEndpointTests :
             string bookId,
             string excludeVocabularyId,
             string excludeWord,
+            string excludeEquivalentMeaning,
             int count) => throw Unused();
 
         private static NotSupportedException Unused() => new();
