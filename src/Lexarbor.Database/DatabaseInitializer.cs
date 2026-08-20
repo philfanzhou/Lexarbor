@@ -26,6 +26,12 @@ public static class DatabaseInitializer
 
         await context.Database.MigrateAsync(cancellationToken);
 
+        if (databasePath != null)
+        {
+            var journalMode = await EnableWriteAheadLoggingAsync(context, cancellationToken);
+            logger.LogInformation("SQLite journal mode is {JournalMode}", journalMode);
+        }
+
         if (isNewDatabase)
         {
             await VocabularySeedData.ApplyAsync(context, cancellationToken);
@@ -37,6 +43,40 @@ public static class DatabaseInitializer
         {
             logger.LogInformation(
                 "Applied SQLite migrations without reloading starter vocabulary");
+        }
+    }
+
+    /// <summary>
+    /// Switches the database to write-ahead logging, under which a reader no
+    /// longer blocks a writer. The anonymous detail and question endpoints read
+    /// on every request, so under the default rollback journal they contended
+    /// with every administrative write for the same file lock.
+    /// </summary>
+    /// <remarks>
+    /// The setting lives in the database header rather than the connection, so
+    /// this is a no-op after the first start. It is run on every start anyway so
+    /// that a database restored from a backup taken elsewhere is switched over
+    /// too. An in-memory database has no journal to switch and is skipped by the
+    /// caller. WAL needs shared memory beside the database file, which rules out
+    /// some network filesystems; the deployment guide says so.
+    /// </remarks>
+    private static async Task<string?> EnableWriteAheadLoggingAsync(
+        VocabularyDbContext context,
+        CancellationToken cancellationToken)
+    {
+        await context.Database.OpenConnectionAsync(cancellationToken);
+        try
+        {
+            var connection = context.Database.GetDbConnection();
+            await using var command = connection.CreateCommand();
+            // PRAGMA cannot be composed into a query, so it goes through the
+            // raw command rather than through SqlQuery.
+            command.CommandText = "PRAGMA journal_mode=WAL;";
+            return (await command.ExecuteScalarAsync(cancellationToken))?.ToString();
+        }
+        finally
+        {
+            await context.Database.CloseConnectionAsync();
         }
     }
 

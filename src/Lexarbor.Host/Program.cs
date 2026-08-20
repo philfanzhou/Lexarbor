@@ -367,6 +367,22 @@ static string BuildSqliteConnectionString(
             Path.Combine(contentRootPath, builder.DataSource));
     }
 
+    // Microsoft.Data.Sqlite implements its timeout as a retry loop around
+    // SQLITE_BUSY, so the library default meant a contended write held its
+    // request thread for a full thirty seconds before failing -- longer than the
+    // admin UI's own thirty-second HTTP timeout, so the caller saw a network
+    // error rather than an answer. Writes are now serialized in process and
+    // readers no longer block them under WAL, which leaves only brief
+    // contention; five seconds rides out a checkpoint and still returns the 503
+    // while the caller is waiting for it. An operator who needs a different
+    // value sets `Default Timeout=` in the connection string, and any value
+    // other than the library default is left alone.
+    const int LibraryDefaultTimeoutSeconds = 30;
+    if (builder.DefaultTimeout == LibraryDefaultTimeoutSeconds)
+    {
+        builder.DefaultTimeout = 5;
+    }
+
     return builder.ToString();
 }
 

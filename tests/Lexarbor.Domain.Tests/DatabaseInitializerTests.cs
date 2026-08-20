@@ -71,6 +71,48 @@ public sealed class DatabaseInitializerTests : IDisposable
         Assert.Equal(0, await context.Vocabularies.CountAsync(TestContext.Current.CancellationToken));
     }
 
+    [Fact]
+    public async Task InitializeAsync_EnablesWriteAheadLogging()
+    {
+        var databasePath = Path.Combine(_temporaryDirectory, "journal.db");
+
+        await using (var context = CreateContext(databasePath))
+        {
+            await DatabaseInitializer.InitializeAsync(
+                context,
+                NullLoggerFactory.Instance, TestContext.Current.CancellationToken);
+        }
+
+        // Read on a connection that did nothing to set it, so this proves the
+        // mode was persisted into the database header rather than applied to the
+        // one connection that ran the PRAGMA. Under the default rollback journal
+        // this reads "delete", and every anonymous read contended with every
+        // administrative write for the same file lock.
+        await using (var context = CreateContext(databasePath))
+        {
+            Assert.Equal(
+                "wal",
+                await ReadJournalModeAsync(context, TestContext.Current.CancellationToken));
+        }
+    }
+
+    private static async Task<string?> ReadJournalModeAsync(
+        VocabularyDbContext context,
+        CancellationToken cancellationToken)
+    {
+        await context.Database.OpenConnectionAsync(cancellationToken);
+        try
+        {
+            await using var command = context.Database.GetDbConnection().CreateCommand();
+            command.CommandText = "PRAGMA journal_mode;";
+            return (await command.ExecuteScalarAsync(cancellationToken))?.ToString();
+        }
+        finally
+        {
+            await context.Database.CloseConnectionAsync();
+        }
+    }
+
     public void Dispose()
     {
         var resolvedTemporaryDirectory = Path.GetFullPath(_temporaryDirectory);

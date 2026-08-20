@@ -251,7 +251,8 @@ normalizedWord = word.Trim().ToLowerInvariant()
 - When adding a meaning, a missing book answers 404 and a disabled book answers 422.
 - The same `VocabularyId`, `BookId`, normalized part of speech, and trimmed definition are treated as the same meaning.
 - A repeated import succeeds and reuses the existing meaning; when a new British phonetic, American phonetic, or example is supplied it is applied under the existing update semantics rather than inserting a duplicate row.
-- A SQLite deployment is limited to a single instance. A process-level write transaction lock serializes administrative writes, and the logical key's unique index over the stored generated columns is the database backstop.
+- A SQLite deployment is limited to a single instance. A process-level write lock serializes every write, taken by both the transaction helper and the plain save so that no write path can bypass it, and the logical key's unique index over the stored generated columns is the database backstop. The lock is held per async flow, so a save nested inside a transaction joins the lock its caller holds rather than waiting on it.
+- The database runs in WAL mode, so a read never blocks a write. A write that still finds the database held by another connection answers 503 with `Retry-After`, not 409 and not 500: nothing is wrong with the request and retrying it works.
 - A unique constraint violation, a concurrent duplicate, or any other database consistency conflict answers 409.
 
 `Category` keeps the existing string field as its formal representation. The integer `BookCategories` constant type, which disagreed with it and was unused, is deleted so that no dual representation is maintained.
@@ -329,7 +330,7 @@ Status code conventions:
 | 422 | A business precondition such as a disabled book or too few question candidates |
 | 500 | An unexpected exception |
 | 502 | Identity is unreachable or returned an invalid response |
-| 503 | Production administrator login configuration is missing |
+| 503 | Production administrator login configuration is missing, or the database is held by another writer |
 
 Endpoints no longer catch a general exception and return `ex.Message`. The shared exception middleware is responsible for:
 
