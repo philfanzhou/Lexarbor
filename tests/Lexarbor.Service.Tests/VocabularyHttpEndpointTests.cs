@@ -57,16 +57,95 @@ public class VocabularyHttpEndpointTests :
     {
         using var client = CreateAdminClient();
 
+        // A complete body, so the 404 comes from the missing target rather than
+        // from the replace path's required-field checks.
         var response = await client.PutAsJsonAsync(
             "/admin/vocabulary-books",
             new
             {
                 id = $"missing-{Guid.NewGuid():N}",
                 bookName = "Missing Book",
+                displayOrder = 0,
                 status = true
             }, TestContext.Current.CancellationToken);
 
         await AssertFailureAsync(response, HttpStatusCode.NotFound);
+    }
+
+    // PUT replaces the stored book, so a field the request omits is written back
+    // as its default. These three cases used to answer 200 and quietly blank the
+    // name, reorder the book, or disable it -- which also removes it from the
+    // public catalogue and makes every word in it answer 422.
+    [Fact]
+    public async Task UpdateBook_MissingBookName_Returns400AndLeavesBookIntact()
+    {
+        var (bookId, _) = await SeedBookAsync(distractorCount: 0);
+        using var client = CreateAdminClient();
+
+        var response = await client.PutAsJsonAsync(
+            "/admin/vocabulary-books",
+            new { id = bookId, displayOrder = 7, status = false },
+            TestContext.Current.CancellationToken);
+
+        await AssertFailureAsync(response, HttpStatusCode.BadRequest);
+        var book = await GetBookAsync(client, bookId);
+        Assert.False(string.IsNullOrWhiteSpace(book.GetProperty("bookName").GetString()));
+        Assert.True(book.GetProperty("status").GetBoolean());
+        Assert.Equal(0, book.GetProperty("displayOrder").GetInt32());
+    }
+
+    [Fact]
+    public async Task UpdateBook_MissingStatus_Returns400AndLeavesBookEnabled()
+    {
+        var (bookId, _) = await SeedBookAsync(distractorCount: 0);
+        using var client = CreateAdminClient();
+
+        var response = await client.PutAsJsonAsync(
+            "/admin/vocabulary-books",
+            new { id = bookId, bookName = "Renamed", displayOrder = 0 },
+            TestContext.Current.CancellationToken);
+
+        await AssertFailureAsync(response, HttpStatusCode.BadRequest);
+        Assert.True((await GetBookAsync(client, bookId)).GetProperty("status").GetBoolean());
+    }
+
+    [Fact]
+    public async Task UpdateBook_MissingDisplayOrder_Returns400Envelope()
+    {
+        var (bookId, _) = await SeedBookAsync(distractorCount: 0);
+        using var client = CreateAdminClient();
+
+        var response = await client.PutAsJsonAsync(
+            "/admin/vocabulary-books",
+            new { id = bookId, bookName = "Renamed", status = true },
+            TestContext.Current.CancellationToken);
+
+        await AssertFailureAsync(response, HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task UpdateBook_WithCompleteBody_ReplacesEveryField()
+    {
+        var (bookId, _) = await SeedBookAsync(distractorCount: 0);
+        using var client = CreateAdminClient();
+
+        var response = await client.PutAsJsonAsync(
+            "/admin/vocabulary-books",
+            new
+            {
+                id = bookId,
+                bookName = "Renamed",
+                description = "A description",
+                displayOrder = 7,
+                status = false
+            }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var book = await GetBookAsync(client, bookId);
+        Assert.Equal("Renamed", book.GetProperty("bookName").GetString());
+        Assert.Equal("A description", book.GetProperty("description").GetString());
+        Assert.Equal(7, book.GetProperty("displayOrder").GetInt32());
+        Assert.False(book.GetProperty("status").GetBoolean());
     }
 
     [Fact]
@@ -193,6 +272,17 @@ public class VocabularyHttpEndpointTests :
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", _factory.CreateToken("admin"));
         return client;
+    }
+
+    private static async Task<JsonElement> GetBookAsync(HttpClient client, string bookId)
+    {
+        var response = await client.GetAsync(
+            $"/admin/vocabulary-books/{bookId}", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        // Cloned because the JsonDocument backing it is disposed on return.
+        using var body = JsonDocument.Parse(
+            await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        return body.RootElement.GetProperty("data").Clone();
     }
 
     private async Task<(string BookId, string CorrectWordId)> SeedBookAsync(

@@ -41,8 +41,13 @@ public class VocabularyBookDto
     public string? EducationLevel { get; set; }
     public string? Grade { get; set; }
     public string? Publisher { get; set; }
-    public int DisplayOrder { get; set; }
-    public bool Status { get; set; }
+
+    // Nullable so that a write can tell "the client sent 0/false" apart from
+    // "the client left the field out". Both carry a default that silently
+    // destroys data on the replace path, so PUT rejects the omission instead of
+    // writing the default over the stored value. Responses always populate them.
+    public int? DisplayOrder { get; set; }
+    public bool? Status { get; set; }
     public string? IconUrl { get; set; }
 }
 
