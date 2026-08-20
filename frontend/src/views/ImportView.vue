@@ -98,10 +98,10 @@ onMounted(loadBooks)
       </template>
       <el-form
         ref="formRef"
+        v-loading="loading"
         :model="form"
         :rules="rules"
         label-width="80px"
-        v-loading="loading"
         style="max-width: 480px"
       >
         <el-form-item label="教材" prop="bookId">

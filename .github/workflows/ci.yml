@@ -96,6 +96,9 @@ jobs:
       - name: Audit dependencies
         run: npm audit --audit-level=moderate --registry=https://registry.npmjs.org/
 
+      - name: Lint
+        run: npm run lint
+
       - name: Check types
         run: npm run test:types
 
