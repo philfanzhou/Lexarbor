@@ -31,6 +31,21 @@ public sealed class VocabularyExceptionMiddleware
             {
                 _logger.LogError(exception, "Unhandled exception while processing a Vocabulary request");
             }
+            else if (statusCode == StatusCodes.Status503ServiceUnavailable)
+            {
+                // Logged with the exception, unlike the other expected
+                // rejections: a busy database is a capacity signal, and the
+                // exception type alone would not say which write lost.
+                _logger.LogWarning(
+                    exception,
+                    "Vocabulary request rejected with status {StatusCode}: the database was busy",
+                    statusCode);
+
+                // The caller can retry this one, and nothing else in the
+                // envelope distinguishes a temporary failure from a permanent
+                // one.
+                context.Response.Headers.RetryAfter = "1";
+            }
             else
             {
                 _logger.LogWarning(
@@ -53,6 +68,7 @@ public sealed class VocabularyExceptionMiddleware
             ResourceNotFoundException => (StatusCodes.Status404NotFound, exception.Message),
             ConflictException => (StatusCodes.Status409Conflict, exception.Message),
             BusinessRuleException => (StatusCodes.Status422UnprocessableEntity, exception.Message),
+            StorageBusyException => (StatusCodes.Status503ServiceUnavailable, exception.Message),
             _ => (StatusCodes.Status500InternalServerError, "An unexpected error occurred.")
         };
 }

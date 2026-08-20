@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using Lexarbor.Database;
 using Lexarbor.Database.Entities;
+using Lexarbor.Domain.Exceptions;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 using Lexarbor.Service.Tests.TestInfrastructure;
@@ -200,7 +201,8 @@ public class VocabularyHttpEndpointTests :
             {
                 services.RemoveAll<IVocabularyRepository>();
                 services.AddScoped<IVocabularyRepository>(
-                    _ => new ThrowingVocabularyRepository(secret));
+                    _ => new ThrowingVocabularyRepository(
+                        () => new InvalidOperationException(secret)));
             });
         });
         using var client = factory.CreateClient();
@@ -210,6 +212,31 @@ public class VocabularyHttpEndpointTests :
 
         await AssertFailureAsync(response, HttpStatusCode.InternalServerError);
         Assert.DoesNotContain(secret, await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task StorageBusy_Returns503WithRetryAfter()
+    {
+        using var factory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<IVocabularyRepository>();
+                services.AddScoped<IVocabularyRepository>(
+                    _ => new ThrowingVocabularyRepository(
+                        () => new StorageBusyException("The vocabulary database is busy.")));
+            });
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.GetAsync(
+            "/api/vocabulary?keyword=test&page=1&size=20", TestContext.Current.CancellationToken);
+
+        // A locked database is temporary and the same request works on retry,
+        // so it is neither a 409 about the data nor the 500 it used to fall
+        // through to. Retry-After is the only part of the answer that says so.
+        await AssertFailureAsync(response, HttpStatusCode.ServiceUnavailable);
+        Assert.Equal(TimeSpan.FromSeconds(1), response.Headers.RetryAfter?.Delta);
     }
 
     [Fact]
@@ -358,11 +385,11 @@ public class VocabularyHttpEndpointTests :
 
     private sealed class ThrowingVocabularyRepository : IVocabularyRepository
     {
-        private readonly string _message;
+        private readonly Func<Exception> _exceptionFactory;
 
-        public ThrowingVocabularyRepository(string message)
+        public ThrowingVocabularyRepository(Func<Exception> exceptionFactory)
         {
-            _message = message;
+            _exceptionFactory = exceptionFactory;
         }
 
         public Task<(List<VocabularyModel> Items, int TotalCount)> SearchAsync(
@@ -370,7 +397,7 @@ public class VocabularyHttpEndpointTests :
             int page,
             int size)
         {
-            throw new InvalidOperationException(_message);
+            throw _exceptionFactory();
         }
 
         public Task<VocabularyModel?> GetByIdAsync(string id) => throw Unused();
