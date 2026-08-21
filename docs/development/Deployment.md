@@ -155,6 +155,7 @@ The administration UI submits a username and password to Lexarbor. The backend e
 | `LEXARBOR_IDENTITY_AUTHORITY` | not supplied | `IdentityService:Authority` |
 | `LEXARBOR_IDENTITY_ISSUER` | Authority when Authority is explicitly supplied | `IdentityService:Issuer` |
 | `LEXARBOR_IDENTITY_AUDIENCE` | not supplied | `IdentityService:Audience` |
+| `LEXARBOR_REQUIRE_HTTPS_METADATA` | required outside Development | `IdentityService:RequireHttpsMetadata` |
 | `LEXARBOR_ADMIN_AUTH_PROVIDER` | not supplied | `AdminAuthentication:Provider` |
 | `LEXARBOR_OIDC_TOKEN_ENDPOINT` | not supplied | `AdminAuthentication:Oidc:TokenEndpoint` |
 | `LEXARBOR_OIDC_CLIENT_ID` | not supplied | `AdminAuthentication:Oidc:ClientId` |
@@ -163,6 +164,8 @@ The administration UI submits a username and password to Lexarbor. The backend e
 | `LEXARBOR_COOKIE_SECURE` | not supplied | `AdminAuthentication:CookieSecure` |
 
 When these variables are not supplied, values come from the persistent file and ultimately from the image defaults. The validated token must contain `role=admin` by default. Override `AdminAuthentication__RequiredRole` to use another role. Set `LEXARBOR_COOKIE_SECURE=true` whenever the browser accesses Lexarbor over HTTPS. Missing credential-provider settings do not prevent startup; administration login returns 503 until configured.
+
+`LEXARBOR_REQUIRE_HTTPS_METADATA` decides whether the provider's signing metadata may be fetched over plain HTTP. It is required unless the environment is Development or the authority is a loopback address, so an `http://` authority pointing at another host stops the container at startup with a message naming the setting, rather than starting and answering 500 on every administration request. Loopback is exempt because there is no network path to rewrite, and because the image's placeholder authority is a loopback one: a container that has not been given an identity provider still starts and serves its public API. The keys served from that address decide every administration authorization, so anyone able to rewrite the response can mint an administrator token; setting this to `false` is a statement that the network path to the provider is trusted. It is deliberately absent from the image's `appsettings.json`: writing a value there would freeze it into the persistent file on first start and take the environment out of the decision. Whichever way it resolves, the startup log says so — at information when metadata is required and at warning when it is not.
 
 Example:
 
