@@ -31,7 +31,7 @@ npm ci
 npm run dev
 ```
 
-The API listens on `http://localhost:5008`; the Vite development server listens on `http://localhost:5175` and proxies administration requests to the API. On first startup Lexarbor creates `src/Lexarbor.Host/data/vocabulary.db` and imports the bundled starter book.
+The API listens on `http://localhost:5008`; the Vite development server listens on `http://localhost:5175` and proxies both the administration and the public API routes to it. On first startup Lexarbor creates `src/Lexarbor.Host/data/vocabulary.db` and imports the bundled starter book.
 
 ## Run with Docker
 

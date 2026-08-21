@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
-import { getBooks } from '@/services/bookApi'
+import { getActiveBooks } from '@/services/bookApi'
 import { addVocabulary } from '@/services/vocabularyApi'
 import { getApiError } from '@/services/apiError'
 import type { Book } from '@/types'
@@ -33,8 +33,8 @@ const partOfSpeechOptions = [
 
 async function loadBooks() {
   try {
-    const data = await getBooks()
-    books.value = data.items
+    const data = await getActiveBooks()
+    books.value = data.books
   } catch (error: unknown) {
     ElMessage.error(getApiError(error).message)
   }

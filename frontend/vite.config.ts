@@ -23,6 +23,14 @@ export default defineConfig({
       '/admin': {
         target: 'http://localhost:5008',
         changeOrigin: true
+      },
+      // The administration app reads the public catalogue too: the import
+      // page's book picker wants every enabled book, which is what
+      // /api/vocabulary-books/all answers. Same origin once built, so this
+      // proxy is what makes the dev server match production.
+      '/api': {
+        target: 'http://localhost:5008',
+        changeOrigin: true
       }
     }
   },
