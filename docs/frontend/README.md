@@ -68,6 +68,7 @@ Components use `catch (error: unknown)` with the shared conversion function, nev
 - The administration list contains both enabled and disabled books.
 - Deleting a book that still has meanings answers 409, which prompts the administrator to disable it.
 - Word import keeps the book, word, British phonetic, American phonetic, part of speech, definition, and example sentence fields.
+- The import page's book picker reads `GET /api/vocabulary-books/all`, which is unpaged and enabled-only. The paged administration search is the wrong source for a picker: called with no paging parameters it answers 400, and called with them it answers one page, so a deployment with more than one page of books would silently lose the rest. The administration list also offers disabled books, which the import endpoint then refuses with a 422.
 - Both existing features must remain usable after a successful login.
 
 ## Build
