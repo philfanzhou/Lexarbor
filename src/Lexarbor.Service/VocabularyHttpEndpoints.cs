@@ -75,8 +75,8 @@ public static partial class VocabularyHttpEndpoints
 
     private static async Task<IResult> SearchVocabulary(
         [FromQuery] string? keyword,
-        [FromQuery] int page,
-        [FromQuery] int size,
+        [FromQuery] int? page,
+        [FromQuery] int? size,
         VocabularyDomainService vocabularyService)
     {
         if (string.IsNullOrWhiteSpace(keyword))
@@ -215,8 +215,8 @@ public static partial class VocabularyHttpEndpoints
 
     private static async Task<IResult> SearchBooks(
         [FromQuery] string? keyword,
-        [FromQuery] int page,
-        [FromQuery] int size,
+        [FromQuery] int? page,
+        [FromQuery] int? size,
         VocabularyBookDomainService bookService)
     {
         var paging = NormalizePaging(page, size);
@@ -295,8 +295,15 @@ public static partial class VocabularyHttpEndpoints
         return VocabularyHttpResponse.Ok(result);
     }
 
+    // Paged like the other two list endpoints. It used to return every word in
+    // the book in one response, with no ceiling a caller could set and none the
+    // server imposed, so the response grew with the book: 20,000 words took 255
+    // ms and materialised an entity and a DTO for each of them before
+    // serialising the lot. A book is the thing this service exists to let grow.
     private static async Task<IResult> GetBookWords(
         string id,
+        [FromQuery] int? page,
+        [FromQuery] int? size,
         VocabularyBookDomainService bookService)
     {
         if (string.IsNullOrWhiteSpace(id))
@@ -304,9 +311,17 @@ public static partial class VocabularyHttpEndpoints
             return VocabularyHttpResponse.BadRequest("BookId is required.");
         }
 
-        var result = new VocabularyListResponse();
-        result.Words.AddRange(
-            (await bookService.GetWordsAsync(id)).Select(word => word.ToDto()));
+        var paging = NormalizePaging(page, size);
+        var (words, totalCount) = await bookService.GetWordsAsync(
+            id,
+            paging.Page,
+            paging.Size);
+        var result = new VocabularyPageResponse
+        {
+            TotalPage = (int)Math.Ceiling(totalCount / (double)paging.Size),
+            TotalCount = totalCount
+        };
+        result.Items.AddRange(words.Select(word => word.ToDto()));
         return VocabularyHttpResponse.Ok(result);
     }
 
@@ -323,10 +338,21 @@ public static partial class VocabularyHttpEndpoints
         return VocabularyHttpResponse.Ok(new BoolResponse { Success = true });
     }
 
-    private static (int Page, int Size) NormalizePaging(int page, int size)
+    /// <summary>
+    /// Resolves the paging a list endpoint was asked for.
+    /// </summary>
+    /// <remarks>
+    /// The parameters are nullable because they are optional, and they were not:
+    /// bound as plain integers with ThrowOnBadRequest set, a request that omitted
+    /// them was rejected as malformed rather than taking the documented defaults,
+    /// so "a missing page is treated as 1" held for <c>page=0</c> and not for a
+    /// request with no query string at all. That is the shape a caller reaches
+    /// for first, and the 400 it got said only "The request is invalid."
+    /// </remarks>
+    private static (int Page, int Size) NormalizePaging(int? requestedPage, int? requestedSize)
     {
-        page = page == 0 ? 1 : page;
-        size = size == 0 ? 20 : size;
+        var page = requestedPage is null or 0 ? 1 : requestedPage.Value;
+        var size = requestedSize is null or 0 ? 20 : requestedSize.Value;
         if (page < 1 ||
             size < 1 ||
             size > 100 ||

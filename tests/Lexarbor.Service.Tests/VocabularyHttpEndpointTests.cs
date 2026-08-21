@@ -272,6 +272,81 @@ public class VocabularyHttpEndpointTests :
         await AssertFailureAsync(response, HttpStatusCode.NotFound);
     }
 
+    // GET /admin/vocabulary-books/{id}/words returned every word in the book in
+    // one response, with no ceiling a caller could set and none the server
+    // imposed. It is paged like the other two list endpoints now.
+    [Fact]
+    public async Task BookWords_ReturnsOnePageAndTheTotal()
+    {
+        var (bookId, _) = await SeedBookAsync(distractorCount: 4);
+        using var client = CreateAdminClient();
+
+        var firstPage = await GetBookWordsAsync(client, bookId, "?page=1&size=2");
+        var secondPage = await GetBookWordsAsync(client, bookId, "?page=2&size=2");
+        var lastPage = await GetBookWordsAsync(client, bookId, "?page=3&size=2");
+
+        Assert.Equal(5, firstPage.GetProperty("totalCount").GetInt32());
+        Assert.Equal(3, firstPage.GetProperty("totalPage").GetInt32());
+        Assert.Equal(2, firstPage.GetProperty("items").GetArrayLength());
+        Assert.Equal(2, secondPage.GetProperty("items").GetArrayLength());
+        Assert.Equal(1, lastPage.GetProperty("items").GetArrayLength());
+
+        // Paging is only useful if the pages partition the book. The ordering key
+        // is the word, which is unique, so nothing may repeat across pages.
+        var words = new[] { firstPage, secondPage, lastPage }
+            .SelectMany(page => page.GetProperty("items").EnumerateArray())
+            .Select(item => item.GetProperty("word").GetString())
+            .ToList();
+        Assert.Equal(5, words.Distinct(StringComparer.Ordinal).Count());
+    }
+
+    // "A missing page is treated as 1" held for page=0 and not for a request that
+    // left the parameter out, because a plain int parameter with ThrowOnBadRequest
+    // set is required. All three list endpoints took the same shape and gave the
+    // same 400 for the request a caller reaches for first.
+    [Theory]
+    [InlineData("/admin/vocabulary-books")]
+    [InlineData("/api/vocabulary?keyword=a")]
+    public async Task ListEndpoints_WithoutPagingParameters_AnswerTheFirstPage(string path)
+    {
+        using var client = CreateAdminClient();
+
+        var response = await client.GetAsync(path, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var body = JsonDocument.Parse(
+            await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        Assert.True(body.RootElement.GetProperty("success").GetBoolean());
+        Assert.True(body.RootElement.GetProperty("data").TryGetProperty("items", out _));
+    }
+
+    [Fact]
+    public async Task BookWords_WithoutPagingParameters_UsesTheSharedDefaults()
+    {
+        var (bookId, _) = await SeedBookAsync(distractorCount: 2);
+        using var client = CreateAdminClient();
+
+        var page = await GetBookWordsAsync(client, bookId, string.Empty);
+
+        Assert.Equal(3, page.GetProperty("totalCount").GetInt32());
+        Assert.Equal(3, page.GetProperty("items").GetArrayLength());
+    }
+
+    [Theory]
+    [InlineData("?page=-1&size=20")]
+    [InlineData("?page=1&size=101")]
+    public async Task BookWords_InvalidPaging_Returns400Envelope(string query)
+    {
+        var (bookId, _) = await SeedBookAsync(distractorCount: 0);
+        using var client = CreateAdminClient();
+
+        var response = await client.GetAsync(
+            $"/admin/vocabulary-books/{bookId}/words{query}",
+            TestContext.Current.CancellationToken);
+
+        await AssertFailureAsync(response, HttpStatusCode.BadRequest);
+    }
+
     [Fact]
     public async Task Health_IsAnonymousAndUsesEnvelope()
     {
@@ -309,6 +384,21 @@ public class VocabularyHttpEndpointTests :
         // Cloned because the JsonDocument backing it is disposed on return.
         using var body = JsonDocument.Parse(
             await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        return body.RootElement.GetProperty("data").Clone();
+    }
+
+    private static async Task<JsonElement> GetBookWordsAsync(
+        HttpClient client,
+        string bookId,
+        string query)
+    {
+        var response = await client.GetAsync(
+            $"/admin/vocabulary-books/{bookId}/words{query}",
+            TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var body = JsonDocument.Parse(
+            await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        Assert.True(body.RootElement.GetProperty("success").GetBoolean());
         return body.RootElement.GetProperty("data").Clone();
     }
 
