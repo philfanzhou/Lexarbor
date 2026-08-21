@@ -14,6 +14,14 @@ public class VocabularyEntity
     [Column("word")]
     public string Word { get; set; } = string.Empty;
 
+    /// <summary>
+    /// <c>lower(trim(word))</c>, maintained by SQLite. The value a lookup by
+    /// normalized word compares against, so that the comparison lands on an
+    /// indexed column instead of on an expression the planner cannot use.
+    /// </summary>
+    [Column("normalized_word")]
+    public string NormalizedWord { get; private set; } = string.Empty;
+
     [Column("phonetic_uk")]
     public string? PhoneticUk { get; set; }
 

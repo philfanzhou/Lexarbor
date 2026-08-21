@@ -221,7 +221,7 @@ VocabularyBook 1 ─── * VocabularyMeaning * ─── 1 Vocabulary
 
 ### 7.2 A single initial migration
 
-The service has not shipped and there is no existing PostgreSQL data, so the migration history is rebuilt as one SQLite `InitialCreate`. A new database gets the non-nullable `book_id`, both foreign keys, the delete behaviours, the query indexes, the British and American phonetic columns, and the equivalent-meaning unique index directly. The EF Core model, the migration, and the model snapshot must stay in agreement.
+The service has not shipped and there is no existing PostgreSQL data, so the migration history is rebuilt starting from one SQLite `InitialCreate`. A new database gets the non-nullable `book_id`, both foreign keys, the delete behaviours, the query indexes, the British and American phonetic columns, and the equivalent-meaning unique index directly. The EF Core model, the migration, and the model snapshot must stay in agreement.
 
 At startup the database file's existence is checked before migrating. When the file is absent, the 300-word starter book is written from the embedded TSV in one transaction after migrating; when the file exists it is migrated only and the seed is not written again.
 
@@ -239,6 +239,7 @@ normalizedWord = word.Trim().ToLowerInvariant()
 - A new word is stored in its normalized form.
 - Lookups use the equivalent database expression, so `Apple`, ` apple `, and `APPLE` cannot be imported as duplicates.
 - A unique index protects newly written normalized words.
+- The lookup by normalized word compares against the generated `normalized_word` column, which carries `lower(trim(word))` and an index. Writing the expression into the predicate instead puts a function around the column, which SQLite answers by reading every row -- once per imported word, while the process-wide write lock is held.
 - The word DTO uses the two nullable strings `phoneticUk` and `phoneticUs`; the old `phonetic` field is neither accepted nor returned.
 
 ### 8.2 Create and update semantics

@@ -1,6 +1,6 @@
 # Vocabulary database
 
-Vocabulary supports SQLite only. The default database file is `data/vocabulary.db`, and the EF Core model together with a single `InitialCreate` migration describes the complete schema. The service has not shipped, so no legacy PostgreSQL migration chain is kept.
+Vocabulary supports SQLite only. The default database file is `data/vocabulary.db`, and the EF Core model together with the migrations under `src/Lexarbor.Database/Migrations` describes the complete schema. The service has not shipped, so no legacy PostgreSQL migration chain is kept.
 
 ## Core relationships
 
@@ -10,7 +10,7 @@ vocabulary_book (1) <-[RESTRICT]- vocabulary_meaning -[CASCADE]-> (1) vocabulary
 
 | Table | Responsibility | Key constraints |
 |----|------|----------|
-| `vocabulary` | Words with British and American phonetics | `word` is unique; `phonetic_uk` and `phonetic_us` are nullable |
+| `vocabulary` | Words with British and American phonetics | `word` is unique; `normalized_word` is generated and indexed; `phonetic_uk` and `phonetic_us` are nullable |
 | `vocabulary_book` | Book metadata and enabled state | `status=false` means disabled |
 | `vocabulary_meaning` | A word's meaning within one book | Both foreign keys are required; the normalized logical key is unique |
 
@@ -42,7 +42,7 @@ The database file must live on a persistent volume. Docker mounts the host's `da
 - A new meaning must reference a book that exists and is enabled.
 - When an update carries a word, book, or meaning ID and that object does not exist, the answer is 404; it must never become an insert.
 - Updating a meaning must confirm the meaning belongs to the current word and book.
-- The normalized value of a word is `word.Trim().ToLowerInvariant()`.
+- The normalized value of a word is `word.Trim().ToLowerInvariant()`. The database keeps the same expression as the generated column `normalized_word` (`lower(trim(word))`), and the lookup that resolves an import to an existing word compares against it, so the comparison is an index seek rather than a scan of the table. The column is virtual rather than stored, because SQLite refuses `ALTER TABLE ... ADD COLUMN` for a stored generated column and the column has to be addable to a database that already exists; the index holds the computed value either way. It carries no unique constraint: asserting one would fail on a database that already holds two spellings of one word.
 - Re-importing the same word, book, normalized part of speech, and definition is idempotent.
 - A SQLite deployment is single-instance only; a process-level write transaction lock serializes administrative writes, and the database's unique index is the last line of defence.
 - `UnitOfWork` maps SQLite constraint errors to 409 and never exposes the internal error to the client.
