@@ -26,19 +26,18 @@ function json(route: Route, data: unknown, status = 200) {
   })
 }
 
+/** The public catalogue endpoint the book picker reads. */
+const booksRoute = /\/api\/vocabulary-books\/all$/
+
 /**
  * The import page needs an administrator session and the book list that fills
  * its first select. Everything else is per-test, because what these tests are
  * about is how one POST response is presented.
  */
-async function openImportPage(page: Page) {
+async function openImportPage(page: Page, books = [starterBook]) {
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: true, data: admin }))
-  await page.route(/\/admin\/vocabulary-books(?:\?.*)?$/, (route) =>
-    json(route, {
-      success: true,
-      data: { items: [starterBook], totalCount: 1, totalPage: 1 }
-    }))
+  await page.route(booksRoute, (route) => json(route, { success: true, data: { books } }))
 
   await page.goto('/#/import')
   await expect(page.locator('.session')).toContainText(admin.username)
@@ -221,7 +220,7 @@ test('reports a failure envelope returned with a 200', async ({ page }) => {
 test('surfaces a failure to load the book list', async ({ page }) => {
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: true, data: admin }))
-  await page.route(/\/admin\/vocabulary-books(?:\?.*)?$/, (route) =>
+  await page.route(booksRoute, (route) =>
     json(route, { success: false, message: 'Books are unavailable.' }, 500))
 
   await page.goto('/#/import')
@@ -229,4 +228,48 @@ test('surfaces a failure to load the book list', async ({ page }) => {
   // Without this the select is simply empty, which reads as "no books exist"
   // rather than "the list could not be loaded".
   await expect(page.locator('.el-message--error')).toContainText('Books are unavailable.')
+})
+
+test('offers every book, past the page the administration search would have returned', async ({ page }) => {
+  const books = Array.from({ length: 25 }, (_, index) => ({
+    ...starterBook,
+    id: `book-${index + 1}`,
+    bookName: `CI Book ${index + 1}`,
+    displayOrder: index + 1
+  }))
+  let importPayload: { meaning?: { bookId?: string } } | undefined
+
+  await openImportPage(page, books)
+  await page.route(/\/admin\/vocabulary$/, async (route) => {
+    if (route.request().method() !== 'POST') {
+      return route.fallback()
+    }
+
+    importPayload = route.request().postDataJSON()
+    return json(route, { success: true, data: { success: true } })
+  })
+
+  await page.locator('.el-form-item').first().locator('.el-select').click()
+  // Scoped by name because the form has a second select, for part of speech,
+  // whose options share the class.
+  const bookOptions = page.locator('.el-select-dropdown__item', {
+    hasText: /^\s*CI Book \d+\s*$/
+  })
+  await expect(bookOptions).toHaveCount(25)
+
+  const lastBook = bookOptions.filter({ hasText: /^\s*CI Book 25\s*$/ })
+  await lastBook.scrollIntoViewIfNeeded()
+  await lastBook.click()
+  await page.getByPlaceholder('如：apple').fill('apple')
+  await page.getByPlaceholder('如：苹果').fill('苹果')
+  await submit(page)
+
+  // The picker used to read the paged administration search with no paging
+  // parameters at all, which that endpoint rejects as a malformed request, so
+  // against a real server the select was empty and the page showed "The request
+  // is invalid." Supplying a page would have replaced that with a silently short
+  // list, which is why the picker reads an unpaged endpoint rather than a
+  // corrected call. Asserting the import carries the twenty-fifth book rather
+  // than that the option exists is the difference between listed and usable.
+  await expect.poll(() => importPayload?.meaning?.bookId).toBe('book-25')
 })
