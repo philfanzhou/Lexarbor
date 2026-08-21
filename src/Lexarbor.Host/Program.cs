@@ -81,13 +81,6 @@ builder.Services.Configure<RouteHandlerOptions>(options =>
     options.ThrowOnBadRequest = true;
 });
 
-var identityOptions = builder.Configuration
-    .GetSection(IdentityServiceOptions.SectionName)
-    .Get<IdentityServiceOptions>() ?? new IdentityServiceOptions();
-var adminAuthenticationOptions = builder.Configuration
-    .GetSection(AdminAuthenticationOptions.SectionName)
-    .Get<AdminAuthenticationOptions>() ?? new AdminAuthenticationOptions();
-
 builder.Services.Configure<IdentityServiceOptions>(
     builder.Configuration.GetSection(IdentityServiceOptions.SectionName));
 builder.Services.Configure<AdminAuthenticationOptions>(
@@ -136,63 +129,77 @@ builder.Services.AddScoped<AdminAccessTokenValidator>();
 
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
-        options.Authority = identityOptions.Authority;
-        options.Audience = identityOptions.Audience;
-        options.RequireHttpsMetadata = false;
-        options.MapInboundClaims = false;
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidIssuer = identityOptions.Issuer,
-            ValidateAudience = true,
-            ValidAudience = identityOptions.Audience,
-            ValidateLifetime = true,
-            ClockSkew = TimeSpan.FromSeconds(30),
-            RoleClaimType = ClaimTypes.Role,
-            NameClaimType = ClaimTypes.Name
-        };
-        options.Events = new JwtBearerEvents
-        {
-            OnMessageReceived = context =>
-            {
-                var authorization = context.Request.Headers.Authorization.ToString();
-                if (!authorization.StartsWith(
-                        "Bearer ",
-                        StringComparison.OrdinalIgnoreCase) &&
-                    context.Request.Cookies.TryGetValue(
-                        adminAuthenticationOptions.CookieName,
-                        out var cookieToken))
-                {
-                    context.Token = cookieToken;
-                }
+    .AddJwtBearer();
 
-                return Task.CompletedTask;
-            },
-            OnChallenge = async context =>
+// Configured from the resolved options rather than from the configuration read
+// above, for the reason given at the provider switch: a value a test host
+// supplies is not on builder.Configuration yet, so the issuer, audience and
+// metadata settings this scheme trusts could not be exercised by a test. A
+// deployment sees no difference -- appsettings, the persisted file, environment
+// variables and the command line are all composed before this runs -- but the
+// settings are now the ones that actually took effect.
+builder.Services
+    .AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
+    .Configure<IOptions<IdentityServiceOptions>, IOptions<AdminAuthenticationOptions>, IHostEnvironment>(
+        (options, identity, adminAuthentication, environment) =>
+        {
+            var identityService = identity.Value;
+            options.Authority = identityService.Authority;
+            options.Audience = identityService.Audience;
+            options.RequireHttpsMetadata =
+                RequiresHttpsMetadata(identityService, environment);
+            options.MapInboundClaims = false;
+            options.TokenValidationParameters = new TokenValidationParameters
             {
-                context.HandleResponse();
-                if (!context.Response.HasStarted)
-                {
-                    await VocabularyHttpResponse.WriteFailureAsync(
-                        context.Response,
-                        StatusCodes.Status401Unauthorized,
-                        "Authentication is required.");
-                }
-            },
-            OnForbidden = async context =>
+                ValidateIssuer = true,
+                ValidIssuer = identityService.Issuer,
+                ValidateAudience = true,
+                ValidAudience = identityService.Audience,
+                ValidateLifetime = true,
+                ClockSkew = TimeSpan.FromSeconds(30),
+                RoleClaimType = ClaimTypes.Role,
+                NameClaimType = ClaimTypes.Name
+            };
+            options.Events = new JwtBearerEvents
             {
-                if (!context.Response.HasStarted)
+                OnMessageReceived = context =>
                 {
-                    await VocabularyHttpResponse.WriteFailureAsync(
-                        context.Response,
-                        StatusCodes.Status403Forbidden,
-                        "Administrator role is required.");
+                    var authorization = context.Request.Headers.Authorization.ToString();
+                    if (!authorization.StartsWith(
+                            "Bearer ",
+                            StringComparison.OrdinalIgnoreCase) &&
+                        context.Request.Cookies.TryGetValue(
+                            adminAuthentication.Value.CookieName,
+                            out var cookieToken))
+                    {
+                        context.Token = cookieToken;
+                    }
+
+                    return Task.CompletedTask;
+                },
+                OnChallenge = async context =>
+                {
+                    context.HandleResponse();
+                    if (!context.Response.HasStarted)
+                    {
+                        await VocabularyHttpResponse.WriteFailureAsync(
+                            context.Response,
+                            StatusCodes.Status401Unauthorized,
+                            "Authentication is required.");
+                    }
+                },
+                OnForbidden = async context =>
+                {
+                    if (!context.Response.HasStarted)
+                    {
+                        await VocabularyHttpResponse.WriteFailureAsync(
+                            context.Response,
+                            StatusCodes.Status403Forbidden,
+                            "Administrator role is required.");
+                    }
                 }
-            }
-        };
-    });
+            };
+        });
 builder.Services.AddSingleton<IAuthorizationHandler, AdminRoleHandler>();
 builder.Services.AddAuthorization(options =>
 {
@@ -243,6 +250,44 @@ else
         "Rate limits partition on the connecting address. Behind a reverse proxy, set Network:TrustedProxies or Network:TrustedNetworks or every client will share one partition.");
 }
 
+// Checked at startup rather than left to the first request that needs it: a
+// metadata address the bearer scheme refuses is a failure to start, not a 500 on
+// every administration request while the deployment reports itself healthy.
+var effectiveIdentityOptions = app.Services
+    .GetRequiredService<IOptions<IdentityServiceOptions>>().Value;
+if (RequiresHttpsMetadata(effectiveIdentityOptions, app.Environment))
+{
+    // Checked here rather than left to the bearer scheme, which raises the same
+    // refusal but names a property instead of the setting an operator would
+    // change.
+    if (!string.IsNullOrWhiteSpace(effectiveIdentityOptions.Authority) &&
+        !effectiveIdentityOptions.Authority.StartsWith(
+            "https://",
+            StringComparison.OrdinalIgnoreCase))
+    {
+        throw new InvalidOperationException(
+            $"IdentityService:Authority is '{effectiveIdentityOptions.Authority}', which does not use HTTPS. " +
+            "The signing keys published there decide every administration authorization, so anyone able to " +
+            "rewrite that response can issue itself an administrator token. Configure an https authority, or " +
+            "set IdentityService:RequireHttpsMetadata to false to accept this one.");
+    }
+
+    app.Logger.LogInformation(
+        "Identity signing metadata is required over HTTPS from {Authority}",
+        effectiveIdentityOptions.Authority);
+}
+else
+{
+    // Logged at warning for the same reason a disabled rate limit is: the keys
+    // served from this address decide every administration authorization, so a
+    // caller able to rewrite the response can issue itself an administrator
+    // token. That is acceptable against a local provider and nowhere else, and
+    // it must not be a quiet state.
+    app.Logger.LogWarning(
+        "Identity signing metadata is accepted over plain HTTP from {Authority}. Anyone able to rewrite that response can mint an administrator token. Point IdentityService:Authority at an https address for any provider that is not on this host.",
+        effectiveIdentityOptions.Authority);
+}
+
 void LogRateLimit(string name, RateLimitPolicyOptions policy)
 {
     if (policy.Enabled)
@@ -268,7 +313,8 @@ if (!app.Environment.IsDevelopment() &&
     {
         app.Logger.LogError(
             "Administrator login is not configured because the {Provider} provider is missing credentials. The service will continue running.",
-            adminAuthenticationOptions.Provider);
+            credentialScope.ServiceProvider
+                .GetRequiredService<IOptions<AdminAuthenticationOptions>>().Value.Provider);
     }
 }
 
@@ -345,6 +391,36 @@ app.Run();
 // Reached when the host shuts down. Present because the health check path above
 // returns a status, which makes this an int-returning entry point.
 return 0;
+
+/// <summary>
+/// Whether the identity provider's signing metadata may only be fetched over
+/// HTTPS. The previous value was a hardcoded false with no way for a deployment
+/// to say otherwise.
+/// </summary>
+static bool RequiresHttpsMetadata(
+    IdentityServiceOptions identityService,
+    IHostEnvironment environment)
+{
+    if (identityService.RequireHttpsMetadata.HasValue)
+    {
+        return identityService.RequireHttpsMetadata.Value;
+    }
+
+    if (environment.IsDevelopment() || environment.IsEnvironment("Testing"))
+    {
+        return false;
+    }
+
+    // What the requirement protects is a network path an attacker could rewrite,
+    // and loopback is not one. Exempting it also keeps a container that has not
+    // been given an identity provider starting and serving its public API: the
+    // image's placeholder authority is http://localhost:8080, and refusing to
+    // start over an unconfigured administration login would be a harsher answer
+    // than the one absent provider credentials already get, which is to log and
+    // return 503 from the login endpoint.
+    return !(Uri.TryCreate(identityService.Authority, UriKind.Absolute, out var authority)
+             && authority.IsLoopback);
+}
 
 static string BuildSqliteConnectionString(
     string? configuredConnectionString,
