@@ -89,12 +89,15 @@ public class VocabularyBookDomainService
         await _unitOfWork.SaveChangesAsync();
     }
 
-    public async Task<List<VocabularyModel>> GetWordsAsync(string bookId)
+    public async Task<(List<VocabularyModel> Items, int TotalCount)> GetWordsAsync(
+        string bookId,
+        int page,
+        int size)
     {
         _ = await _bookRepository.GetByIdAsync(bookId)
             ?? throw new ResourceNotFoundException("Vocabulary book was not found.");
 
-        return await _bookRepository.GetWordsAsync(bookId);
+        return await _bookRepository.GetWordsAsync(bookId, page, size);
     }
 
     public Task<List<string>> GetAllCategoriesAsync()

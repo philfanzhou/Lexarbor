@@ -441,20 +441,36 @@ public class VocabularyBookRepository : IVocabularyBookRepository
             .AnyAsync(meaning => meaning.BookId == bookId);
     }
 
-    public async Task<List<VocabularyModel>> GetWordsAsync(string bookId)
+    /// <summary>
+    /// One page of the distinct words a book contains, in word order.
+    /// </summary>
+    /// <remarks>
+    /// The join this replaced needed DISTINCT over whole vocabulary rows, because
+    /// a word with several definitions in the book joined to several meaning
+    /// rows. SQLite answers that with a temp B-tree over every column of every
+    /// row in the book, and a second one for the ordering. Asking whether any
+    /// meaning links the word to the book instead cannot produce a duplicate in
+    /// the first place, so both disappear, and it is the same shape the word
+    /// search already uses.
+    /// </remarks>
+    public async Task<(List<VocabularyModel> Items, int TotalCount)> GetWordsAsync(
+        string bookId,
+        int page,
+        int size)
     {
-        var entities = await _context.VocabularyMeanings
+        var query = _context.Vocabularies
             .AsNoTracking()
-            .Where(meaning => meaning.BookId == bookId)
-            .Join(
-                _context.Vocabularies.AsNoTracking(),
-                meaning => meaning.VocabularyId,
-                vocabulary => vocabulary.Id,
-                (_, vocabulary) => vocabulary)
-            .Distinct()
+            .Where(vocabulary => _context.VocabularyMeanings.Any(meaning =>
+                meaning.BookId == bookId &&
+                meaning.VocabularyId == vocabulary.Id));
+
+        var totalCount = await query.CountAsync();
+        var entities = await query
             .OrderBy(vocabulary => vocabulary.Word)
+            .Skip((page - 1) * size)
+            .Take(size)
             .ToListAsync();
-        return entities.Adapt<List<VocabularyModel>>();
+        return (entities.Adapt<List<VocabularyModel>>(), totalCount);
     }
 
     public async Task AddAsync(VocabularyBookModel model)
