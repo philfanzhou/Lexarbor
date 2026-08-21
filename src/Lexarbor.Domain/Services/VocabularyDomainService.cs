@@ -37,7 +37,14 @@ public class VocabularyDomainService
         var word = await _vocabularyRepository.GetByIdAsync(vocabularyId)
                    ?? throw new ResourceNotFoundException("Vocabulary word was not found.");
         var meanings = await _meaningRepository.GetByBookAndVocabularyIdAsync(bookId, vocabularyId);
-        meanings = meanings.OrderBy(meaning => meaning.PartOfSpeech).ToList();
+        // Ordinal, and with the definition as a tiebreak, so that the order is a
+        // total one and is the same on every machine. The default string
+        // comparer orders by the current culture, which made the sequence a
+        // property of the host's locale rather than of the data.
+        meanings = meanings
+            .OrderBy(meaning => meaning.PartOfSpeech, StringComparer.Ordinal)
+            .ThenBy(meaning => meaning.Meaning, StringComparer.Ordinal)
+            .ToList();
         return (word, meanings);
     }
 
@@ -87,9 +94,20 @@ public class VocabularyDomainService
         bool chineseToEnglish)
     {
         var (word, meanings) = await GetDetailAsync(wordId, bookId);
-        var correctMeaning = meanings.FirstOrDefault()
-                             ?? throw new ResourceNotFoundException(
-                                 "Vocabulary meaning was not found in the requested book.");
+        if (meanings.Count == 0)
+        {
+            throw new ResourceNotFoundException(
+                "Vocabulary meaning was not found in the requested book.");
+        }
+
+        // Drawn rather than taken from the front of the list. A word carries one
+        // definition per part of speech in a book, and taking the first left
+        // every definition but one unaskable: the request carries no way to name
+        // a definition, so for a word with more than one sense the second and
+        // later senses could never be the subject of a question in either
+        // direction. Which one is asked is now a property of the draw, and the
+        // exclusions below all key off the definition that was drawn.
+        var correctMeaning = meanings[Random.Shared.Next(meanings.Count)];
 
         List<VocabularyQuestionOptionModel> options;
         string questionText;

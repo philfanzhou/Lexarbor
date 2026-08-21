@@ -277,7 +277,7 @@ normalizedWord = word.Trim().ToLowerInvariant()
 `POST /api/vocabulary/question` keeps its request and response DTOs and generates a four-option question by these rules:
 
 1. The target book must exist and be enabled.
-2. The target word must exist and must have at least one meaning in the target book.
+2. The target word must exist and must have at least one meaning in the target book. "The current meaning" below is drawn at random from those meanings. The request carries no way to name one, so taking the first instead would leave every sense but one unaskable: a word with a noun and a verb definition in the same book could only ever be asked about the noun.
 3. Chinese to English:
    - the stem is the current meaning;
    - the correct answer is the current word;
@@ -306,6 +306,7 @@ The window can come back short -- the book may genuinely be near the end of its 
 - Keyword matching is case-insensitive. It uses SQLite's `LIKE`, whose default case folding covers ASCII, which is the same folding `lower()` gives the normalization and question queries. `%`, `_`, and the escape character are escaped in the keyword and matched literally, so a keyword can never widen its own search. Case outside ASCII is not folded: `CAFÉ` does not find `café`. Folding the rest of Unicode would need FTS5 or an ICU build and is not done.
 - Categories, education levels, grades, and grades by education level perform their filtering and deduplication on the database side.
 - The words in a book are selected as distinct words through the meaning relationship on the database side, rather than loading every meaning and then looking words up.
+- The detail response orders a word's meanings by part of speech and then by definition, both ordinally. The order is total and identical on every host; ordering by the default string comparer would have made it a property of the server's locale.
 - An administration query may reach disabled books; a public query can only read through an enabled book's relationships.
 
 ## 12. Shared error handling
@@ -432,6 +433,8 @@ The existing features, fields, and Vite build of book management and word import
 - English-to-Chinese distractor definitions come only from the current book.
 - Distractors never contain the correct answer.
 - A word with several meanings does not produce duplicate distractor options.
+- Every sense of a word with several meanings is reachable as the subject of a question, in both directions.
+- The distractor exclusions follow the sense that was drawn, not the first one.
 - Data from different books never pollutes another book.
 - Fewer than three valid distractor words answers 422.
 
