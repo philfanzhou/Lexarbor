@@ -82,7 +82,7 @@ SDK no longer supports running xUnit v3 under VSTest. The conventions that follo
 | GetAllEducationLevelsAsync | Returns the deduplicated education level list |
 | GetAllGradesAsync | Returns the deduplicated grade list |
 | GetGradesByEducationLevelAsync | Filters grades by education level |
-| GetWordsAsync | Returns the deduplicated word list for a bookId, sorted by word |
+| GetWordsAsync | Returns one page of a book's distinct words, sorted by word, with the total word count |
 
 ### Database model and migrations
 

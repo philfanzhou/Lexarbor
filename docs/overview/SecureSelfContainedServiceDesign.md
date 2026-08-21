@@ -202,7 +202,7 @@ GET    /admin/vocabulary-books/categories
 GET    /admin/vocabulary-books/education-levels
 GET    /admin/vocabulary-books/grades
 GET    /admin/vocabulary-books/grades-by-level
-GET    /admin/vocabulary-books/{id}/words
+GET    /admin/vocabulary-books/{id}/words?page&size
 DELETE /admin/vocabulary-books/{id}
 ```
 
@@ -298,14 +298,13 @@ The window can come back short -- the book may genuinely be near the end of its 
 
 ## 11. Queries and paging
 
-- A missing or zero `page` is treated as 1 for compatibility.
-- A missing or zero `size` is treated as 20 for compatibility.
+- A missing or zero `page` is treated as 1, and a missing or zero `size` as 20. The parameters are bound as nullable integers so that this holds for a request with no query string at all; bound as plain integers under `ThrowOnBadRequest`, an omitted parameter was rejected as a malformed request rather than taking the default, which made the rule true only for an explicit `page=0`.
 - `page<0`, `size<0`, `size>100`, or a value that would overflow the paging arithmetic answers 400.
 - Word search performs its filtering, ordering, counting, and paging on the database side.
 - Book search performs its name and description filtering, ordering, counting, and paging on the database side.
 - Keyword matching is case-insensitive. It uses SQLite's `LIKE`, whose default case folding covers ASCII, which is the same folding `lower()` gives the normalization and question queries. `%`, `_`, and the escape character are escaped in the keyword and matched literally, so a keyword can never widen its own search. Case outside ASCII is not folded: `CAFÉ` does not find `café`. Folding the rest of Unicode would need FTS5 or an ICU build and is not done.
 - Categories, education levels, grades, and grades by education level perform their filtering and deduplication on the database side.
-- The words in a book are selected as distinct words through the meaning relationship on the database side, rather than loading every meaning and then looking words up.
+- The words in a book are paged like the other two list endpoints, and selected on the database side by asking whether any meaning links the word to the book. That cannot produce a duplicate, so it needs no `DISTINCT` over whole rows and neither of the temp B-trees the previous join required. The endpoint used to return every word in the book in one response, with no ceiling a caller could set and none the server imposed.
 - An administration query may reach disabled books; a public query can only read through an enabled book's relationships.
 
 ## 12. Shared error handling
@@ -443,7 +442,13 @@ The existing features, fields, and Vite build of book management and word import
 - An unknown `/api/*` answers a 404 envelope; an unknown `/admin/*` answers 401 for an anonymous request and a 404 envelope for an administrator.
 - The SPA, static files, the login page, and the health check stay anonymously accessible.
 
-### 15.5 Delivery verification commands
+### 15.5 Paging
+
+- Each list endpoint answers the first page when the request carries no paging parameters.
+- The pages of a book's words partition it: nothing repeats and nothing is skipped.
+- A book's word count counts words, not the meaning rows a word may have several of.
+
+### 15.6 Delivery verification commands
 
 ```bash
 dotnet build Lexarbor.sln --configuration Release

@@ -100,7 +100,7 @@ public class VocabularyBookLifecycleTests : TestBase
     public async Task GetWordsAsync_UnknownBook_ThrowsResourceNotFound()
     {
         await Assert.ThrowsAsync<ResourceNotFoundException>(
-            () => _service.GetWordsAsync("missing-book"));
+            () => _service.GetWordsAsync("missing-book", 1, 20));
     }
 
     [Fact]

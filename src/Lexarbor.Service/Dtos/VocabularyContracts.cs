@@ -72,14 +72,6 @@ public class VocabularyBookPageResponse
 }
 
 /// <summary>
-/// Vocabulary list response.
-/// </summary>
-public class VocabularyListResponse
-{
-    public List<VocabularyDto> Words { get; set; } = new();
-}
-
-/// <summary>
 /// Vocabulary book list response.
 /// </summary>
 public class VocabularyBookListResponse
