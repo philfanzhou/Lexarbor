@@ -150,6 +150,30 @@ public class VocabularyDomainServiceTests : TestBase
     }
 
     [Fact]
+    public async Task GetDetailAsync_OrdersMeaningsOrdinallyAndTotally()
+    {
+        var book = await CreateBookAsync();
+        // Seeded in an order that agrees with neither column: the two nouns are
+        // inserted in reverse ordinal order, so an ordering decided by part of
+        // speech alone would leave them in insertion order and fail here.
+        var (createdWord, _) = await _service.AddOrUpdateAsync(
+            new VocabularyModel { Word = "bank" },
+            new VocabularyMeaningModel { BookId = book.Id, PartOfSpeech = "v.", Meaning = "存钱" });
+        await _service.AddOrUpdateAsync(
+            new VocabularyModel { Word = "bank" },
+            new VocabularyMeaningModel { BookId = book.Id, PartOfSpeech = "n.", Meaning = "银行" });
+        await _service.AddOrUpdateAsync(
+            new VocabularyModel { Word = "bank" },
+            new VocabularyMeaningModel { BookId = book.Id, PartOfSpeech = "n.", Meaning = "河岸" });
+
+        var (_, meanings) = await _service.GetDetailAsync(createdWord.Id, book.Id);
+
+        Assert.Equal(
+            [("n.", "河岸"), ("n.", "银行"), ("v.", "存钱")],
+            meanings.Select(meaning => (meaning.PartOfSpeech, meaning.Meaning)));
+    }
+
+    [Fact]
     public async Task GetDetailAsync_NonExistingWord_ThrowsResourceNotFoundException()
     {
         var book = await CreateBookAsync();

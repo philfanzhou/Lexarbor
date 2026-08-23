@@ -378,6 +378,76 @@ public class VocabularyQuestionTests : TestBase
             exception.Message);
     }
 
+    // A word carries one definition per part of speech in a book and the request
+    // carries no way to name one, so the definition the question is about is
+    // drawn. These three cover what that has to get right: every sense reachable
+    // in each direction, and the exclusions following the sense that was drawn
+    // rather than the first one.
+
+    [Fact]
+    public async Task CreateQuestionAsync_EnglishToChinese_AsksEverySenseOfTheWord()
+    {
+        var bank = await SeedMultiSenseBookAsync();
+
+        var asked = new HashSet<string>(StringComparer.Ordinal);
+        for (var attempt = 0; attempt < 60; attempt++)
+        {
+            var question = await _service.CreateQuestionAsync(
+                bank.Word.Id,
+                bank.BookId,
+                chineseToEnglish: false);
+            asked.Add(question.Options.Single(option => option.IsCorrect).Text);
+        }
+
+        Assert.Equal(["money place", "to save"], asked.OrderBy(text => text, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public async Task CreateQuestionAsync_ChineseToEnglish_UsesEverySenseAsTheStem()
+    {
+        var bank = await SeedMultiSenseBookAsync();
+
+        var stems = new HashSet<string>(StringComparer.Ordinal);
+        for (var attempt = 0; attempt < 60; attempt++)
+        {
+            var question = await _service.CreateQuestionAsync(
+                bank.Word.Id,
+                bank.BookId,
+                chineseToEnglish: true);
+            stems.Add(question.Word);
+            Assert.Single(question.Options, option => option.Text == "bank" && option.IsCorrect);
+        }
+
+        Assert.Equal(["money place", "to save"], stems.OrderBy(text => text, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public async Task CreateQuestionAsync_ChineseToEnglish_ExcludesTheSynonymOfTheSenseThatWasDrawn()
+    {
+        var bank = await SeedMultiSenseBookAsync();
+        var synonymOfStem = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["money place"] = "depository",
+            ["to save"] = "hoard"
+        };
+
+        for (var attempt = 0; attempt < 60; attempt++)
+        {
+            var question = await _service.CreateQuestionAsync(
+                bank.Word.Id,
+                bank.BookId,
+                chineseToEnglish: true);
+
+            // Both synonyms are eligible words in this book; only the one that
+            // answers the stem the learner was shown must be withheld. Excluding
+            // by the first sense instead would withhold the wrong one whenever
+            // the second was drawn.
+            Assert.DoesNotContain(
+                question.Options,
+                option => option.Text == synonymOfStem[question.Word]);
+        }
+    }
+
     [Fact]
     public async Task CreateQuestionAsync_DisabledBook_ThrowsBusinessRule()
     {
@@ -416,6 +486,40 @@ public class VocabularyQuestionTests : TestBase
         return new QuestionSeedData(book, correctWord);
     }
 
+    /// <summary>
+    /// One word with two senses, a synonym for each sense, and enough unrelated
+    /// words that either sense leaves four eligible distractors.
+    /// </summary>
+    private async Task<MultiSenseSeedData> SeedMultiSenseBookAsync()
+    {
+        var book = await CreateBookAsync();
+        var bank = await SeedSenseAsync(book.Id, "bank", "n.", "money place");
+        _ = await SeedSenseAsync(book.Id, "bank", "v.", "to save");
+        _ = await SeedSenseAsync(book.Id, "depository", "n.", "money place");
+        _ = await SeedSenseAsync(book.Id, "hoard", "v.", "to save");
+        _ = await SeedSenseAsync(book.Id, "apple", "n.", "red fruit");
+        _ = await SeedSenseAsync(book.Id, "cherry", "n.", "small fruit");
+        _ = await SeedSenseAsync(book.Id, "date", "n.", "sweet fruit");
+        return new MultiSenseSeedData(book.Id, bank);
+    }
+
+    private async Task<VocabularyModel> SeedSenseAsync(
+        string bookId,
+        string word,
+        string partOfSpeech,
+        string meaning)
+    {
+        var (createdWord, _) = await _service.AddOrUpdateAsync(
+            new VocabularyModel { Word = word },
+            new VocabularyMeaningModel
+            {
+                BookId = bookId,
+                PartOfSpeech = partOfSpeech,
+                Meaning = meaning
+            });
+        return createdWord;
+    }
+
     private async Task<VocabularyModel> SeedWordAsync(
         string bookId,
         string word,
@@ -443,6 +547,8 @@ public class VocabularyQuestionTests : TestBase
             expectedOptions.OrderBy(value => value),
             question.Options.Select(option => option.Text).OrderBy(value => value));
     }
+
+    private sealed record MultiSenseSeedData(string BookId, VocabularyModel Word);
 
     private sealed record QuestionSeedData(
         VocabularyBookModel Book,
