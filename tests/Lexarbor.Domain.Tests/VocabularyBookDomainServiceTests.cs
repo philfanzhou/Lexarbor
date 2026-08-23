@@ -61,12 +61,71 @@ public class VocabularyBookDomainServiceTests : TestBase
         });
         await _unitOfWork.SaveChangesAsync();
 
-        var words = await _service.GetWordsAsync(createdBook.Id);
+        var (words, totalCount) = await _service.GetWordsAsync(createdBook.Id, 1, 20);
 
+        // "apple" carries two definitions in this book. The count and the page
+        // both have to be of words, not of the rows a join would produce.
+        Assert.Equal(3, totalCount);
         Assert.Equal(3, words.Count);
         Assert.Equal("apple", words[0].Word);
         Assert.Equal("banana", words[1].Word);
         Assert.Equal("cherry", words[2].Word);
+    }
+
+    [Fact]
+    public async Task GetWordsAsync_PagesWithoutRepeatingOrSkippingAWord()
+    {
+        var createdBook = await _service.AddOrUpdateAsync(
+            new VocabularyBookModel { BookName = "PagedBook", DisplayOrder = 1, Status = true });
+        for (var index = 0; index < 5; index++)
+        {
+            var word = new VocabularyModel
+            {
+                Id = Guid.NewGuid().ToString(),
+                Word = $"word{index:D2}"
+            };
+            await _vocabularyRepository.AddAsync(word);
+            await _meaningRepository.AddAsync(new VocabularyMeaningModel
+            {
+                Id = Guid.NewGuid().ToString(),
+                BookId = createdBook.Id,
+                VocabularyId = word.Id,
+                Meaning = $"释义{index:D2}"
+            });
+        }
+
+        await _unitOfWork.SaveChangesAsync();
+
+        var (firstPage, firstTotal) = await _service.GetWordsAsync(createdBook.Id, 1, 2);
+        var (secondPage, _) = await _service.GetWordsAsync(createdBook.Id, 2, 2);
+        var (lastPage, _) = await _service.GetWordsAsync(createdBook.Id, 3, 2);
+
+        Assert.Equal(5, firstTotal);
+        Assert.Equal(
+            ["word00", "word01", "word02", "word03", "word04"],
+            firstPage.Concat(secondPage).Concat(lastPage).Select(word => word.Word));
+    }
+
+    [Fact]
+    public async Task GetWordsAsync_PageBeyondTheEnd_IsEmptyAndStillReportsTheTotal()
+    {
+        var createdBook = await _service.AddOrUpdateAsync(
+            new VocabularyBookModel { BookName = "ShortBook", DisplayOrder = 1, Status = true });
+        var word = new VocabularyModel { Id = Guid.NewGuid().ToString(), Word = "apple" };
+        await _vocabularyRepository.AddAsync(word);
+        await _meaningRepository.AddAsync(new VocabularyMeaningModel
+        {
+            Id = Guid.NewGuid().ToString(),
+            BookId = createdBook.Id,
+            VocabularyId = word.Id,
+            Meaning = "苹果"
+        });
+        await _unitOfWork.SaveChangesAsync();
+
+        var (words, totalCount) = await _service.GetWordsAsync(createdBook.Id, 5, 20);
+
+        Assert.Empty(words);
+        Assert.Equal(1, totalCount);
     }
 
     [Fact]
@@ -75,16 +134,17 @@ public class VocabularyBookDomainServiceTests : TestBase
         var book = new VocabularyBookModel { BookName = "EmptyBook", DisplayOrder = 1, Status = true };
         var createdBook = await _service.AddOrUpdateAsync(book);
 
-        var words = await _service.GetWordsAsync(createdBook.Id);
+        var (words, totalCount) = await _service.GetWordsAsync(createdBook.Id, 1, 20);
 
         Assert.Empty(words);
+        Assert.Equal(0, totalCount);
     }
 
     [Fact]
     public async Task GetWordsAsync_NonExistentBook_ThrowsResourceNotFound()
     {
         await Assert.ThrowsAsync<ResourceNotFoundException>(
-            () => _service.GetWordsAsync("non-existent-book-id"));
+            () => _service.GetWordsAsync("non-existent-book-id", 1, 20));
     }
 
     [Fact]

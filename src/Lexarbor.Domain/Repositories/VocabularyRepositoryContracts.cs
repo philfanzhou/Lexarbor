@@ -38,7 +38,7 @@ public interface IVocabularyBookRepository
     Task<List<string>> GetDistinctGradesAsync();
     Task<List<string>> GetDistinctGradesByEducationLevelAsync(string educationLevel);
     Task<bool> HasMeaningsAsync(string bookId);
-    Task<List<VocabularyModel>> GetWordsAsync(string bookId);
+    Task<(List<VocabularyModel> Items, int TotalCount)> GetWordsAsync(string bookId, int page, int size);
     Task AddAsync(VocabularyBookModel model);
     Task UpdateAsync(VocabularyBookModel model);
     Task DeleteAsync(string id);
