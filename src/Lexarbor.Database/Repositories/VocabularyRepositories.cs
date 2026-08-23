@@ -130,10 +130,22 @@ public class VocabularyRepository : IVocabularyRepository
         return entity?.Adapt<VocabularyModel>();
     }
 
+    /// <summary>
+    /// Resolves a normalized word to the row that carries it.
+    /// </summary>
+    /// <remarks>
+    /// The predicate used to be written as <c>Word.Trim().ToLower()</c>, which
+    /// SQLite answers as <c>lower(trim(word))</c>: a function around the column,
+    /// so <c>IX_vocabulary_word</c> could not serve it and every call scanned the
+    /// table. The comparison now lands on the generated <c>normalized_word</c>
+    /// column, which holds the same expression and is indexed, so the same
+    /// question is answered by a seek. The semantics are unchanged -- it is
+    /// literally the same SQL expression, evaluated by the same engine.
+    /// </remarks>
     public async Task<VocabularyModel?> GetByNormalizedWordAsync(string normalizedWord)
     {
         var entity = await _context.Vocabularies
-            .FirstOrDefaultAsync(vocabulary => vocabulary.Word.Trim().ToLower() == normalizedWord);
+            .FirstOrDefaultAsync(vocabulary => vocabulary.NormalizedWord == normalizedWord);
         return entity?.Adapt<VocabularyModel>();
     }
 
