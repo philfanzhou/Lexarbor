@@ -101,6 +101,7 @@ Configuration conventions:
 - `Issuer`, `Audience`, the signature, public key rotation, and expiry are validated by JWT Bearer.
 - The JWT handler has inbound claim mapping turned off. The role claim is accepted both as the short name `role` and as the full `ClaimTypes.Role` URI, which covers how common OIDC and .NET issuers serialize claims. The administrator policy requires `AdminAuthentication:RequiredRole` (default `admin`), which `AdminRoleHandler` reads at evaluation time.
 - A local HTTP development environment may use `CookieSecure=false`; a TLS deployment must configure `true`.
+- The provider's signing metadata may only be fetched over HTTPS unless the environment is Development, the authority is loopback, or `IdentityService:RequireHttpsMetadata` says otherwise. An `http://` authority on another host stops the process at startup. The keys at that address are the root of every administration authorization, so accepting them over plain HTTP has to be something a deployment asked for, and the startup log reports which way it resolved.
 
 ### 5.2 Login flow
 

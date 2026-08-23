@@ -98,6 +98,11 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
                 ["IdentityService:Authority"] = "http://identity.test",
                 ["IdentityService:Issuer"] = Issuer,
                 ["IdentityService:Audience"] = Audience,
+                // The fake identity host is an http one, and several tests run
+                // under Production, where HTTPS metadata is required. Set here
+                // rather than left to the environment default so that a test
+                // exercising the requirement can turn it back on.
+                ["IdentityService:RequireHttpsMetadata"] = "false",
                 ["AdminAuthentication:CookieName"] = CookieName,
                 ["AdminAuthentication:CookieSecure"] = "false",
                 ["AdminAuthentication:Provider"] = _provider,

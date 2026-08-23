@@ -27,6 +27,7 @@ elif identity_authority="$(printenv LEXARBOR_IDENTITY_AUTHORITY)"; then
   APP_ENVIRONMENT+=("-e" "IdentityService__Issuer=${identity_authority}")
 fi
 add_configuration_override LEXARBOR_IDENTITY_AUDIENCE IdentityService__Audience
+add_configuration_override LEXARBOR_REQUIRE_HTTPS_METADATA IdentityService__RequireHttpsMetadata
 add_configuration_override LEXARBOR_ADMIN_AUTH_PROVIDER AdminAuthentication__Provider
 add_configuration_override LEXARBOR_COOKIE_SECURE AdminAuthentication__CookieSecure
 add_configuration_override LEXARBOR_OIDC_TOKEN_ENDPOINT AdminAuthentication__Oidc__TokenEndpoint
