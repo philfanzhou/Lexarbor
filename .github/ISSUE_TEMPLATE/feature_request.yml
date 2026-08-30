@@ -1,30 +1,39 @@
-name: Feature request
-description: Propose an improvement to Lexarbor
-title: "[Feature]: "
+name: 功能建议
+description: 提议 Lexarbor 的一项改进
+title: "功能："
 labels:
   - enhancement
 body:
   - type: textarea
     id: problem
     attributes:
-      label: Problem
-      description: What user or operator problem should be solved?
+      label: 背景与目标
+      description: 要解决什么用户或运维问题？触发条件和影响是什么？
     validations:
       required: true
   - type: textarea
     id: proposal
     attributes:
-      label: Proposed behavior
-      description: Describe the desired behavior and important constraints.
+      label: 期望行为与范围
+      description: 描述期望行为、最小修改范围和明确排除项。
     validations:
       required: true
   - type: textarea
     id: alternatives
     attributes:
-      label: Alternatives considered
-      description: Note workarounds or alternative designs you considered.
+      label: 已考虑的替代方案
+      description: 说明已有 workaround 或其他设计方案。
   - type: textarea
     id: impact
     attributes:
-      label: Compatibility and operational impact
-      description: Consider public APIs, configuration, SQLite data, authentication, and Docker deployment.
+      label: 固定契约、验收标准与兼容性影响
+      description: 请说明公共 API、配置、SQLite 数据、认证、前端、Docker 和英文文档的影响，以及可逐条验证的验收标准。
+    validations:
+      required: true
+  - type: textarea
+    id: adjacent
+    attributes:
+      label: 已知邻近问题与依赖
+      description: 相关既有问题请单独开 issue 并链接；前置依赖没有时写“无”。
+    validations:
+      required: true
