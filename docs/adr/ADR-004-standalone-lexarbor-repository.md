@@ -22,4 +22,4 @@ The vocabulary service had become operationally self-contained: it used SQLite, 
 - Existing deployments must rename container settings and environment variables to the `LEXARBOR_*` names.
 - Existing SQLite files remain usable because table names, columns, migration identifiers, and business identifiers are unchanged.
 - OIDC deployments must use an identity provider that supports the password grant used by the current login UI.
-- Future third-party vocabulary datasets must retain their own licenses and notices; their inclusion is not implied by the repository's MIT License.
+- Lexarbor does not distribute third-party vocabulary datasets. The repository's MIT License does not grant rights to data supplied by users, and users or instance operators remain responsible for their rights to that data.

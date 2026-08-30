@@ -92,4 +92,4 @@ Contributions should follow [CONTRIBUTING.md](CONTRIBUTING.md). Please report vu
 
 ## License
 
-Lexarbor, including its bundled starter vocabulary, is released under the [MIT License](LICENSE). Third-party vocabulary datasets added in the future may have separate licenses and must retain their own notices.
+Lexarbor, including its bundled starter vocabulary, is released under the [MIT License](LICENSE). Lexarbor does not distribute third-party vocabulary datasets. This licence does not grant rights to data that users import into their own instances; users or instance operators are responsible for ensuring that they have the rights required to use that data.
