@@ -73,6 +73,6 @@ This provenance strategy keeps layer one independent of the choice made for laye
 
 - Layer one is implemented: the repository carries 300 unique seed rows, first-run creation builds the book, the words, and the meanings automatically, and Docker puts the writable database on a persistent volume by default.
 - Layer two is still not implemented: neither the dictionary table, nor the bulk import entry point, nor the release asset exists.
-- The provenance strategy is settled (see above). Choosing a specific dictionary and verifying its redistribution licence is not done; see PD-016 in `docs/pending-decisions.md`. That blocks layer two only, not the layer one sample book.
+- The provenance strategy is settled (see above). Choosing a specific dictionary and verifying its redistribution licence is not done; see [PD-001](../pending-decisions.md#pd-001-supplemental-dictionary-source-and-redistribution-license). That blocks layer two only, not the layer one sample book.
 - The layering also isolates licensing risk: the dictionary ships as a replaceable standalone asset, the code repository's history contains no third-party data, and replacing or withdrawing a data source affects neither the code repository nor existing clones.
 - The `/api/*` and `/admin/*` paths are unchanged; the word DTO's single phonetic field has already been replaced by `phoneticUk` and `phoneticUs` per ADR-003.
