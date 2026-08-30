@@ -9,7 +9,7 @@ Lexarbor is a self-contained vocabulary catalog and quiz service. The backend, t
 - [Domain language](./overview/DomainLanguage.md)
 - [Administration frontend specification](./frontend/README.md)
 - [ADR-001 Pluggable administrator authentication provider](./adr/ADR-001-pluggable-admin-authentication.md)
-- [ADR-002 Layering and distribution of the bundled vocabulary data](./adr/ADR-002-bundled-vocabulary-data.md)
+- [ADR-002 Bundled vocabulary data and user-supplied imports](./adr/ADR-002-bundled-vocabulary-data.md)
 - [ADR-003 SQLite as the only supported storage](./adr/ADR-003-sqlite-only-storage.md)
 - [ADR-004 Extracting Lexarbor from the monorepo](./adr/ADR-004-standalone-lexarbor-repository.md)
 - [Database facts](./database/README.md)

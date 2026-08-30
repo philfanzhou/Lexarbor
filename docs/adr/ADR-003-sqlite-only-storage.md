@@ -39,7 +39,7 @@ Tightening constraints progressively through `NOT VALID` was designed for existi
 
 The single `vocabulary.phonetic` column is split into `phonetic_uk` and `phonetic_us`, both nullable. The corresponding JSON fields are `phoneticUk` and `phoneticUs`, and the administration import page collects them separately. Carrying both is the normal arrangement for Chinese learners. The change lands in the same migration rebuild as the provider change, so it costs no extra migration.
 
-If an external dictionary supplies only one phonetic, the import path must define explicitly which column it lands in and must not default to either. That constraint is recorded as a selection criterion for layer two of ADR-002.
+Callers importing user-supplied data must map a phonetic explicitly to the British or American field and must not rely on the service to guess a dialect. The administration contract exposes both fields separately.
 
 ## Alternatives considered
 
@@ -51,6 +51,6 @@ If an external dictionary supplies only one phonetic, the import path must defin
 - **Horizontal scale-out is lost.** SQLite has a single writer, so the deployment must be single-instance with a persistent volume mounted. Given that this service is read-mostly and its data can be rebuilt from the starter book or an import, that is judged acceptable.
 - **Backups change** from the platform's shared PostgreSQL arrangement to file-level backups.
 - The code and the Dockerfile no longer reference `the former monorepo's shared common component` or `the former monorepo's shared Consul component`. The Identity address is supplied through ordinary configuration and environment variables.
-- Layer two of ADR-002 can be simplified: the dictionary is read-only reference data and can be attached read-only as a prebuilt SQLite file, with no bulk import path to design. The exact shape is designed when layer two is implemented, since EF Core does not support cross-database queries natively. This does not conflict with layer one of ADR-002 not prebuilding a database file — what that constrains is the service's own writable database file, which must be created at runtime at the configured path so that it lands on the host's mounted volume.
+- ADR-002 was later amended to withdraw the unimplemented official supplemental dictionary plan. Lexarbor does not attach or distribute a prebuilt third-party dictionary database; its writable database is still created at runtime at the configured path so that it lands on the host's mounted volume.
 - The public and administration paths are unchanged; requests and responses involving a word replace the old `phonetic` with `phoneticUk` and `phoneticUs`, which is a deliberate public contract change.
 - Both the domain and HTTP tests run against real SQLite; first-run creation, seed count, skipping the seed for an existing file, and concurrent idempotence all have automated coverage.
