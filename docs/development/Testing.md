@@ -15,7 +15,7 @@ This document describes the structure, coverage, and conventions of the `Lexarbo
 - Moq 4.20.72
 - Microsoft.AspNetCore.Mvc.Testing 10.0.11 (WebApplicationFactory integration tests)
 - Microsoft.EntityFrameworkCore.Sqlite 10.0.11 (both domain and HTTP tests run against real SQLite)
-- Mapster 10.0.11 (dependency of the DTO mapping extensions)
+- Mapster 10.0.12 (dependency of the DTO mapping extensions)
 - Microsoft.Testing.Extensions.CodeCoverage 18.10.0
 
 ## How tests are executed
