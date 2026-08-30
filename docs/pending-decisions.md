@@ -3,6 +3,7 @@
 ## PD-001: Supplemental dictionary source and redistribution license
 
 - Status: Pending
+- Tracking: [Issue #52](https://github.com/philfanzhou/Lexarbor/issues/52)
 - Scope: the optional second-layer dictionary dataset and any release artifact that redistributes it
 - Current evidence: ADR-002 establishes a self-authored starter book as the first layer and an external open dictionary as a separately distributed second layer. No source dictionary has been selected. Its fields will influence the supplemental schema, its size may affect packaging, and its redistribution terms require explicit review.
 - Option A: select one external dictionary and model the supplemental table around that source.
