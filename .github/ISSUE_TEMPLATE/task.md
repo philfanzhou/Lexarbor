@@ -1,6 +1,6 @@
 ---
 name: 任务
-about: 一个可独立合并的改动。范围、边界和验收标准必须明确，否则不能标记 ready。
+about: 一个可独立合并的改动。
 title: ''
 labels: 'type: task'
 assignees: ''
@@ -8,8 +8,6 @@ assignees: ''
 
 <!--
 正文和标题用中文。标题建议使用：[模块] 简明动作。
-不要手工添加 status: ready，完成代码、契约和邻近债务盘点后再添加。
-一个 task issue 对应一个 PR；若包含第二个独立契约、数据库变更或 endpoint 组，请拆分。
 -->
 
 ## 背景与目标
@@ -27,7 +25,6 @@ assignees: ''
 
 - 要改什么。
 - **明确排除什么**：尤其是“不改变现有 API”“不修改数据库兼容性”“不重构 X”等限制。
-- 本节在 review 时有约束力；无法追溯到验收标准的越界改动必须拆为独立 issue。
 
 ## 明确不包含与不保证
 
@@ -54,17 +51,11 @@ assignees: ''
 - #NNN 一句话说明
 - 若确认没有，写“无”。
 
-留空表示尚未完成邻近债务盘点，issue 不能标记 `status: ready`。
-
 ## 依赖
 
 - GitHub 原生 Blocked by：#NNN，或“无”
 - GitHub 原生 Blocks：#NNN，或“无”
 
-只有前置 issue 全部关闭、依赖关系与标签一致后，才能添加 `status: ready`。
-
 ## 交付约束
 
-- 一个 PR 只关闭本 task issue；不得吸收邻近债务。
-- 实现以及适用的失败、取消、安全、认证和并发测试在同一个 PR 中交付。
 - 公开行为或用法变化时同步英文 README、docs 和 API 文档。
