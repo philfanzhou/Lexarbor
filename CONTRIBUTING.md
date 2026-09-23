@@ -37,7 +37,6 @@ bash .github/scripts/test-container.sh lexarbor:ci
 - Explain the problem and the chosen solution.
 - Link the related issue when one exists.
 - Describe verification and any deployment or configuration impact.
-- Keep unrelated refactoring out of the same pull request.
 - Wait for all required GitHub checks before merging.
 
 By contributing, you agree that your contribution is licensed under the repository's [MIT License](LICENSE).
