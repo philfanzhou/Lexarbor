@@ -103,6 +103,8 @@ SDK no longer supports running xUnit v3 under VSTest. The conventions that follo
 | Ordinary user JWT | 403 envelope |
 | Administrator login through fake Identity | Sets an HttpOnly cookie |
 | Wrong credentials | 401, no cookie set |
+| OIDC provider refuses the client (`invalid_client`, `invalid_scope`, …) | 502, no cookie set |
+| SignaCore-shaped token with per-application audience and no scope requested | Login succeeds; a shared-audience token gives 502 |
 | Identity returns an invalid JWT | 502, no cookie set |
 | Administrator cookie or bearer | Can reach the administration endpoints |
 | Logout | Responds with an expired cookie, and later administration requests get 401 |

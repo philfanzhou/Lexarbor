@@ -73,13 +73,21 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
             new("name", "test-user")
         };
         claims.AddRange(roles.Select(role => new Claim("role", role)));
+        return MintToken(Audience, claims);
+    }
 
+    /// <summary>
+    /// Mints a token for an arbitrary audience and claim set, for tests that model a
+    /// specific issuer's token rather than the generic one above.
+    /// </summary>
+    public static string MintToken(string audience, IEnumerable<Claim> claims)
+    {
         var credentials = new SigningCredentials(
             new SymmetricSecurityKey(Encoding.UTF8.GetBytes(SigningSecret)),
             SecurityAlgorithms.HmacSha256);
         var token = new JwtSecurityToken(
             issuer: Issuer,
-            audience: Audience,
+            audience: audience,
             claims: claims,
             notBefore: DateTime.UtcNow.AddMinutes(-1),
             expires: DateTime.UtcNow.AddMinutes(30),
