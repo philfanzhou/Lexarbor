@@ -165,6 +165,8 @@ The administration UI submits a username and password to Lexarbor. The backend e
 
 When these variables are not supplied, values come from the persistent file and ultimately from the image defaults. The validated token must contain `role=admin` by default. Override `AdminAuthentication__RequiredRole` to use another role. Set `LEXARBOR_COOKIE_SECURE=true` whenever the browser accesses Lexarbor over HTTPS. Missing credential-provider settings do not prevent startup; administration login returns 503 until configured.
 
+A provider refusal that concerns the client rather than the password — RFC 6749 `invalid_client`, `unauthorized_client`, `unsupported_grant_type`, `invalid_scope`, `invalid_request`, `server_error`, or `temporarily_unavailable` — answers 502 rather than 401, and the log names the error code. `invalid_grant` and any other code answer 401.
+
 `LEXARBOR_REQUIRE_HTTPS_METADATA` decides whether the provider's signing metadata may be fetched over plain HTTP. It is required unless the environment is Development or the authority is a loopback address, so an `http://` authority pointing at another host stops the container at startup with a message naming the setting, rather than starting and answering 500 on every administration request. Loopback is exempt because there is no network path to rewrite, and because the image's placeholder authority is a loopback one: a container that has not been given an identity provider still starts and serves its public API. The keys served from that address decide every administration authorization, so anyone able to rewrite the response can mint an administrator token; setting this to `false` is a statement that the network path to the provider is trusted. It is deliberately absent from the image's `appsettings.json`: writing a value there would freeze it into the persistent file on first start and take the environment out of the decision. Whichever way it resolves, the startup log says so — at information when metadata is required and at warning when it is not.
 
 Example:
@@ -178,6 +180,38 @@ export LEXARBOR_OIDC_CLIENT_SECRET=replace-me
 export LEXARBOR_COOKIE_SECURE=true
 bash scripts/start.sh
 ```
+
+### Connecting to SignaCore
+
+[SignaCore](https://github.com/philfanzhou/SignaCore) works with the default `Oidc` provider through its RFC 6749 token endpoint, `/oauth2/token`. SignaCore has no authorization endpoint, so administrators still sign in through the Lexarbor login form and Lexarbor performs the password grant server-side; the browser never receives the client secret or the access token.
+
+In SignaCore:
+
+1. Register an application for Lexarbor in the administration console, for example with AppId `lexarbor-admin`, and keep its AppSecret.
+2. Set the application's access-token audience mode to per-application (`PUT /api/admin/apps/{appId}/audience-mode`). Its tokens then carry `aud` equal to the AppId, and tokens issued to other applications are rejected by Lexarbor. In the shared mode every token carries SignaCore's `Jwt:Audience` (default `SignaCore.Services`), which any other shared-mode service would also accept.
+3. Decide who administers Lexarbor. Lexarbor requires `role=admin` in the token. SignaCore adds that role for its bootstrap administrator (`Admin:Username`) in every application; any other account receives roles only from the application's claims callback, whose response lists them in `roles`.
+
+In Lexarbor:
+
+```bash
+export LEXARBOR_IDENTITY_AUTHORITY=https://signacore.example.com
+export LEXARBOR_IDENTITY_ISSUER=https://signacore.example.com
+export LEXARBOR_IDENTITY_AUDIENCE=lexarbor-admin
+export LEXARBOR_OIDC_CLIENT_ID=lexarbor-admin
+export LEXARBOR_OIDC_CLIENT_SECRET=replace-me
+export LEXARBOR_OIDC_SCOPE=
+export LEXARBOR_COOKIE_SECURE=true
+bash scripts/start.sh
+```
+
+- `LEXARBOR_OIDC_SCOPE` must be set, and set to an empty value. SignaCore rejects every requested scope with `invalid_scope`, including the image default `openid profile`. A deployment configured through the persistent `appsettings.json` instead sets `AdminAuthentication:Oidc:Scope` to `""` there.
+- `LEXARBOR_IDENTITY_ISSUER` must equal the `issuer` field of SignaCore's `/.well-known/openid-configuration` exactly. `LEXARBOR_OIDC_TOKEN_ENDPOINT` is not needed, because the token endpoint is read from the same document.
+- `LEXARBOR_IDENTITY_AUDIENCE` and `LEXARBOR_OIDC_CLIENT_ID` are both the AppId, and `LEXARBOR_OIDC_CLIENT_SECRET` is the AppSecret.
+- A session lasts as long as SignaCore's access token (`Jwt:TokenExpirationHours`, 2 hours by default). Lexarbor discards the refresh token, so the administrator signs in again when the session ends. Disabling an account or removing its role in SignaCore does not end a Lexarbor session that has already started; it ends when the token expires.
+
+When login answers 502, the Lexarbor log names the cause. `rejected with invalid_scope` means the scope is still being sent, `rejected with invalid_client` means the client ID or secret is wrong, and `Identity access token validation failed` usually means the issuer or audience does not match the token.
+
+The `Gateway` adapter also speaks SignaCore's older `/api/auth/token` contract, but new deployments should use `/oauth2/token` through the `Oidc` provider.
 
 ## Gateway adapter (optional)
 

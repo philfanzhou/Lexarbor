@@ -9,7 +9,7 @@ namespace Lexarbor.Host.Authentication.Providers;
 
 /// <summary>
 /// Standard OAuth2 resource owner password credentials grant (RFC 6749 §4.3) against any
-/// OIDC provider — Keycloak, Authentik, IdentityServer.
+/// OIDC provider — Keycloak, Authentik, IdentityServer, SignaCore.
 ///
 /// The token endpoint is discovered through the JWT bearer scheme's configuration
 /// manager, which already fetches and caches the provider's discovery document for
@@ -19,6 +19,22 @@ public sealed class OidcPasswordAuthenticator : IAdminCredentialAuthenticator
 {
     private static readonly JsonSerializerOptions SerializerOptions =
         new(JsonSerializerDefaults.Web);
+
+    /// <summary>
+    /// RFC 6749 §5.2 codes that mean the provider refused this client rather than the
+    /// submitted credentials. See <see cref="ReadErrorCodeAsync"/>.
+    /// </summary>
+    private static readonly HashSet<string> ClientConfigurationErrors =
+        new(StringComparer.Ordinal)
+        {
+            "invalid_request",
+            "invalid_client",
+            "unauthorized_client",
+            "unsupported_grant_type",
+            "invalid_scope",
+            "server_error",
+            "temporarily_unavailable"
+        };
 
     private readonly HttpClient _httpClient;
     private readonly OidcProviderOptions _options;
@@ -94,7 +110,18 @@ public sealed class OidcPasswordAuthenticator : IAdminCredentialAuthenticator
             // RFC 6749 §5.2 returns 400 for invalid_grant; providers vary on 401.
             if (response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Unauthorized)
             {
-                return AdminCredentialResult.InvalidCredentials;
+                var error = await ReadErrorCodeAsync(response, cancellationToken);
+                if (error == null)
+                {
+                    return AdminCredentialResult.InvalidCredentials;
+                }
+
+                // Only the error code is logged: it comes from a fixed set, whereas
+                // error_description is provider prose that may repeat the username.
+                _logger.LogWarning(
+                    "OIDC token request was rejected with {Error}; check this client's registration at the provider and the AdminAuthentication:Oidc settings",
+                    error);
+                return AdminCredentialResult.Unavailable;
             }
 
             if (!response.IsSuccessStatusCode)
@@ -130,6 +157,36 @@ public sealed class OidcPasswordAuthenticator : IAdminCredentialAuthenticator
         }
     }
 
+    /// <summary>
+    /// Returns the RFC 6749 §5.2 error code when it says the request was refused for a
+    /// reason other than the submitted credentials, or null otherwise.
+    ///
+    /// These codes describe how Lexarbor is registered at the provider — a wrong client
+    /// secret, a scope the provider does not accept, a client not allowed the password
+    /// grant. Reporting them as an invalid password would send the administrator back to
+    /// retype credentials that were never the problem. invalid_grant, an unknown code,
+    /// and an unreadable body keep meaning invalid credentials.
+    /// </summary>
+    private static async Task<string?> ReadErrorCodeAsync(
+        HttpResponseMessage response,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var errorResponse = await response.Content.ReadFromJsonAsync<ErrorResponse>(
+                SerializerOptions,
+                cancellationToken);
+            return errorResponse?.Error is { } error && ClientConfigurationErrors.Contains(error)
+                ? error
+                : null;
+        }
+        catch (Exception exception) when (
+            exception is JsonException or NotSupportedException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
     private async Task<string> ResolveTokenEndpointAsync(CancellationToken cancellationToken)
     {
         if (!string.IsNullOrWhiteSpace(_options.TokenEndpoint))
@@ -156,5 +213,11 @@ public sealed class OidcPasswordAuthenticator : IAdminCredentialAuthenticator
 
         [JsonPropertyName("expires_in")]
         public long ExpiresIn { get; set; }
+    }
+
+    private sealed class ErrorResponse
+    {
+        [JsonPropertyName("error")]
+        public string? Error { get; set; }
     }
 }

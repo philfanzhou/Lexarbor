@@ -9,13 +9,21 @@ public enum FakeIdentityMode
     AdminSuccess,
     RegularUserSuccess,
     InvalidCredentials,
-    Unavailable
+    Unavailable,
+
+    /// <summary>
+    /// Answers the OIDC grant with the RFC 6749 §5.2 error object in
+    /// <see cref="FakeIdentityState.OidcError"/> and <see cref="FakeIdentityState.OidcErrorStatus"/>.
+    /// </summary>
+    OidcError
 }
 
 public sealed class FakeIdentityState
 {
     public FakeIdentityMode Mode { get; set; } = FakeIdentityMode.AdminSuccess;
     public string AccessToken { get; set; } = string.Empty;
+    public string OidcError { get; set; } = "invalid_grant";
+    public HttpStatusCode OidcErrorStatus { get; set; } = HttpStatusCode.BadRequest;
     public string? LastRequestBody { get; set; }
     public string? LastRequestUri { get; set; }
     public string? LastContentType { get; set; }
@@ -25,6 +33,8 @@ public sealed class FakeIdentityState
     public void Reset()
     {
         Mode = FakeIdentityMode.AdminSuccess;
+        OidcError = "invalid_grant";
+        OidcErrorStatus = HttpStatusCode.BadRequest;
         LastRequestBody = null;
         LastRequestUri = null;
         LastContentType = null;
@@ -72,6 +82,17 @@ public sealed class FakeIdentityHandler : HttpMessageHandler
             return isOidcGrant
                 ? Json(new { error = "invalid_grant" }, HttpStatusCode.BadRequest)
                 : Json(new { success = false, message = "authentication_failed" });
+        }
+
+        if (_state.Mode == FakeIdentityMode.OidcError && isOidcGrant)
+        {
+            return Json(
+                new
+                {
+                    error = _state.OidcError,
+                    error_description = "Rejected by the fake identity provider."
+                },
+                _state.OidcErrorStatus);
         }
 
         if (isOidcGrant)

@@ -119,7 +119,7 @@ Configuration conventions:
    ```
 
 5. Only the Gateway provider adds the server-configured `X-Admin-AppId` and `X-Admin-AppSecret` request headers.
-6. When the provider rejects the credentials, Lexarbor answers 401 with a generic credential error and does not pass the upstream's internal message through.
+6. When the provider rejects the credentials, Lexarbor answers 401 with a generic credential error and does not pass the upstream's internal message through. When an OIDC provider instead refuses the client itself — RFC 6749 `invalid_client`, `unauthorized_client`, `unsupported_grant_type`, `invalid_scope`, `invalid_request`, `server_error`, or `temporarily_unavailable` — Lexarbor answers 502 and logs only the error code, because retyping the password cannot fix a client registration problem.
 7. Once Identity returns success, Vocabulary validates the access token with the same issuer, audience, signing key, and lifetime parameters used for request authentication; an invalid token or one that does not match the configuration answers 502 and sets no cookie.
 8. Vocabulary decides administrator identity from the `role` claim of the validated JWT; an ordinary user gets 403 and no cookie.
 9. The administrator JWT is written into the `lexarborAdmin` cookie, which uses:
