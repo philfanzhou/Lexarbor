@@ -57,7 +57,7 @@ jobs:
       # defaults so the two test projects do not overwrite each other's output.
       - name: Test with coverage
         run: >-
-          dotnet test Lexarbor.sln
+          dotnet test --solution Lexarbor.sln
           --configuration Release
           --no-build
           --results-directory TestResults

@@ -52,7 +52,7 @@ OIDC is the default credential provider. The current adapter uses the OAuth2 res
 
 ```bash
 dotnet build Lexarbor.sln --configuration Release
-dotnet test Lexarbor.sln --configuration Release --no-build
+dotnet test --solution Lexarbor.sln --configuration Release --no-build
 
 cd frontend
 npm ci

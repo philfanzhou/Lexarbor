@@ -38,7 +38,7 @@ Lexarbor 是自托管的词汇目录与测验服务：.NET 10 API、Vue 3 管理
 ```bash
 dotnet restore Lexarbor.sln
 dotnet build Lexarbor.sln --configuration Release --no-restore
-dotnet test Lexarbor.sln --configuration Release --no-build --no-restore
+dotnet test --solution Lexarbor.sln --configuration Release --no-build --no-restore
 
 cd frontend
 npm ci
