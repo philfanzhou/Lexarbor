@@ -6,7 +6,7 @@
 
 ## Context
 
-[ADR-005](./ADR-005-bulk-vocabulary-import.md) added a batch import whose page parses TSV in the browser and submits JSON. Most word lists administrators hold are spreadsheet exports: comma-separated with a header row, and, from Chinese-language Windows, often not UTF-8. The page read files with `FileReader.readAsText(file, 'utf-8')`, which replaces every byte sequence that is not UTF-8 with U+FFFD; the preview then showed garbled text that was still valid and could be submitted, and stored as it was. [Issue #78](https://github.com/philfanzhou/Lexarbor/issues/78) tracks CSV, Excel, and JSON support; [Issue #79](https://github.com/philfanzhou/Lexarbor/issues/79) holds the slice this decision was written for: the shared reading layer, the header rules, and CSV.
+[ADR-005](./ADR-005-bulk-vocabulary-import.md) added a batch import whose page parses TSV in the browser and submits JSON. Most word lists administrators hold are spreadsheet exports: comma-separated with a header row, and, from Chinese-language Windows, often not UTF-8. The page read files with `FileReader.readAsText(file, 'utf-8')`, which replaces every byte sequence that is not UTF-8 with U+FFFD; the preview then showed garbled text that was still valid and could be submitted, and stored as it was. [Issue #78](https://github.com/philfanzhou/Lexarbor/issues/78) tracks CSV, Excel, and JSON support; [Issue #79](https://github.com/philfanzhou/Lexarbor/issues/79) holds the slice this decision was written for: the shared reading layer, the header rules, and CSV. [Issue #80](https://github.com/philfanzhou/Lexarbor/issues/80) added JSON.
 
 ## Decision
 
@@ -25,15 +25,17 @@ What a position means depends on the format:
 |---|---|
 | TSV | The physical line of the row, from 1 |
 | CSV | The physical line the record starts on, from 1 |
+| JSON | The item's number in the array, from 1 |
 
 ### Choosing the format
 
-The page has a format selector with TSV and CSV; TSV is the default. Pasted text is parsed in the selected format, and changing the format parses the same text again. Choosing a file selects its format by extension, ignoring case:
+The page has a format selector with TSV, CSV, and JSON; TSV is the default. Pasted text is parsed in the selected format, and changing the format parses the same text again. Choosing a file selects its format by extension, ignoring case:
 
 | Extension | Format |
 |---|---|
 | `.tsv`, `.txt` | TSV |
 | `.csv` | CSV |
+| `.json` | JSON |
 
 Any other extension is refused. A file is checked in this order, and the first check that fails decides: extension, then size (1 MiB, the ADR-005 body limit), then content. The first two are decided before the file is read. A file that passes is placed in the text area and the selector switches to its format.
 
@@ -69,24 +71,45 @@ CSV follows RFC 4180 with a comma separator and a header row:
 - A data record with a different number of fields from the header is an invalid row.
 - The parser is hand-written and makes one linear pass, so a 1 MiB input parses synchronously on the main thread, as TSV does.
 
-### JSON and Excel
+### JSON
 
-JSON ([Issue #80](https://github.com/philfanzhou/Lexarbor/issues/80)) and Excel `.xlsx` ([Issue #81](https://github.com/philfanzhou/Lexarbor/issues/81)) will add their own sections, extensions, and position definitions to this decision when they are implemented.
+JSON is an array of entries that use the field names of the API: the items of the ADR-005 `entries` array, without the `bookId` around them.
+
+- The text is parsed with `JSON.parse` after a leading byte-order mark is removed. Blank text is no input yet: it gives no rows and no error. A syntax error is a file-level error, `JSON 语法错误：` followed by the browser's own message, shown as it is; Chromium's message names the position, for example `at position 14 (line 1 column 15)`.
+- The top level must be an array; anything else is a file-level error. When it is an object with an `entries` property, such as a complete `{ bookId, entries }` request, the error adds that only the array is accepted and that the book is the one picked on the page.
+- Each item is one preview row, numbered from 1 in array order. The preview heads its position column 序号 (number) for JSON instead of 行号 (line).
+- An item that is not an object, including an array and `null`, is invalid.
+- The fields are `word`, `phoneticUk`, `phoneticUs`, `partOfSpeech`, `meaning`, and `example`, matched with their case. The keys are read with `Object.keys`, and any other key makes the item invalid with every such key named. That includes `__proto__`, which `JSON.parse` creates as an ordinary own key. There are no aliases such as `phonetic_uk`.
+- Every value must be a string. A field that is absent or `null` is blank: a blank optional field is left out, and a blank `word` or `meaning` is reported by the shared row check. A number, boolean, object, or array makes the item invalid rather than being converted, and the preview shows it as `JSON.stringify` writes it, so the administrator sees the value that was refused.
+- String values are then trimmed and checked like every other format's rows, so an item gives the same entry as a TSV line with the same values. When an item has several problems, their reasons are joined with `；`, as for TSV.
+- An empty array has no data rows.
+
+An item with an unknown field or a value of the wrong type is therefore never corrected or cut down: it is invalid, and nothing can be submitted until it is fixed. A syntax error or a top level that is not an array gives no preview at all.
+
+Not guaranteed: a key repeated within one object is not detected, because `JSON.parse` keeps its last value; and how precisely a syntax error is located depends on the browser's message.
+
+### Excel
+
+Excel `.xlsx` ([Issue #81](https://github.com/philfanzhou/Lexarbor/issues/81)) will add its own section, extension, and position definition to this decision when it is implemented.
 
 ### User-supplied data
 
-Imported entries remain user-supplied data under [ADR-002](./ADR-002-bundled-vocabulary-data.md) and [ADR-005](./ADR-005-bulk-vocabulary-import.md). Every format is parsed in the browser; the file never leaves it, and the server receives the same JSON as for TSV. Administrators are responsible for saving their files as UTF-8, comma-separated, with a header row, and for having the rights to what they import.
+Imported entries remain user-supplied data under [ADR-002](./ADR-002-bundled-vocabulary-data.md) and [ADR-005](./ADR-005-bulk-vocabulary-import.md). Every format is parsed in the browser; the file never leaves it, and the server receives the same JSON as for TSV. Administrators are responsible for saving their files as UTF-8, CSV files comma-separated with a header row, and JSON files as an array that uses the API field names, and for having the rights to what they import.
 
 ## Alternatives considered
 
 - **Parse files on the server**: rejected for the reason ADR-005 gives; it adds an upload surface for formats the browser can turn into JSON.
 - **CSV or Excel without a header, in the TSV column order**: rejected. A spreadsheet's column order is easy to change by accident, and a shifted column would silently store phonetics as meanings; a header names every value.
 - **Detect semicolon separators or GBK and other legacy encodings**: rejected. Detection guesses, and a wrong guess produces a preview that looks plausible. A semicolon file fails on its header with a message that says only commas are supported, and a non-UTF-8 file is refused with a message that says how to save it as UTF-8.
+- **JSON Lines, NDJSON, or JSON5**: rejected. Each is a second syntax for data that the JSON array already carries, and JSON5 would need a parser dependency.
+- **Accept the complete `{ bookId, entries }` request as JSON**: rejected. The book would then come from two places, the file and the page, and one of them would be silently ignored; the page's choice is the only one.
+- **Accept snake_case aliases or convert numbers to strings**: rejected. Each makes the same data importable in more than one spelling, and a number such as `1.0` would not come back as it was written; refusing the item shows the problem where the administrator can fix it.
 - **Use a CSV library**: rejected. The rules above take one small parser, and a dependency would add supply-chain and bundle cost for them.
 
 ## Consequences
 
 - Administrators can import CSV files and pasted CSV text on `/import/batch`, as described in the [frontend specification](../frontend/README.md#batch-import-page).
+- Administrators can import a JSON array of entries from a file or pasted text, with the API field names.
 - Non-UTF-8 files, including TSV files, are refused instead of being imported with replacement characters.
 - CSV formula injection is not addressed: the feature exports nothing, and imported values are stored as text as they are.
 - Content that is in the wrong column under a correct header name is not detected; the administrator checks the preview.

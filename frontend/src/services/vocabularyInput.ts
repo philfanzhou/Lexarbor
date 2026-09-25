@@ -1,8 +1,9 @@
 import { parseVocabularyCsv } from './vocabularyCsv'
+import { parseVocabularyJson } from './vocabularyJson'
 import { parseVocabularyTsv } from './vocabularyTsv'
 import type { VocabularyPreviewRow } from './vocabularyRow'
 
-export type VocabularyInputFormat = 'tsv' | 'csv'
+export type VocabularyInputFormat = 'tsv' | 'csv' | 'json'
 
 export interface VocabularyParseResult {
   rows: VocabularyPreviewRow[]
@@ -21,13 +22,16 @@ export function parseVocabularyInput(format: VocabularyInputFormat, text: string
       return { rows: parseVocabularyTsv(text) }
     case 'csv':
       return parseVocabularyCsv(text)
+    case 'json':
+      return parseVocabularyJson(text)
   }
 }
 
 const formatsByExtension = new Map<string, VocabularyInputFormat>([
   ['tsv', 'tsv'],
   ['txt', 'tsv'],
-  ['csv', 'csv']
+  ['csv', 'csv'],
+  ['json', 'json']
 ])
 
 /** The format a file name's extension selects, ignoring case; undefined when it selects none. */

@@ -15,15 +15,19 @@ const MAX_ENTRIES = 500
 const MAX_BYTES = 1_048_576
 const PAGE_SIZE = 100
 
-const formatLabels: Record<VocabularyInputFormat, string> = { tsv: 'TSV', csv: 'CSV' }
+const formatLabels: Record<VocabularyInputFormat, string> = { tsv: 'TSV', csv: 'CSV', json: 'JSON' }
 const placeholders: Record<VocabularyInputFormat, string> = {
   tsv: '每行一条，制表符分隔：单词、英式音标、美式音标、词性、释义，可选第 6 列例句；空行和 # 开头的行忽略',
-  csv: '第一行为表头，逗号分隔，例如：word,phonetic_uk,phonetic_us,part_of_speech,meaning,example'
+  csv: '第一行为表头，逗号分隔，例如：word,phonetic_uk,phonetic_us,part_of_speech,meaning,example',
+  json: '[{"word":"apple","meaning":"苹果"}]'
 }
 const formatHints: Record<VocabularyInputFormat, string> = {
   tsv: '无表头，列顺序固定',
-  csv: '只支持逗号分隔；表头不区分大小写、顺序不限，必须包含 word 和 meaning'
+  csv: '只支持逗号分隔；表头不区分大小写、顺序不限，必须包含 word 和 meaning',
+  json: '顶层为数组，每项是一个对象；字段名与 API 相同：word、phoneticUk、phoneticUs、partOfSpeech、meaning、example'
 }
+// A JSON row is numbered by its item in the array, not by a line.
+const positionLabels: Record<VocabularyInputFormat, string> = { tsv: '行号', csv: '行号', json: '序号' }
 
 const books = ref<Book[]>([])
 const bookId = ref('')
@@ -151,7 +155,7 @@ async function handleFileChange(event: Event) {
   // is read whenever it can be.
   const fileFormat = formatForFileName(file.name)
   if (!fileFormat) {
-    ElMessage.error('不支持的文件类型，请选择 .tsv、.txt 或 .csv 文件')
+    ElMessage.error('不支持的文件类型，请选择 .tsv、.txt 或 .csv 文件，也可以选择 .json 文件')
     return
   }
 
@@ -289,6 +293,7 @@ onMounted(loadBooks)
               <el-radio-group v-model="format" class="batch-format" :disabled="submitting">
                 <el-radio-button value="tsv">TSV</el-radio-button>
                 <el-radio-button value="csv">CSV</el-radio-button>
+                <el-radio-button value="json">JSON</el-radio-button>
               </el-radio-group>
               <span class="batch-hint batch-format-hint">{{ formatHints[format] }}</span>
             </div>
@@ -301,12 +306,12 @@ onMounted(loadBooks)
             />
             <div class="batch-input__actions">
               <el-button :disabled="submitting" @click="chooseFile">选择文件</el-button>
-              <span class="batch-hint">读取本地 .tsv / .txt / .csv 文件（UTF-8，不超过 1 MiB）；文件只在浏览器中解析，不会上传</span>
+              <span class="batch-hint">读取本地 .tsv / .txt / .csv / .json 文件（UTF-8，不超过 1 MiB）；文件只在浏览器中解析，不会上传</span>
               <input
                 ref="fileInput"
                 class="batch-file-input"
                 type="file"
-                accept=".tsv,.txt,.csv,text/tab-separated-values,text/plain,text/csv"
+                accept=".tsv,.txt,.csv,.json,text/tab-separated-values,text/plain,text/csv,application/json"
                 @change="handleFileChange"
               >
             </div>
@@ -350,7 +355,7 @@ onMounted(loadBooks)
         </div>
 
         <el-table :data="pagedRows" :row-class-name="rowClassName" border size="small" class="batch-preview">
-          <el-table-column prop="position" label="行号" width="70" />
+          <el-table-column prop="position" :label="positionLabels[format]" width="70" />
           <el-table-column label="单词" min-width="110">
             <template #default="{ row }">{{ row.columns[0] }}</template>
           </el-table-column>
