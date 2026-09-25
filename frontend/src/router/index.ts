@@ -2,6 +2,7 @@ import { createRouter, createWebHashHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
 import { getApiError } from '@/services/apiError'
 import { isAuthenticated, restoreSession } from '@/services/authState'
+import BatchImportView from '@/views/BatchImportView.vue'
 import BooksView from '@/views/BooksView.vue'
 import ForbiddenView from '@/views/ForbiddenView.vue'
 import ImportView from '@/views/ImportView.vue'
@@ -12,7 +13,8 @@ const routes: RouteRecordRaw[] = [
   { path: '/login', name: 'login', component: LoginView, meta: { public: true } },
   { path: '/forbidden', name: 'forbidden', component: ForbiddenView, meta: { public: true } },
   { path: '/books', name: 'books', component: BooksView },
-  { path: '/import', name: 'import', component: ImportView }
+  { path: '/import', name: 'import', component: ImportView },
+  { path: '/import/batch', name: 'batch-import', component: BatchImportView }
 ]
 
 const router = createRouter({
