@@ -60,7 +60,7 @@ internal static class SqliteSearchPattern
 /// </para>
 /// <para>
 /// Every vocabulary id in this database is a v4 GUID, written that way by the
-/// domain service and by the bundled seed alike, so id order is already an
+/// domain service and by the former bundled seed alike, so id order is already an
 /// arbitrary and uniform shuffle of the book. Starting at a random point in that
 /// order and reading forward is therefore a random sample, and it is one an
 /// index can walk: the window is a seek plus a handful of rows rather than a

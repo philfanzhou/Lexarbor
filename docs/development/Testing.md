@@ -24,13 +24,15 @@ Tests run on **Microsoft.Testing.Platform** (MTP) rather than the older VSTest â
 SDK no longer supports running xUnit v3 under VSTest. The conventions that follow from it:
 
 - The `test.runner` declaration in the root `global.json` makes `dotnet test` go through MTP.
+  Under MTP the solution must be passed with `--solution`; some .NET 10 SDKs reject it as a
+  positional argument (`Specifying a solution for 'dotnet test' should be via '--solution'.`).
 - Both test projects are executables (`<OutputType>Exe</OutputType>` plus
   `<UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>`),
   so the produced exe can also be run directly to execute the tests.
 - MTP arguments go after `--`, replacing VSTest's `--logger` and `--collect`:
 
   ```
-  dotnet test Lexarbor.sln --results-directory TestResults -- \
+  dotnet test --solution Lexarbor.sln --results-directory TestResults -- \
     --report-xunit-trx --coverage --coverage-output-format cobertura
   ```
 
@@ -97,8 +99,9 @@ SDK no longer supports running xUnit v3 under VSTest. The conventions that follo
 | Meaning to word relationship | Required foreign key, cascade on word deletion |
 | Meaning to book relationship | Required foreign key, restrict on book deletion |
 | Equivalent meaning constraint | The normalized logical key is unique and in-process concurrent imports stay idempotent |
-| First startup | When the database file is absent, migrate and write the 300-word starter book |
-| Existing database | Migrate only, and do not write the starter book again |
+| First startup | When the database file is absent, migrate and leave every business table empty |
+| Existing database | Migrate only, leaving existing books, words, and meanings unchanged |
+| Distribution | The database assembly embeds no vocabulary data resource |
 | Phonetics | The DTO, the model, and the database all keep separate British and American columns |
 
 ### HTTP authentication and envelopes
@@ -138,7 +141,7 @@ SDK no longer supports running xUnit v3 under VSTest. The conventions that follo
 ## How to run
 
 ```bash
-dotnet test Lexarbor.sln --configuration Release
+dotnet test --solution Lexarbor.sln --configuration Release
 ```
 
 ```bash

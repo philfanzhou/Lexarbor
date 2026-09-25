@@ -24,16 +24,14 @@ The database logical key for an equivalent meaning is:
 
 The last two components are persisted as SQLite stored generated columns and carry a unique index, so duplicate data cannot be produced by going around the application layer.
 
-## First-run creation and the starter book
+## First-run creation
 
 The connection string defaults to `Data Source=data/vocabulary.db`. The startup order is fixed:
 
-1. before migrating, check whether the configured data file exists;
-2. create the parent directory and run the SQLite migrations;
-3. only when the file did not previously exist, read the assembly's embedded `SeedData/starter-vocabulary.tsv`;
-4. write `Starter English 300`, its 300 unique words, and their meanings in a single transaction.
+1. create the parent directory and run the SQLite migrations;
+2. switch the database to write-ahead logging.
 
-Every starter entry carries a British phonetic, an American phonetic, a part of speech, and a Chinese definition. An existing file is migrated only and the seed is never reloaded, so data a user adds later is neither overwritten nor duplicated by the startup logic.
+Startup writes no books, words, or meanings, whether the file is new or already exists, so a new database starts empty and data already in an existing one is neither overwritten, duplicated, nor removed. Lexarbor ships no vocabulary data ([ADR-002](../adr/ADR-002-bundled-vocabulary-data.md)); databases created by releases that still loaded the former `Starter English 300` book keep it unchanged.
 
 The database file must live on a persistent volume. Docker mounts the host's `data/` at `/app/data` by default; never put a prebuilt `.db` into the image.
 

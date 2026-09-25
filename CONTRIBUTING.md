@@ -16,7 +16,7 @@ Run the checks relevant to your change; run all of them before requesting merge 
 ```bash
 dotnet restore Lexarbor.sln
 dotnet build Lexarbor.sln --configuration Release --no-restore
-dotnet test Lexarbor.sln --configuration Release --no-build
+dotnet test --solution Lexarbor.sln --configuration Release --no-build
 
 cd frontend
 npm ci

@@ -273,3 +273,31 @@ test('offers every book, past the page the administration search would have retu
   // than that the option exists is the difference between listed and usable.
   await expect.poll(() => importPayload?.meaning?.bookId).toBe('book-25')
 })
+
+test('opens without errors when no book exists yet', async ({ page }) => {
+  let importAttempted = false
+
+  await openImportPage(page, [])
+  await page.route(/\/admin\/vocabulary$/, (route) => {
+    importAttempted = true
+    return json(route, { success: true, data: { success: true } })
+  })
+
+  // A new instance has no books until an administrator creates one. The page
+  // must load quietly and simply offer nothing to pick.
+  // Scoped to the open dropdown because the part-of-speech select keeps its own
+  // options in the DOM while closed.
+  await page.locator('.el-form-item').first().locator('.el-select').click()
+  const openDropdown = page.locator('.el-select-dropdown:visible')
+  await expect(openDropdown).toHaveCount(1)
+  await expect(openDropdown.locator('.el-select-dropdown__item')).toHaveCount(0)
+  await expect(page.locator('.el-message--error')).toHaveCount(0)
+
+  await page.keyboard.press('Escape')
+  await page.getByPlaceholder('如：apple').fill('apple')
+  await page.getByPlaceholder('如：苹果').fill('苹果')
+  await submit(page)
+
+  await expect(page.locator('.el-form-item__error')).toContainText('请选择教材')
+  expect(importAttempted).toBe(false)
+})

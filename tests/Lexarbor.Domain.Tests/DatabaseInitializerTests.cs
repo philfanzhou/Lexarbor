@@ -13,50 +13,91 @@ public sealed class DatabaseInitializerTests : IDisposable
         $"lexarbor-tests-{Guid.NewGuid():N}");
 
     [Fact]
-    public async Task InitializeAsync_MissingDatabase_CreatesSchemaAndStarterBook()
+    public async Task InitializeAsync_MissingDatabase_CreatesEmptySchema()
     {
         var databasePath = Path.Combine(_temporaryDirectory, "vocabulary.db");
 
-        await using (var context = CreateContext(databasePath))
-        {
-            await DatabaseInitializer.InitializeAsync(
-                context,
-                NullLoggerFactory.Instance, TestContext.Current.CancellationToken);
+        await using var context = CreateContext(databasePath);
+        await DatabaseInitializer.InitializeAsync(
+            context,
+            NullLoggerFactory.Instance, TestContext.Current.CancellationToken);
 
-            Assert.True(File.Exists(databasePath));
-            Assert.Equal(1, await context.VocabularyBooks.CountAsync(TestContext.Current.CancellationToken));
-            Assert.Equal(300, await context.Vocabularies.CountAsync(TestContext.Current.CancellationToken));
-            Assert.Equal(300, await context.VocabularyMeanings.CountAsync(TestContext.Current.CancellationToken));
-            Assert.All(
-                await context.Vocabularies.ToListAsync(TestContext.Current.CancellationToken),
-                item =>
-                {
-                    Assert.False(string.IsNullOrWhiteSpace(item.PhoneticUk));
-                    Assert.False(string.IsNullOrWhiteSpace(item.PhoneticUs));
-                });
-        }
-
-        await using (var context = CreateContext(databasePath))
-        {
-            context.Vocabularies.Add(new VocabularyEntity
-            {
-                Id = Guid.NewGuid().ToString(),
-                Word = "persisted",
-                CreatedAt = DateTimeOffset.UtcNow,
-                UpdatedAt = DateTimeOffset.UtcNow
-            });
-            await context.SaveChangesAsync(TestContext.Current.CancellationToken);
-            await DatabaseInitializer.InitializeAsync(
-                context,
-                NullLoggerFactory.Instance, TestContext.Current.CancellationToken);
-
-            Assert.Equal(301, await context.Vocabularies.CountAsync(TestContext.Current.CancellationToken));
-            Assert.Equal(1, await context.VocabularyBooks.CountAsync(TestContext.Current.CancellationToken));
-        }
+        Assert.True(File.Exists(databasePath));
+        Assert.Equal(0, await context.VocabularyBooks.CountAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(0, await context.Vocabularies.CountAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(0, await context.VocabularyMeanings.CountAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(
+            context.Database.GetMigrations(),
+            await context.Database.GetAppliedMigrationsAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
-    public async Task InitializeAsync_ExistingEmptyFile_MigratesWithoutLoadingSeed()
+    public async Task InitializeAsync_ExistingDatabaseWithData_LeavesDataUnchanged()
+    {
+        var databasePath = Path.Combine(_temporaryDirectory, "populated.db");
+
+        // Stands in for a database created by an earlier release, which loaded
+        // the Starter English 300 book on its first start. A later start must
+        // neither add to it nor remove it.
+        await using (var context = CreateContext(databasePath))
+        {
+            await DatabaseInitializer.InitializeAsync(
+                context,
+                NullLoggerFactory.Instance, TestContext.Current.CancellationToken);
+
+            var now = DateTimeOffset.UtcNow;
+            var vocabularyId = Guid.NewGuid().ToString();
+            context.VocabularyBooks.Add(new VocabularyBookEntity
+            {
+                Id = "starter-english-300",
+                BookName = "Starter English 300",
+                Category = "Starter",
+                Status = true,
+                CreatedAt = now,
+                UpdatedAt = now
+            });
+            context.Vocabularies.Add(new VocabularyEntity
+            {
+                Id = vocabularyId,
+                Word = "apple",
+                PhoneticUk = "/ˈæp.əl/",
+                PhoneticUs = "/ˈæp.əl/",
+                CreatedAt = now,
+                UpdatedAt = now
+            });
+            context.VocabularyMeanings.Add(new VocabularyMeaningEntity
+            {
+                Id = Guid.NewGuid().ToString(),
+                VocabularyId = vocabularyId,
+                BookId = "starter-english-300",
+                PartOfSpeech = "n.",
+                Meaning = "苹果",
+                CreatedAt = now,
+                UpdatedAt = now
+            });
+            await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        var before = await ReadSnapshotAsync(databasePath, TestContext.Current.CancellationToken);
+
+        await using (var context = CreateContext(databasePath))
+        {
+            await DatabaseInitializer.InitializeAsync(
+                context,
+                NullLoggerFactory.Instance, TestContext.Current.CancellationToken);
+        }
+
+        var after = await ReadSnapshotAsync(databasePath, TestContext.Current.CancellationToken);
+        Assert.Equal(before.Books, after.Books);
+        Assert.Equal(before.Vocabularies, after.Vocabularies);
+        Assert.Equal(before.Meanings, after.Meanings);
+        Assert.Equal(["starter-english-300|Starter English 300"], after.Books);
+        Assert.Equal(["apple|/ˈæp.əl/|/ˈæp.əl/"], after.Vocabularies);
+        Assert.Equal(["starter-english-300|n.|苹果"], after.Meanings);
+    }
+
+    [Fact]
+    public async Task InitializeAsync_ExistingEmptyFile_MigratesWithoutWritingData()
     {
         Directory.CreateDirectory(_temporaryDirectory);
         var databasePath = Path.Combine(_temporaryDirectory, "existing.db");
@@ -69,6 +110,15 @@ public sealed class DatabaseInitializerTests : IDisposable
 
         Assert.Equal(0, await context.VocabularyBooks.CountAsync(TestContext.Current.CancellationToken));
         Assert.Equal(0, await context.Vocabularies.CountAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(0, await context.VocabularyMeanings.CountAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public void DatabaseAssembly_ShipsNoVocabularyData()
+    {
+        Assert.DoesNotContain(
+            typeof(VocabularyDbContext).Assembly.GetManifestResourceNames(),
+            name => name.Contains("starter-vocabulary", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -95,6 +145,31 @@ public sealed class DatabaseInitializerTests : IDisposable
                 await ReadJournalModeAsync(context, TestContext.Current.CancellationToken));
         }
     }
+
+    private static async Task<DatabaseSnapshot> ReadSnapshotAsync(
+        string databasePath,
+        CancellationToken cancellationToken)
+    {
+        await using var context = CreateContext(databasePath);
+        var books = await context.VocabularyBooks
+            .OrderBy(item => item.Id)
+            .Select(item => item.Id + "|" + item.BookName)
+            .ToListAsync(cancellationToken);
+        var vocabularies = await context.Vocabularies
+            .OrderBy(item => item.Id)
+            .Select(item => item.Word + "|" + item.PhoneticUk + "|" + item.PhoneticUs)
+            .ToListAsync(cancellationToken);
+        var meanings = await context.VocabularyMeanings
+            .OrderBy(item => item.Id)
+            .Select(item => item.BookId + "|" + item.PartOfSpeech + "|" + item.Meaning)
+            .ToListAsync(cancellationToken);
+        return new DatabaseSnapshot(books, vocabularies, meanings);
+    }
+
+    private sealed record DatabaseSnapshot(
+        IReadOnlyList<string> Books,
+        IReadOnlyList<string> Vocabularies,
+        IReadOnlyList<string> Meanings);
 
     private static async Task<string?> ReadJournalModeAsync(
         VocabularyDbContext context,
