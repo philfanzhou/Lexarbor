@@ -5,3 +5,4 @@
 - [ADR-002 Bundled vocabulary data and user-supplied imports](../adr/ADR-002-bundled-vocabulary-data.md)
 - [ADR-003 SQLite as the only supported storage](../adr/ADR-003-sqlite-only-storage.md)
 - [ADR-004 Extracting Lexarbor from the monorepo](../adr/ADR-004-standalone-lexarbor-repository.md)
+- [ADR-005 Bulk vocabulary import](../adr/ADR-005-bulk-vocabulary-import.md)

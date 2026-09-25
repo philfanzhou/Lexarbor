@@ -67,6 +67,51 @@ public sealed class SqliteConcurrencyTests : IDisposable
         Assert.Equal(1, await verificationContext.VocabularyMeanings.CountAsync(TestContext.Current.CancellationToken));
     }
 
+    // Scenario 8 of the batch import model (#72, ADR-005): two identical
+    // batches from separate requests are serialized by the write lock, so one
+    // creates everything and the other matches all of it.
+    [Fact]
+    public async Task ConcurrentIdenticalBatches_AreSerializedAndIdempotent()
+    {
+        Directory.CreateDirectory(_temporaryDirectory);
+        var databasePath = Path.Combine(_temporaryDirectory, "batch-concurrency.db");
+        await using (var setupContext = CreateContext(databasePath))
+        {
+            await setupContext.Database.MigrateAsync(TestContext.Current.CancellationToken);
+            var now = DateTimeOffset.UtcNow;
+            setupContext.VocabularyBooks.Add(new VocabularyBookEntity
+            {
+                Id = "batch-book",
+                BookName = "Batch Book",
+                Status = true,
+                CreatedAt = now,
+                UpdatedAt = now
+            });
+            await setupContext.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        const int entryCount = 50;
+        static List<(VocabularyModel, VocabularyMeaningModel)> Batch() =>
+            Enumerable.Range(0, entryCount)
+                .Select(index => (
+                    new VocabularyModel { Word = $"word{index:D2}" },
+                    new VocabularyMeaningModel { PartOfSpeech = "n.", Meaning = $"meaning {index:D2}" }))
+                .ToList();
+
+        await using var firstContext = CreateContext(databasePath);
+        await using var secondContext = CreateContext(databasePath);
+        var results = await Task.WhenAll(
+            CreateService(firstContext).ImportBatchAsync("batch-book", Batch()),
+            CreateService(secondContext).ImportBatchAsync("batch-book", Batch()));
+
+        Assert.Contains(new VocabularyBatchImportResult(entryCount, entryCount, 0), results);
+        Assert.Contains(new VocabularyBatchImportResult(entryCount, 0, entryCount), results);
+
+        await using var verificationContext = CreateContext(databasePath);
+        Assert.Equal(entryCount, await verificationContext.Vocabularies.CountAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(entryCount, await verificationContext.VocabularyMeanings.CountAsync(TestContext.Current.CancellationToken));
+    }
+
     [Fact]
     public async Task BookWrite_WhileAnotherConnectionHoldsTheDatabase_ReportsStorageBusy()
     {

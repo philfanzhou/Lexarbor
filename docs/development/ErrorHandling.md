@@ -10,6 +10,7 @@ HTTP services must use the standard HTTP status codes:
 | `401 Unauthorized` | Login failed, or the JWT is missing or invalid | Anonymous access to an administration endpoint |
 | `403 Forbidden` | Authenticated but without the administrator role, or a cookie write request without the same-origin header | An ordinary Identity user reaching an administration endpoint |
 | `404 Not Found` | The requested resource does not exist | The word, meaning, or book does not exist |
+| `413 Payload Too Large` | The request body exceeds the route's size limit | A batch import body over 1 MiB |
 | `409 Conflict` | A uniqueness, ownership, or deletion conflict | Deleting a book that still has meanings |
 | `422 Unprocessable Entity` | A business precondition is not met | The book is disabled, too few question candidates |
 | `429 Too Many Requests` | An anonymous endpoint exceeded the ceiling for that client address | Login brute force, one address hammering the public API |
@@ -30,11 +31,13 @@ Every HTTP endpoint returns its response through the `VocabularyHttpResponse` he
 - success: `{ "success": true, "data": value }` or `{ "success": true }`
 - failure: `{ "success": false, "message": "..." }`
 
+`POST /admin/vocabulary/batch` adds one field to its 400 answer for invalid entries: `errors`, a list of `{ "index": n, "message": "..." }` naming every invalid entry by its zero-based position. No other route returns `errors`. See [ADR-005](../adr/ADR-005-bulk-vocabulary-import.md).
+
 ## Parameter validation
 
 Parameter validation happens at the HTTP endpoint boundary. A `page` or `size` of 0 falls back to the compatible defaults of 1 and 20; a negative value, a `size>100`, or paging arithmetic that overflows answers 400.
 
-The shared exception middleware maps domain exceptions, database conflicts, JSON errors, and unexpected exceptions onto the status codes above. An endpoint must never return `ex.Message`; a 500 response always uses the generic message.
+The shared exception middleware maps domain exceptions, database conflicts, JSON errors, and unexpected exceptions onto the status codes above. Kestrel's body-too-large error becomes 413 `The request body is too large.`; that reaches the middleware only on a route that reads its own body, such as the batch import, because a route that binds its body as a parameter has an oversized body answered by the framework with an empty 413. An endpoint must never return `ex.Message`; a 500 response always uses the generic message.
 
 ## Logging conventions
 

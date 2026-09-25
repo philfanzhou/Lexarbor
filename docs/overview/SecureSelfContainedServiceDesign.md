@@ -194,6 +194,7 @@ All of the following require `role=admin`, read endpoints included:
 
 ```text
 POST   /admin/vocabulary
+POST   /admin/vocabulary/batch
 POST   /admin/vocabulary-books
 PUT    /admin/vocabulary-books
 GET    /admin/vocabulary-books/{id}
@@ -256,6 +257,10 @@ normalizedWord = word.Trim().ToLowerInvariant()
 - A SQLite deployment is limited to a single instance. A process-level write lock serializes every write, taken by both the transaction helper and the plain save so that no write path can bypass it, and the logical key's unique index over the stored generated columns is the database backstop. The lock is held per async flow, so a save nested inside a transaction joins the lock its caller holds rather than waiting on it.
 - The database runs in WAL mode, so a read never blocks a write. A write that still finds the database held by another connection answers 503 with `Retry-After`, not 409 and not 500: nothing is wrong with the request and retrying it works.
 - A unique constraint violation, a concurrent duplicate, or any other database consistency conflict answers 409.
+
+### 8.3 Batch import
+
+`POST /admin/vocabulary/batch` imports up to 500 entries into one book in a single transaction, applying each entry in order with the rules above. Either every entry is stored or none is, so a batch can be resubmitted after any failure without creating duplicates. The request body is capped at 1 MiB and read by the endpoint itself so that an oversized body answers the 413 envelope. Every check that needs no database runs before the write lock is taken; the book's existence and status are checked inside the transaction. [ADR-005](../adr/ADR-005-bulk-vocabulary-import.md) defines the payload, the order of the checks, the `{ total, created, reused }` result, the limits and their measurements, and the TSV format the administration UI will parse.
 
 `Category` keeps the existing string field as its formal representation. The integer `BookCategories` constant type, which disagreed with it and was unused, is deleted so that no dual representation is maintained.
 
@@ -331,6 +336,7 @@ Status code conventions:
 | 403 | Authenticated but not an administrator |
 | 404 | The word, meaning, or book does not exist |
 | 409 | A unique constraint, a related deletion, or another data conflict |
+| 413 | A request body over the route's size limit, such as a batch import over 1 MiB |
 | 422 | A business precondition such as a disabled book or too few question candidates |
 | 500 | An unexpected exception |
 | 502 | Identity is unreachable or returned an invalid response |
@@ -340,10 +346,12 @@ Endpoints no longer catch a general exception and return `ex.Message`. The share
 
 - mapping known domain exceptions to 400, 404, 409, or 422;
 - mapping database unique and foreign key constraint violations to 409;
-- mapping JSON parsing errors and the Minimal API `BadHttpRequestException` to 400;
+- mapping the Minimal API `BadHttpRequestException` to 400, except Kestrel's body-too-large error, which becomes 413;
 - logging an unexpected exception at Error level with the exception object and returning the generic 500 message;
 - using Warning for an expected NotFound;
 - producing the same envelope for authentication challenges, forbidden responses, and unknown API paths.
+
+The batch import is the one route that adds a field to the failure envelope: its 400 for invalid entries carries `errors`, a list of `{ index, message }` for every invalid entry. It also reads and parses its own body and answers malformed JSON with 400 `The request body is not valid JSON.`.
 
 No client response may contain SQL, a connection string, a stack trace, a database exception, or any internal implementation detail.
 
@@ -422,6 +430,7 @@ The existing features, fields, and Vite build of book management and word import
 - A meaning that does not belong to the current word or book cannot be updated.
 - A normalized word is created only once.
 - A repeated meaning import does not insert a second row.
+- A batch import is atomic: a validation failure, a missing or disabled book, or a failure while writing any entry leaves every table unchanged. Equivalent entries within one batch store one meaning, a resubmitted batch creates nothing, and two identical batches imported concurrently are serialized so that one creates every entry and the other matches them.
 - Deleting a book in use answers Conflict.
 - An empty book can be deleted.
 - A disabled book does not appear in the public list, and the public detail and question endpoints cannot read its meanings.
@@ -441,7 +450,8 @@ The existing features, fields, and Vite build of book management and word import
 
 ### 15.4 HTTP and error handling
 
-- Verify the status and the shared envelope for 400, 401, 403, 404, 409, 422, 500, 502, and 503.
+- Verify the status and the shared envelope for 400, 401, 403, 404, 409, 413, 422, 500, 502, and 503.
+- The batch import answers each row of the ADR-005 model with its status, envelope, and `errors`, and leaves the database unchanged on every rejection. The 413 is verified on a Kestrel-hosted factory, for a `Content-Length` body and a chunked one, because TestServer does not enforce request size limits.
 - The fake Identity HTTP handler verifies the request fields and the server-side AppId and AppSecret headers.
 - Simulate a repository exception and confirm the 500 response contains no internal exception message.
 - An unknown `/api/*` answers a 404 envelope; an unknown `/admin/*` answers 401 for an anonymous request and a 404 envelope for an administrator.

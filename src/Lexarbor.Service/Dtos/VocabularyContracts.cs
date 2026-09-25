@@ -110,6 +110,48 @@ public class AddOrUpdateRequest
     public VocabularyMeaningDto? Meaning { get; set; }
 }
 
+/// <summary>
+/// Body of <c>POST /admin/vocabulary/batch</c>. ADR-005 defines its semantics.
+/// </summary>
+public class VocabularyBatchImportRequest
+{
+    public string? BookId { get; set; }
+    public List<VocabularyBatchEntryDto?>? Entries { get; set; }
+}
+
+/// <summary>
+/// One row of a batch import. Blank optional fields count as absent.
+/// </summary>
+public class VocabularyBatchEntryDto
+{
+    public string? Word { get; set; }
+    public string? PhoneticUk { get; set; }
+    public string? PhoneticUs { get; set; }
+    public string? PartOfSpeech { get; set; }
+    public string? Meaning { get; set; }
+    public string? Example { get; set; }
+}
+
+/// <summary>
+/// Counts returned by a successful batch import; <c>total = created + reused</c>.
+/// </summary>
+public class VocabularyBatchImportResponse
+{
+    public int Total { get; set; }
+    public int Created { get; set; }
+    public int Reused { get; set; }
+}
+
+/// <summary>
+/// Why one entry of a rejected batch is invalid; <c>index</c> is its zero-based
+/// position in <c>entries</c>.
+/// </summary>
+public class VocabularyBatchEntryError
+{
+    public int Index { get; set; }
+    public string Message { get; set; } = string.Empty;
+}
+
 public class SearchRequest
 {
     public string Keyword { get; set; } = string.Empty;

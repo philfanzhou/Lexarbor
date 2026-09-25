@@ -70,6 +70,12 @@ SDK no longer supports running xUnit v3 under VSTest. The conventions that follo
 | Meaning ownership mismatch | Returns Conflict |
 | Question generation | Distractors come only from the same book, deduplicated by word |
 | Too few question candidates | Returns BusinessRuleException, which HTTP maps to 422 |
+| Batch import into an empty book, then resubmitted | Creates every entry, then reuses every entry; the counts say so |
+| Equivalent entries within one batch | Store one word and one meaning |
+| Later entries in a batch | Overwrite earlier phonetics and examples; blank values never clear a stored one |
+| Batch that fails while writing an entry | Rolls back the entries written before it |
+| Batch with an invalid shape, a missing book, or a disabled book | Rejected before any write |
+| Two identical batches imported concurrently | Serialized: one creates every entry, the other reuses them |
 
 ### VocabularyBookDomainService
 
@@ -116,6 +122,8 @@ SDK no longer supports running xUnit v3 under VSTest. The conventions that follo
 | Public `/api/*` | Does not require an administrator login |
 | Unknown route | `/api/*` gives 404; anonymous `/admin/*` gives 401; administrator `/admin/*` gives 404 |
 | Unexpected exception | 500 with the generic message, leaking no internal exception |
+| Batch import, every row of the ADR-005 model | The documented status, envelope, and `errors`, with the database unchanged on every rejection |
+| Batch import body over 1 MiB | 413 envelope on a Kestrel-hosted factory, with `Content-Length` and chunked; TestServer does not enforce the limit |
 
 ### Rate limiting
 
