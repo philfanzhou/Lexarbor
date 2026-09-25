@@ -4,7 +4,8 @@ import { ElMessage } from 'element-plus'
 import { getActiveBooks } from '@/services/bookApi'
 import { importVocabularyBatch } from '@/services/vocabularyApi'
 import type { VocabularyBatchImportPayload, VocabularyBatchImportResult } from '@/services/vocabularyApi'
-import { parseVocabularyTsv } from '@/services/vocabularyTsv'
+import { decodeUtf8, formatForFileName, parseVocabularyInput } from '@/services/vocabularyInput'
+import type { VocabularyInputFormat } from '@/services/vocabularyInput'
 import { getApiError } from '@/services/apiError'
 import type { Book } from '@/types'
 
@@ -14,23 +15,36 @@ const MAX_ENTRIES = 500
 const MAX_BYTES = 1_048_576
 const PAGE_SIZE = 100
 
+const formatLabels: Record<VocabularyInputFormat, string> = { tsv: 'TSV', csv: 'CSV' }
+const placeholders: Record<VocabularyInputFormat, string> = {
+  tsv: '每行一条，制表符分隔：单词、英式音标、美式音标、词性、释义，可选第 6 列例句；空行和 # 开头的行忽略',
+  csv: '第一行为表头，逗号分隔，例如：word,phonetic_uk,phonetic_us,part_of_speech,meaning,example'
+}
+const formatHints: Record<VocabularyInputFormat, string> = {
+  tsv: '无表头，列顺序固定',
+  csv: '只支持逗号分隔；表头不区分大小写、顺序不限，必须包含 word 和 meaning'
+}
+
 const books = ref<Book[]>([])
 const bookId = ref('')
+const format = ref<VocabularyInputFormat>('tsv')
 const text = ref('')
 const submitting = ref(false)
 const onlyInvalid = ref(false)
 const currentPage = ref(1)
 const result = ref<VocabularyBatchImportResult>()
-/** Server reasons keyed by source line number; valid only for the current text and book. */
+/** Server reasons keyed by row position; valid only for the current format, text, and book. */
 const serverErrors = ref(new Map<number, string>())
 const serverSummary = ref('')
 const fileInput = ref<HTMLInputElement>()
 
-const rows = computed(() => parseVocabularyTsv(text.value))
+const parsed = computed(() => parseVocabularyInput(format.value, text.value))
+const rows = computed(() => parsed.value.rows)
+const parseError = computed(() => parsed.value.error)
 
 const previewRows = computed(() =>
   rows.value.map((row) => {
-    const serverError = serverErrors.value.get(row.lineNumber)
+    const serverError = serverErrors.value.get(row.position)
     const reason = row.error ?? (serverError === undefined ? undefined : `服务端：${serverError}`)
     return { ...row, reason }
   })
@@ -68,8 +82,13 @@ const blockers = computed(() => {
   if (!bookId.value) {
     reasons.push('请选择教材')
   }
+  // A file-level error leaves no rows, so it is the only reason worth reading.
+  if (parseError.value) {
+    reasons.push(parseError.value)
+    return reasons
+  }
   if (rows.value.length === 0) {
-    reasons.push('没有可导入的数据行，请粘贴 TSV 文本或选择文件')
+    reasons.push(`没有可导入的数据行，请粘贴 ${formatLabels[format.value]} 文本或选择文件`)
   }
   if (invalidCount.value > 0) {
     reasons.push(`存在 ${invalidCount.value} 行无效数据，请修正后再提交`)
@@ -87,8 +106,8 @@ const blockers = computed(() => {
 
 const canSubmit = computed(() => blockers.value.length === 0 && !submitting.value)
 
-// A server verdict belongs to the exact text and book it was given for.
-watch([text, bookId], () => {
+// A server verdict belongs to the exact text, format, and book it was given for.
+watch([format, text, bookId], () => {
   serverErrors.value = new Map()
   serverSummary.value = ''
   currentPage.value = 1
@@ -116,12 +135,23 @@ function chooseFile() {
   fileInput.value?.click()
 }
 
-function handleFileChange(event: Event) {
+/** Counts file reads, so that only the file chosen last fills the text area. */
+let fileReads = 0
+
+async function handleFileChange(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   // Cleared so that choosing the same file again still fires a change.
   input.value = ''
   if (!file) {
+    return
+  }
+
+  // Extension, then size, then content (ADR-006): a file is refused before it
+  // is read whenever it can be.
+  const fileFormat = formatForFileName(file.name)
+  if (!fileFormat) {
+    ElMessage.error('不支持的文件类型，请选择 .tsv、.txt 或 .csv 文件')
     return
   }
 
@@ -132,14 +162,32 @@ function handleFileChange(event: Event) {
     return
   }
 
-  const reader = new FileReader()
-  reader.onload = () => {
-    text.value = typeof reader.result === 'string' ? reader.result : ''
+  const read = ++fileReads
+  let buffer: ArrayBuffer
+  try {
+    buffer = await file.arrayBuffer()
+  } catch {
+    if (read === fileReads) {
+      ElMessage.error('文件读取失败')
+    }
+    return
   }
-  reader.onerror = () => {
-    ElMessage.error('文件读取失败')
+  if (read !== fileReads) {
+    return
   }
-  reader.readAsText(file, 'utf-8')
+
+  let content: string
+  try {
+    content = decodeUtf8(buffer)
+  } catch {
+    // Refused rather than shown with replacement characters, which would
+    // otherwise be a valid preview and be stored as they are.
+    ElMessage.error('文件不是 UTF-8 编码，请另存为 UTF-8（Excel：CSV UTF-8（逗号分隔））后重试')
+    return
+  }
+
+  format.value = fileFormat
+  text.value = content
 }
 
 function showServerEntryErrors(errors: { index: number; message: string }[]): boolean {
@@ -149,7 +197,7 @@ function showServerEntryErrors(errors: { index: number; message: string }[]): bo
     if (!row) {
       return false
     }
-    mapped.set(row.lineNumber, message)
+    mapped.set(row.position, message)
   }
 
   serverErrors.value = mapped
@@ -235,23 +283,30 @@ onMounted(loadBooks)
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="TSV">
+        <el-form-item label="数据">
           <div class="batch-input">
+            <div class="batch-input__format">
+              <el-radio-group v-model="format" class="batch-format" :disabled="submitting">
+                <el-radio-button value="tsv">TSV</el-radio-button>
+                <el-radio-button value="csv">CSV</el-radio-button>
+              </el-radio-group>
+              <span class="batch-hint batch-format-hint">{{ formatHints[format] }}</span>
+            </div>
             <el-input
               v-model="text"
               type="textarea"
               :rows="8"
               :disabled="submitting"
-              placeholder="每行一条，制表符分隔：单词、英式音标、美式音标、词性、释义，可选第 6 列例句；空行和 # 开头的行忽略"
+              :placeholder="placeholders[format]"
             />
             <div class="batch-input__actions">
               <el-button :disabled="submitting" @click="chooseFile">选择文件</el-button>
-              <span class="batch-hint">读取本地 .tsv / .txt 文件（UTF-8，不超过 1 MiB）；文件只在浏览器中解析，不会上传</span>
+              <span class="batch-hint">读取本地 .tsv / .txt / .csv 文件（UTF-8，不超过 1 MiB）；文件只在浏览器中解析，不会上传</span>
               <input
                 ref="fileInput"
                 class="batch-file-input"
                 type="file"
-                accept=".tsv,.txt,text/tab-separated-values,text/plain"
+                accept=".tsv,.txt,.csv,text/tab-separated-values,text/plain,text/csv"
                 @change="handleFileChange"
               >
             </div>
@@ -277,7 +332,16 @@ onMounted(loadBooks)
         :title="serverSummary"
       />
 
-      <template v-if="rows.length > 0">
+      <el-alert
+        v-if="parseError"
+        class="batch-parse-error"
+        type="error"
+        :closable="false"
+        show-icon
+        :title="parseError"
+      />
+
+      <template v-else-if="rows.length > 0">
         <div class="batch-toolbar">
           <span class="batch-summary">
             数据行 {{ rows.length }} 条，有效 {{ rows.length - invalidCount }} 条，无效 {{ invalidCount }} 条
@@ -286,7 +350,7 @@ onMounted(loadBooks)
         </div>
 
         <el-table :data="pagedRows" :row-class-name="rowClassName" border size="small" class="batch-preview">
-          <el-table-column prop="lineNumber" label="行号" width="70" />
+          <el-table-column prop="position" label="行号" width="70" />
           <el-table-column label="单词" min-width="110">
             <template #default="{ row }">{{ row.columns[0] }}</template>
           </el-table-column>
@@ -340,6 +404,12 @@ onMounted(loadBooks)
 .batch-import-view { padding: 16px; }
 .card-title { font-weight: 600; font-size: 16px; }
 .batch-input { width: 100%; }
+.batch-input__format {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
 .batch-input__actions {
   display: flex;
   align-items: center;
@@ -349,7 +419,8 @@ onMounted(loadBooks)
 .batch-hint { color: #909399; font-size: 12px; }
 .batch-file-input { display: none; }
 .batch-result,
-.batch-server-summary { margin-bottom: 12px; }
+.batch-server-summary,
+.batch-parse-error { margin-bottom: 12px; }
 .batch-toolbar {
   display: flex;
   align-items: center;

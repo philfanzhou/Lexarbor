@@ -75,13 +75,13 @@ Components use `catch (error: unknown)` with the shared conversion function, nev
 
 ## Batch import page
 
-`/import/batch` imports many entries into one book through `POST /admin/vocabulary/batch`. [ADR-005](../adr/ADR-005-bulk-vocabulary-import.md) is the single source for the payload, the limits, the check order, the failure envelope, and the TSV format; this section describes only how the page applies them.
+`/import/batch` imports many entries into one book through `POST /admin/vocabulary/batch`. [ADR-005](../adr/ADR-005-bulk-vocabulary-import.md) is the single source for the payload, the limits, the check order, the failure envelope, and the TSV format, and [ADR-006](../adr/ADR-006-batch-import-file-formats.md) for the other formats, file reading, and the header rules; this section describes only how the page applies them.
 
 Flow:
 
 1. Pick an enabled book. The picker reads `GET /api/vocabulary-books/all`, the same as the single-entry page.
-2. Paste TSV into the text area, or choose a local `.tsv` or `.txt` file. The file is read in the browser with `FileReader.readAsText(file, 'utf-8')` and placed in the text area; it is never uploaded. A file larger than 1 MiB is refused before it is read, so an oversized file cannot stall the preview.
-3. The preview counts data lines, valid lines, and invalid lines, and lists each data line with its source line number, its six parsed columns, and its status. The table shows 100 lines per page and can be filtered to invalid lines only.
+2. Pick the format, TSV (the default) or CSV, and paste text into the text area; changing the format parses the same text again. Or choose a local `.tsv`, `.txt`, or `.csv` file: `.tsv` and `.txt` select TSV and `.csv` selects CSV, ignoring case, and any other extension is refused. A file larger than 1 MiB is refused before it is read, so an oversized file cannot stall the preview. The file is read in the browser with `file.arrayBuffer()` and decoded with `new TextDecoder('utf-8', { fatal: true })`, which removes a leading byte-order mark; a file that is not UTF-8 is refused with a message asking for it to be saved as UTF-8, and the text area and the format are left as they were. A file that decodes is placed in the text area and switches the selector to its format; it is never uploaded.
+3. The preview counts data rows, valid rows, and invalid rows, and lists each row with its position (the source line number it starts on), its six columns in the canonical order, and its status. The table shows 100 rows per page and can be filtered to invalid rows only. When the input cannot be read as a whole — for example a CSV header that is unknown, duplicated, or missing `word` or `meaning`, or an unclosed quote — the page shows that file-level error in `.batch-parse-error` instead of the preview, and the submit checks list only that error, plus the missing book if there is none.
 4. Submitting sends the parsed JSON, never the file. The request uses the same cookie session and `X-Requested-With` header as every other administration write, and the button stays disabled while the request is in flight, so repeated clicks send one request.
 5. On success the page shows `total`, `created`, and `reused`, clears the text and the preview so the same batch is not sent twice by accident, and keeps the selected book.
 
@@ -92,6 +92,13 @@ Browser-side TSV rules, in addition to the format ADR-005 defines:
 - A line is skipped when it is blank after trimming, or when its first character is `#`. Leading whitespace before `#` makes the line a data line.
 - Every column is trimmed. A blank optional column is left out of the entry rather than sent as an empty string. A line whose `word` or `meaning` is blank, or that does not have exactly five or six columns, is invalid.
 - `entries[i]` of the request is the `i`th data line of the preview, in source order, so the server's `errors[].index` maps back to a source line.
+
+Browser-side CSV rules, as ADR-006 defines them:
+
+- The first record that is not blank is a header naming the columns: `word`, `phonetic_uk`, `phonetic_us`, `part_of_speech`, `meaning`, and `example`, trimmed, in any order and any case. `word` and `meaning` are required. A column with a blank header is ignored when every value under it is blank; an unknown, duplicated, or missing required name, or a blank name over values, refuses the whole input with the column number and name.
+- Only a comma separates fields. A field whose first character is `"` is quoted: inside it, commas and line breaks are content, `""` is one quote, and every line break becomes `\n`. A quote left open, or a closing quote followed by anything but a comma or a line break, refuses the whole input.
+- A row's position is the physical line its record starts on, so a line break inside a quoted field moves the later rows down. Records whose fields are all blank are skipped but counted; a record starting with `#` is data.
+- A record with a different number of fields from the header is invalid. Values are trimmed and blank optional values are left out, with the same check as TSV, so the same data gives the same request in either format.
 
 Submission is disabled, with a message saying why, when no book is selected, there is no data line, any line is invalid, there are more than 500 data lines, or the JSON payload is larger than 1,048,576 bytes in UTF-8. These checks only spare a request the server would refuse; the server validates every entry itself. The page does not split a large input into several batches: each batch is atomic, but several batches together are not, and splitting them automatically would suggest otherwise.
 
@@ -111,7 +118,7 @@ Results and failures:
 | No response (network error or timeout) | The outcome is unknown; resubmitting the same batch is safe |
 | Any other status | Show the server message |
 
-Every failure other than 401 and 403 keeps the text and the preview so the batch can be corrected and resubmitted. Changing the text or the book clears the server's per-line reasons, because they described the batch that was sent. Unsubmitted text is not saved and is lost when the page is left or reloaded.
+Every failure other than 401 and 403 keeps the text and the preview so the batch can be corrected and resubmitted. Changing the format, the text, or the book clears the server's per-line reasons, because they described the batch that was sent. Unsubmitted text is not saved and is lost when the page is left or reloaded.
 
 ## Build
 
