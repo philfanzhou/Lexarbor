@@ -63,7 +63,7 @@ USER $APP_UID
 # The probe is this same assembly with an argument rather than a curl call,
 # because the runtime image ships no HTTP client and adding one would hand a
 # future remote-code-execution the download tool this image currently lacks.
-# start-period covers migrations and the 300-word seed on a first start.
+# start-period covers migrations on a first start.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD ["dotnet", "Lexarbor.Host.dll", "--health-check"]
 
 ENTRYPOINT ["dotnet", "Lexarbor.Host.dll"]

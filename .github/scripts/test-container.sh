@@ -132,6 +132,24 @@ check_healthcheck_reports_healthy() {
   return 1
 }
 
+# Lexarbor ships no vocabulary data, so a new database must start with an empty
+# catalog. The runtime image has no sqlite3 to count rows with, so this asks the
+# public API; the row counts themselves are covered by DatabaseInitializerTests.
+check_catalog_is_empty() {
+  local container_name="$1"
+  local mapped_port response
+  mapped_port="$(docker port "$container_name" 5008/tcp | head -n 1 | awk -F: '{print $NF}')"
+  response="$(curl --fail --silent --show-error \
+    "http://127.0.0.1:${mapped_port}/api/vocabulary-books/all")"
+
+  if ! jq --exit-status '.success == true and .data.books == []' <<<"$response" >/dev/null; then
+    echo "Expected an empty vocabulary catalog on a new database, got: ${response}" >&2
+    return 1
+  fi
+
+  echo "Container ${container_name} starts with an empty vocabulary catalog"
+}
+
 echo "Checking startup without an explicit host mount"
 start_container "$UNMOUNTED_CONTAINER"
 check_reported_version "$UNMOUNTED_CONTAINER"
@@ -147,6 +165,7 @@ start_bind_mounted_container "$FRESH_CONTAINER" "$fresh_data"
 check_runs_unprivileged "$FRESH_CONTAINER"
 test -s "$fresh_data/appsettings.json"
 test -s "$fresh_data/vocabulary.db"
+check_catalog_is_empty "$FRESH_CONTAINER"
 cmp --silent src/Lexarbor.Host/appsettings.json "$fresh_data/appsettings.json"
 docker rm -f "$FRESH_CONTAINER" >/dev/null
 

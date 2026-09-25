@@ -10,7 +10,7 @@ Lexarbor/
 ├── frontend/                Vue administration frontend with its type and browser tests
 ├── scripts/                 Scripts a user or an operator runs deliberately
 ├── src/Lexarbor.Domain/     Domain model, rules, and repository abstractions
-├── src/Lexarbor.Database/   EF Core, SQLite, migrations, repository implementations, and seed data
+├── src/Lexarbor.Database/   EF Core, SQLite, migrations, and repository implementations
 ├── src/Lexarbor.Service/    HTTP contract, DTOs, conversions, and exception mapping
 ├── src/Lexarbor.Host/       Composition root, authentication, persistent configuration, and entry point
 ├── tests/                   .NET test projects, one per production project

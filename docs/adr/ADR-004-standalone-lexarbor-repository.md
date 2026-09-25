@@ -14,7 +14,7 @@ The vocabulary service had become operationally self-contained: it used SQLite, 
 - Keep the existing public and administration HTTP paths and the SQLite schema unchanged.
 - Use OIDC as the default external administrator credential provider. Keep the former JSON/header token contract as an optional, generically named `Gateway` adapter.
 - Build Docker images from the standalone repository root and provide a repository-local GitHub Actions workflow.
-- Distribute the project and the original bundled starter vocabulary under the MIT License.
+- Distribute the project and the original bundled starter vocabulary under the MIT License. The starter vocabulary was later removed from the distribution by the 2026-09-25 amendment to [ADR-002](./ADR-002-bundled-vocabulary-data.md).
 
 ## Consequences
 

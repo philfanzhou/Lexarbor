@@ -48,9 +48,9 @@ Callers importing user-supplied data must map a phonetic explicitly to the Briti
 
 ## Consequences
 
-- **Horizontal scale-out is lost.** SQLite has a single writer, so the deployment must be single-instance with a persistent volume mounted. Given that this service is read-mostly and its data can be rebuilt from the starter book or an import, that is judged acceptable.
+- **Horizontal scale-out is lost.** SQLite has a single writer, so the deployment must be single-instance with a persistent volume mounted. Given that this service is read-mostly and its data can be rebuilt from a backup or an import, that is judged acceptable.
 - **Backups change** from the platform's shared PostgreSQL arrangement to file-level backups.
 - The code and the Dockerfile no longer reference `the former monorepo's shared common component` or `the former monorepo's shared Consul component`. The Identity address is supplied through ordinary configuration and environment variables.
 - ADR-002 was later amended to withdraw the unimplemented official supplemental dictionary plan. Lexarbor does not attach or distribute a prebuilt third-party dictionary database; its writable database is still created at runtime at the configured path so that it lands on the host's mounted volume.
 - The public and administration paths are unchanged; requests and responses involving a word replace the old `phonetic` with `phoneticUk` and `phoneticUs`, which is a deliberate public contract change.
-- Both the domain and HTTP tests run against real SQLite; first-run creation, seed count, skipping the seed for an existing file, and concurrent idempotence all have automated coverage.
+- Both the domain and HTTP tests run against real SQLite; first-run creation of an empty database, migrate-only startup that leaves an existing file's rows untouched, and concurrent idempotence all have automated coverage.

@@ -224,7 +224,7 @@ VocabularyBook 1 ─── * VocabularyMeaning * ─── 1 Vocabulary
 
 The service has not shipped and there is no existing PostgreSQL data, so the migration history is rebuilt starting from one SQLite `InitialCreate`. A new database gets the non-nullable `book_id`, both foreign keys, the delete behaviours, the query indexes, the British and American phonetic columns, and the equivalent-meaning unique index directly. The EF Core model, the migration, and the model snapshot must stay in agreement.
 
-At startup the database file's existence is checked before migrating. When the file is absent, the 300-word starter book is written from the embedded TSV in one transaction after migrating; when the file exists it is migrated only and the seed is not written again.
+Startup creates and migrates an absent database file and migrates an existing one. It writes no books, words, or meanings in either case: Lexarbor ships no vocabulary data, so a new instance starts with an empty catalog, and an existing database keeps its rows unchanged.
 
 ## 8. Word and meaning writes
 
@@ -426,7 +426,7 @@ The existing features, fields, and Vite build of book management and word import
 - An empty book can be deleted.
 - A disabled book does not appear in the public list, and the public detail and question endpoints cannot read its meanings.
 - The EF model contains both foreign keys from meaning to word and book, with the correct delete behaviours.
-- Real SQLite verifies first-run creation of a missing database, the 300-word seed, migrate-only for an existing database, and idempotent concurrent writes.
+- Real SQLite verifies first-run creation of a missing, empty database, migrate-only for an existing database that leaves its rows unchanged, and idempotent concurrent writes.
 
 ### 15.3 Question generation
 

@@ -3,7 +3,7 @@
 [![CI](https://github.com/philfanzhou/Lexarbor/actions/workflows/ci.yml/badge.svg)](https://github.com/philfanzhou/Lexarbor/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/philfanzhou/Lexarbor/actions/workflows/security.yml/badge.svg)](https://github.com/philfanzhou/Lexarbor/actions/workflows/security.yml)
 
-Lexarbor is a self-hosted vocabulary catalog and quiz service. It combines a .NET 10 API, a Vue 3 administration UI, SQLite storage, and a bundled 300-word starter vocabulary in one deployable application.
+Lexarbor is a self-hosted vocabulary catalog and quiz service. It combines a .NET 10 API, a Vue 3 administration UI, and SQLite storage in one deployable application. It ships no vocabulary data: a new instance starts with an empty catalog that administrators fill with their own books and words.
 
 ## Features
 
@@ -31,7 +31,7 @@ npm ci
 npm run dev
 ```
 
-The API listens on `http://localhost:5008`; the Vite development server listens on `http://localhost:5175` and proxies both the administration and the public API routes to it. On first startup Lexarbor creates `src/Lexarbor.Host/data/vocabulary.db` and imports the bundled starter book.
+The API listens on `http://localhost:5008`; the Vite development server listens on `http://localhost:5175` and proxies both the administration and the public API routes to it. On first startup Lexarbor creates an empty `src/Lexarbor.Host/data/vocabulary.db`; create a book and add words through the administration UI.
 
 ## Run with Docker
 
@@ -92,4 +92,4 @@ Contributions should follow [CONTRIBUTING.md](CONTRIBUTING.md). Please report vu
 
 ## License
 
-Lexarbor, including its bundled starter vocabulary, is released under the [MIT License](LICENSE). Lexarbor does not distribute third-party vocabulary datasets. This licence does not grant rights to data that users import into their own instances; users or instance operators are responsible for ensuring that they have the rights required to use that data.
+Lexarbor is released under the [MIT License](LICENSE). Lexarbor does not distribute any vocabulary data. This licence does not grant rights to data that users import into their own instances; users or instance operators are responsible for ensuring that they have the rights required to use that data.

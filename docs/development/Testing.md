@@ -93,8 +93,9 @@ SDK no longer supports running xUnit v3 under VSTest. The conventions that follo
 | Meaning to word relationship | Required foreign key, cascade on word deletion |
 | Meaning to book relationship | Required foreign key, restrict on book deletion |
 | Equivalent meaning constraint | The normalized logical key is unique and in-process concurrent imports stay idempotent |
-| First startup | When the database file is absent, migrate and write the 300-word starter book |
-| Existing database | Migrate only, and do not write the starter book again |
+| First startup | When the database file is absent, migrate and leave every business table empty |
+| Existing database | Migrate only, leaving existing books, words, and meanings unchanged |
+| Distribution | The database assembly embeds no vocabulary data resource |
 | Phonetics | The DTO, the model, and the database all keep separate British and American columns |
 
 ### HTTP authentication and envelopes
