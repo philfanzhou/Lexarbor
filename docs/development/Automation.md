@@ -33,7 +33,7 @@ Compiler warnings fail the backend build under CI, which `Directory.Build.props`
 Run the repository-owned checks locally with:
 
 ```bash
-dotnet test Lexarbor.sln --configuration Release -- --coverage --coverage-output-format cobertura
+dotnet test --solution Lexarbor.sln --configuration Release -- --coverage --coverage-output-format cobertura
 
 cd frontend
 npm ci
