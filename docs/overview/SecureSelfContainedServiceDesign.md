@@ -260,7 +260,7 @@ normalizedWord = word.Trim().ToLowerInvariant()
 
 ### 8.3 Batch import
 
-`POST /admin/vocabulary/batch` imports up to 500 entries into one book in a single transaction, applying each entry in order with the rules above. Either every entry is stored or none is, so a batch can be resubmitted after any failure without creating duplicates. The request body is capped at 1 MiB and read by the endpoint itself so that an oversized body answers the 413 envelope. Every check that needs no database runs before the write lock is taken; the book's existence and status are checked inside the transaction. [ADR-005](../adr/ADR-005-bulk-vocabulary-import.md) defines the payload, the order of the checks, the `{ total, created, reused }` result, the limits and their measurements, and the TSV format the administration UI parses on its `/import/batch` page; [ADR-006](../adr/ADR-006-batch-import-file-formats.md) adds CSV, JSON, strict UTF-8 file decoding, and the header rules the page applies.
+`POST /admin/vocabulary/batch` imports up to 500 entries into one book in a single transaction, applying each entry in order with the rules above. Either every entry is stored or none is, so a batch can be resubmitted after any failure without creating duplicates. The request body is capped at 1 MiB and read by the endpoint itself so that an oversized body answers the 413 envelope. Every check that needs no database runs before the write lock is taken; the book's existence and status are checked inside the transaction. [ADR-005](../adr/ADR-005-bulk-vocabulary-import.md) defines the payload, the order of the checks, the `{ total, created, reused }` result, the limits and their measurements, and the TSV format the administration UI parses on its `/import/batch` page; [ADR-006](../adr/ADR-006-batch-import-file-formats.md) adds CSV, JSON, Excel `.xlsx`, strict UTF-8 file decoding, and the header rules the page applies.
 
 `Category` keeps the existing string field as its formal representation. The integer `BookCategories` constant type, which disagreed with it and was unused, is deleted so that no dual representation is maintained.
 
@@ -357,7 +357,7 @@ No client response may contain SQL, a connection string, a stack trace, a databa
 
 ## 13. Frontend design
 
-The frontend continues to use Vue 3, TypeScript, Element Plus, Axios, Vue Router, and Vite, and adds neither Pinia nor another dependency.
+The frontend continues to use Vue 3, TypeScript, Element Plus, Axios, Vue Router, and Vite, and adds no state management library. Its only other runtime dependencies are `read-excel-file` and `fflate`, which read `.xlsx` files on the batch import page inside a worker the page loads only when such a file is chosen ([ADR-006](../adr/ADR-006-batch-import-file-formats.md#excel)).
 
 ### 13.1 Routes and state
 
@@ -365,7 +365,7 @@ The frontend continues to use Vue 3, TypeScript, Element Plus, Axios, Vue Router
 - `/forbidden`: the non-administrator notice page.
 - `/books`: book management.
 - `/import`: word import.
-- `/import/batch`: batch word import from pasted TSV, CSV, or JSON or a local UTF-8 file, parsed in the browser ([ADR-006](../adr/ADR-006-batch-import-file-formats.md)).
+- `/import/batch`: batch word import from pasted TSV, CSV, or JSON, a local UTF-8 file, or the first sheet of a local `.xlsx` workbook, parsed in the browser ([ADR-006](../adr/ADR-006-batch-import-file-formats.md)).
 - The application calls `GET /admin/auth/session` at startup to restore the login state.
 - The route guard redirects to the login page while unauthenticated.
 - The administration navigation and pages render only in the administrator state.

@@ -6,7 +6,7 @@
 
 ## Context
 
-[ADR-005](./ADR-005-bulk-vocabulary-import.md) added a batch import whose page parses TSV in the browser and submits JSON. Most word lists administrators hold are spreadsheet exports: comma-separated with a header row, and, from Chinese-language Windows, often not UTF-8. The page read files with `FileReader.readAsText(file, 'utf-8')`, which replaces every byte sequence that is not UTF-8 with U+FFFD; the preview then showed garbled text that was still valid and could be submitted, and stored as it was. [Issue #78](https://github.com/philfanzhou/Lexarbor/issues/78) tracks CSV, Excel, and JSON support; [Issue #79](https://github.com/philfanzhou/Lexarbor/issues/79) holds the slice this decision was written for: the shared reading layer, the header rules, and CSV. [Issue #80](https://github.com/philfanzhou/Lexarbor/issues/80) added JSON.
+[ADR-005](./ADR-005-bulk-vocabulary-import.md) added a batch import whose page parses TSV in the browser and submits JSON. Most word lists administrators hold are spreadsheet exports: comma-separated with a header row, and, from Chinese-language Windows, often not UTF-8. The page read files with `FileReader.readAsText(file, 'utf-8')`, which replaces every byte sequence that is not UTF-8 with U+FFFD; the preview then showed garbled text that was still valid and could be submitted, and stored as it was. [Issue #78](https://github.com/philfanzhou/Lexarbor/issues/78) tracks CSV, Excel, and JSON support; [Issue #79](https://github.com/philfanzhou/Lexarbor/issues/79) holds the slice this decision was written for: the shared reading layer, the header rules, and CSV. [Issue #80](https://github.com/philfanzhou/Lexarbor/issues/80) added JSON, and [Issue #81](https://github.com/philfanzhou/Lexarbor/issues/81) added Excel `.xlsx`.
 
 ## Decision
 
@@ -26,6 +26,7 @@ What a position means depends on the format:
 | TSV | The physical line of the row, from 1 |
 | CSV | The physical line the record starts on, from 1 |
 | JSON | The item's number in the array, from 1 |
+| Excel | The row number of the first sheet, as Excel shows it |
 
 ### Choosing the format
 
@@ -36,10 +37,13 @@ The page has a format selector with TSV, CSV, and JSON; TSV is the default. Past
 | `.tsv`, `.txt` | TSV |
 | `.csv` | CSV |
 | `.json` | JSON |
+| `.xlsx` | Excel |
 
-Any other extension is refused. A file is checked in this order, and the first check that fails decides: extension, then size (1 MiB, the ADR-005 body limit), then content. The first two are decided before the file is read. A file that passes is placed in the text area and the selector switches to its format.
+Any other extension is refused, including `.xls`, `.xlsm`, `.ods`, and `.numbers`. A file is checked in this order, and the first check that fails decides: extension, then size (1 MiB, the ADR-005 body limit), then content. The first two are decided before the file is read. A text file that passes is placed in the text area and the selector switches to its format.
 
-Changing the format, the text, or the book, including by choosing a file, clears any per-row reasons from the server, because they described the batch that was sent.
+An `.xlsx` file is not text and is never placed in the text area. Choosing one empties and disables the text area, shows the file name as its placeholder, and shows Excel in the selector, disabled; Excel cannot be picked in the selector without a file. A **Remove file** button returns the page to its starting state, TSV with an empty text area. Choosing another file replaces the workbook, and a successful import clears it together with the text.
+
+Changing the format, the text, the workbook, or the book, including by choosing a file, clears any per-row reasons from the server, because they described the batch that was sent.
 
 ### Files must be UTF-8
 
@@ -49,7 +53,7 @@ Encodings are not detected. Text in another encoding that happens to be valid UT
 
 ### Header rules
 
-Formats with a header row, CSV now and Excel later, share these rules:
+Formats with a header row, CSV and Excel, share these rules:
 
 - The names are the ADR-005 TSV column names: `word`, `phonetic_uk`, `phonetic_us`, `part_of_speech`, `meaning`, `example`. They are trimmed and matched without regard to case, and the columns may be in any order.
 - `word` and `meaning` are required; the other columns may be absent, and an absent column is blank in every row.
@@ -90,11 +94,40 @@ Not guaranteed: a key repeated within one object is not detected, because `JSON.
 
 ### Excel
 
-Excel `.xlsx` ([Issue #81](https://github.com/philfanzhou/Lexarbor/issues/81)) will add its own section, extension, and position definition to this decision when it is implemented.
+The page reads the first sheet of an `.xlsx` workbook in the browser with [read-excel-file](https://www.npmjs.com/package/read-excel-file), in a dedicated worker.
+
+**Isolation.** The reader lives in a module worker, `new Worker(new URL('./xlsxWorker.ts', import.meta.url), { type: 'module' })`, which the bundler builds as a chunk of its own together with `read-excel-file/web-worker` and `fflate`. The page's first bundle holds only the chunk's URL, and the chunk is requested only when an `.xlsx` file is chosen. Each file gets a new worker, which the page terminates as soon as it answers or fails, when its time runs out, or when the file is removed or replaced; a worker that is still reading therefore never delivers a result for a file that is no longer on the page.
+
+**Bounds.** An `.xlsx` file is a zip archive, and the library unzips it with no limit on output size. Three bounds keep one file from exhausting the page:
+
+1. **Size before unzipping.** The file itself is at most 1 MiB, checked before it is read. In the worker, `fflate`'s `unzipSync` is called with a filter that sees every entry of the central directory and keeps none, so nothing is inflated. The file is refused when the uncompressed sizes the entries declare add up to more than 32 MiB, when any entry's compressed size is larger than deflate's worst case for its declared size (`size > originalSize + originalSize / 1000 + 1024`), which means the declared size is forged, or when the archive is not a valid zip.
+2. **Memory.** `fflate` allocates each entry's output by its declared size and cuts off anything that would inflate beyond it, so the check above bounds the memory unzipping takes to 32 MiB plus the file.
+3. **Time.** A forged size bounds memory but not the time spent inflating a stream to its real length, and a large sheet takes time to parse. The page waits 15 seconds for an answer; after that it terminates the worker and shows `Excel 解析超时，文件可能已损坏或过大`. The work runs in the worker, so the page stays responsive throughout.
+
+Any other failure, such as a damaged archive, a file that is not a workbook, or a sheet whose XML is invalid, is a file-level error, `无法读取 Excel 文件：` followed by the reason.
+
+**Reading rules.**
+
+- Only the first sheet in workbook order is read. When the workbook has more than one sheet, the page says how many there are and which one it read.
+- The sheet's rows are the rows the preview numbers: a row that is blank in every cell is skipped but still counted, so a position is the row number Excel shows. The first row that is not blank is the header, resolved by the header rules above.
+- The header decides the width of every row. A cell beyond the last header name meets a blank header, and is ignored when that whole column is blank; any value there refuses the file under the header rules. A data row can therefore never have the wrong number of values.
+- Each cell becomes text before the header rules and the shared row check see it:
+  - Text is used as it is.
+  - A formula gives its cached result, converted by that result's type. Formulas are never recalculated.
+  - A number becomes `String(value)`, for example `0.1` and `2`, whatever the cell's number format.
+  - A boolean becomes `TRUE` or `FALSE`, as Excel shows it.
+  - A number the library recognizes as a date, from its number format, becomes `YYYY-MM-DD` when its time is midnight and `YYYY-MM-DDTHH:mm:ss` otherwise, from its UTC components.
+  - An empty cell, a cell of a merged range other than its top-left one, and an error value such as `#N/A` become blank.
+
+Values are then trimmed and checked like every other format's, so a sheet gives the same request as the same values in TSV.
+
+Guaranteed: an `.xlsx` of at most 1 MiB, whether its declared sizes are true or not, unzips to at most 32 MiB and is read for at most 15 seconds, in the worker, with the page usable; no column is dropped without the administrator knowing; the first bundle holds no Excel code; and the file is never uploaded.
+
+Not guaranteed: a formula whose cached result is stale, as written by a program that does not recalculate, imports the stale value. An error value in a required column is reported as a missing word or meaning, and in an optional column the value is left out. A number is not shown in its cell's format, so `1` formatted as `0.00` imports as `1`. Whether a number is a date depends on the library's reading of its number format.
 
 ### User-supplied data
 
-Imported entries remain user-supplied data under [ADR-002](./ADR-002-bundled-vocabulary-data.md) and [ADR-005](./ADR-005-bulk-vocabulary-import.md). Every format is parsed in the browser; the file never leaves it, and the server receives the same JSON as for TSV. Administrators are responsible for saving their files as UTF-8, CSV files comma-separated with a header row, and JSON files as an array that uses the API field names, and for having the rights to what they import.
+Imported entries remain user-supplied data under [ADR-002](./ADR-002-bundled-vocabulary-data.md) and [ADR-005](./ADR-005-bulk-vocabulary-import.md). Every format is parsed in the browser; the file never leaves it, and the server receives the same JSON as for TSV. Administrators are responsible for saving their files as UTF-8, CSV files comma-separated with a header row, and JSON files as an array that uses the API field names, for putting a workbook's word list with its header on its first sheet and saving it in Excel so that formula results are current, and for having the rights to what they import.
 
 ## Alternatives considered
 
@@ -104,13 +137,19 @@ Imported entries remain user-supplied data under [ADR-002](./ADR-002-bundled-voc
 - **JSON Lines, NDJSON, or JSON5**: rejected. Each is a second syntax for data that the JSON array already carries, and JSON5 would need a parser dependency.
 - **Accept the complete `{ bookId, entries }` request as JSON**: rejected. The book would then come from two places, the file and the page, and one of them would be silently ignored; the page's choice is the only one.
 - **Accept snake_case aliases or convert numbers to strings**: rejected. Each makes the same data importable in more than one spelling, and a number such as `1.0` would not come back as it was written; refusing the item shows the problem where the administrator can fix it.
+- **Read `.xlsx` with SheetJS (`xlsx`)**: rejected. Its npm releases stop at 0.18.5, which carries published prototype-pollution and ReDoS advisories that are not fixed there; later versions are published only as tarballs on the vendor's CDN, which would bypass the `NPM_REGISTRY` the Docker build installs from and the Dependabot updates the repository relies on.
+- **Read `.xlsx` with ExcelJS**: rejected. It is built for Node first, is much larger in the browser, and has had no release since 2024.
+- **Unzip with `fflate` and parse the sheet XML by hand**: rejected. Shared strings, inline strings, styles, date formats, and merged cells are many edge cases to own; `read-excel-file` handles them, and `fflate` is already its dependency.
+- **Read `.xls`, `.xlsm`, `.ods`, or `.numbers`, choose a sheet, or merge several sheets**: out of scope. Each is another format or another choice on the page; administrators can save as `.xlsx` or move the list to the first sheet.
 - **Use a CSV library**: rejected. The rules above take one small parser, and a dependency would add supply-chain and bundle cost for them.
 
 ## Consequences
 
 - Administrators can import CSV files and pasted CSV text on `/import/batch`, as described in the [frontend specification](../frontend/README.md#batch-import-page).
 - Administrators can import a JSON array of entries from a file or pasted text, with the API field names.
+- Administrators can import the first sheet of an `.xlsx` workbook without saving it as CSV first.
+- The frontend has two more runtime dependencies, `read-excel-file` and `fflate`, both installed from the npm registry, covered by Dependabot and `npm audit`, and bundled only into the worker chunk.
 - Non-UTF-8 files, including TSV files, are refused instead of being imported with replacement characters.
 - CSV formula injection is not addressed: the feature exports nothing, and imported values are stored as text as they are.
 - Content that is in the wrong column under a correct header name is not detected; the administrator checks the preview.
-- No server, API, SQLite, configuration, or container change is involved. Reverting the change removes CSV and restores the lenient decoding of TSV files.
+- No server, API, SQLite, configuration, or container change is involved. Reverting the change removes CSV and restores the lenient decoding of TSV files; reverting the Excel change removes Excel and its two dependencies.

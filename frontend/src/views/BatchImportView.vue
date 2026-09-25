@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getActiveBooks } from '@/services/bookApi'
 import { importVocabularyBatch } from '@/services/vocabularyApi'
 import type { VocabularyBatchImportPayload, VocabularyBatchImportResult } from '@/services/vocabularyApi'
 import { decodeUtf8, formatForFileName, parseVocabularyInput } from '@/services/vocabularyInput'
-import type { VocabularyInputFormat } from '@/services/vocabularyInput'
+import type { VocabularyFileFormat, VocabularyInputFormat } from '@/services/vocabularyInput'
+import { readVocabularyWorkbook } from '@/services/vocabularyXlsx'
+import type { VocabularyWorkbook } from '@/services/vocabularyXlsx'
 import { getApiError } from '@/services/apiError'
 import type { Book } from '@/types'
 
@@ -28,6 +30,13 @@ const formatHints: Record<VocabularyInputFormat, string> = {
 }
 // A JSON row is numbered by its item in the array, not by a line.
 const positionLabels: Record<VocabularyInputFormat, string> = { tsv: '行号', csv: '行号', json: '序号' }
+const excelHint = '读取第一个工作表；第一条非空行为表头，规则与 CSV 相同'
+
+/** A chosen `.xlsx` file. Its workbook is undefined while the worker is still reading it. */
+interface ExcelFile {
+  name: string
+  workbook?: VocabularyWorkbook
+}
 
 const books = ref<Book[]>([])
 const bookId = ref('')
@@ -41,8 +50,28 @@ const result = ref<VocabularyBatchImportResult>()
 const serverErrors = ref(new Map<number, string>())
 const serverSummary = ref('')
 const fileInput = ref<HTMLInputElement>()
+/** Set while an `.xlsx` file is loaded; the text area is unused and disabled then. */
+const excelFile = ref<ExcelFile>()
+/** Stops the worker reading the current `.xlsx` file, if it is still reading. */
+let excelReading: AbortController | undefined
 
-const parsed = computed(() => parseVocabularyInput(format.value, text.value))
+// Excel is chosen only by choosing a file, and left only by removing it.
+const selectedFormat = computed<VocabularyFileFormat>({
+  get: () => (excelFile.value ? 'xlsx' : format.value),
+  set: (value) => {
+    if (value !== 'xlsx') {
+      format.value = value
+    }
+  }
+})
+const readingExcel = computed(() => excelFile.value !== undefined && excelFile.value.workbook === undefined)
+const sheetNotice = computed(() => excelFile.value?.workbook?.notice)
+
+const parsed = computed(() =>
+  excelFile.value
+    ? excelFile.value.workbook ?? { rows: [] }
+    : parseVocabularyInput(format.value, text.value)
+)
 const rows = computed(() => parsed.value.rows)
 const parseError = computed(() => parsed.value.error)
 
@@ -86,13 +115,19 @@ const blockers = computed(() => {
   if (!bookId.value) {
     reasons.push('请选择教材')
   }
+  if (readingExcel.value) {
+    reasons.push('正在读取 Excel 文件')
+    return reasons
+  }
   // A file-level error leaves no rows, so it is the only reason worth reading.
   if (parseError.value) {
     reasons.push(parseError.value)
     return reasons
   }
   if (rows.value.length === 0) {
-    reasons.push(`没有可导入的数据行，请粘贴 ${formatLabels[format.value]} 文本或选择文件`)
+    reasons.push(excelFile.value
+      ? '没有可导入的数据行，请检查第一个工作表'
+      : `没有可导入的数据行，请粘贴 ${formatLabels[format.value]} 文本或选择文件`)
   }
   if (invalidCount.value > 0) {
     reasons.push(`存在 ${invalidCount.value} 行无效数据，请修正后再提交`)
@@ -110,14 +145,14 @@ const blockers = computed(() => {
 
 const canSubmit = computed(() => blockers.value.length === 0 && !submitting.value)
 
-// A server verdict belongs to the exact text, format, and book it was given for.
-watch([format, text, bookId], () => {
+// A server verdict belongs to the exact text, format, file, and book it was given for.
+watch([format, text, excelFile, bookId], () => {
   serverErrors.value = new Map()
   serverSummary.value = ''
   currentPage.value = 1
   // The last result stays up after the text is cleared on success, and goes
   // once a new batch is being prepared.
-  if (text.value) {
+  if (text.value || excelFile.value) {
     result.value = undefined
   }
 })
@@ -139,6 +174,36 @@ function chooseFile() {
   fileInput.value?.click()
 }
 
+function stopReadingExcel() {
+  excelReading?.abort()
+  excelReading = undefined
+}
+
+/** Leaves Excel mode for an empty TSV text area, the page's starting state. */
+function removeFile() {
+  stopReadingExcel()
+  excelFile.value = undefined
+  format.value = 'tsv'
+  text.value = ''
+}
+
+async function openWorkbook(name: string, buffer: ArrayBuffer) {
+  stopReadingExcel()
+  const reading = new AbortController()
+  excelReading = reading
+  format.value = 'tsv'
+  text.value = ''
+  excelFile.value = { name }
+
+  const workbook = await readVocabularyWorkbook(buffer, reading.signal)
+  // Removed, or replaced by another file, while it was being read.
+  if (reading.signal.aborted) {
+    return
+  }
+  excelReading = undefined
+  excelFile.value = { name, workbook }
+}
+
 /** Counts file reads, so that only the file chosen last fills the text area. */
 let fileReads = 0
 
@@ -155,7 +220,7 @@ async function handleFileChange(event: Event) {
   // is read whenever it can be.
   const fileFormat = formatForFileName(file.name)
   if (!fileFormat) {
-    ElMessage.error('不支持的文件类型，请选择 .tsv、.txt 或 .csv 文件，也可以选择 .json 文件')
+    ElMessage.error('不支持的文件类型，请选择 .tsv、.txt 或 .csv 文件，也可以选择 .json 文件或 .xlsx 文件')
     return
   }
 
@@ -180,6 +245,11 @@ async function handleFileChange(event: Event) {
     return
   }
 
+  if (fileFormat === 'xlsx') {
+    await openWorkbook(file.name, buffer)
+    return
+  }
+
   let content: string
   try {
     content = decodeUtf8(buffer)
@@ -190,6 +260,8 @@ async function handleFileChange(event: Event) {
     return
   }
 
+  stopReadingExcel()
+  excelFile.value = undefined
   format.value = fileFormat
   text.value = content
 }
@@ -224,6 +296,8 @@ async function handleSubmit() {
     // Cleared so the same batch is not sent twice by accident. Sending it twice
     // would be harmless, but the second result would read as a new import.
     text.value = ''
+    stopReadingExcel()
+    excelFile.value = undefined
     onlyInvalid.value = false
   } catch (error: unknown) {
     const apiError = getApiError(error)
@@ -261,6 +335,7 @@ function rowClassName({ row }: { row: { reason?: string } }) {
 }
 
 onMounted(loadBooks)
+onBeforeUnmount(stopReadingExcel)
 </script>
 
 <template>
@@ -290,28 +365,32 @@ onMounted(loadBooks)
         <el-form-item label="数据">
           <div class="batch-input">
             <div class="batch-input__format">
-              <el-radio-group v-model="format" class="batch-format" :disabled="submitting">
+              <el-radio-group v-model="selectedFormat" class="batch-format" :disabled="submitting || !!excelFile">
                 <el-radio-button value="tsv">TSV</el-radio-button>
                 <el-radio-button value="csv">CSV</el-radio-button>
                 <el-radio-button value="json">JSON</el-radio-button>
+                <el-radio-button value="xlsx" disabled>Excel</el-radio-button>
               </el-radio-group>
-              <span class="batch-hint batch-format-hint">{{ formatHints[format] }}</span>
+              <span class="batch-hint batch-format-hint">{{ excelFile ? excelHint : formatHints[format] }}</span>
             </div>
             <el-input
               v-model="text"
               type="textarea"
               :rows="8"
-              :disabled="submitting"
-              :placeholder="placeholders[format]"
+              :disabled="submitting || !!excelFile"
+              :placeholder="excelFile ? excelFile.name : placeholders[format]"
             />
             <div class="batch-input__actions">
               <el-button :disabled="submitting" @click="chooseFile">选择文件</el-button>
-              <span class="batch-hint">读取本地 .tsv / .txt / .csv / .json 文件（UTF-8，不超过 1 MiB）；文件只在浏览器中解析，不会上传</span>
+              <el-button v-if="excelFile" class="batch-remove-file" :disabled="submitting" @click="removeFile">
+                移除文件
+              </el-button>
+              <span class="batch-hint">读取本地 .tsv / .txt / .csv / .json（UTF-8）或 .xlsx 文件，不超过 1 MiB；文件只在浏览器中解析，不会上传</span>
               <input
                 ref="fileInput"
                 class="batch-file-input"
                 type="file"
-                accept=".tsv,.txt,.csv,.json,text/tab-separated-values,text/plain,text/csv,application/json"
+                accept=".tsv,.txt,.csv,.json,.xlsx,text/tab-separated-values,text/plain,text/csv,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 @change="handleFileChange"
               >
             </div>
@@ -335,6 +414,15 @@ onMounted(loadBooks)
         :closable="false"
         show-icon
         :title="serverSummary"
+      />
+
+      <el-alert
+        v-if="sheetNotice"
+        class="batch-sheet-notice"
+        type="info"
+        :closable="false"
+        show-icon
+        :title="sheetNotice"
       />
 
       <el-alert
@@ -425,6 +513,7 @@ onMounted(loadBooks)
 .batch-file-input { display: none; }
 .batch-result,
 .batch-server-summary,
+.batch-sheet-notice,
 .batch-parse-error { margin-bottom: 12px; }
 .batch-toolbar {
   display: flex;
