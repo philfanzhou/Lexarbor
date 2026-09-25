@@ -24,13 +24,15 @@ Tests run on **Microsoft.Testing.Platform** (MTP) rather than the older VSTest â
 SDK no longer supports running xUnit v3 under VSTest. The conventions that follow from it:
 
 - The `test.runner` declaration in the root `global.json` makes `dotnet test` go through MTP.
+  Under MTP the solution must be passed with `--solution`; some .NET 10 SDKs reject it as a
+  positional argument (`Specifying a solution for 'dotnet test' should be via '--solution'.`).
 - Both test projects are executables (`<OutputType>Exe</OutputType>` plus
   `<UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>`),
   so the produced exe can also be run directly to execute the tests.
 - MTP arguments go after `--`, replacing VSTest's `--logger` and `--collect`:
 
   ```
-  dotnet test Lexarbor.sln --results-directory TestResults -- \
+  dotnet test --solution Lexarbor.sln --results-directory TestResults -- \
     --report-xunit-trx --coverage --coverage-output-format cobertura
   ```
 
@@ -131,7 +133,7 @@ SDK no longer supports running xUnit v3 under VSTest. The conventions that follo
 ## How to run
 
 ```bash
-dotnet test Lexarbor.sln --configuration Release
+dotnet test --solution Lexarbor.sln --configuration Release
 ```
 
 ```bash

@@ -457,7 +457,7 @@ The existing features, fields, and Vite build of book management and word import
 
 ```bash
 dotnet build Lexarbor.sln --configuration Release
-dotnet test Lexarbor.sln --configuration Release --no-build
+dotnet test --solution Lexarbor.sln --configuration Release --no-build
 ```
 
 ```bash
