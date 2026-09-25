@@ -34,15 +34,11 @@ public static class DatabaseInitializer
 
         if (isNewDatabase)
         {
-            await VocabularySeedData.ApplyAsync(context, cancellationToken);
-            logger.LogInformation(
-                "Created SQLite database and loaded the bundled starter vocabulary at {DatabasePath}",
-                databasePath);
+            logger.LogInformation("Created SQLite database at {DatabasePath}", databasePath);
         }
         else
         {
-            logger.LogInformation(
-                "Applied SQLite migrations without reloading starter vocabulary");
+            logger.LogInformation("Applied SQLite migrations to the existing database");
         }
     }
 

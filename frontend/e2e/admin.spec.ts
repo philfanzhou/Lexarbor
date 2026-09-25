@@ -26,16 +26,16 @@ function json(route: Route, data: unknown, status = 200) {
   })
 }
 
-async function mockCatalog(page: Page) {
+async function mockCatalog(page: Page, books = [starterBook]) {
   await page.route('**/admin/vocabulary-books/categories', (route) =>
-    json(route, { success: true, data: { items: ['English'] } }))
+    json(route, { success: true, data: { items: books.length ? ['English'] : [] } }))
   await page.route('**/admin/vocabulary-books/education-levels', (route) =>
-    json(route, { success: true, data: { items: ['Secondary'] } }))
+    json(route, { success: true, data: { items: books.length ? ['Secondary'] : [] } }))
   await page.route(/\/admin\/vocabulary-books(?:\?.*)?$/, (route) => {
     if (route.request().method() === 'GET') {
       return json(route, {
         success: true,
-        data: { items: [starterBook], totalCount: 1, totalPage: 1 }
+        data: { items: books, totalCount: books.length, totalPage: books.length ? 1 : 0 }
       })
     }
 
@@ -98,4 +98,36 @@ test('submits a new catalog book through the administration UI', async ({ page }
   await page.locator('.el-dialog__footer .el-button--primary').click()
 
   await expect.poll(() => createPayload?.bookName).toBe('New Browser-Test Book')
+})
+
+test('shows an empty catalog without errors and creates the first book', async ({ page }) => {
+  let createPayload: Record<string, unknown> | undefined
+
+  await page.route('**/admin/auth/session', (route) =>
+    json(route, { success: true, data: admin }))
+  await mockCatalog(page, [])
+  await page.route(/\/admin\/vocabulary-books$/, async (route) => {
+    if (route.request().method() !== 'POST') {
+      return route.fallback()
+    }
+
+    createPayload = route.request().postDataJSON()
+    return json(route, { success: true, data: { id: 'first-book-id' } })
+  })
+
+  await page.goto('/#/books')
+
+  // Lexarbor ships no vocabulary data, so this is what every new instance shows
+  // first. An empty page must read as "no books yet", not as a failure.
+  await expect(page.locator('.session')).toContainText(admin.username)
+  await expect(page.locator('.el-table__empty-block')).toBeVisible()
+  await expect(page.locator('.el-table__body .el-table__row')).toHaveCount(0)
+  await expect(page.locator('.el-message--error')).toHaveCount(0)
+
+  await page.locator('.toolbar button').nth(1).click()
+  await page.locator('.el-dialog input').first().fill('First Book')
+  await page.locator('.el-dialog__footer .el-button--primary').click()
+
+  await expect.poll(() => createPayload?.bookName).toBe('First Book')
+  await expect(page.locator('.el-message--error')).toHaveCount(0)
 })

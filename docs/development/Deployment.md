@@ -112,10 +112,9 @@ The probe runs the published assembly with `--health-check`, which requests
 `curl` call, because the runtime image ships no HTTP client and adding one would
 give any future remote-code-execution a download tool the image currently lacks.
 
-The first check is deferred by 30 seconds, which covers migrations and the
-300-word seed on a first start. Note that Docker reports an unhealthy container
-but does not restart it; `--restart unless-stopped` acts on the process exiting,
-not on the health status.
+The first check is deferred by 30 seconds, which covers migrations on a first
+start. Note that Docker reports an unhealthy container but does not restart it;
+`--restart unless-stopped` acts on the process exiting, not on the health status.
 
 On the first container startup, Lexarbor copies the image's built-in `appsettings.json` to `/app/data/appsettings.json`. If that file already exists, Lexarbor loads it without modifying it. Configuration precedence is:
 
@@ -131,9 +130,9 @@ Therefore the persistent file controls normal deployments, while an explicit env
 | Configuration key | Default | Purpose |
 |---|---|---|
 | `ConnectionStrings:Default` | `Data Source=data/vocabulary.db` | SQLite data source; relative paths use the Host content root |
-| `Database:InitializeOnStartup` | `true` | Apply migrations and seed a newly created database |
+| `Database:InitializeOnStartup` | `true` | Create a missing database and apply migrations |
 
-On first startup Lexarbor imports the bundled 300-word starter book in one transaction. Existing databases are migrated but are not seeded again. Stop writes before copying the database, or use a SQLite online-backup tool.
+On first startup Lexarbor creates an empty database: it ships no vocabulary data, so administrators create books and add words themselves. Existing databases are migrated only; their rows are neither added to nor removed, so a database created by an earlier release keeps its `Starter English 300` book. Rolling back to such an earlier image does not reload that book into a database this release created, because the earlier release also only migrates an existing file. Stop writes before copying the database, or use a SQLite online-backup tool.
 
 ### Write-ahead logging
 
@@ -280,4 +279,4 @@ curl -i http://localhost:5008/admin/vocabulary-books
 curl http://localhost:5008/api/vocabulary-books/all
 ```
 
-Expected results: health returns 200; an anonymous administration request returns 401; the public book request returns a success envelope containing `Starter English 300` after first startup.
+Expected results: health returns 200; an anonymous administration request returns 401; the public book request returns a success envelope whose `data.books` is empty on a new instance.
