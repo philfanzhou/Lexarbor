@@ -1,4 +1,6 @@
+using System.Text.Json;
 using Lexarbor.Domain.Exceptions;
+using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Services;
 using Lexarbor.Service.Dtos;
 using Microsoft.AspNetCore.Builder;
@@ -6,11 +8,18 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Logging;
 
 namespace Lexarbor.Service;
 
 public static partial class VocabularyHttpEndpoints
 {
+    /// <summary>
+    /// Request body ceiling for a batch import, in bytes. 500 entries of
+    /// ordinary vocabulary fit in a fraction of it; see ADR-005.
+    /// </summary>
+    public const long MaxBatchRequestBytes = 1024 * 1024;
+
     /// <param name="publicApiRateLimitPolicy">
     /// Name of the rate limit policy to apply to the anonymous <c>/api</c> group,
     /// or null to apply none. Passed in rather than named here because the ceiling
@@ -35,6 +44,8 @@ public static partial class VocabularyHttpEndpoints
         var adminGroup = app.MapGroup("/admin")
             .RequireAuthorization("VocabularyAdmin");
         adminGroup.MapPost("/vocabulary", AddOrUpdateVocabulary);
+        adminGroup.MapPost("/vocabulary/batch", ImportVocabularyBatch)
+            .WithMetadata(new RequestSizeLimitAttribute(MaxBatchRequestBytes));
         adminGroup.MapPost("/vocabulary-books", AddBook);
         adminGroup.MapPut("/vocabulary-books", UpdateBook);
         adminGroup.MapGet("/vocabulary-books/{id}", GetBook);
@@ -112,6 +123,98 @@ public static partial class VocabularyHttpEndpoints
             request.Word.ToEntity(),
             request.Meaning.ToEntity());
         return VocabularyHttpResponse.Ok(new BoolResponse { Success = true });
+    }
+
+    // The body is read here rather than bound as a parameter. Bound, a body
+    // over the size limit is answered by the framework with an empty 413, and
+    // malformed JSON with a generic 400; read explicitly, both reach the
+    // envelope and the order ADR-005 fixes for the checks below.
+    private static async Task<IResult> ImportVocabularyBatch(
+        HttpRequest httpRequest,
+        VocabularyDomainService vocabularyService,
+        ILoggerFactory loggerFactory)
+    {
+        VocabularyBatchImportRequest? request = null;
+        if (httpRequest.HasJsonContentType())
+        {
+            try
+            {
+                request = await httpRequest.ReadFromJsonAsync<VocabularyBatchImportRequest>(
+                    httpRequest.HttpContext.RequestAborted);
+            }
+            catch (JsonException)
+            {
+                request = null;
+            }
+        }
+
+        if (request == null)
+        {
+            return VocabularyHttpResponse.BadRequest("The request body is not valid JSON.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.BookId))
+        {
+            return VocabularyHttpResponse.BadRequest("Book ID is required.");
+        }
+
+        if (request.Entries == null || request.Entries.Count == 0)
+        {
+            return VocabularyHttpResponse.BadRequest("At least one entry is required.");
+        }
+
+        if (request.Entries.Count > VocabularyDomainService.MaxBatchEntries)
+        {
+            return VocabularyHttpResponse.BadRequest(
+                $"A batch can contain at most {VocabularyDomainService.MaxBatchEntries} entries.");
+        }
+
+        var entries = new List<(VocabularyModel Word, VocabularyMeaningModel Meaning)>(
+            request.Entries.Count);
+        var errors = new List<VocabularyBatchEntryError>();
+        for (var index = 0; index < request.Entries.Count; index++)
+        {
+            var entry = request.Entries[index];
+            if (entry == null)
+            {
+                errors.Add(new VocabularyBatchEntryError { Index = index, Message = "Entry is required." });
+                continue;
+            }
+
+            var models = entry.ToEntities(request.BookId);
+            var error = VocabularyDomainService.ValidateBatchEntry(models.Word, models.Meaning);
+            if (error != null)
+            {
+                errors.Add(new VocabularyBatchEntryError { Index = index, Message = error });
+                continue;
+            }
+
+            entries.Add(models);
+        }
+
+        if (errors.Count > 0)
+        {
+            return VocabularyHttpResponse.BadRequest(
+                errors.Count == 1 ? "1 entry is invalid." : $"{errors.Count} entries are invalid.",
+                errors);
+        }
+
+        var result = await vocabularyService.ImportBatchAsync(request.BookId, entries);
+
+        // Counts only: entry content is user data and stays out of the log.
+        loggerFactory.CreateLogger(nameof(VocabularyHttpEndpoints)).LogInformation(
+            "Imported a vocabulary batch into book {BookId}: {Total} entries, {Created} created, {Reused} reused",
+            request.BookId.Trim(),
+            result.Total,
+            result.Created,
+            result.Reused);
+
+        return VocabularyHttpResponse.Ok(new VocabularyBatchImportResponse
+        {
+            Total = result.Total,
+            Created = result.Created,
+            Reused = result.Reused
+        });
     }
 
     private static async Task<IResult> GetQuestion(

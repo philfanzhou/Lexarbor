@@ -30,7 +30,7 @@ This order keeps the writable database on the mounted host volume. A prebuilt da
 
 The administration API accepts vocabulary content supplied by the user and stores it in that user's Lexarbor instance. Lexarbor does not claim, inspect, or guarantee the provenance, accuracy, licence status, or downstream usage rights of that content. Users and instance operators are responsible for ensuring that they have the rights required to import, store, use, export, or publish the data they supply.
 
-The current import path remains the per-entry administration operation. Any future bulk-import format or source-neutral conversion tool requires its own decision and implementation issue. Such a feature must accept user-supplied input and must not introduce an official dataset, a source-specific downloader, or an implication that Lexarbor grants rights to the imported content.
+The current import path remains the per-entry administration operation; [ADR-005](./ADR-005-bulk-vocabulary-import.md) adds a bulk import under these constraints. Any future bulk-import format or source-neutral conversion tool requires its own decision and implementation issue. Such a feature must accept user-supplied input and must not introduce an official dataset, a source-specific downloader, or an implication that Lexarbor grants rights to the imported content.
 
 No supplemental dictionary table is planned. `vocabulary_meaning` remains the source of question data, and phonetics remain on the shared vocabulary row under the existing API and database contracts.
 

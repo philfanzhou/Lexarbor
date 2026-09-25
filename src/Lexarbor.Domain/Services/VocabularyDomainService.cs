@@ -6,6 +6,14 @@ namespace Lexarbor.Domain.Services;
 
 public class VocabularyDomainService
 {
+    /// <summary>
+    /// The most entries one batch import may carry. It bounds how long a batch
+    /// holds the process-wide write lock: 500 entries took about three seconds
+    /// on a first import, during which every other administrative write waits.
+    /// ADR-005 records the measurement.
+    /// </summary>
+    public const int MaxBatchEntries = 500;
+
     private readonly IVocabularyRepository _vocabularyRepository;
     private readonly IVocabularyBookRepository _bookRepository;
     private readonly IVocabularyMeaningRepository _meaningRepository;
@@ -62,30 +70,130 @@ public class VocabularyDomainService
     {
         return await _unitOfWork.ExecuteInTransactionAsync(async () =>
         {
-            var normalizedWord = NormalizeWord(vocabulary.Word);
-            var bookId = NormalizeRequired(meaning.BookId, "BookId is required.");
-            var normalizedMeaning = NormalizeRequired(meaning.Meaning, "Meaning is required.");
-            var normalizedPartOfSpeech = NormalizePartOfSpeech(meaning.PartOfSpeech);
+            var (word, storedMeaning, _) = await AddOrUpdateCoreAsync(vocabulary, meaning);
+            return (word, storedMeaning);
+        });
+    }
 
-            var book = await _bookRepository.GetByIdAsync(bookId)
+    /// <summary>
+    /// Returns why one batch entry would be rejected, or null when it is valid.
+    /// The HTTP endpoint reports this per entry; <see cref="ImportBatchAsync"/>
+    /// applies the same rule so that a direct caller cannot skip it.
+    /// </summary>
+    public static string? ValidateBatchEntry(VocabularyModel word, VocabularyMeaningModel meaning)
+    {
+        var missingWord = string.IsNullOrWhiteSpace(word.Word);
+        var missingMeaning = string.IsNullOrWhiteSpace(meaning.Meaning);
+        return (missingWord, missingMeaning) switch
+        {
+            (true, true) => "Word and meaning are required.",
+            (true, false) => "Word is required.",
+            (false, true) => "Meaning is required.",
+            _ => null
+        };
+    }
+
+    /// <summary>
+    /// Imports every entry into one book in a single transaction, so either the
+    /// whole batch is stored or none of it is. Entries are applied in order with
+    /// the same normalization and matching as <see cref="AddOrUpdateAsync"/>, so
+    /// resubmitting a batch creates nothing new. Whitespace-only optional fields
+    /// count as absent and never clear a stored value.
+    /// </summary>
+    /// <remarks>
+    /// Every check that needs no database runs before the write lock is taken.
+    /// The book is checked inside the transaction, so a concurrent disable or
+    /// delete cannot land between the check and the writes.
+    /// </remarks>
+    public async Task<VocabularyBatchImportResult> ImportBatchAsync(
+        string bookId,
+        IReadOnlyList<(VocabularyModel Word, VocabularyMeaningModel Meaning)> entries)
+    {
+        var normalizedBookId = NormalizeRequired(bookId, "Book ID is required.");
+        if (entries.Count == 0)
+        {
+            throw new DomainValidationException("At least one entry is required.");
+        }
+
+        if (entries.Count > MaxBatchEntries)
+        {
+            throw new DomainValidationException(
+                $"A batch can contain at most {MaxBatchEntries} entries.");
+        }
+
+        foreach (var (word, meaning) in entries)
+        {
+            var error = ValidateBatchEntry(word, meaning);
+            if (error != null)
+            {
+                throw new DomainValidationException(error);
+            }
+
+            // Entries only ever add to the named book, so identifiers from the
+            // caller are dropped rather than trusted.
+            word.Id = string.Empty;
+            word.PhoneticUk = NullIfWhiteSpace(word.PhoneticUk);
+            word.PhoneticUs = NullIfWhiteSpace(word.PhoneticUs);
+            meaning.Id = string.Empty;
+            meaning.BookId = normalizedBookId;
+            meaning.PartOfSpeech = NullIfWhiteSpace(meaning.PartOfSpeech);
+            meaning.Example = NullIfWhiteSpace(meaning.Example);
+        }
+
+        return await _unitOfWork.ExecuteInTransactionAsync(async () =>
+        {
+            var book = await _bookRepository.GetByIdAsync(normalizedBookId)
                        ?? throw new ResourceNotFoundException("Vocabulary book was not found.");
-            var isNewMeaning = string.IsNullOrWhiteSpace(meaning.Id);
-            if (isNewMeaning && !book.Status)
+            if (!book.Status)
             {
                 throw new BusinessRuleException("New meanings cannot be added to a disabled vocabulary book.");
             }
 
-            var existingVocabulary = await ResolveVocabularyAsync(vocabulary, normalizedWord);
-            var existingMeaning = await ResolveMeaningAsync(
-                meaning,
-                existingVocabulary.Id,
-                bookId,
-                normalizedPartOfSpeech,
-                normalizedMeaning);
+            var created = 0;
+            foreach (var (word, meaning) in entries)
+            {
+                var (_, _, meaningCreated) = await AddOrUpdateCoreAsync(word, meaning);
+                if (meaningCreated)
+                {
+                    created++;
+                }
+            }
 
-            await _unitOfWork.SaveChangesAsync();
-            return (existingVocabulary, existingMeaning);
+            return new VocabularyBatchImportResult(entries.Count, created, entries.Count - created);
         });
+    }
+
+    /// <summary>
+    /// The body of <see cref="AddOrUpdateAsync"/>, run inside a transaction the
+    /// caller owns. It also reports whether the meaning was inserted rather than
+    /// matched, which the batch import counts and the single path discards.
+    /// </summary>
+    private async Task<(VocabularyModel Word, VocabularyMeaningModel Meaning, bool MeaningCreated)>
+        AddOrUpdateCoreAsync(VocabularyModel vocabulary, VocabularyMeaningModel meaning)
+    {
+        var normalizedWord = NormalizeWord(vocabulary.Word);
+        var bookId = NormalizeRequired(meaning.BookId, "BookId is required.");
+        var normalizedMeaning = NormalizeRequired(meaning.Meaning, "Meaning is required.");
+        var normalizedPartOfSpeech = NormalizePartOfSpeech(meaning.PartOfSpeech);
+
+        var book = await _bookRepository.GetByIdAsync(bookId)
+                   ?? throw new ResourceNotFoundException("Vocabulary book was not found.");
+        var isNewMeaning = string.IsNullOrWhiteSpace(meaning.Id);
+        if (isNewMeaning && !book.Status)
+        {
+            throw new BusinessRuleException("New meanings cannot be added to a disabled vocabulary book.");
+        }
+
+        var existingVocabulary = await ResolveVocabularyAsync(vocabulary, normalizedWord);
+        var (existingMeaning, meaningCreated) = await ResolveMeaningAsync(
+            meaning,
+            existingVocabulary.Id,
+            bookId,
+            normalizedPartOfSpeech,
+            normalizedMeaning);
+
+        await _unitOfWork.SaveChangesAsync();
+        return (existingVocabulary, existingMeaning, meaningCreated);
     }
 
     public async Task<VocabularyQuestionModel> CreateQuestionAsync(
@@ -236,7 +344,7 @@ public class VocabularyDomainService
         return existing;
     }
 
-    private async Task<VocabularyMeaningModel> ResolveMeaningAsync(
+    private async Task<(VocabularyMeaningModel Meaning, bool Created)> ResolveMeaningAsync(
         VocabularyMeaningModel requested,
         string vocabularyId,
         string bookId,
@@ -274,7 +382,7 @@ public class VocabularyDomainService
             existing.Example = requested.Example?.Trim();
             existing.UpdatedAt = DateTimeOffset.UtcNow;
             await _meaningRepository.UpdateAsync(existing);
-            return existing;
+            return (existing, false);
         }
 
         var equivalent = await _meaningRepository.GetEquivalentAsync(
@@ -322,7 +430,7 @@ public class VocabularyDomainService
                 await _meaningRepository.UpdateAsync(equivalent);
             }
 
-            return equivalent;
+            return (equivalent, false);
         }
 
         var now = DateTimeOffset.UtcNow;
@@ -335,7 +443,7 @@ public class VocabularyDomainService
         requested.CreatedAt = now;
         requested.UpdatedAt = now;
         await _meaningRepository.AddAsync(requested);
-        return requested;
+        return (requested, true);
     }
 
     private static string NormalizeWord(string word)
@@ -347,6 +455,11 @@ public class VocabularyDomainService
         }
 
         return normalized;
+    }
+
+    private static string? NullIfWhiteSpace(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value;
     }
 
     private static string NormalizePartOfSpeech(string? partOfSpeech)

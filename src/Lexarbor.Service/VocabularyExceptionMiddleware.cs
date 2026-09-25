@@ -62,6 +62,12 @@ public sealed class VocabularyExceptionMiddleware
         exception switch
         {
             DomainValidationException => (StatusCodes.Status400BadRequest, exception.Message),
+            // Kestrel reports a body over the endpoint's size limit this way.
+            // Mapped here so the caller gets the usual envelope rather than
+            // Kestrel's empty 413.
+            BadHttpRequestException { StatusCode: StatusCodes.Status413PayloadTooLarge } => (
+                StatusCodes.Status413PayloadTooLarge,
+                "The request body is too large."),
             BadHttpRequestException => (
                 StatusCodes.Status400BadRequest,
                 "The request is invalid."),

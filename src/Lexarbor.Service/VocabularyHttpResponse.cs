@@ -28,6 +28,13 @@ public static class VocabularyHttpResponse
         => Results.BadRequest(new { success = false, message });
 
     /// <summary>
+    /// 400 Bad Request with per-item details:
+    /// { "success": false, "message": "...", "errors": [...] }
+    /// </summary>
+    public static IResult BadRequest<TError>(string message, IReadOnlyList<TError> errors)
+        => Results.BadRequest(new { success = false, message, errors });
+
+    /// <summary>
     /// 404 Not Found: { "success": false, "message": "..." }
     /// </summary>
     public static IResult NotFound(string message)
