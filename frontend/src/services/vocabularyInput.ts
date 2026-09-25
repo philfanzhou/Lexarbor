@@ -5,6 +5,9 @@ import type { VocabularyPreviewRow } from './vocabularyRow'
 
 export type VocabularyInputFormat = 'tsv' | 'csv' | 'json'
 
+/** The format of a chosen file: a text format, or Excel, which is read from the file's bytes rather than as text. */
+export type VocabularyFileFormat = VocabularyInputFormat | 'xlsx'
+
 export interface VocabularyParseResult {
   rows: VocabularyPreviewRow[]
   /** A file-level error; when it is set there are no rows and nothing can be submitted. */
@@ -27,15 +30,16 @@ export function parseVocabularyInput(format: VocabularyInputFormat, text: string
   }
 }
 
-const formatsByExtension = new Map<string, VocabularyInputFormat>([
+const formatsByExtension = new Map<string, VocabularyFileFormat>([
   ['tsv', 'tsv'],
   ['txt', 'tsv'],
   ['csv', 'csv'],
-  ['json', 'json']
+  ['json', 'json'],
+  ['xlsx', 'xlsx']
 ])
 
 /** The format a file name's extension selects, ignoring case; undefined when it selects none. */
-export function formatForFileName(name: string): VocabularyInputFormat | undefined {
+export function formatForFileName(name: string): VocabularyFileFormat | undefined {
   const dot = name.lastIndexOf('.')
   return dot < 0 ? undefined : formatsByExtension.get(name.slice(dot + 1).toLowerCase())
 }
