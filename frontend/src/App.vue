@@ -33,6 +33,7 @@ async function handleLogout() {
       <nav class="nav">
         <RouterLink to="/books">教材管理</RouterLink>
         <RouterLink to="/import">单词导入</RouterLink>
+        <RouterLink to="/import/batch">批量导入</RouterLink>
       </nav>
       <div class="session">
         <span>{{ currentUser?.username }}</span>

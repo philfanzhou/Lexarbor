@@ -1,6 +1,6 @@
 import axios from 'axios'
 import type { AxiosRequestConfig } from 'axios'
-import { ApiError, getApiError } from './apiError'
+import { ApiError, getApiError, getEntryErrors } from './apiError'
 
 type AuthFailureHandler = () => void
 
@@ -25,7 +25,9 @@ api.interceptors.response.use(
   (resp) => {
     const body = resp.data
     if (body && body.success === false) {
-      return Promise.reject(new ApiError(body.message || 'Request failed', resp.status))
+      return Promise.reject(
+        new ApiError(body.message || 'Request failed', resp.status, getEntryErrors(body.errors))
+      )
     }
     return body?.data ?? body
   },

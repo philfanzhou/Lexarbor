@@ -260,7 +260,7 @@ normalizedWord = word.Trim().ToLowerInvariant()
 
 ### 8.3 Batch import
 
-`POST /admin/vocabulary/batch` imports up to 500 entries into one book in a single transaction, applying each entry in order with the rules above. Either every entry is stored or none is, so a batch can be resubmitted after any failure without creating duplicates. The request body is capped at 1 MiB and read by the endpoint itself so that an oversized body answers the 413 envelope. Every check that needs no database runs before the write lock is taken; the book's existence and status are checked inside the transaction. [ADR-005](../adr/ADR-005-bulk-vocabulary-import.md) defines the payload, the order of the checks, the `{ total, created, reused }` result, the limits and their measurements, and the TSV format the administration UI will parse.
+`POST /admin/vocabulary/batch` imports up to 500 entries into one book in a single transaction, applying each entry in order with the rules above. Either every entry is stored or none is, so a batch can be resubmitted after any failure without creating duplicates. The request body is capped at 1 MiB and read by the endpoint itself so that an oversized body answers the 413 envelope. Every check that needs no database runs before the write lock is taken; the book's existence and status are checked inside the transaction. [ADR-005](../adr/ADR-005-bulk-vocabulary-import.md) defines the payload, the order of the checks, the `{ total, created, reused }` result, the limits and their measurements, and the TSV format the administration UI parses on its `/import/batch` page.
 
 `Category` keeps the existing string field as its formal representation. The integer `BookCategories` constant type, which disagreed with it and was unused, is deleted so that no dual representation is maintained.
 
@@ -365,6 +365,7 @@ The frontend continues to use Vue 3, TypeScript, Element Plus, Axios, Vue Router
 - `/forbidden`: the non-administrator notice page.
 - `/books`: book management.
 - `/import`: word import.
+- `/import/batch`: batch word import from pasted TSV or a local file, parsed in the browser.
 - The application calls `GET /admin/auth/session` at startup to restore the login state.
 - The route guard redirects to the login page while unauthenticated.
 - The administration navigation and pages render only in the administrator state.

@@ -1,5 +1,6 @@
 import { isAuthenticated, currentUser, login, logout, restoreSession } from '@/services/authState'
 import { ApiError, getApiError } from '@/services/apiError'
+import type { ApiEntryError } from '@/services/apiError'
 
 void isAuthenticated.value
 void currentUser.value
@@ -11,3 +12,6 @@ void loginResult
 void logoutResult
 void restoreResult
 void error.status
+const entryErrors: ApiEntryError[] | undefined = error.errors
+const firstEntryIndex: number | undefined = entryErrors?.[0]?.index
+void firstEntryIndex

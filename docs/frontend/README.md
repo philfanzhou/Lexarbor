@@ -16,6 +16,7 @@
 | `/forbidden` | Anonymous | Non-administrator notice |
 | `/books` | Administrator | Vocabulary book management |
 | `/import` | Administrator | Word import |
+| `/import/batch` | Administrator | Batch word import |
 
 The application uses hash history. On first entry to a protected page it calls `GET /admin/auth/session` to restore the cookie session; an unauthenticated response redirects to `/login` and a 403 redirects to `/forbidden`. While unauthenticated, neither the administration navigation nor any actionable page is rendered.
 
@@ -48,7 +49,7 @@ logout()
 clearSession()
 ```
 
-A shared `ApiError` carries the public message and an optional HTTP status:
+A shared `ApiError` carries the public message, an optional HTTP status, and, only for the batch import route, an optional `errors` list of `{ index, message }` per-entry failures. `errors` is filled only when every item has an integer `index` and a string `message`; any other shape leaves it undefined.
 
 | Status | Frontend behaviour |
 |------|----------|
@@ -57,6 +58,7 @@ A shared `ApiError` carries the public message and an optional HTTP status:
 | 403 | Redirect to the forbidden page |
 | 404 | Show that the resource does not exist |
 | 409 | Show the data conflict; for a book deletion, suggest disabling it instead |
+| 413 | Show that the request body is too large and should be split |
 | 422 | Show that the business precondition is not met |
 | 500/502/503 | Show the generic service error |
 
@@ -70,6 +72,46 @@ Components use `catch (error: unknown)` with the shared conversion function, nev
 - Word import keeps the book, word, British phonetic, American phonetic, part of speech, definition, and example sentence fields.
 - The import page's book picker reads `GET /api/vocabulary-books/all`, which is unpaged and enabled-only. The paged administration search is the wrong source for a picker: called with no paging parameters it answers 400, and called with them it answers one page, so a deployment with more than one page of books would silently lose the rest. The administration list also offers disabled books, which the import endpoint then refuses with a 422.
 - Both existing features must remain usable after a successful login.
+
+## Batch import page
+
+`/import/batch` imports many entries into one book through `POST /admin/vocabulary/batch`. [ADR-005](../adr/ADR-005-bulk-vocabulary-import.md) is the single source for the payload, the limits, the check order, the failure envelope, and the TSV format; this section describes only how the page applies them.
+
+Flow:
+
+1. Pick an enabled book. The picker reads `GET /api/vocabulary-books/all`, the same as the single-entry page.
+2. Paste TSV into the text area, or choose a local `.tsv` or `.txt` file. The file is read in the browser with `FileReader.readAsText(file, 'utf-8')` and placed in the text area; it is never uploaded. A file larger than 1 MiB is refused before it is read, so an oversized file cannot stall the preview.
+3. The preview counts data lines, valid lines, and invalid lines, and lists each data line with its source line number, its six parsed columns, and its status. The table shows 100 lines per page and can be filtered to invalid lines only.
+4. Submitting sends the parsed JSON, never the file. The request uses the same cookie session and `X-Requested-With` header as every other administration write, and the button stays disabled while the request is in flight, so repeated clicks send one request.
+5. On success the page shows `total`, `created`, and `reused`, clears the text and the preview so the same batch is not sent twice by accident, and keeps the selected book.
+
+Browser-side TSV rules, in addition to the format ADR-005 defines:
+
+- Line numbers are physical line numbers starting at 1. Blank lines and comment lines are skipped but still counted.
+- `\r\n`, `\n`, and `\r` all end a line, and a leading UTF-8 byte-order mark is removed.
+- A line is skipped when it is blank after trimming, or when its first character is `#`. Leading whitespace before `#` makes the line a data line.
+- Every column is trimmed. A blank optional column is left out of the entry rather than sent as an empty string. A line whose `word` or `meaning` is blank, or that does not have exactly five or six columns, is invalid.
+- `entries[i]` of the request is the `i`th data line of the preview, in source order, so the server's `errors[].index` maps back to a source line.
+
+Submission is disabled, with a message saying why, when no book is selected, there is no data line, any line is invalid, there are more than 500 data lines, or the JSON payload is larger than 1,048,576 bytes in UTF-8. These checks only spare a request the server would refuse; the server validates every entry itself. The page does not split a large input into several batches: each batch is atomic, but several batches together are not, and splitting them automatically would suggest otherwise.
+
+Results and failures:
+
+| Answer | Page behaviour |
+|------|----------|
+| 200 | Show total, created, and reused |
+| 400 with `errors` | Show each server reason on the source line of its `index`, filter the preview to invalid lines, and state that the batch was not written |
+| 400 without `errors`, or with an `index` outside the batch | Show the server message |
+| 401 / 403 | Redirect to the login or forbidden page |
+| 404 | The selected book does not exist; refresh and pick again |
+| 409 | The word or meaning conflicts with existing data |
+| 413 | The request body is over 1 MiB; split the batch |
+| 422 | The selected book is disabled |
+| 503 | The service is busy and the batch was not written; retry later |
+| No response (network error or timeout) | The outcome is unknown; resubmitting the same batch is safe |
+| Any other status | Show the server message |
+
+Every failure other than 401 and 403 keeps the text and the preview so the batch can be corrected and resubmitted. Changing the text or the book clears the server's per-line reasons, because they described the batch that was sent. Unsubmitted text is not saved and is lost when the page is left or reloaded.
 
 ## Build
 
