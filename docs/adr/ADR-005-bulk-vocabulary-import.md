@@ -2,7 +2,7 @@
 
 - **Status**: accepted; implemented
 - **Date**: 2026-09-25
-- **Scope**: The `POST /admin/vocabulary/batch` contract, the TSV format the administration UI accepts, and the limits and failure semantics of one batch. Existing routes, JSON fields, the SQLite schema, and authentication are unchanged
+- **Scope**: The `POST /admin/vocabulary/batch` contract, the TSV format the administration UI accepts, and the limits and failure semantics of one batch. Existing routes, JSON fields, the SQLite schema, and authentication are unchanged. The other formats the UI accepts, and how it reads files, are decided in [ADR-006](./ADR-006-batch-import-file-formats.md)
 
 ## Context
 
@@ -92,6 +92,8 @@ The TSV format the UI accepts:
 - blank lines and lines starting with `#` are ignored;
 - every other line must have exactly five or six columns.
 
+A file must be UTF-8; the page refuses a file that is not, rather than importing replacement characters. The page also accepts CSV, and [ADR-006](./ADR-006-batch-import-file-formats.md) defines the formats other than TSV, how a file is read, and the rules they share.
+
 ### Logging
 
 The endpoint logs the book id, the entry count, and the result counts. It never logs the request body or entry content.
@@ -109,7 +111,7 @@ Imported entries are user-supplied data under [ADR-002](./ADR-002-bundled-vocabu
 
 ## Consequences
 
-- Administrators can import up to 500 entries per request, from the administration UI's `/import/batch` page, which parses the TSV in the browser as described in the [frontend specification](../frontend/README.md#batch-import-page).
+- Administrators can import up to 500 entries per request, from the administration UI's `/import/batch` page, which parses the TSV in the browser as described in the [frontend specification](../frontend/README.md#batch-import-page). [ADR-006](./ADR-006-batch-import-file-formats.md) adds CSV to the same page.
 - Resubmitting a batch creates no duplicate `vocabulary` or `vocabulary_meaning` rows, and a failed batch leaves no trace.
 - While a batch is being written, other administrative writes wait for up to a few seconds; anonymous reads are unaffected.
 - The exception middleware now maps Kestrel's body-too-large error to 413 with the envelope. Other routes bind their body as a parameter, so the framework handles an oversized body before the middleware sees it and still answers Kestrel's default 30 MB limit with an empty 413. Their contracts are unchanged.
