@@ -49,6 +49,38 @@ public class VocabularyWordEditTests : TestBase
         Assert.Equal("old-us", current.PhoneticUs);
     }
 
+    [Theory]
+    [InlineData("Ä", "ä")]
+    [InlineData("\tORIGINAL\r\n", "original")]
+    [InlineData("\u00a0Σ\u2003", "σ")]
+    [InlineData("\u2003ORIGINAL\u00a0", "original")]
+    public async Task HistoricalUnicodeAndWhitespaceDuplicates_ConflictWithoutAnyWrites(string historical, string requested)
+    {
+        await SeedAsync(_dbContext);
+        _dbContext.Vocabularies.Add(new VocabularyEntity { Id = "duplicate", Word = historical });
+        await _dbContext.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var words = JsonSerializer.Serialize(await _dbContext.Vocabularies.AsNoTracking().OrderBy(v => v.Id).ToListAsync(TestContext.Current.CancellationToken));
+        var meanings = JsonSerializer.Serialize(await _dbContext.VocabularyMeanings.AsNoTracking().OrderBy(m => m.Id).ToListAsync(TestContext.Current.CancellationToken));
+
+        await Assert.ThrowsAsync<ConflictException>(() => Service(_dbContext).ReplaceAsync("w", requested, null, "changed", TestContext.Current.CancellationToken));
+
+        Assert.Equal(words, JsonSerializer.Serialize(await _dbContext.Vocabularies.AsNoTracking().OrderBy(v => v.Id).ToListAsync(TestContext.Current.CancellationToken)));
+        Assert.Equal(meanings, JsonSerializer.Serialize(await _dbContext.VocabularyMeanings.AsNoTracking().OrderBy(m => m.Id).ToListAsync(TestContext.Current.CancellationToken)));
+    }
+
+    [Fact]
+    public async Task UnicodeReplacement_ExcludesSelfAndKeepsDistinctSpellings()
+    {
+        await SeedAsync(_dbContext);
+        _dbContext.Vocabularies.Add(new VocabularyEntity { Id = "distinct", Word = "a" });
+        await _dbContext.SaveChangesAsync(TestContext.Current.CancellationToken);
+        await Service(_dbContext).ReplaceAsync("w", " Ä ", null, null, TestContext.Current.CancellationToken);
+        await Service(_dbContext).ReplaceAsync("w", "ä", "updated", null, TestContext.Current.CancellationToken);
+        var current = await _dbContext.Vocabularies.AsNoTracking().SingleAsync(v => v.Id == "w", TestContext.Current.CancellationToken);
+        Assert.Equal("ä", current.Word);
+        Assert.Equal("updated", current.PhoneticUk);
+    }
+
     [Fact]
     public async Task MissingInvalidCancelledAndConstraintFailure_DoNotPersistChanges()
     {

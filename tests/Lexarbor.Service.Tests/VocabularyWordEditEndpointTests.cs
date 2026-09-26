@@ -99,6 +99,26 @@ public class VocabularyWordEditEndpointTests
         Assert.Equal("original|uk|us", await StateAsync(factory.Services));
     }
 
+    [Theory]
+    [InlineData("Ä", "ä")]
+    [InlineData("\u2003ORIGINAL\u00a0", "original")]
+    public async Task HistoricalUnicodeDuplicate_Returns409WithoutPartialUpdate(string historical, string requested)
+    {
+        await using var factory = new VocabularyWebApplicationFactory();
+        using var client = factory.CreateClient();
+        await SeedAsync(factory.Services);
+        Authenticate(client, factory, false, "admin");
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+            db.Vocabularies.Add(new VocabularyEntity { Id = "other", Word = historical });
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+        using var response = await PutAsync(client, JsonSerializer.Serialize(new { word = requested, phoneticUk = (string?)null, phoneticUs = "changed" }));
+        await FailureAsync(response, HttpStatusCode.Conflict);
+        Assert.Equal("original|uk|us", await StateAsync(factory.Services));
+    }
+
     [Fact]
     public async Task ExternalSqliteWriter_Returns503WithRetryAfter()
     {
