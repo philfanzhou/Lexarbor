@@ -479,6 +479,12 @@ npm run build
 
 When Identity and Vocabulary can both be run, add HTTP smoke tests for login, the cookie, logout, the public API, the persistent volume, and the migration state. When real deployment credentials are unavailable, the automated integration tests use fake Identity and no real integration result is invented.
 
+### Administrator build identity
+
+`GET /admin/system/version` explicitly requires `VocabularyAdmin` (the existing Cookie/Bearer and configurable required role). Success is `{"success":true,"data":{"version":"1.2.3","revision":null,"channel":"release"}}`. The immutable running Host assembly supplies all three fields: version preserves prerelease suffixes, revision is a full lowercase SHA or JSON null, and channel is `release`, `edge`, or `development`. Missing metadata falls back independently to `unknown`/null/`development`; runtime configuration cannot replace it.
+
+Anonymous/invalid credentials receive 401; authenticated non-administrators receive 403. Failure envelopes contain only `success:false,message`, without build fields. Every response on this path is `Cache-Control: no-store`; there are no ETag/Last-Modified validators or 304 responses. Conditional GET still returns current content. Concurrent reads share the immutable snapshot; cancelled reads do not write storage or schedule work. Anonymous `/health` continues to expose only `status` in its data object. This identity describes the application build, not an image digest or an update check. No configuration or database migration is required.
+
 ### Replace one book-owned meaning
 
 `PUT /admin/vocabulary-books/{bookId}/words/{wordId}/meanings/{meaningId}` requires `VocabularyAdmin` and all three JSON fields: `{partOfSpeech:string|null,meaning:string,example:string|null}`. Missing fields, unknown fields (including resource IDs or shared word fields), invalid types, or null/blank meaning return 400. Meaning/example are trimmed; part of speech is trimmed and lowercased, with null/blank normalized to the existing empty string. Null/blank example clears it. Send original values to keep them.
