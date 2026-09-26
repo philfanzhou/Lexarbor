@@ -50,8 +50,10 @@ async function mockAdministrator(page: Page) {
     json(route, { success: true, data: { books: [starterBook] } }))
 }
 
-async function openAdministration(page: Page, path: string) {
+/** `setUp` runs after the default mocks, so its routes take precedence. */
+async function openAdministration(page: Page, path: string, setUp?: (page: Page) => Promise<unknown>) {
   await mockAdministrator(page)
+  await setUp?.(page)
   await page.goto(`/#${path}`)
   await expect(page.locator('.session')).toContainText(admin.username)
   await expect(page.locator('.page-header h1')).toBeVisible()
@@ -93,13 +95,66 @@ for (const width of widths) {
       test(`the shell on ${path} has no WCAG 2.1 AA violations`, async ({ page }) => {
         await openAdministration(page, path)
 
-        // Only the header and the navigation: the page bodies are redesigned,
-        // and checked in full, by their own tasks.
+        // Only the header and the navigation; the redesigned pages are also
+        // checked in full below.
         const results = await new AxeBuilder({ page })
           .include('.app-header')
           .include('.app-nav')
           .withTags(wcagTags)
           .analyze()
+
+        expect(results.violations).toEqual([])
+      })
+    }
+
+    const emptyCatalog = (page: Page) =>
+      page.route(/\/admin\/vocabulary-books(?:\?.*)?$/, (route) =>
+        json(route, { success: true, data: { items: [], totalCount: 0, totalPage: 0 } }))
+
+    const pageStates: { name: string, path: string, setUp?: (page: Page) => Promise<unknown>, act?: (page: Page) => Promise<void> }[] = [
+      { name: '/books with books', path: '/books' },
+      {
+        name: '/books with no book',
+        path: '/books',
+        setUp: emptyCatalog,
+        act: async (page) => {
+          await expect(page.locator('.el-table__empty-block .el-empty')).toBeVisible()
+        }
+      },
+      {
+        name: '/books with the new book dialog open',
+        path: '/books',
+        act: async (page) => {
+          await page.getByRole('button', { name: '新增教材' }).click()
+          await expect(page.locator('.el-dialog')).toBeVisible()
+        }
+      },
+      { name: '/import', path: '/import' },
+      {
+        name: '/import after a successful import',
+        path: '/import',
+        setUp: (page) => page.route(/\/admin\/vocabulary$/, (route) =>
+          json(route, { success: true, data: { success: true } })),
+        act: async (page) => {
+          await page.locator('.el-form-item').first().locator('.el-select').click()
+          await page.locator('.el-select-dropdown__item').first().click()
+          await page.getByPlaceholder('如：apple').fill('apple')
+          await page.getByPlaceholder('如：苹果').fill('苹果')
+          await page.getByRole('button', { name: '导入', exact: true }).click()
+          await expect(page.locator('.el-alert--success')).toContainText('已导入「apple」')
+        }
+      }
+    ]
+
+    for (const { name, path, setUp, act } of pageStates) {
+      test(`${name} has no WCAG 2.1 AA violations`, async ({ page }) => {
+        await openAdministration(page, path, setUp)
+        await act?.(page)
+        // Let transitions (dialog, alert, loading mask) settle before measuring
+        // colours.
+        await page.waitForTimeout(400)
+
+        const results = await new AxeBuilder({ page }).withTags(wcagTags).analyze()
 
         expect(results.violations).toEqual([])
       })
@@ -199,7 +254,7 @@ test('Element Plus speaks Chinese in the pagination and the confirmation box', a
 
   const pagination = page.locator('.el-pagination')
   await expect(pagination).toContainText('共')
-  await expect(pagination).toContainText('条/页')
+  await expect(pagination).toContainText('前往')
 
   await page.locator('.el-table').getByRole('button', { name: '删除' }).click()
   const box = page.locator('.el-message-box')

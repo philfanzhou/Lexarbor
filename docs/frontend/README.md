@@ -168,7 +168,7 @@ The same Sass source values override Element Plus's variables: `--el-color-{prim
 
 Contrast: body text, links, button text, and tag text reach at least 4.5:1 against their background, including while hovered and pressed. Element Plus lightens a filled button (`light-3`) and a link button (`light-5`) on hover, which falls to between 2.15:1 and 3.43:1 with this palette, so `tokens.scss` darkens both to `dark-2` instead. The file's header comment lists the computed ratio of every foreground and background pair; update it with any colour change.
 
-Element Plus uses its Chinese locale (`element-plus/es/locale/lang/zh-cn`), so the pagination reads 共 N 条 / 20条/页 / 前往 and confirmation boxes offer 确定 / 取消.
+Element Plus uses its Chinese locale (`element-plus/es/locale/lang/zh-cn`), so the pagination reads 共 N 条 / 前往 and confirmation boxes offer 确定 / 取消.
 
 ### Page structure
 
@@ -192,7 +192,9 @@ Loading, empty, and failed states look the same on every page:
 
 ### Accessibility tests
 
-`e2e/layout.spec.ts` runs axe (`@axe-core/playwright`, tags `wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa`) at 1440 px and 768 px over the whole login and forbidden pages, and over the header and navigation only on `/books`, `/import`, and `/import/batch`; each must report no violation. A page body is added to the full-page check when that page is redesigned. The same specification checks sideways scrolling at 768 px, navigation and `aria-current`, the keyboard order and focus ring, logout including a failed logout, and the Chinese locale.
+`e2e/layout.spec.ts` runs axe (`@axe-core/playwright`, tags `wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa`) at 1440 px and 768 px over the whole login and forbidden pages, over the header and navigation of `/books`, `/import`, and `/import/batch`, and over the whole of `/books` (with books, with none, and with the new book dialog open) and `/import` (on arrival and after a successful import); each must report no violation. A page body is added to the full-page check when that page is redesigned. The same specification checks sideways scrolling at 768 px, navigation and `aria-current`, the keyboard order and focus ring, logout including a failed logout, and the Chinese locale.
+
+Two conventions follow from these checks. `/books` sets the page size with its own select labelled 每页条数, to the left of the pagination, rather than with the pagination's built-in size picker, whose input cannot be given an accessible name. A table whose columns can overflow at 768 px sets `scrollbar-tabindex="0"`, so its horizontal scroll region can be reached from the keyboard.
 
 ## Build
 

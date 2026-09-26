@@ -301,3 +301,42 @@ test('opens without errors when no book exists yet', async ({ page }) => {
   await expect(page.locator('.el-form-item__error')).toContainText('请选择教材')
   expect(importAttempted).toBe(false)
 })
+
+test('confirms the imported word until the form is edited again', async ({ page }) => {
+  await openImportPage(page)
+  await page.route(/\/admin\/vocabulary$/, (route) =>
+    route.request().method() === 'POST'
+      ? json(route, { success: true, data: { success: true } })
+      : route.fallback())
+
+  await fillRequiredFields(page)
+  await submit(page)
+
+  const confirmation = page.locator('.el-alert--success')
+  await expect(confirmation).toContainText('已导入「apple」')
+
+  await page.getByPlaceholder('如：apple').fill('b')
+
+  await expect(confirmation).toHaveCount(0)
+})
+
+test('offers a retry when the book list fails to load', async ({ page }) => {
+  let fail = true
+  await page.route('**/admin/auth/session', (route) =>
+    json(route, { success: true, data: admin }))
+  await page.route(booksRoute, (route) => fail
+    ? json(route, { success: false, message: 'Books are unavailable.' }, 500)
+    : json(route, { success: true, data: { books: [starterBook] } }))
+
+  await page.goto('/#/import')
+
+  const alert = page.locator('.el-alert--error')
+  await expect(alert).toContainText('Books are unavailable.')
+
+  fail = false
+  await alert.getByRole('button', { name: '重试' }).click()
+
+  await expect(alert).toHaveCount(0)
+  await selectBook(page)
+  await expect(page.locator('.el-form-item').first()).toContainText(starterBook.bookName)
+})
