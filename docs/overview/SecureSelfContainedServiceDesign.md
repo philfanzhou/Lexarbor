@@ -478,3 +478,11 @@ npm run build
 ```
 
 When Identity and Vocabulary can both be run, add HTTP smoke tests for login, the cookie, logout, the public API, the persistent volume, and the migration state. When real deployment credentials are unavailable, the automated integration tests use fake Identity and no real integration result is invented.
+
+### Replace one book-owned meaning
+
+`PUT /admin/vocabulary-books/{bookId}/words/{wordId}/meanings/{meaningId}` requires `VocabularyAdmin` and all three JSON fields: `{partOfSpeech:string|null,meaning:string,example:string|null}`. Missing fields, unknown fields (including resource IDs or shared word fields), invalid types, or null/blank meaning return 400. Meaning/example are trimmed; part of speech is trimmed and lowercased, with null/blank normalized to the existing empty string. Null/blank example clears it. Send original values to keep them.
+
+The serialized write transaction checks the book, word and meaning exist (404), then verifies exact ownership (409) and rejects an equivalent definition belonging to another meaning ID (409). Existing meanings in disabled books may be edited. It updates only the target meaning's three fields and `updatedAt`, never moves ownership or changes the shared word or other meanings. Success uses the existing BoolResponse envelope. Existing Cookie/Bearer/custom role and Cookie CSRF checks apply; 401/403 never write management data.
+
+The existing UnitOfWork provides atomic rollback and serial order with imports. Constraint failures return 409; external SQLite locks return 503 with `Retry-After: 1`. Cancellation detected before entry does not write. After entry, commit or rollback finishes even when the client disconnects; a missing response does not imply reversal. There is no optimistic version, automatic retry, or atomicity across this request and a separate shared-word save. Query state after an unknown result.
