@@ -291,3 +291,5 @@ curl http://localhost:5008/api/vocabulary-books/all
 ```
 
 Expected results: health returns 200; an anonymous administration request returns 401; the public book request returns a success envelope whose `data.books` is empty on a new instance.
+
+The book-owned meaning replacement API needs no configuration or schema migration. Back up SQLite consistently before maintenance. Rolling back application code removes the endpoint but does not restore edited definitions or examples; use a pre-operation backup for data recovery, and roll back dependent UI before the API. If a write response is lost, query current state before deciding on another write; disconnecting cannot promise that an admitted transaction was reversed.

@@ -44,3 +44,7 @@ The database file must live on a persistent volume. Docker mounts the host's `da
 - Re-importing the same word, book, normalized part of speech, and definition is idempotent.
 - A SQLite deployment is single-instance only; a process-level write transaction lock serializes administrative writes, and the database's unique index is the last line of defence.
 - `UnitOfWork` maps SQLite constraint errors to 409 and never exposes the internal error to the client.
+
+## Meaning replacement
+
+`VocabularyMeaningEditService` uses the existing repositories and serialized UnitOfWork to validate all three resources and ownership before changing a meaning. ID reads fetch current database values without returning earlier tracked snapshots. The existing equivalent-meaning key rejects any other matching meaning ID; book/word foreign keys never move, including in disabled books. Only that meaning's content fields and updated timestamp change. This API does not create definitions or alter import merge semantics, constraints, or schema. SQLite constraint/busy exceptions retain the existing rollback and status mappings.

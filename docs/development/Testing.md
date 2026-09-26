@@ -194,3 +194,9 @@ GitHub Actions additionally collects TRX and Cobertura coverage, runs the contai
 - When real Identity credentials are unavailable, a fake Identity result must not be described as a successful real integration.
 
 `SystemVersionEndpointTests` covers Cookie/Bearer, custom roles, expired/malformed credentials, exact failure fields, conditional GET, concurrent immutable snapshots, cancellation and the unchanged anonymous health boundary. Missing assembly metadata fallback is covered by `ApplicationVersionTests`.
+
+## Meaning replacement verification
+
+`VocabularyMeaningEditTests` verifies nullable/blank part of speech and example, trimmed definitions, disabled-book editing, multi-meaning/shared-word isolation, 404 resource checks, 409 ownership/equivalence checks, cancellation without writes and rollback of a SQLite constraint failure. File-WAL tests hold a controlled transaction barrier between independent contexts for edit/edit and both edit/import orders, checking the last successful update and completion after cancellation inside the transaction.
+
+`VocabularyMeaningEditEndpointTests` covers three-field presence/types, unknown IDs/fields, Cookie/Bearer and custom roles, 401/403/missing CSRF, all path resource/ownership failures, unchanged data after rejection and an external SQLite write lock returning 503 with `Retry-After: 1`. The full Release suite retains import equivalence/example updates and public detail ordering coverage. Run Docker persistence smoke as well. New word/meaning editing combined with cleanup is a parent feature integration check once those independent APIs are delivered.

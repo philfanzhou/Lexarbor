@@ -74,6 +74,7 @@ builder.Services.AddScoped<IVocabularyRepository, VocabularyRepository>();
 builder.Services.AddScoped<IVocabularyBookRepository, VocabularyBookRepository>();
 builder.Services.AddScoped<IVocabularyMeaningRepository, VocabularyMeaningRepository>();
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
+builder.Services.AddScoped<VocabularyMeaningEditService>();
 builder.Services.AddScoped<VocabularyDomainService>();
 builder.Services.AddScoped<VocabularyBookDomainService>();
 builder.Services.Configure<RouteHandlerOptions>(options =>
@@ -358,6 +359,7 @@ app.UseMiddleware<CookieCsrfMiddleware>();
 app.UseAuthorization();
 app.MapAdminAuthEndpoints();
 app.MapSystemVersionEndpoints();
+app.MapVocabularyMeaningEditEndpoints();
 app.MapVocabularyHttpEndpoints(RateLimitingExtensions.PublicApiPolicy);
 // Anonymous liveness exposes only status. Build identity is available through
 // startup logs and the authorized administrator version endpoint.
