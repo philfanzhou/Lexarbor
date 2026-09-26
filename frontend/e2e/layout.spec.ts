@@ -77,6 +77,29 @@ async function focusedText(page: Page) {
   })
 }
 
+async function selectBatchBook(page: Page) {
+  await page.locator('.batch-book-select').click()
+  await page.locator('.el-select-dropdown__item').first().click()
+}
+
+/** The batch import page in the states its full-page checks cover. */
+const batchStates: Record<string, (page: Page) => Promise<void>> = {
+  'when empty': async (page) => {
+    await expect(page.locator('.batch-blockers li')).not.toHaveCount(0)
+  },
+  'with valid and invalid rows': async (page) => {
+    await selectBatchBook(page)
+    await page.locator('.batch-input textarea').fill('apple\t\t\tn.\t苹果\nbanana\t\t\t\t\n')
+    await expect(page.locator('.batch-summary')).toContainText('无效 1 条')
+  },
+  'with a file-level error': async (page) => {
+    await selectBatchBook(page)
+    await page.locator('.batch-format .el-radio-button', { hasText: 'CSV' }).click()
+    await page.locator('.batch-input textarea').fill('word,phonetic_uk\napple,/ˈæp.əl/\n')
+    await expect(page.locator('.batch-parse-error')).toBeVisible()
+  }
+}
+
 for (const width of widths) {
   test.describe(`at ${width} px`, () => {
     test.use({ viewport: { width, height: 900 } })
@@ -143,15 +166,16 @@ for (const width of widths) {
           await page.getByRole('button', { name: '导入', exact: true }).click()
           await expect(page.locator('.el-alert--success')).toContainText('已导入「apple」')
         }
-      }
+      },
+      ...Object.entries(batchStates).map(([state, act]) => ({ name: `/import/batch ${state}`, path: '/import/batch', act }))
     ]
 
     for (const { name, path, setUp, act } of pageStates) {
       test(`${name} has no WCAG 2.1 AA violations`, async ({ page }) => {
         await openAdministration(page, path, setUp)
         await act?.(page)
-        // Let transitions (dialog, alert, loading mask) settle before measuring
-        // colours.
+        // Let transitions (dialog, alert, table, loading mask) settle before
+        // measuring colours.
         await page.waitForTimeout(400)
 
         const results = await new AxeBuilder({ page }).withTags(wcagTags).analyze()
@@ -192,6 +216,15 @@ test.describe('at 768 px', () => {
       expect(overflow).toBeLessThanOrEqual(0)
     })
   }
+
+  test('/import/batch with a preview does not scroll sideways', async ({ page }) => {
+    await openAdministration(page, '/import/batch')
+    await batchStates['with valid and invalid rows'](page)
+
+    const overflow = await page.evaluate(() =>
+      document.documentElement.scrollWidth - document.documentElement.clientWidth)
+    expect(overflow).toBeLessThanOrEqual(0)
+  })
 
   test('the navigation collapses to icons that keep their names', async ({ page }) => {
     await openAdministration(page, '/books')
@@ -261,4 +294,46 @@ test('Element Plus speaks Chinese in the pagination and the confirmation box', a
   await expect(box.getByRole('button', { name: '确定' })).toBeVisible()
   await expect(box.getByRole('button', { name: '取消' })).toBeVisible()
   await box.getByRole('button', { name: '取消' }).click()
+})
+
+test('the batch import help follows the selected format', async ({ page }) => {
+  await openAdministration(page, '/import/batch')
+  const help = page.locator('.batch-help')
+  await expect(help).toContainText('制表符')
+
+  await page.locator('.batch-format .el-radio-button', { hasText: 'CSV' }).click()
+  await expect(help.locator('pre')).toContainText('word,phonetic_uk,phonetic_us,part_of_speech,meaning,example')
+
+  await page.locator('.batch-format .el-radio-button', { hasText: 'JSON' }).click()
+  await expect(help.locator('pre')).toContainText('[')
+  await expect(help.locator('pre')).toContainText('{ "word": "apple"')
+})
+
+for (const { width, placement } of [{ width: 1440, placement: 'beside' }, { width: 768, placement: 'below' }]) {
+  test(`the batch import help sits ${placement} the text area at ${width} px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await openAdministration(page, '/import/batch')
+
+    const input = await page.locator('.batch-input textarea').boundingBox()
+    const help = await page.locator('.batch-help').boundingBox()
+    expect(input).not.toBeNull()
+    expect(help).not.toBeNull()
+    if (placement === 'beside') {
+      expect(help!.x).toBeGreaterThanOrEqual(input!.x + input!.width)
+      expect(help!.y).toBeLessThan(input!.y + input!.height)
+    } else {
+      expect(help!.y).toBeGreaterThanOrEqual(input!.y + input!.height)
+    }
+  })
+}
+
+test('the batch import preview explains itself before there is data', async ({ page }) => {
+  await openAdministration(page, '/import/batch')
+
+  await expect(page.locator('.batch-preview-empty')).toContainText('粘贴数据或选择文件后，这里会显示预览')
+  await expect(page.locator('.batch-preview')).toHaveCount(0)
+
+  await page.locator('.batch-input textarea').fill('# only a comment\n')
+  await expect(page.locator('.batch-preview-empty')).toContainText('没有可预览的数据行')
+  await expect(page.locator('.batch-preview')).toHaveCount(0)
 })
