@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { getBooks, addBook, updateBook, deleteBook, getCategories, getEducationLevels } from '@/services/bookApi'
 import { getApiError } from '@/services/apiError'
+import PageHeader from '@/components/PageHeader.vue'
 import type { Book } from '@/types'
 
 const books = ref<Book[]>([])
@@ -145,6 +146,8 @@ onMounted(() => {
 
 <template>
   <div class="books-view">
+    <PageHeader title="教材管理" description="维护教材信息，启用或停用教材" />
+
     <div class="toolbar">
       <el-input
         v-model="keyword"
@@ -231,7 +234,6 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.books-view { padding: 16px; }
 .toolbar { display: flex; gap: 12px; margin-bottom: 16px; }
 .pagination-wrapper { display: flex; justify-content: flex-end; margin-top: 16px; }
 </style>

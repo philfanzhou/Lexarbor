@@ -5,6 +5,7 @@ import type { FormInstance, FormRules } from 'element-plus'
 import { getActiveBooks } from '@/services/bookApi'
 import { addVocabulary } from '@/services/vocabularyApi'
 import { getApiError } from '@/services/apiError'
+import PageHeader from '@/components/PageHeader.vue'
 import type { Book } from '@/types'
 
 const formRef = ref<FormInstance>()
@@ -92,10 +93,9 @@ onMounted(loadBooks)
 
 <template>
   <div class="import-view">
+    <PageHeader title="单条导入" description="向一本教材添加一个单词和它的一条释义" />
+
     <el-card shadow="never">
-      <template #header>
-        <span class="card-title">单词导入</span>
-      </template>
       <el-form
         ref="formRef"
         v-loading="loading"
@@ -142,8 +142,3 @@ onMounted(loadBooks)
     </el-card>
   </div>
 </template>
-
-<style scoped>
-.import-view { padding: 16px; }
-.card-title { font-weight: 600; font-size: 16px; }
-</style>

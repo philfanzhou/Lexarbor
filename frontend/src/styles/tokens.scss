@@ -1,0 +1,194 @@
+// Visual tokens for the administration app.
+//
+// This is the only file in frontend/src that may hold colour literals. Our own
+// styles read the --lx-* custom properties; Element Plus reads its --el-*
+// variables, which are overridden below from the same Sass source values, so
+// both draw from one palette.
+//
+// Contrast (WCAG 2.1 relative luminance, text colour on background):
+//
+//   Filled buttons, active page number, checked radio button
+//     white on primary #1d6b4f                  6.43  default
+//     white on primary dark-2 #17563f           8.61  hover (overridden below) and pressed
+//     white on success #256d2a / dark-2 #1e5722 6.36 / 8.60
+//     white on warning #8a5300 / dark-2 #6e4200 6.33 / 8.60
+//     white on danger #c62828 / dark-2 #9e2020  5.62 / 7.83
+//     white on info #5b6270 / dark-2 #494e5a    6.13 / 8.33
+//     (Element Plus' own hover shade, light-3, would give 3.16 to 3.43.)
+//   Link buttons on white
+//     primary #1d6b4f                           6.43  default
+//     primary dark-2 #17563f                    8.61  hover (overridden below) and pressed
+//     danger #c62828                            5.62  default
+//     danger dark-2 #9e2020                     7.83  hover (overridden below) and pressed
+//     (Element Plus' own hover shade, light-5, would give 2.15 to 2.35.)
+//     text secondary #5f6368                    6.05  hover of an untyped link button
+//     text primary #1f2328                     15.80  pressed untyped link button
+//   Default (untyped) buttons
+//     text regular #3c4148 on white            10.28  default
+//     primary on primary light-9 #e8f0ed        5.54  hover and pressed
+//   Navigation links (App.vue)
+//     text regular #3c4148 on white            10.28  default
+//     primary on primary light-9 #e8f0ed        5.54  hover, pressed and current page
+//   Tags, alerts and messages (text on their own light-9 background)
+//     primary 5.54, success 5.49, warning 5.48, danger 4.81, info 5.34
+//   Text
+//     primary / regular / secondary on white   15.80 / 10.28 / 6.05
+//     secondary on page background #f5f7f6      5.62
+//     placeholder #6b7078 on white              4.98
+//     primary on Element Plus fill #f0f2f5      5.73  hovered page number
+//   Focus ring
+//     primary on page background                5.97  (non-text, needs 3:1)
+//
+// Disabled controls are exempt from the contrast requirement and keep the
+// light-5 shades Element Plus gives them.
+
+@use 'sass:color';
+@use 'sass:math';
+
+$white: #fff;
+$black: #000;
+
+$primary: #1d6b4f;
+$success: #256d2a;
+$warning: #8a5300;
+$danger: #c62828;
+$info: #5b6270;
+
+$text-primary: #1f2328;
+$text-regular: #3c4148;
+$text-secondary: #5f6368;
+$text-placeholder: #6b7078;
+$text-disabled: #a8adb3;
+
+$border: #d3d8d5;
+$border-light: #e1e5e3;
+$border-lighter: #ebeeed;
+$border-extra-light: #f2f4f3;
+$border-dark: #c9cfcc;
+$border-darker: #bec5c2;
+
+$bg-page: #f5f7f6;
+$bg-surface: $white;
+
+$shadow-1: 0 1px 2px rgb(31 35 40 / 6%), 0 1px 3px rgb(31 35 40 / 10%);
+
+// color.mix rounded to whole channels, as Element Plus rounds its own shades.
+@function mix($color1, $color2, $weight) {
+  $mixed: color.mix($color1, $color2, $weight);
+
+  @return rgb(
+    math.round(color.channel($mixed, 'red', $space: rgb)),
+    math.round(color.channel($mixed, 'green', $space: rgb)),
+    math.round(color.channel($mixed, 'blue', $space: rgb))
+  );
+}
+
+@function channels($color) {
+  @return '#{color.channel($color, 'red', $space: rgb)}, #{color.channel($color, 'green', $space: rgb)}, #{color.channel($color, 'blue', $space: rgb)}';
+}
+
+$semantic-colors: (
+  'primary': $primary,
+  'success': $success,
+  'warning': $warning,
+  'danger': $danger,
+  'error': $danger,
+  'info': $info
+);
+
+:root {
+  // Colour
+  --lx-color-primary: #{$primary};
+  --lx-color-primary-hover: #{mix($black, $primary, 20%)};
+  --lx-color-primary-soft: #{mix($white, $primary, 90%)};
+  --lx-color-success: #{$success};
+  --lx-color-warning: #{$warning};
+  --lx-color-danger: #{$danger};
+  --lx-color-info: #{$info};
+  --lx-color-on-primary: #{$white};
+
+  --lx-color-text-primary: #{$text-primary};
+  --lx-color-text-regular: #{$text-regular};
+  --lx-color-text-secondary: #{$text-secondary};
+  --lx-color-text-placeholder: #{$text-placeholder};
+
+  --lx-color-border: #{$border};
+  --lx-color-border-light: #{$border-light};
+  --lx-color-bg-page: #{$bg-page};
+  --lx-color-bg-surface: #{$bg-surface};
+  --lx-color-focus: #{$primary};
+
+  // Type scale: caption, body, section title, card title, page title (h1)
+  --lx-font-size-xs: 12px;
+  --lx-font-size-sm: 14px;
+  --lx-font-size-md: 16px;
+  --lx-font-size-lg: 20px;
+  --lx-font-size-xl: 24px;
+
+  // Spacing
+  --lx-space-1: 4px;
+  --lx-space-2: 8px;
+  --lx-space-3: 12px;
+  --lx-space-4: 16px;
+  --lx-space-5: 24px;
+  --lx-space-6: 32px;
+
+  // Shape and elevation
+  --lx-radius-sm: 4px;
+  --lx-radius-md: 8px;
+  --lx-shadow-1: #{$shadow-1};
+
+  // Density
+  --lx-density-control-height: 32px;
+  --lx-density-table-row-height: 40px;
+
+  // Element Plus, from the same source values
+  @each $name, $value in $semantic-colors {
+    --el-color-#{$name}: #{$value};
+    --el-color-#{$name}-rgb: #{channels($value)};
+
+    @each $level in (3, 5, 7, 8, 9) {
+      --el-color-#{$name}-light-#{$level}: #{mix($white, $value, $level * 10%)};
+    }
+
+    --el-color-#{$name}-dark-2: #{mix($black, $value, 20%)};
+  }
+
+  --el-text-color-primary: #{$text-primary};
+  --el-text-color-regular: #{$text-regular};
+  --el-text-color-secondary: #{$text-secondary};
+  --el-text-color-placeholder: #{$text-placeholder};
+  --el-text-color-disabled: #{$text-disabled};
+
+  --el-border-color: #{$border};
+  --el-border-color-light: #{$border-light};
+  --el-border-color-lighter: #{$border-lighter};
+  --el-border-color-extra-light: #{$border-extra-light};
+  --el-border-color-dark: #{$border-dark};
+  --el-border-color-darker: #{$border-darker};
+
+  --el-bg-color-page: #{$bg-page};
+
+  --el-border-radius-base: var(--lx-radius-sm);
+  --el-border-radius-small: var(--lx-radius-sm);
+
+  --el-font-size-extra-large: var(--lx-font-size-lg);
+  --el-font-size-large: var(--lx-font-size-md);
+  --el-font-size-medium: var(--lx-font-size-md);
+  --el-font-size-base: var(--lx-font-size-sm);
+  --el-font-size-small: var(--lx-font-size-xs);
+  --el-font-size-extra-small: var(--lx-font-size-xs);
+
+  --el-component-size: var(--lx-density-control-height);
+}
+
+// Element Plus lightens a filled button on hover (light-3) and a link button
+// on hover (light-5); neither keeps white or the link text at 4.5:1. Darken
+// both to dark-2, the shade Element Plus already uses while a button is pressed.
+@each $name in (primary, success, warning, danger, info) {
+  .el-button--#{$name} {
+    --el-button-hover-bg-color: var(--el-color-#{$name}-dark-2);
+    --el-button-hover-border-color: var(--el-color-#{$name}-dark-2);
+    --el-button-hover-link-text-color: var(--el-color-#{$name}-dark-2);
+  }
+}

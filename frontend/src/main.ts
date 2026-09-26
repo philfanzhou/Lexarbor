@@ -4,6 +4,7 @@ import router from './router'
 import { setAuthFailureHandlers } from './services/api'
 import { clearSession } from './services/authState'
 import ElementPlus from 'element-plus'
+import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import 'element-plus/dist/index.css'
 import './styles/app.scss'
 
@@ -29,5 +30,5 @@ setAuthFailureHandlers(
 
 const app = createApp(App)
 app.use(router)
-app.use(ElementPlus)
+app.use(ElementPlus, { locale: zhCn })
 app.mount('#app')

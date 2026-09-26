@@ -357,7 +357,7 @@ No client response may contain SQL, a connection string, a stack trace, a databa
 
 ## 13. Frontend design
 
-The frontend continues to use Vue 3, TypeScript, Element Plus, Axios, Vue Router, and Vite, and adds no state management library. Its only other runtime dependencies are `read-excel-file` and `fflate`, which read `.xlsx` files on the batch import page inside a worker the page loads only when such a file is chosen ([ADR-006](../adr/ADR-006-batch-import-file-formats.md#excel)).
+The frontend continues to use Vue 3, TypeScript, Element Plus, Axios, Vue Router, and Vite, and adds no state management library. Its only other runtime dependencies are `read-excel-file` and `fflate`, which read `.xlsx` files on the batch import page inside a worker the page loads only when such a file is chosen ([ADR-006](../adr/ADR-006-batch-import-file-formats.md#excel)). The browser tests also use `@axe-core/playwright`, a development dependency that never reaches the browser bundle.
 
 ### 13.1 Routes and state
 

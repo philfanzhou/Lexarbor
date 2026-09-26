@@ -1,14 +1,41 @@
+@use './tokens';
+
 * {
   box-sizing: border-box;
 }
 
 body {
   margin: 0;
+  color: var(--lx-color-text-primary);
+  background: var(--lx-color-bg-page);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
     'Helvetica Neue', Arial, 'PingFang SC', 'Hiragino Sans GB',
     'Microsoft YaHei', sans-serif;
+  font-size: var(--lx-font-size-sm);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+// The brand mark shared by the shell header and the sign-in pages.
+.brand-mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--lx-radius-md);
+  background: var(--lx-color-primary);
+  color: var(--lx-color-on-primary);
+  font-size: var(--lx-font-size-md);
+  font-weight: 700;
+  line-height: 1;
+}
+
+.brand-mark--large {
+  width: 48px;
+  height: 48px;
+  font-size: var(--lx-font-size-xl);
 }
 
 .auth-page {
@@ -16,29 +43,60 @@ body {
   align-items: center;
   justify-content: center;
   min-height: 100vh;
-  padding: 24px;
+  padding: var(--lx-space-5);
   background:
-    radial-gradient(circle at top left, rgb(64 158 255 / 18%), transparent 36%),
-    #f5f7fa;
+    radial-gradient(circle at top left, var(--lx-color-primary-soft), transparent 45%),
+    var(--lx-color-bg-page);
 }
 
 .auth-card {
   width: min(420px, 100%);
+  border-radius: var(--lx-radius-md);
+  box-shadow: var(--lx-shadow-1);
+
+  &.el-card {
+    border-color: var(--lx-color-border-light);
+  }
+
+  .el-card__header {
+    padding: var(--lx-space-6) var(--lx-space-6) var(--lx-space-5);
+    border-bottom: 0;
+  }
+
+  .el-card__body {
+    padding: 0 var(--lx-space-6) var(--lx-space-6);
+  }
 }
 
-.auth-card__heading h1 {
+.auth-card__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--lx-space-3);
+}
+
+.auth-card__heading h1,
+.auth-card__name {
   margin: 0;
-  color: #303133;
-  font-size: 24px;
+  color: var(--lx-color-text-primary);
+  font-size: var(--lx-font-size-xl);
+  font-weight: 700;
+  line-height: 1.2;
 }
 
-.auth-card__heading p {
-  margin: 8px 0 0;
-  color: #909399;
-  font-size: 14px;
+.auth-card__product {
+  display: block;
+  margin-top: var(--lx-space-1);
+  color: var(--lx-color-text-secondary);
+  font-size: var(--lx-font-size-xs);
+}
+
+.auth-card__heading > p {
+  margin: var(--lx-space-5) 0 0;
+  color: var(--lx-color-text-regular);
+  font-size: var(--lx-font-size-sm);
 }
 
 .auth-card__action {
   width: 100%;
-  margin-top: 4px;
+  margin-top: var(--lx-space-1);
 }
