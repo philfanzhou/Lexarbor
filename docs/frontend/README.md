@@ -135,6 +135,65 @@ Results and failures:
 
 Every failure other than 401 and 403 keeps the text and the preview so the batch can be corrected and resubmitted. Changing the format, the text, or the book clears the server's per-line reasons, because they described the batch that was sent. Unsubmitted text is not saved and is lost when the page is left or reloaded.
 
+## Layout and visual conventions
+
+### Shell
+
+Once signed in, every page sits in one shell:
+
+- A 56 px header across the page holds `.brand` (`Lexarbor`) on the left and `.session` (the username and the **退出登录** button) on the right.
+- Below it, a side navigation `<nav aria-label="主导航">` is grouped by task. Each group is a `role="group"` labelled by its title, and each entry is a real link (`RouterLink`), not a menu item:
+  - **教材**: 教材管理 (`/books`). A later book word list page belongs to this group.
+  - **词汇导入**: 单条导入 (`/import`) and 批量导入 (`/import/batch`).
+- A side navigation rather than header links, because the groups need to be visible and later pages need vertical room; three links in the header can show neither.
+- The current page's link is highlighted and carries `aria-current="page"`, for an exact route match only.
+- At 1024 px and wider the navigation is 220 px wide with icons and text. From 768 px to 1023 px it collapses to a 64 px icon bar: each link keeps its name through `aria-label` and a `title` tooltip, and the group titles are hidden visually but not from assistive technology. At 768 px no page scrolls sideways.
+- The content area is at most 1200 px wide, with 24 px padding on wide screens and 16 px below 1024 px.
+- Keyboard order follows the DOM: the logout button, then the navigation links, then the page. Our own links and buttons show `outline: 2px solid var(--lx-color-focus)` on `:focus-visible`; Element Plus components keep their own focus style.
+- The login and forbidden pages have no shell. They use the same brand mark, card, and tokens.
+
+### Tokens
+
+`src/styles/tokens.scss` is the only file under `src/` that may contain a colour literal (`#rgb`, `#rrggbb`, or `rgb(`). Everything else reads the custom properties it defines on `:root`:
+
+| Group | Properties |
+|------|----------|
+| Colour | `--lx-color-primary`, `-primary-hover`, `-primary-soft`, `-success`, `-warning`, `-danger`, `-info`, `-on-primary`; `--lx-color-text-{primary,regular,secondary,placeholder}`; `--lx-color-border`, `-border-light`; `--lx-color-bg-page`, `-bg-surface`; `--lx-color-focus` |
+| Type | `--lx-font-size-{xs,sm,md,lg,xl}`: 12 / 14 / 16 / 20 / 24 px for caption, body, section title, card title, and the page `h1` |
+| Spacing | `--lx-space-1` to `--lx-space-6`: 4 / 8 / 12 / 16 / 24 / 32 px |
+| Shape | `--lx-radius-sm` (4 px), `--lx-radius-md` (8 px), `--lx-shadow-1` |
+| Density | `--lx-density-control-height` (32 px), `--lx-density-table-row-height` (40 px) |
+
+The same Sass source values override Element Plus's variables: `--el-color-{primary,success,warning,danger,error,info}` with their `-light-3/5/7/8/9` and `-dark-2` shades (mixed with `sass:color`), `--el-text-color-*`, `--el-border-color*`, `--el-bg-color-page`, `--el-border-radius-*`, and `--el-font-size-*`. Element Plus components and our own styles therefore share one palette.
+
+Contrast: body text, links, button text, and tag text reach at least 4.5:1 against their background, including while hovered and pressed. Element Plus lightens a filled button (`light-3`) and a link button (`light-5`) on hover, which falls to between 2.15:1 and 3.43:1 with this palette, so `tokens.scss` darkens both to `dark-2` instead. The file's header comment lists the computed ratio of every foreground and background pair; update it with any colour change.
+
+Element Plus uses its Chinese locale (`element-plus/es/locale/lang/zh-cn`), so the pagination reads 共 N 条 / 20条/页 / 前往 and confirmation boxes offer 确定 / 取消.
+
+### Page structure
+
+Each page starts with `PageHeader` (`src/components/PageHeader.vue`):
+
+```vue
+<PageHeader title="教材管理" description="维护教材信息，启用或停用教材">
+  <template #actions>
+    <el-button type="primary">新增教材</el-button>
+  </template>
+</PageHeader>
+```
+
+It renders the page's only `h1`, an optional description, and an optional `actions` slot on the right, which moves below the title below 1024 px.
+
+Loading, empty, and failed states look the same on every page:
+
+- Loading: `v-loading` on the region being loaded, not on the whole page.
+- Empty: `el-empty` whose description says what there is none of.
+- Failed to load: keep the `ElMessage` error, and show an `el-alert type="error"` with a **重试** button inside the region.
+
+### Accessibility tests
+
+`e2e/layout.spec.ts` runs axe (`@axe-core/playwright`, tags `wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa`) at 1440 px and 768 px over the whole login and forbidden pages, and over the header and navigation only on `/books`, `/import`, and `/import/batch`; each must report no violation. A page body is added to the full-page check when that page is redesigned. The same specification checks sideways scrolling at 768 px, navigation and `aria-current`, the keyboard order and focus ring, logout including a failed logout, and the Chinese locale.
+
 ## Build
 
 ```bash

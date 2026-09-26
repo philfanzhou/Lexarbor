@@ -59,7 +59,13 @@ async function handleLogin() {
     <el-card class="auth-card" shadow="never">
       <template #header>
         <div class="auth-card__heading">
-          <h1>Lexarbor</h1>
+          <div class="auth-card__brand">
+            <span class="brand-mark brand-mark--large" aria-hidden="true">L</span>
+            <div>
+              <h1>Lexarbor</h1>
+              <span class="auth-card__product">词汇管理端</span>
+            </div>
+          </div>
           <p>请使用身份提供方的管理员账户登录</p>
         </div>
       </template>

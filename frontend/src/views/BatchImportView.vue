@@ -9,6 +9,7 @@ import type { VocabularyFileFormat, VocabularyInputFormat } from '@/services/voc
 import { readVocabularyWorkbook } from '@/services/vocabularyXlsx'
 import type { VocabularyWorkbook } from '@/services/vocabularyXlsx'
 import { getApiError } from '@/services/apiError'
+import PageHeader from '@/components/PageHeader.vue'
 import type { Book } from '@/types'
 
 // Both limits are the server's constants (ADR-005). Checking them here only
@@ -340,11 +341,9 @@ onBeforeUnmount(stopReadingExcel)
 
 <template>
   <div class="batch-import-view">
-    <el-card shadow="never">
-      <template #header>
-        <span class="card-title">批量导入</span>
-      </template>
+    <PageHeader title="批量导入" description="从文本或本地文件一次向一本教材导入多个单词" />
 
+    <el-card shadow="never">
       <el-form label-width="80px">
         <el-form-item label="教材">
           <el-select
@@ -494,8 +493,6 @@ onBeforeUnmount(stopReadingExcel)
 </template>
 
 <style scoped>
-.batch-import-view { padding: 16px; }
-.card-title { font-weight: 600; font-size: 16px; }
 .batch-input { width: 100%; }
 .batch-input__format {
   display: flex;
