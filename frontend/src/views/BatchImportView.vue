@@ -24,14 +24,45 @@ const placeholders: Record<VocabularyInputFormat, string> = {
   csv: '第一行为表头，逗号分隔，例如：word,phonetic_uk,phonetic_us,part_of_speech,meaning,example',
   json: '[{"word":"apple","meaning":"苹果"}]'
 }
-const formatHints: Record<VocabularyInputFormat, string> = {
-  tsv: '无表头，列顺序固定',
-  csv: '只支持逗号分隔；表头不区分大小写、顺序不限，必须包含 word 和 meaning',
-  json: '顶层为数组，每项是一个对象；字段名与 API 相同：word、phoneticUk、phoneticUs、partOfSpeech、meaning、example'
+/** The help panel's text for each format; what every format shares is in the template. */
+const formatHints: Record<VocabularyFileFormat, { title: string; rules: string[]; example: string }> = {
+  tsv: {
+    title: 'TSV：制表符分隔',
+    rules: [
+      '没有表头，每行一条，列之间用制表符（Tab）分隔',
+      '列的顺序固定：单词、英式音标、美式音标、词性、释义，可选的第 6 列例句',
+      '空行和 # 开头的行忽略'
+    ],
+    example: 'apple\t/ˈæp.əl/\t/ˈæp.əl/\tn.\t苹果\tI eat an apple.'
+  },
+  csv: {
+    title: 'CSV：逗号分隔',
+    rules: [
+      '第一行为表头，可用的列名：word、phonetic_uk、phonetic_us、part_of_speech、meaning、example',
+      '表头不区分大小写，顺序不限；word 和 meaning 必填',
+      '只支持逗号分隔'
+    ],
+    example: 'word,phonetic_uk,phonetic_us,part_of_speech,meaning,example\napple,/ˈæp.əl/,/ˈæp.əl/,n.,苹果,I eat an apple.'
+  },
+  json: {
+    title: 'JSON：对象数组',
+    rules: [
+      '顶层是一个数组，每项是一个对象',
+      '字段名与 API 相同：word、phoneticUk、phoneticUs、partOfSpeech、meaning、example；word 和 meaning 必填'
+    ],
+    example: '[\n  { "word": "apple", "phoneticUk": "/ˈæp.əl/", "meaning": "苹果" },\n  { "word": "banana", "meaning": "香蕉" }\n]'
+  },
+  xlsx: {
+    title: 'Excel：.xlsx 工作簿',
+    rules: [
+      '只读取第一个工作表',
+      '第一条非空行是表头，列名和规则与 CSV 相同'
+    ],
+    example: 'word | phonetic_uk | phonetic_us | part_of_speech | meaning | example\napple | /ˈæp.əl/ | /ˈæp.əl/ | n. | 苹果 | I eat an apple.'
+  }
 }
 // A JSON row is numbered by its item in the array, not by a line.
 const positionLabels: Record<VocabularyInputFormat, string> = { tsv: '行号', csv: '行号', json: '序号' }
-const excelHint = '读取第一个工作表；第一条非空行为表头，规则与 CSV 相同'
 
 /** A chosen `.xlsx` file. Its workbook is undefined while the worker is still reading it. */
 interface ExcelFile {
@@ -66,6 +97,7 @@ const selectedFormat = computed<VocabularyFileFormat>({
   }
 })
 const readingExcel = computed(() => excelFile.value !== undefined && excelFile.value.workbook === undefined)
+const formatHelp = computed(() => formatHints[selectedFormat.value])
 const sheetNotice = computed(() => excelFile.value?.workbook?.notice)
 
 const parsed = computed(() =>
@@ -85,6 +117,12 @@ const previewRows = computed(() =>
 )
 
 const invalidCount = computed(() => previewRows.value.filter((row) => row.reason).length)
+
+// Display only: what the preview section says while it has no row to show.
+const showPreviewEmpty = computed(() => !parseError.value && rows.value.length === 0 && !readingExcel.value)
+const previewEmptyText = computed(() =>
+  text.value || excelFile.value ? '没有可预览的数据行' : '粘贴数据或选择文件后，这里会显示预览'
+)
 
 const visibleRows = computed(() =>
   onlyInvalid.value ? previewRows.value.filter((row) => row.reason) : previewRows.value
@@ -343,15 +381,15 @@ onBeforeUnmount(stopReadingExcel)
   <div class="batch-import-view">
     <PageHeader title="批量导入" description="从文本或本地文件一次向一本教材导入多个单词" />
 
-    <el-card shadow="never">
-      <el-form label-width="80px">
+    <section class="batch-section" aria-labelledby="batch-step-book">
+      <h2 id="batch-step-book" class="batch-section__title">1. 选择教材</h2>
+      <el-form label-position="top">
         <el-form-item label="教材">
           <el-select
             v-model="bookId"
             class="batch-book-select"
             placeholder="请选择教材"
             :disabled="submitting"
-            style="width: 100%; max-width: 400px"
           >
             <el-option
               v-for="book in books"
@@ -361,59 +399,68 @@ onBeforeUnmount(stopReadingExcel)
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="数据">
-          <div class="batch-input">
-            <div class="batch-input__format">
-              <el-radio-group v-model="selectedFormat" class="batch-format" :disabled="submitting || !!excelFile">
-                <el-radio-button value="tsv">TSV</el-radio-button>
-                <el-radio-button value="csv">CSV</el-radio-button>
-                <el-radio-button value="json">JSON</el-radio-button>
-                <el-radio-button value="xlsx" disabled>Excel</el-radio-button>
-              </el-radio-group>
-              <span class="batch-hint batch-format-hint">{{ excelFile ? excelHint : formatHints[format] }}</span>
-            </div>
-            <el-input
-              v-model="text"
-              type="textarea"
-              :rows="8"
-              :disabled="submitting || !!excelFile"
-              :placeholder="excelFile ? excelFile.name : placeholders[format]"
-            />
-            <div class="batch-input__actions">
-              <el-button :disabled="submitting" @click="chooseFile">选择文件</el-button>
-              <el-button v-if="excelFile" class="batch-remove-file" :disabled="submitting" @click="removeFile">
-                移除文件
-              </el-button>
-              <span class="batch-hint">读取本地 .tsv / .txt / .csv / .json（UTF-8）或 .xlsx 文件，不超过 1 MiB；文件只在浏览器中解析，不会上传</span>
-              <input
-                ref="fileInput"
-                class="batch-file-input"
-                type="file"
-                accept=".tsv,.txt,.csv,.json,.xlsx,text/tab-separated-values,text/plain,text/csv,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                @change="handleFileChange"
-              >
-            </div>
-          </div>
-        </el-form-item>
       </el-form>
+    </section>
 
-      <el-alert
-        v-if="result"
-        class="batch-result"
-        type="success"
-        :closable="false"
-        show-icon
-        :title="`导入完成：总计 ${result.total} 条，新增 ${result.created} 条，复用 ${result.reused} 条`"
-      />
+    <section class="batch-section" aria-labelledby="batch-step-input">
+      <h2 id="batch-step-input" class="batch-section__title">2. 输入数据</h2>
+      <div class="batch-entry">
+        <div class="batch-input">
+          <el-radio-group
+            v-model="selectedFormat"
+            class="batch-format"
+            aria-label="数据格式"
+            :disabled="submitting || !!excelFile"
+          >
+            <el-radio-button value="tsv">TSV</el-radio-button>
+            <el-radio-button value="csv">CSV</el-radio-button>
+            <el-radio-button value="json">JSON</el-radio-button>
+            <el-radio-button value="xlsx" disabled>Excel</el-radio-button>
+          </el-radio-group>
+          <el-input
+            v-model="text"
+            type="textarea"
+            aria-label="导入数据"
+            :rows="10"
+            :disabled="submitting || !!excelFile"
+            :placeholder="excelFile ? excelFile.name : placeholders[format]"
+          />
+          <div class="batch-input__actions">
+            <el-button :disabled="submitting" @click="chooseFile">选择文件</el-button>
+            <el-button v-if="excelFile" class="batch-remove-file" :disabled="submitting" @click="removeFile">
+              移除文件
+            </el-button>
+            <input
+              ref="fileInput"
+              class="batch-file-input"
+              type="file"
+              accept=".tsv,.txt,.csv,.json,.xlsx,text/tab-separated-values,text/plain,text/csv,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              @change="handleFileChange"
+            >
+          </div>
+        </div>
 
-      <el-alert
-        v-if="serverSummary"
-        class="batch-server-summary"
-        type="error"
-        :closable="false"
-        show-icon
-        :title="serverSummary"
-      />
+        <div class="batch-help">
+          <h3 class="batch-help__title">{{ formatHelp.title }}</h3>
+          <ul class="batch-help__list">
+            <li v-for="rule in formatHelp.rules" :key="rule">{{ rule }}</li>
+          </ul>
+          <p class="batch-help__label">示例</p>
+          <pre class="batch-help__example"><code>{{ formatHelp.example }}</code></pre>
+
+          <h3 class="batch-help__title">所有格式</h3>
+          <ul class="batch-help__list">
+            <li>可以选择 .tsv、.txt、.csv、.json 文件（UTF-8 编码）或 .xlsx 文件，单个文件不超过 1 MiB</li>
+            <li>单批不超过 {{ MAX_ENTRIES }} 条</li>
+            <li>整批在一个事务中写入：任何一条失败，整批都不写入</li>
+            <li>文件只在浏览器中解析，不会上传</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="batch-section" aria-labelledby="batch-step-preview">
+      <h2 id="batch-step-preview" class="batch-section__title">3. 预览与校验</h2>
 
       <el-alert
         v-if="sheetNotice"
@@ -433,15 +480,36 @@ onBeforeUnmount(stopReadingExcel)
         :title="parseError"
       />
 
-      <template v-else-if="rows.length > 0">
+      <el-alert
+        v-if="serverSummary"
+        class="batch-server-summary"
+        type="error"
+        :closable="false"
+        show-icon
+        :title="serverSummary"
+      />
+
+      <template v-if="!parseError && rows.length > 0">
         <div class="batch-toolbar">
           <span class="batch-summary">
-            数据行 {{ rows.length }} 条，有效 {{ rows.length - invalidCount }} 条，无效 {{ invalidCount }} 条
+            数据行 {{ rows.length }} 条，有效 {{ rows.length - invalidCount }} 条，<span class="batch-summary__invalid" :class="{ 'is-nonzero': invalidCount > 0 }">无效 {{ invalidCount }} 条</span>
           </span>
-          <el-switch v-model="onlyInvalid" class="batch-only-invalid" active-text="只看无效行" />
+          <el-switch
+            v-model="onlyInvalid"
+            class="batch-only-invalid"
+            aria-label="只看无效行"
+            active-text="只看无效行"
+          />
         </div>
 
-        <el-table :data="pagedRows" :row-class-name="rowClassName" border size="small" class="batch-preview">
+        <el-table
+          :data="pagedRows"
+          :row-class-name="rowClassName"
+          border
+          size="small"
+          class="batch-preview"
+          scrollbar-tabindex="0"
+        >
           <el-table-column prop="position" :label="positionLabels[format]" width="70" />
           <el-table-column label="单词" min-width="110">
             <template #default="{ row }">{{ row.columns[0] }}</template>
@@ -479,55 +547,202 @@ onBeforeUnmount(stopReadingExcel)
         />
       </template>
 
-      <ul v-if="blockers.length > 0" class="batch-blockers">
-        <li v-for="reason in blockers" :key="reason">{{ reason }}</li>
-      </ul>
+      <el-empty
+        v-if="showPreviewEmpty"
+        class="batch-preview-empty"
+        :image-size="80"
+        :description="previewEmptyText"
+      />
+    </section>
+
+    <section class="batch-section" aria-labelledby="batch-step-submit">
+      <h2 id="batch-step-submit" class="batch-section__title">4. 提交与结果</h2>
+
+      <el-alert
+        v-if="blockers.length > 0"
+        class="batch-blocked"
+        type="warning"
+        title="暂时无法提交"
+        :closable="false"
+        show-icon
+      >
+        <ul class="batch-blockers">
+          <li v-for="reason in blockers" :key="reason">{{ reason }}</li>
+        </ul>
+      </el-alert>
 
       <div class="batch-submit">
         <el-button type="primary" :loading="submitting" :disabled="!canSubmit" @click="handleSubmit">
           提交导入
         </el-button>
       </div>
-    </el-card>
+
+      <el-alert
+        v-if="result"
+        class="batch-result"
+        type="success"
+        :closable="false"
+        show-icon
+        :title="`导入完成：总计 ${result.total} 条，新增 ${result.created} 条，复用 ${result.reused} 条`"
+      />
+    </section>
   </div>
 </template>
 
 <style scoped>
-.batch-input { width: 100%; }
-.batch-input__format {
+.batch-import-view {
+  container-type: inline-size;
+}
+
+.batch-section {
+  min-width: 0;
+  margin-bottom: var(--lx-space-4);
+  padding: var(--lx-space-5);
+  border: 1px solid var(--lx-color-border-light);
+  border-radius: var(--lx-radius-md);
+  background: var(--lx-color-bg-surface);
+  box-shadow: var(--lx-shadow-1);
+}
+.batch-section__title {
+  margin: 0 0 var(--lx-space-4);
+  color: var(--lx-color-text-primary);
+  font-size: var(--lx-font-size-md);
+  font-weight: 600;
+}
+.batch-section :deep(.el-form-item) {
+  margin-bottom: 0;
+}
+
+.batch-book-select {
+  width: min(400px, 100%);
+}
+
+.batch-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--lx-space-5);
+  align-items: start;
+}
+.batch-input {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 8px;
+  flex-direction: column;
+  gap: var(--lx-space-3);
+  min-width: 0;
+}
+.batch-format {
+  align-self: flex-start;
 }
 .batch-input__actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
-  margin-top: 8px;
+  gap: var(--lx-space-3);
 }
-.batch-hint { color: #909399; font-size: 12px; }
-.batch-file-input { display: none; }
-.batch-result,
-.batch-server-summary,
+.batch-input__actions .el-button + .el-button {
+  margin-left: 0;
+}
+.batch-file-input {
+  display: none;
+}
+
+.batch-help {
+  min-width: 0;
+  padding: var(--lx-space-4);
+  border: 1px solid var(--lx-color-border-light);
+  border-radius: var(--lx-radius-md);
+  background: var(--lx-color-bg-surface);
+  color: var(--lx-color-text-secondary);
+  font-size: var(--lx-font-size-sm);
+  line-height: 1.6;
+}
+.batch-help__title {
+  margin: 0 0 var(--lx-space-2);
+  color: var(--lx-color-text-primary);
+  font-size: var(--lx-font-size-sm);
+  font-weight: 600;
+}
+.batch-help__title ~ .batch-help__title {
+  margin-top: var(--lx-space-4);
+}
+.batch-help__list {
+  margin: 0;
+  padding-left: var(--lx-space-5);
+}
+.batch-help__label {
+  margin: var(--lx-space-3) 0 var(--lx-space-1);
+}
+.batch-help__example {
+  margin: 0;
+  padding: var(--lx-space-2) var(--lx-space-3);
+  border-radius: var(--lx-radius-sm);
+  background: var(--lx-color-bg-page);
+  color: var(--lx-color-text-regular);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  font-size: var(--lx-font-size-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 4;
+}
+
 .batch-sheet-notice,
-.batch-parse-error { margin-bottom: 12px; }
+.batch-parse-error,
+.batch-server-summary {
+  margin-bottom: var(--lx-space-3);
+}
 .batch-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 8px;
+  gap: var(--lx-space-3);
+  margin-bottom: var(--lx-space-2);
 }
-.batch-summary { color: #606266; font-size: 14px; }
-.batch-pagination { margin-top: 12px; justify-content: flex-end; }
-.batch-status--invalid { color: #f56c6c; }
-.batch-status--valid { color: #67c23a; }
+.batch-summary {
+  color: var(--lx-color-text-regular);
+  font-size: var(--lx-font-size-sm);
+}
+.batch-summary__invalid {
+  color: var(--lx-color-danger);
+}
+.batch-summary__invalid.is-nonzero {
+  font-weight: 600;
+}
+.batch-pagination {
+  justify-content: flex-end;
+  margin-top: var(--lx-space-3);
+}
+.batch-status--invalid {
+  color: var(--lx-color-danger);
+}
+.batch-status--valid {
+  color: var(--lx-color-success);
+}
+:deep(.batch-row--invalid) {
+  background: var(--el-color-danger-light-9);
+}
+
+.batch-blocked {
+  margin-bottom: var(--lx-space-3);
+}
 .batch-blockers {
-  margin: 12px 0 0;
-  padding-left: 20px;
-  color: #e6a23c;
-  font-size: 13px;
+  margin: var(--lx-space-1) 0 0;
+  padding-left: var(--lx-space-5);
+  color: var(--lx-color-warning);
+  font-size: var(--lx-font-size-sm);
 }
-.batch-submit { margin-top: 12px; }
-:deep(.batch-row--invalid) { background: #fef0f0; }
+.batch-result {
+  margin-top: var(--lx-space-3);
+}
+
+@media (max-width: 1023px) {
+  .batch-section {
+    padding: var(--lx-space-4);
+  }
+}
+
+@container (min-width: 1000px) {
+  .batch-entry {
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+  }
+}
 </style>

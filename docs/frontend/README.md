@@ -78,6 +78,8 @@ Components use `catch (error: unknown)` with the shared conversion function, nev
 
 `/import/batch` imports many entries into one book through `POST /admin/vocabulary/batch`. [ADR-005](../adr/ADR-005-bulk-vocabulary-import.md) is the single source for the payload, the limits, the check order, the failure envelope, and the TSV format, and [ADR-006](../adr/ADR-006-batch-import-file-formats.md) for the other formats, file reading, and the header rules; this section describes only how the page applies them.
 
+The page is laid out as four numbered sections, all visible at once: 1. 选择教材, 2. 输入数据, 3. 预览与校验, and 4. 提交与结果. The input section has a help panel beside the text area when the content area is at least 1000 px wide, and below it otherwise; it describes the selected format (columns or header names, and an example) and, for every format, the accepted extensions, UTF-8, the 1 MiB file limit, the 500-entry batch limit, that a batch is written in one transaction, and that files are parsed only in the browser. The preview section shows an `el-empty` until there is a row to preview, and the submission blockers appear in a warning alert titled 暂时无法提交, directly above the submit button.
+
 Flow:
 
 1. Pick an enabled book. The picker reads `GET /api/vocabulary-books/all`, the same as the single-entry page.
@@ -192,7 +194,7 @@ Loading, empty, and failed states look the same on every page:
 
 ### Accessibility tests
 
-`e2e/layout.spec.ts` runs axe (`@axe-core/playwright`, tags `wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa`) at 1440 px and 768 px over the whole login and forbidden pages, over the header and navigation of `/books`, `/import`, and `/import/batch`, and over the whole of `/books` (with books, with none, and with the new book dialog open) and `/import` (on arrival and after a successful import); each must report no violation. A page body is added to the full-page check when that page is redesigned. The same specification checks sideways scrolling at 768 px, navigation and `aria-current`, the keyboard order and focus ring, logout including a failed logout, and the Chinese locale.
+`e2e/layout.spec.ts` runs axe (`@axe-core/playwright`, tags `wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa`) at 1440 px and 768 px over the whole login and forbidden pages, over the header and navigation of `/books`, `/import`, and `/import/batch`, and over the whole of `/books` (with books, with none, and with the new book dialog open), `/import` (on arrival and after a successful import), and `/import/batch` (when empty, with valid and invalid rows in the preview, and with a file-level error); each must report no violation. A page body is added to the full-page check when that page is redesigned. The same specification checks sideways scrolling at 768 px (including `/import/batch` with a preview), the batch import help following the selected format and sitting beside the text area at 1440 px and below it at 768 px, the batch import preview's empty state, navigation and `aria-current`, the keyboard order and focus ring, logout including a failed logout, and the Chinese locale.
 
 Two conventions follow from these checks. `/books` sets the page size with its own select labelled 每页条数, to the left of the pagination, rather than with the pagination's built-in size picker, whose input cannot be given an accessible name. A table whose columns can overflow at 768 px sets `scrollbar-tabindex="0"`, so its horizontal scroll region can be reached from the keyboard.
 
