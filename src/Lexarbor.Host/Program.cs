@@ -347,6 +347,7 @@ if (networkOptions.IsConfigured)
     app.UseForwardedHeaders();
 }
 
+app.UseSystemVersionNoStore();
 app.UseMiddleware<VocabularyExceptionMiddleware>();
 app.UseDefaultFiles();
 app.UseStaticFiles();
@@ -358,15 +359,11 @@ app.UseAuthentication();
 app.UseMiddleware<CookieCsrfMiddleware>();
 app.UseAuthorization();
 app.MapAdminAuthEndpoints();
+app.MapSystemVersionEndpoints();
 app.MapVocabularyWordEditEndpoints();
 app.MapVocabularyHttpEndpoints(RateLimitingExtensions.PublicApiPolicy);
-// Liveness only, and deliberately nothing more. The endpoint is anonymous
-// because the container HEALTHCHECK has no credentials to present, so every
-// field here is a field any caller can read; the build version used to be one
-// of them, which told an unauthenticated caller which published release — and
-// therefore which set of known issues — it was talking to. The version is now
-// logged once at startup instead, where reading it requires access to the
-// container's logs.
+// Anonymous liveness exposes only status. Build identity is available through
+// startup logs and the authorized administrator version endpoint.
 app.MapGet(
         "/health",
         () => VocabularyHttpResponse.Ok(new { status = "healthy" }))

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify real Host publish artifacts and startup logs; no replacement Host service."""
+"""Verify real Host publish artifacts and startup logs and authorized HTTP; no replacement Host service."""
 
 import json
 import os
@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import shutil
 import signal
+import select
 import socket
 import subprocess
 import tempfile
@@ -24,6 +25,7 @@ ROWS = [
     ("edge-a", None, SHA_A, "edge"),
     ("edge-b", None, SHA_B, "edge"),
     ("default", None, None, None),
+    ("missing-version", None, None, None),
 ]
 PROBE_PROJECT = """<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
@@ -76,7 +78,7 @@ def run(command, log, **kwargs):
             stop(process)
 
 
-def verify_startup(output, expected, environment, log):
+def verify_startup(output, expected, environment, log, token):
     # Host deliberately has a fixed port. Never mistake another server for this one.
     with socket.socket() as available:
         available.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -101,6 +103,15 @@ def verify_startup(output, expected, environment, log):
                 time.sleep(0.1)
             else:
                 raise RuntimeError(f"Host startup timed out; see {log}")
+            request = urllib.request.Request("http://127.0.0.1:5008/admin/system/version",
+                headers={"Authorization": "Bearer " + token, "If-None-Match": "*"})
+            with urllib.request.urlopen(request, timeout=10) as response:
+                assert response.status == 200
+                assert response.headers["Cache-Control"] == "no-store"
+                assert response.headers["ETag"] is None
+                assert response.headers["Last-Modified"] is None
+                body = json.load(response)
+            assert body == {"success": True, "data": {key.lower(): value for key, value in expected.items()}}, body
             contents = log.read_text()
             versions = re.findall(r"Lexarbor starting, version (\S+)", contents)
             identities = re.findall(r"Lexarbor build, channel (\S+), revision (\S+)", contents)
@@ -113,6 +124,7 @@ def verify_startup(output, expected, environment, log):
 def main():
     root = Path(tempfile.mkdtemp(prefix="lexarbor-build-identity-"))
     print(f"Build identity artifacts: {root}", flush=True)
+    fixture_process = None
     try:
         probe = root / "probe"
         probe.mkdir()
@@ -120,6 +132,17 @@ def main():
         (probe / "Program.cs").write_text(PROBE_SOURCE)
         run(["dotnet", "publish", str(probe / "Probe.csproj"), "-c", "Release",
              "-o", str(probe / "published")], root / "probe-build.log", cwd=root)
+        fixture = root / "fixture"
+        fixture.mkdir()
+        (fixture / "Fixture.csproj").write_text(PROBE_PROJECT.replace('Microsoft.NET.Sdk"', 'Microsoft.NET.Sdk.Web"'))
+        (fixture / "Program.cs").write_text((REPOSITORY / ".github/scripts/build-identity-fixture.cs").read_text())
+        run(["dotnet", "publish", str(fixture / "Fixture.csproj"), "-c", "Release", "-o", str(fixture / "published")],
+            root / "fixture-build.log", cwd=root)
+        fixture_process = subprocess.Popen(["dotnet", str(fixture / "published/Fixture.dll")],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, start_new_session=True)
+        if not select.select([fixture_process.stdout], [], [], 30)[0]:
+            raise RuntimeError("Loopback identity fixture did not start")
+        identity = json.loads(fixture_process.stdout.readline())
         for name, version, revision, channel in ROWS:
             row = root / name
             row.mkdir()
@@ -130,9 +153,11 @@ def main():
             for key, value in [("Version", version), ("BuildRevision", revision), ("BuildChannel", channel)]:
                 if value is not None:
                     command.append(f"-p:{key}={value}")
+            if name == "missing-version":
+                command.append("-p:GenerateAssemblyInformationalVersionAttribute=false")
             run(command, row / "publish.log", cwd=REPOSITORY)
             assert not list(output.rglob(".git")), "Publish output must be independent of Git"
-            expected = {"Version": version or "0.0.0-dev", "Revision": revision,
+            expected = {"Version": "unknown" if name == "missing-version" else version or "0.0.0-dev", "Revision": revision,
                         "Channel": channel or "development"}
             # Conflicting values arrive only after compilation; none may restamp the artifact.
             environment = os.environ.copy()
@@ -147,7 +172,10 @@ def main():
                 row / "identity.json", cwd=root, env=environment)
             actual = json.loads((row / "identity.json").read_text())
             assert {key: actual[key] for key in expected} == expected, actual
-            assert actual["InformationalVersion"].split("+", 1)[0] == expected["Version"], actual
+            if name == "missing-version":
+                assert actual["InformationalVersion"] is None, actual
+            else:
+                assert actual["InformationalVersion"].split("+", 1)[0] == expected["Version"], actual
             assert actual["Metadata"]["BuildRevision"] in ([None, ""] if revision is None else [revision]), actual
             assert actual["Metadata"]["BuildChannel"] == expected["Channel"], actual
             settings_path = output / "appsettings.json"
@@ -155,14 +183,19 @@ def main():
             settings.update({"Version": "8.8.8-config", "BuildRevision": "e" * 40,
                              "BuildChannel": "release" if channel != "release" else "edge"})
             settings_path.write_text(json.dumps(settings))
-            verify_startup(output, expected, environment, row / "startup.log")
-            print(f"PASS {name}: {json.dumps(expected)}; exact health envelope", flush=True)
+            environment.update({"IdentityService__Authority": identity["issuer"],
+                "IdentityService__Issuer": identity["issuer"], "IdentityService__Audience": "lexarbor"})
+            verify_startup(output, expected, environment, row / "startup.log", identity["token"])
+            print(f"PASS {name}: {json.dumps(expected)}; authorized HTTP and exact health envelope", flush=True)
     except BaseException:
         print(f"FAILED: artifacts retained at {root}", flush=True)
         raise
     else:
         shutil.rmtree(root)
-        print("All five published Host identities passed", flush=True)
+        print("All published Host identities passed", flush=True)
+    finally:
+        if fixture_process is not None:
+            stop(fixture_process)
 
 
 def interrupted(_signum, _frame):

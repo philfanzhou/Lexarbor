@@ -479,6 +479,12 @@ npm run build
 
 When Identity and Vocabulary can both be run, add HTTP smoke tests for login, the cookie, logout, the public API, the persistent volume, and the migration state. When real deployment credentials are unavailable, the automated integration tests use fake Identity and no real integration result is invented.
 
+### Administrator build identity
+
+`GET /admin/system/version` explicitly requires `VocabularyAdmin` (the existing Cookie/Bearer and configurable required role). Success is `{"success":true,"data":{"version":"1.2.3","revision":null,"channel":"release"}}`. The immutable running Host assembly supplies all three fields: version preserves prerelease suffixes, revision is a full lowercase SHA or JSON null, and channel is `release`, `edge`, or `development`. Missing metadata falls back independently to `unknown`/null/`development`; runtime configuration cannot replace it.
+
+Anonymous/invalid credentials receive 401; authenticated non-administrators receive 403. Failure envelopes contain only `success:false,message`, without build fields. Every response on this path is `Cache-Control: no-store`; there are no ETag/Last-Modified validators or 304 responses. Conditional GET still returns current content. Concurrent reads share the immutable snapshot; cancelled reads do not write storage or schedule work. Anonymous `/health` continues to expose only `status` in its data object. This identity describes the application build, not an image digest or an update check. No configuration or database migration is required.
+
 ### Replace shared word fields
 
 `PUT /admin/vocabulary/{wordId}` requires `VocabularyAdmin`. Send all three fields: `{word:string,phoneticUk:string|null,phoneticUs:string|null}`. Missing fields, undeclared fields (including IDs or meanings), invalid JSON types, and null/blank word return 400 without writes. Word uses `Trim().ToLowerInvariant()`; phonetics are trimmed and null/blank explicitly clears them. To retain a field, send its current value. This is separate from import's optional-field merge behavior.

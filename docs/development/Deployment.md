@@ -40,7 +40,7 @@ info: Lexarbor starting, version 1.2.3
 info: Lexarbor build, channel release, revision 0123456789abcdef0123456789abcdef01234567
 ```
 
-Build identity is currently available only in startup logs, not over HTTP. Anonymous `/health` remains exactly `{"success":true,"data":{"status":"healthy"}}`. Reading the identity requires access to the container logs.
+Authorized administrators can also read the running build through `GET /admin/system/version` using the existing Cookie or Bearer credentials. The response is `{"success":true,"data":{"version":"1.2.3","revision":null,"channel":"release"}}`; revision is the full SHA when supplied at build time. All responses on this path, including 401/403, use `Cache-Control: no-store`, without ETag, Last-Modified, or 304 responses. Anonymous `/health` remains exactly `{"success":true,"data":{"status":"healthy"}}`. Anonymous callers receive no build identity.
 
 | Docker build argument | MSBuild property | Local default |
 |---|---|---|
