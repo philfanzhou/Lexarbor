@@ -66,6 +66,9 @@ jobs:
           --coverage
           --coverage-output-format cobertura
 
+      - name: Verify published Host build identities
+        run: python3 .github/scripts/test-build-identity.py
+
       - name: Write test summary
         if: always()
         shell: pwsh
@@ -152,15 +155,17 @@ jobs:
       # startup check proves the version travelled from the build argument
       # through to the running application instead of matching by coincidence.
       APP_VERSION: 0.0.0-ci.${{ github.run_id }}
+      APP_REVISION: 0123456789abcdef0123456789abcdef01234567
+      APP_CHANNEL: release
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Build image
-        run: docker build --build-arg APP_VERSION="$APP_VERSION" -t lexarbor:ci .
+        run: docker build --build-arg APP_VERSION="$APP_VERSION" --build-arg APP_REVISION="$APP_REVISION" --build-arg APP_CHANNEL="$APP_CHANNEL" -t lexarbor:ci .
 
       - name: Test startup and persistent files
-        run: bash .github/scripts/test-container.sh lexarbor:ci "$APP_VERSION"
+        run: bash .github/scripts/test-container.sh lexarbor:ci "$APP_VERSION" "$APP_REVISION" "$APP_CHANNEL"
 
       - name: Scan image for fixable critical vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
@@ -190,5 +195,7 @@ jobs:
           --platform linux/amd64,linux/arm64
           --file Dockerfile
           --build-arg APP_VERSION=$APP_VERSION
+          --build-arg APP_REVISION=$APP_REVISION
+          --build-arg APP_CHANNEL=$APP_CHANNEL
           --output type=cacheonly
           .

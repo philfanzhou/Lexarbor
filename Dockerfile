@@ -21,10 +21,11 @@ RUN npm run build
 # ========== Stage 2: Build & Publish Backend ==========
 FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS backend-build
 ARG BUILD_CONFIGURATION=Release
-# The release workflow passes the version tag here. The default deliberately
-# does not look like a release, so an image reporting it was not published by
-# that workflow.
+# Build inputs only: the application reads the resulting Host assembly, not
+# runtime environment variables. Ordinary local builds remain development.
 ARG APP_VERSION=0.0.0-dev
+ARG APP_REVISION=
+ARG APP_CHANNEL=development
 WORKDIR /src
 
 COPY Directory.Build.props Directory.Packages.props Lexarbor.sln ./
@@ -38,7 +39,7 @@ RUN dotnet restore "src/Lexarbor.Host/Lexarbor.Host.csproj"
 COPY src/ src/
 COPY --from=frontend-build /frontend/dist ./src/Lexarbor.Host/wwwroot
 
-RUN dotnet publish "src/Lexarbor.Host/Lexarbor.Host.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false -p:Version=$APP_VERSION --no-restore
+RUN dotnet publish "src/Lexarbor.Host/Lexarbor.Host.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false -p:Version="$APP_VERSION" -p:BuildRevision="$APP_REVISION" -p:BuildChannel="$APP_CHANNEL" --no-restore
 
 # ========== Stage 3: Runtime ==========
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final

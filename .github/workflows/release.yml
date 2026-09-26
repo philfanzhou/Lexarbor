@@ -83,6 +83,21 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Read checked-out build identity
+        id: identity
+        env:
+          IS_TAG: ${{ startsWith(github.ref, 'refs/tags/') }}
+        run: |
+          # HEAD is the commit even when the triggering ref is an annotated tag.
+          revision="$(git rev-parse HEAD)"
+          [[ "$revision" =~ ^[0-9a-f]{40}$ ]]
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+          if [[ "$IS_TAG" == "true" ]]; then
+            echo "channel=release" >> "$GITHUB_OUTPUT"
+          else
+            echo "channel=edge" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Normalize image name
         id: image
         env:
@@ -129,7 +144,10 @@ jobs:
           # Passed only when a tag supplied a version. An empty build argument
           # would override the Dockerfile default rather than fall back to it,
           # so an edge image would lose its placeholder version.
-          build-args: ${{ needs.validate-version.outputs.number != '' && format('APP_VERSION={0}', needs.validate-version.outputs.number) || '' }}
+          build-args: |
+            ${{ needs.validate-version.outputs.number != '' && format('APP_VERSION={0}', needs.validate-version.outputs.number) || '' }}
+            APP_REVISION=${{ steps.identity.outputs.revision }}
+            APP_CHANNEL=${{ steps.identity.outputs.channel }}
           push: true
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}

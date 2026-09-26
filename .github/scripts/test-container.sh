@@ -5,6 +5,9 @@ IMAGE_NAME="${1:-lexarbor:ci}"
 # Optional. When given, the image must report exactly this version, which is how
 # the release workflow's version argument is proven to reach the application.
 EXPECTED_VERSION="${2:-}"
+# Use "unknown" to assert that revision was not provided at build time.
+EXPECTED_REVISION="${3:-}"
+EXPECTED_CHANNEL="${4:-}"
 RUN_SUFFIX="${GITHUB_RUN_ID:-local}-${RANDOM}"
 UNMOUNTED_CONTAINER="lexarbor-unmounted-${RUN_SUFFIX}"
 FRESH_CONTAINER="lexarbor-fresh-${RUN_SUFFIX}"
@@ -30,7 +33,9 @@ wait_for_health() {
 
   for _ in $(seq 1 60); do
     if curl --fail --silent --show-error \
-      "http://127.0.0.1:${mapped_port}/health" >/dev/null 2>&1; then
+      "http://127.0.0.1:${mapped_port}/health" >"$TEST_ROOT/health.json" 2>/dev/null; then
+      jq --exit-status '. == {success:true,data:{status:"healthy"}}' \
+        "$TEST_ROOT/health.json" >/dev/null
       return 0
     fi
 
@@ -68,6 +73,26 @@ check_reported_version() {
   fi
 
   echo "Image reports version ${reported}"
+
+  local identity_line revision channel
+  identity_line="$(docker logs "$container_name" 2>&1 |
+    grep -m 1 -o 'Lexarbor build, channel [^[:space:]]*, revision [^[:space:]]*' || true)"
+  if [[ -z "$identity_line" ]]; then
+    echo "Startup log did not report build identity" >&2
+    return 1
+  fi
+  revision="${identity_line##* }"
+  channel="${identity_line#Lexarbor build, channel }"
+  channel="${channel%%,*}"
+  if [[ -n "$EXPECTED_REVISION" && "$revision" != "$EXPECTED_REVISION" ]]; then
+    echo "Expected revision ${EXPECTED_REVISION} but the image reports ${revision}" >&2
+    return 1
+  fi
+  if [[ -n "$EXPECTED_CHANNEL" && "$channel" != "$EXPECTED_CHANNEL" ]]; then
+    echo "Expected channel ${EXPECTED_CHANNEL} but the image reports ${channel}" >&2
+    return 1
+  fi
+  echo "Image reports channel ${channel}, revision ${revision}"
 }
 
 # The image runs as its own unprivileged user, which is what a named or anonymous
@@ -81,6 +106,11 @@ start_container() {
   docker run --detach \
     --name "$container_name" \
     --publish 127.0.0.1::5008 \
+    --env APP_VERSION=9.9.9-runtime \
+    --env APP_REVISION=ffffffffffffffffffffffffffffffffffffffff \
+    --env APP_CHANNEL=edge \
+    --env BuildRevision=ffffffffffffffffffffffffffffffffffffffff \
+    --env BuildChannel=edge \
     "$@" \
     "$IMAGE_NAME" >/dev/null
   wait_for_health "$container_name"
