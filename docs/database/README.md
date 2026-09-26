@@ -44,3 +44,9 @@ The database file must live on a persistent volume. Docker mounts the host's `da
 - Re-importing the same word, book, normalized part of speech, and definition is idempotent.
 - A SQLite deployment is single-instance only; a process-level write transaction lock serializes administrative writes, and the database's unique index is the last line of defence.
 - `UnitOfWork` maps SQLite constraint errors to 409 and never exposes the internal error to the client.
+
+## Administrator read snapshots
+
+`VocabularyAdminQueryRepository` implements the separate management query contract without the public enabled-book filter. Each response opens a SQLite deferred read transaction and enlists the EF context. It does not acquire `UnitOfWork`'s write semaphore or reserve a write lock. WAL permits a concurrent writer to commit while the response continues reading its original snapshot.
+
+Filtering, distinct-word counting and paging run in SQL. Only the current page's word IDs are used to batch-load deduplicated book memberships and, where requested, applicable meanings. Summaries do not load meanings; content never loads other books' meaning text. Existing `IX_vocabulary_word` and `IX_vocabulary_meaning_book_id_vocabulary_id` support ordered traversal and membership probes. No schema or index migration is needed. Read responses promise consistency within one request, not between pages.

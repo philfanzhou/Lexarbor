@@ -192,3 +192,9 @@ GitHub Actions additionally collects TRX and Cobertura coverage, runs the contai
 - Do not modify the code under test to suit a test; when testability needs to improve, update this document first and change the code afterwards.
 - Identity is doubled by a fake HTTP handler implementing the full contract; JWTs use a test signing key and depend on no real administrator password.
 - When real Identity credentials are unavailable, a fake Identity result must not be described as a successful real integration.
+
+## Administrator vocabulary query verification
+
+`VocabularyAdminQueryTests` uses real SQLite with enabled A, disabled B, shared polysemy, B-only vocabulary, historical orphans and an empty book. Assertions cover membership completeness, meaning isolation, independent whole-book/matched counts, stable pagination, literal LIKE metacharacters, missing resources and cancellation without writes. A file-WAL test pauses the first read with a command interceptor, lets another context commit a deletion, then verifies that the full response still sees the original snapshot.
+
+The 20,000-word fixture captures actual EF SQL and EXPLAIN output in test output. A 20-item content page executes seven SELECTs and materializes one book, 20 words and 20 meanings; projected memberships are limited to those page IDs. The plan must use the existing word and book/word indexes. This verifies bounded association loading and no per-word query loop, not a latency SLA. HTTP tests cover all three routes with Cookie/Bearer and custom roles, exact DTO fields, 401/403, pagination/404 failures, public disabled-book filtering and the unchanged legacy words endpoint. Run the standard Release .NET suite and container persistence smoke for this database query change.

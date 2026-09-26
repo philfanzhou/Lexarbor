@@ -291,3 +291,5 @@ curl http://localhost:5008/api/vocabulary-books/all
 ```
 
 Expected results: health returns 200; an anonymous administration request returns 401; the public book request returns a success envelope whose `data.books` is empty on a new instance.
+
+Administrator vocabulary GET routes include disabled-book and unassigned vocabulary for maintenance. These are read-only deferred SQLite snapshots; no configuration, schema migration, startup cleanup, or persistence-directory change is required. Rolling back the API removes these new reads without changing stored data. Back up the SQLite database consistently before any separate editing or cleanup operation; read requests themselves do not alter it.

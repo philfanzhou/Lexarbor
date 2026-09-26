@@ -478,3 +478,19 @@ npm run build
 ```
 
 When Identity and Vocabulary can both be run, add HTTP smoke tests for login, the cookie, logout, the public API, the persistent volume, and the migration state. When real deployment credentials are unavailable, the automated integration tests use fake Identity and no real integration result is invented.
+
+### Administrator vocabulary reads
+
+These GET routes require `VocabularyAdmin`, including the existing Cookie/Bearer credentials and configurable required role. Anonymous callers receive 401 and authenticated non-administrators 403, with no management data. Existing public endpoints and `/admin/vocabulary-books/{id}/words` retain their contracts.
+
+| Route | Optional query | Success `data` |
+|---|---|---|
+| `/admin/vocabulary` | `keyword`, `bookId`, `page`, `size` | `{items,totalCount,totalPage}` |
+| `/admin/vocabulary/{wordId}` | none | Word summary plus all `meanings` |
+| `/admin/vocabulary-books/{bookId}/content` | `keyword`, `page`, `size` | `{book,wordCount,meaningCount,items,totalCount,totalPage}` |
+
+A summary is `{id,word,phoneticUk,phoneticUs,books}`. Its deduplicated `books` contains `{id,bookName,status}`, ordered by book name then ID, including disabled books. The unfiltered library includes words belonging only to disabled books and historical words with no book. A book filter selects words without hiding their other memberships. A supplied missing book, or a missing detail word, returns 404. Orphans have empty `books`/`meanings` arrays.
+
+Detail meanings use the existing meaning fields (`id,vocabularyId,bookId,partOfSpeech,meaning,example`), ordered by book ID, part of speech, meaning, then ID. Content items include only that book's meanings. The `book` uses the existing book DTO; `wordCount` and `meaningCount` count the whole book, while `totalCount` counts keyword-matching distinct words. Disabled and empty books are readable.
+
+Blank keywords select all; otherwise trimmed text uses SQLite ASCII case-insensitive substring LIKE with literal `%`, `_`, and backslash. Missing/zero page and size become 1 and 20. Negative values, size above 100, or integer/offset overflow return 400. Words sort by word then ID. No matches gives `totalPage:0`; out-of-range pages have empty items. Each response reads one deferred database snapshot without a write lock or mutation. Cancellation does not write data. Separate page requests can observe concurrent changes; no cross-page snapshot or additional Unicode folding is promised.
