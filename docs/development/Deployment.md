@@ -291,3 +291,11 @@ curl http://localhost:5008/api/vocabulary-books/all
 ```
 
 Expected results: health returns 200; an anonymous administration request returns 401; the public book request returns a success envelope whose `data.books` is empty on a new instance.
+
+## Vocabulary cleanup and recovery
+
+Only authorized administrators can preview and commit book-scoped cleanup. Preview is read-only; commit may permanently remove meanings, words which lose their last reference, and optionally the book. Disabled books still count as references. A synthetic or real book left by an older release can be removed explicitly through this API; startup never cleans it automatically.
+
+Take a consistent SQLite backup using the backup procedure above before destructive maintenance. Code rollback removes the API but does not restore deleted records: restore the pre-operation backup for recovery. Roll back dependent UI before the API. No configuration, schema migration, new persistent table, or volume change is required.
+
+Recheck the current scope and exact book name before delete. Preview is only an estimate and concurrent imports can change final counts. If the connection drops or the response is lost, query current state before deciding on another operation. In particular, repeating clear can erase newly imported data. There is no automatic retry, idempotency key or undo; disconnecting after admission does not cancel an already committed write.
