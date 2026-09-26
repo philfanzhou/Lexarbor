@@ -478,3 +478,24 @@ npm run build
 ```
 
 When Identity and Vocabulary can both be run, add HTTP smoke tests for login, the cookie, logout, the public API, the persistent volume, and the migration state. When real deployment credentials are unavailable, the automated integration tests use fake Identity and no real integration result is invented.
+
+### Preview and commit vocabulary cleanup
+
+Both `POST /admin/vocabulary-books/{bookId}/cleanup/preview` and `POST /admin/vocabulary-books/{bookId}/cleanup` require `VocabularyAdmin`, including the existing Cookie CSRF header for either POST. Bearer and configurable administrator roles retain their behavior. Authorization/CSRF runs before body parsing. Requests have an explicit 1 MiB byte limit (including unknown-length/chunked bodies); oversize requests return the usual 413 failure envelope.
+
+| `action` | Selection fields | Effect |
+|---|---|---|
+| `removeMeaning` | `wordId`, `meaningId` | Remove one meaning owned by this book and word |
+| `removeWords` | nonempty `wordIds` array, at most 100 input items | Remove all this book's meanings for the selected words; duplicate IDs count once |
+| `clear` | none | Remove all this book's meanings, keep all book metadata |
+| `delete` | commit requires `confirmedBookName` | Remove all this book's meanings, then the book |
+
+Unknown actions/fields, duplicate JSON properties, fields incompatible with the action, blank selection IDs, invalid JSON/types, empty selections or more than 100 items return 400. Delete preview does not require a name; an optional name in that preview does not reserve or validate a future commit. Commit name confirmation is an ordinal exact match to the current book name (409 otherwise). Body resource IDs cannot change ownership.
+
+After shape validation, the transaction checks book existence, single-resource existence/ownership or all selected memberships, then the delete name. Missing books or single resources return 404; existing but mismatched single ownership and any invalid batch membership (including a deleted word) return 409. No selection is silently reduced. Failures never partially delete the requested scope.
+
+Preview `data` is `{bookId,bookName,action,affectedWordCount,meaningCount,orphanWordCount}` from one deferred read snapshot. It writes nothing and holds no write lock while the user confirms. Commit `data` is `{bookId,action,affectedWordCount,deletedMeaningCount,deletedWordCount,deletedBook}` with actual committed counts. Affected words are the distinct words referenced by the selected meanings. Only those words which have no remaining meaning in **any** book after removal are deleted; disabled books still protect references. Unrelated historical orphans are never scanned for deletion. All selected meanings, eligible words and optionally the book are removed in one UnitOfWork transaction using current data.
+
+An empty clear succeeds with zero counts and keeps the book; an empty delete succeeds and reports `deletedBook:true`. Repeated removeMeaning/delete may return 404; stale removeWords selections return 409. Repeating clear can delete content imported since the previous call. Preview is an estimate, not a locked snapshot or token: concurrent imports can change commit counts, and a rename requires a fresh exact confirmation. There are no idempotency keys, automatic retries, undo or exactly-once guarantees.
+
+Writes serialize with existing imports and edits; later operations re-read current resources, without resurrecting deleted IDs. Constraint failures roll back with 409, external SQLite writer contention returns 503 and `Retry-After: 1`, and unexpected failures roll back with the generic 500 envelope. Cancellation detected before transaction entry does not write; once admitted, the operation finishes commit or rollback even after disconnect. A lost response leaves the outcome unknown: query before taking another action, rather than replaying automatically. The legacy `DELETE /admin/vocabulary-books/{id}` still returns 409 for books with meanings, and public enabled-book filtering is unchanged.

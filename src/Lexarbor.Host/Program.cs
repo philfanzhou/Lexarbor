@@ -74,6 +74,8 @@ builder.Services.AddScoped<IVocabularyRepository, VocabularyRepository>();
 builder.Services.AddScoped<IVocabularyBookRepository, VocabularyBookRepository>();
 builder.Services.AddScoped<IVocabularyMeaningRepository, VocabularyMeaningRepository>();
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
+builder.Services.AddScoped<IVocabularyCleanupRepository, VocabularyCleanupRepository>();
+builder.Services.AddScoped<VocabularyCleanupService>();
 builder.Services.AddScoped<VocabularyDomainService>();
 builder.Services.AddScoped<VocabularyBookDomainService>();
 builder.Services.Configure<RouteHandlerOptions>(options =>
@@ -356,6 +358,7 @@ app.UseAuthentication();
 app.UseMiddleware<CookieCsrfMiddleware>();
 app.UseAuthorization();
 app.MapAdminAuthEndpoints();
+app.MapVocabularyCleanupEndpoints();
 app.MapVocabularyHttpEndpoints(RateLimitingExtensions.PublicApiPolicy);
 // Liveness only, and deliberately nothing more. The endpoint is anonymous
 // because the container HEALTHCHECK has no credentials to present, so every
