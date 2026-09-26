@@ -22,9 +22,9 @@ Third-party Actions are pinned to full commit SHAs. Dependabot keeps those pins 
 
 CI runs on pull requests targeting `main`, manual dispatches, and calls from the release workflow. A push to `main` reaches it through that workflow's `verify` job rather than through a trigger of its own, so a commit is never built twice. Its jobs run in parallel:
 
-- Backend: direct/transitive NuGet vulnerability audit, Release build, xUnit tests on Microsoft.Testing.Platform, TRX output, Cobertura coverage from `Microsoft.Testing.Extensions.CodeCoverage`, and a GitHub job summary. Results remain downloadable for 14 days.
+- Backend: direct/transitive NuGet vulnerability audit, Release build, xUnit tests on Microsoft.Testing.Platform, TRX output, Cobertura coverage from `Microsoft.Testing.Extensions.CodeCoverage`, a GitHub job summary, and the five-row real Host publish/startup identity matrix (`test-build-identity.py`). Results remain downloadable for 14 days.
 - Frontend: npm vulnerability audit, type checks, production build, and Playwright Chromium scenarios covering session restoration, login, catalog rendering, and catalog creation. The browser is installed without `--with-deps`, because the runner image already supplies every library Chromium links against and the flag otherwise only adds font packages this suite never renders; the same command therefore works locally. Failure traces, screenshots, videos, and the HTML report remain downloadable for 7 days.
-- Container: image build, health check without a bind mount, the container running as a non-root user and reporting its declared `HEALTHCHECK` as healthy, first-start database/configuration creation, preservation of pre-mounted files, a blocking scan for fixable critical vulnerabilities, and a build of the same AMD64/ARM64 pair the release workflow publishes. The image is built with a synthetic version that the container test must find in the startup log, so the argument the release workflow uses to stamp a tag is exercised on every run.
+- Container: image build, health check without a bind mount, the container running as a non-root user and reporting its declared `HEALTHCHECK` as healthy, first-start database/configuration creation, preservation of pre-mounted files, a blocking scan for fixable critical vulnerabilities, and a build of the same AMD64/ARM64 pair the release workflow publishes. The image is built with a synthetic version, full revision, and channel that the container test must find in the startup logs, even with conflicting runtime environment variables. The release build-argument chain is exercised on every run.
 
 Superseded runs on the same branch are canceled. Every job has an explicit timeout.
 
@@ -41,6 +41,7 @@ npx playwright install chromium
 npm run test:e2e
 
 cd ..
+python3 .github/scripts/test-build-identity.py
 docker build -t lexarbor:ci .
 bash .github/scripts/test-container.sh lexarbor:ci
 ```
@@ -69,7 +70,9 @@ Accepted tags are `vMAJOR.MINOR.PATCH` and optional pre-release variants such as
 3. attach OCI labels, an SBOM, maximum BuildKit provenance, and a GitHub artifact attestation;
 4. create a GitHub Release with generated notes.
 
-The tag without its `v` prefix is passed into the image build as the `APP_VERSION` argument and becomes the assembly version, which the application writes to its startup log. It is not served over HTTP; see [Deployment](Deployment.md) for how to read it and why it is not on `/health`. A build that does not pass the argument reports `0.0.0-dev`, so an image built outside the release workflow is always distinguishable from a released one. No file in the repository stores the version, which means there is nothing to bump before tagging and no stored value that can disagree with the tag.
+The tag without its `v` prefix is passed as `APP_VERSION` → MSBuild `Version` → Host `AssemblyInformationalVersion`. The prerelease suffix is preserved; the SDK's optional `+` suffix is excluded from the logged version. After checkout, `git rev-parse HEAD` supplies the complete 40-character commit as `APP_REVISION` → `BuildRevision` → same-named `AssemblyMetadata`, including the commit behind an annotated tag. `APP_CHANNEL` → `BuildChannel` → same-named metadata explicitly records `release` for tags or `edge` for main. These values are read together from the running Host assembly and written to startup logs; see [Deployment](Deployment.md).
+
+Ordinary local .NET and Docker builds default to `0.0.0-dev`, no revision, and `development`. The fixed development placeholder is not a release version file: nothing needs to be bumped before tagging. Runtime settings cannot override this identity. Explicit local build inputs can reproduce the declared identity, so these fields do not prove image authenticity, digest, or uncommitted source contents.
 
 Steps 1 to 3 run in `publish-container` and step 4 in `publish-release`, which depends on it. A release therefore never announces a version whose image failed to publish. Each job names the refs it accepts instead of inferring them from the trigger: `publish-container` accepts a tag or the default branch, and `publish-release` accepts only a tag. A ref added to the trigger later, or a manual dispatch, therefore cannot publish an image or create a release without being named in those conditions as well.
 
@@ -91,7 +94,7 @@ Three properties keep the edge path from reaching the release tags:
 
 - `type=semver` derives its value from the ref and produces nothing on a branch, so no version tag can come from `main`.
 - `type=raw,value=latest` has no ref of its own to fail on, so it carries `startsWith(github.ref, 'refs/tags/v')` explicitly. Without that test a default-branch push would move `latest` onto a development build.
-- `validate-version` returns an empty version for any non-tag ref instead of deriving one. `${VERSION_TAG#v}` removes nothing from a branch name, so a derived value would have been the literal `main`. With the version empty the build argument is omitted entirely and the image keeps the Dockerfile's `0.0.0-dev` placeholder, which is how an edge image is told apart from a release at runtime.
+- `validate-version` returns an empty version for any non-tag ref instead of deriving one. `${VERSION_TAG#v}` removes nothing from a branch name, so a derived value would have been the literal `main`. With the version empty the build argument is omitted entirely and the image keeps the Dockerfile's `0.0.0-dev` placeholder. The explicit `edge` channel distinguishes it from an ordinary `development` build; the revision distinguishes successive main builds.
 
 `publish-release` carries its own `startsWith(github.ref, 'refs/tags/')` test rather than relying on the publishing job above it, so a default-branch push publishes an image and creates no GitHub Release.
 

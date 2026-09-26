@@ -32,16 +32,27 @@ It passes the same CI the release images do, but it is unversioned and moves wit
 Because `latest` and the major tags are repointed by later releases, ask the running container which version it actually is rather than relying on the tag it was pulled with. The version is written once at startup:
 
 ```bash
-docker logs lexarbor 2>&1 | grep "Lexarbor starting"
+docker logs lexarbor 2>&1 | grep -E "Lexarbor starting|Lexarbor build"
 ```
 
 ```text
 info: Lexarbor starting, version 1.2.3
+info: Lexarbor build, channel release, revision 0123456789abcdef0123456789abcdef01234567
 ```
 
-It is deliberately not served over HTTP. The only endpoint that could carry it is `/health`, which is anonymous so that the container probe can reach it without credentials, and telling an unauthenticated caller which release it is talking to tells it which published issues to try. Reading the version from the log requires access to the host running the container.
+Build identity is currently available only in startup logs, not over HTTP. Anonymous `/health` remains exactly `{"success":true,"data":{"status":"healthy"}}`. Reading the identity requires access to the container logs.
 
-An image built from a local `docker build` reports `0.0.0-dev` unless `--build-arg APP_VERSION=` is given.
+| Docker build argument | MSBuild property | Local default |
+|---|---|---|
+| `APP_VERSION` | `Version` | `0.0.0-dev` |
+| `APP_REVISION` | `BuildRevision` | empty (reported as `unknown` in logs) |
+| `APP_CHANNEL` | `BuildChannel` | `development` |
+
+The release workflow provides the tag version (including prerelease suffixes), the checked-out commit, and `release`. Main builds keep `0.0.0-dev` but explicitly supply `edge` and their commit. Ordinary `dotnet` and Docker builds use `development` even when a local Git checkout exists. Explicit rebuilds can provide the three build arguments, or the corresponding `dotnet publish -p:Version=... -p:BuildRevision=... -p:BuildChannel=...` properties.
+
+The Host reads its compiled assembly only: no runtime environment variable, persisted configuration, `.git`, Docker socket, or registry lookup is involved. Revision comes from its own metadata, never from the SDK's `+` suffix. Missing/blank versions become `unknown`; missing, duplicate, or invalid revisions become null (`unknown` in logs). Valid revisions are exactly 40 hexadecimal characters and normalize to lowercase. Missing, duplicate, or unrecognized channels fall back to `development`; the only accepted values are `release`, `edge`, and `development`. Each field falls back independently, and missing metadata does not prevent startup.
+
+Version and revision describe the application build, not the image digest. Moving `latest` and `edge` tags can change, and rebuilding one commit may produce a different image. Build inputs are declarations by the builder, not proof of authenticity or uncommitted changes; deploy trusted images. No version state is written to `/app/data`.
 
 ## Start the container
 

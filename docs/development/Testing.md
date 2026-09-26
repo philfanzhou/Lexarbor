@@ -42,6 +42,31 @@ SDK no longer supports running xUnit v3 under VSTest. The conventions that follo
 - The xUnit1051 analyzer in xUnit v3 requires asynchronous calls to be passed
   `TestContext.Current.CancellationToken`, so that tests respond to cancellation and timeouts.
 
+## Build identity verification
+
+`ApplicationVersion.Read(Assembly)` is an internal assembly reader exposed to the service
+test assembly through `InternalsVisibleTo`. Tests construct assemblies with missing,
+blank, malformed, or duplicate attributes to exercise the same reader used by the Host.
+The immutable runtime snapshot always selects the Host assembly, never the test runner.
+
+Run the real publish/startup matrix separately (Python 3, .NET 10, and free port 5008):
+
+```bash
+python3 .github/scripts/test-build-identity.py
+```
+
+Each of the five rows (release, prerelease, two different edge revisions, and defaults)
+uses a separate temporary output and intermediate directory. The script reads the actual
+published Host assembly and its runtime snapshot, then starts that artifact outside the
+repository with conflicting runtime environment/configuration values. It checks the exact
+startup identity and anonymous health envelope. No `.git` is present in the publish output.
+Failures preserve temporary artifacts for diagnosis; successful runs remove them. Cancellation
+stops the test process and never changes a running deployment.
+
+The container script accepts `IMAGE [VERSION [REVISION [CHANNEL]]]`; pass `unknown` to
+assert a missing revision. CI supplies a synthetic version, full SHA, and `release`, and
+checks them in real container logs while retaining health, non-root, and persistence checks.
+
 ## Service.Tests coverage
 
 ### DTO mapping extension scenarios (Mapster DTO ↔ Model)

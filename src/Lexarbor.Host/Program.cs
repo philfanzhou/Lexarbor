@@ -216,6 +216,10 @@ builder.Services.AddLexarborRateLimiting(builder.Configuration);
 var app = builder.Build();
 
 app.Logger.LogInformation("Lexarbor starting, version {Version}", ApplicationVersion.Current);
+app.Logger.LogInformation(
+    "Lexarbor build, channel {Channel}, revision {Revision}",
+    ApplicationVersion.Channel,
+    ApplicationVersion.Revision ?? "unknown");
 app.Logger.LogInformation("Listening: http://+:{Port}", httpPort);
 if (persistentConfiguration != null)
 {
