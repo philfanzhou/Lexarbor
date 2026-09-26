@@ -44,3 +44,7 @@ The database file must live on a persistent volume. Docker mounts the host's `da
 - Re-importing the same word, book, normalized part of speech, and definition is idempotent.
 - A SQLite deployment is single-instance only; a process-level write transaction lock serializes administrative writes, and the database's unique index is the last line of defence.
 - `UnitOfWork` maps SQLite constraint errors to 409 and never exposes the internal error to the client.
+
+## Shared word replacement
+
+The administrator word PUT uses `VocabularyWordEditService` within the existing serialized UnitOfWork. It reads the current word from SQLite without relying on tracked values, then checks for any other ID with a parameterized `EXISTS` query. A connection-local SQLite function applies .NET `Trim().ToLowerInvariant()` to stored spelling, including historical non-ASCII capitals and Unicode whitespace. The generated `normalized_word` column uses SQLite ASCII case folding and space trimming, so its index cannot answer this complete check. The edit check scans stored spellings until a conflict is found without materializing vocabulary entities; its cost can grow with the catalogue. The target ID is excluded, while all other historical duplicates count as conflicts. No new uniqueness constraint or migration is added. Only the shared word/phonetics/updated timestamp change; meaning rows and their ownership are untouched. Explicit null/blank phonetics clear stored values, unlike import merging. Constraint and busy failures retain the existing atomic rollback and HTTP mappings.
