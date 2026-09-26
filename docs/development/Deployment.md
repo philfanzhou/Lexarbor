@@ -291,3 +291,5 @@ curl http://localhost:5008/api/vocabulary-books/all
 ```
 
 Expected results: health returns 200; an anonymous administration request returns 401; the public book request returns a success envelope whose `data.books` is empty on a new instance.
+
+The administrator shared-word replacement API requires no configuration or database migration. Changes affect the shared word in every book, including disabled books. Take a consistent SQLite backup before maintenance: rolling back application code removes the new API but does not restore previous spelling or phonetics. Restore prior data from the backup when needed, and roll back any dependent UI before the API. Disconnecting after submitting a write does not undo a commit; query state after an unknown result instead of blindly replaying it.

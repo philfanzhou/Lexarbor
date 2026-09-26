@@ -478,3 +478,11 @@ npm run build
 ```
 
 When Identity and Vocabulary can both be run, add HTTP smoke tests for login, the cookie, logout, the public API, the persistent volume, and the migration state. When real deployment credentials are unavailable, the automated integration tests use fake Identity and no real integration result is invented.
+
+### Replace shared word fields
+
+`PUT /admin/vocabulary/{wordId}` requires `VocabularyAdmin`. Send all three fields: `{word:string,phoneticUk:string|null,phoneticUs:string|null}`. Missing fields, undeclared fields (including IDs or meanings), invalid JSON types, and null/blank word return 400 without writes. Word uses `Trim().ToLowerInvariant()`; phonetics are trimmed and null/blank explicitly clears them. To retain a field, send its current value. This is separate from import's optional-field merge behavior.
+
+The write transaction re-reads the existing target (404 if missing), rejects any other ID with the same normalized spelling (409), and updates only the shared word, phonetics and that word's `updatedAt`. All meanings and book memberships remain unchanged, including disabled-book memberships. Historical unassigned words can be edited. Success uses the existing BoolResponse envelope (`success:true` in both the envelope and data). Cookie writes still require `X-Requested-With: XMLHttpRequest`; Bearer writes retain existing semantics. Anonymous/non-admin requests return 401/403 without writes.
+
+Edits and imports serialize through the existing UnitOfWork. Last successful complete replacement wins; there is no optimistic version or cross-request atomicity. Constraint failure rolls back (409); an external SQLite writer can cause 503 with `Retry-After: 1`. Pre-transaction cancellation writes nothing; once admitted, the transaction finishes commit or rollback even if the request disconnects. A lost response means the client must query the state before deciding what to do, and must not assume a committed write was undone.
