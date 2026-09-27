@@ -35,8 +35,7 @@ bash .github/scripts/test-container.sh lexarbor:ci
 ## Pull requests
 
 - Explain the problem and the chosen solution.
-- Link the related issue when one exists.
-- Describe verification and any deployment or configuration impact.
+- Describe any deployment or configuration impact.
 - Wait for all required GitHub checks before merging.
 
 By contributing, you agree that your contribution is licensed under the repository's [MIT License](LICENSE).
