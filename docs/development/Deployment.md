@@ -40,7 +40,7 @@ info: Lexarbor starting, version 1.2.3
 info: Lexarbor build, channel release, revision 0123456789abcdef0123456789abcdef01234567
 ```
 
-Build identity is currently available only in startup logs, not over HTTP. Anonymous `/health` remains exactly `{"success":true,"data":{"status":"healthy"}}`. Reading the identity requires access to the container logs.
+Authorized administrators can also read the running build through `GET /admin/system/version` using the existing Cookie or Bearer credentials. The response is `{"success":true,"data":{"version":"1.2.3","revision":null,"channel":"release"}}`; revision is the full SHA when supplied at build time. All responses on this path, including 401/403, use `Cache-Control: no-store`, without ETag, Last-Modified, or 304 responses. Anonymous `/health` remains exactly `{"success":true,"data":{"status":"healthy"}}`. Anonymous callers receive no build identity.
 
 | Docker build argument | MSBuild property | Local default |
 |---|---|---|
@@ -291,6 +291,10 @@ curl http://localhost:5008/api/vocabulary-books/all
 ```
 
 Expected results: health returns 200; an anonymous administration request returns 401; the public book request returns a success envelope whose `data.books` is empty on a new instance.
+
+The administrator shared-word replacement API requires no configuration or database migration. Changes affect the shared word in every book, including disabled books. The conflict check normalizes historical spelling with .NET Unicode casing and whitespace rules at request time; it does not rewrite stored rows or indexes. It may scan the catalogue while holding the existing write transaction, so larger catalogues can take longer to edit. Take a consistent SQLite backup before maintenance: rolling back application code removes the new API but does not restore previous spelling or phonetics. Restore prior data from the backup when needed, and roll back any dependent UI before the API. Disconnecting after submitting a write does not undo a commit; query state after an unknown result instead of blindly replaying it.
+
+The book-owned meaning replacement API needs no configuration or schema migration. Back up SQLite consistently before maintenance. Rolling back application code removes the endpoint but does not restore edited definitions or examples; use a pre-operation backup for data recovery, and roll back dependent UI before the API. If a write response is lost, query current state before deciding on another write; disconnecting cannot promise that an admitted transaction was reversed.
 
 ## Vocabulary cleanup and recovery
 

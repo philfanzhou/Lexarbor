@@ -120,7 +120,8 @@ public class VocabularyRepository : IVocabularyRepository
 
     public async Task<VocabularyModel?> GetByIdAsync(string id)
     {
-        var entity = await _context.Vocabularies.FindAsync(id);
+        // Transactional editors must see the current row, not an earlier tracked snapshot.
+        var entity = await _context.Vocabularies.AsNoTracking().SingleOrDefaultAsync(v => v.Id == id);
         return entity?.Adapt<VocabularyModel>();
     }
 
@@ -522,7 +523,8 @@ public class VocabularyMeaningRepository : IVocabularyMeaningRepository
 
     public async Task<VocabularyMeaningModel?> GetByIdAsync(string id)
     {
-        var entity = await _context.VocabularyMeanings.FindAsync(id);
+        // Preserve current ownership even if this context previously tracked the meaning.
+        var entity = await _context.VocabularyMeanings.AsNoTracking().SingleOrDefaultAsync(m => m.Id == id);
         return entity?.Adapt<VocabularyMeaningModel>();
     }
 
