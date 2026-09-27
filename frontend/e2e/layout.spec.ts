@@ -24,6 +24,7 @@ const widths = [1440, 768]
 
 const navLinks = [
   { name: '教材管理', path: '/books' },
+  { name: '单词管理', path: '/vocabulary' },
   { name: '单条导入', path: '/import' },
   { name: '批量导入', path: '/import/batch' }
 ]
@@ -36,7 +37,7 @@ function json(route: Route, data: unknown, status = 200) {
   })
 }
 
-/** Answers everything the three administration pages read on load. */
+/** Answers everything the administration pages read on load. */
 async function mockAdministrator(page: Page) {
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: true, data: admin }))
@@ -53,6 +54,9 @@ async function mockAdministrator(page: Page) {
     json(route, { success: true, data: { items: [starterBook], totalCount: 1, totalPage: 1 } }))
   await page.route(/\/api\/vocabulary-books\/all$/, (route) =>
     json(route, { success: true, data: { books: [starterBook] } }))
+  // The whole-library word list and its book filter read these on arrival.
+  await page.route(/\/admin\/vocabulary(?:\?.*)?$/, (route) =>
+    json(route, { success: true, data: { items: [], totalCount: 0, totalPage: 0 } }))
 }
 
 /** `setUp` runs after the default mocks, so its routes take precedence. */

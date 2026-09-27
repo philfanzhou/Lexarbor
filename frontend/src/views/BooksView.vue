@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { getBooks, addBook, updateBook, deleteBook, getCategories, getEducationLevels } from '@/services/bookApi'
 import { getApiError } from '@/services/apiError'
 import PageHeader from '@/components/PageHeader.vue'
 import type { Book } from '@/types'
+
+const router = useRouter()
 
 const books = ref<Book[]>([])
 const loading = ref(false)
@@ -99,6 +102,11 @@ function openEdit(book: Book) {
   editingId.value = book.id
   form.value = { ...book }
   dialogVisible.value = true
+}
+
+// Disabled books are maintained too: the word list is the same page either way.
+function openBookWords(book: Book) {
+  void router.push({ name: 'book-words', params: { bookId: book.id } })
 }
 
 async function handleSubmit() {
@@ -198,8 +206,9 @@ onMounted(() => {
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="140" fixed="right">
+        <el-table-column label="操作" width="200" fixed="right">
           <template #default="{ row }">
+            <el-button link type="primary" @click="openBookWords(row)">查看单词</el-button>
             <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
             <el-button link type="danger" @click="handleDelete(row)">删除</el-button>
           </template>
