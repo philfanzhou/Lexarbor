@@ -423,8 +423,10 @@ test('opens the same read-only detail drawer from both lists', async ({ page }) 
   await expect(drawer.locator('.word-detail__group', { hasText: 'CI Book A' })).toContainText('苹果树')
   await expect(drawer.locator('.word-detail__group', { hasText: 'CI Old Book B' })).toContainText('停用')
   await expect(drawer.locator('.word-detail__group', { hasText: 'CI Old Book B' })).toContainText('一种水果')
-  // Read-only: no edit or delete controls before their tasks land.
-  await expect(drawer.getByRole('button', { name: '编辑' })).toHaveCount(0)
+  // Editing is per group: the shared fields once, and each meaning on its own.
+  // Deleting arrives with the cleanup task; nothing offers it here.
+  await expect(drawer.getByRole('button', { name: '编辑共享字段' })).toHaveCount(1)
+  await expect(drawer.getByRole('button', { name: '编辑', exact: true })).toHaveCount(3)
   await expect(drawer.getByRole('button', { name: '删除' })).toHaveCount(0)
 
   await page.keyboard.press('Escape')
@@ -542,6 +544,448 @@ test('an answer that lands after leaving the page writes nothing', async ({ page
   await expect(page.locator('.el-table')).toContainText('apple')
 })
 
+/** A PUT-shaped mirror of `useDeferredRoute`, for the shared-word replacement. */
+function useDeferredWordPut(page: Page) {
+  const pending: Array<(data: unknown, status: number) => void> = []
+  const bodies: unknown[] = []
+  void page.route(/\/admin\/vocabulary\/[^/]+$/, (route) => {
+    if (route.request().method() !== 'PUT') {
+      return route.fallback()
+    }
+
+    bodies.push(route.request().postDataJSON())
+    return new Promise<void>((resolve) => {
+      pending.push((data, status) => {
+        json(route, { success: status < 400, data }, status).catch(() => undefined)
+        resolve()
+      })
+    })
+  })
+
+  return {
+    bodies,
+    get count() {
+      return bodies.length
+    },
+    answer(data: unknown = { success: true }, status = 200) {
+      pending.shift()?.(data, status)
+    }
+  }
+}
+
+/** A deferred route for one meaning's replacement PUT. */
+function useDeferredMeaningPut(page: Page) {
+  const pending: Array<(data: unknown, status: number) => void> = []
+  const requests: URL[] = []
+  const bodies: unknown[] = []
+  void page.route(/\/admin\/vocabulary-books\/[^/]+\/words\/[^/]+\/meanings\/[^/]+$/, (route) => {
+    requests.push(new URL(route.request().url()))
+    bodies.push(route.request().postDataJSON())
+    return new Promise<void>((resolve) => {
+      pending.push((data, status) => {
+        json(route, { success: status < 400, data }, status).catch(() => undefined)
+        resolve()
+      })
+    })
+  })
+
+  return {
+    requests,
+    bodies,
+    answer(data: unknown = { success: true }, status = 200) {
+      pending.shift()?.(data, status)
+    }
+  }
+}
+
+test('saves the shared fields as one full replacement after naming every affected book', async ({ page }) => {
+  await mockSession(page)
+  await mockBooksList(page)
+  await mockLibrary(page)
+
+  const updatedDetail = {
+    ...apple,
+    word: 'apple2',
+    phoneticUk: null,
+    meanings: appleDetail.meanings
+  }
+  let detailData: unknown = appleDetail
+  const detailReads: number[] = []
+  const libraryReads: number[] = []
+  await page.route(/\/admin\/vocabulary(\?.*)?$/, (route) => {
+    libraryReads.push(new URL(route.request().url()))
+    return json(route, { success: true, data: libraryPage })
+  })
+  const put = useDeferredWordPut(page)
+  await page.route(/\/admin\/vocabulary\/[^/]+$/, (route) => {
+    if (route.request().method() === 'PUT') {
+      return route.fallback()
+    }
+
+    detailReads.push(new URL(route.request().url()))
+    return json(route, { success: true, data: detailData })
+  })
+  await page.goto('/#/vocabulary')
+
+  await page.locator('.el-table__row', { hasText: 'apple' }).getByRole('button', { name: '详情' }).click()
+  const drawer = page.locator('.el-drawer')
+  await expect(drawer).toContainText('apple')
+
+  await drawer.getByRole('button', { name: '编辑共享字段' }).click()
+  await drawer.getByRole('textbox', { name: '单词拼写' }).fill('apple2')
+  await drawer.getByRole('textbox', { name: '英式音标' }).fill('')
+  await drawer.getByRole('textbox', { name: '美式音标' }).fill('/ˈæp.əl/新')
+
+  await drawer.getByRole('button', { name: '保存共享字段' }).click()
+  const confirmBox = page.locator('.el-message-box')
+  await expect(confirmBox).toContainText('拼写与音标是共享字段')
+  await expect(confirmBox).toContainText('CI Book A')
+  await expect(confirmBox).toContainText('CI Old Book B（停用）')
+
+  // Cancelling the confirmation sends nothing; the draft stays.
+  await confirmBox.getByRole('button', { name: '取消' }).click()
+  await expect(confirmBox).toHaveCount(0)
+  await expect(drawer.getByRole('textbox', { name: '单词拼写' })).toHaveValue('apple2')
+
+  await drawer.getByRole('button', { name: '保存共享字段' }).click()
+  detailData = updatedDetail
+  await confirmBox.getByRole('button', { name: '保存' }).click()
+
+  // One PUT carrying all three fields: the blank phonetic is an explicit null,
+  // and the untouched one is sent again rather than merged.
+  expect(put.count).toBe(1)
+  expect(put.bodies[0]).toEqual({ word: 'apple2', phoneticUk: null, phoneticUs: '/ˈæp.əl/新' })
+  put.answer()
+
+  await expect(page.locator('.el-message--success')).toContainText('共享字段已保存')
+  // The success re-reads the detail and tells the list page to refresh.
+  expect(detailReads).toHaveLength(2)
+  await expect(drawer).toContainText('apple2')
+  await expect(drawer).toContainText('英 —')
+  await expect(drawer.getByRole('button', { name: '编辑共享字段' })).toHaveCount(1)
+  expect(libraryReads).toHaveLength(2)
+})
+
+test('saves one meaning as a full replacement scoped to its book, word, and meaning', async ({ page }) => {
+  await mockSession(page)
+  await mockBooksList(page)
+  await mockLibrary(page)
+  const put = useDeferredMeaningPut(page)
+  const updatedDetail = {
+    ...appleDetail,
+    meanings: [
+      ...meaningsA,
+      { id: 'meaning-b1', vocabularyId: 'word-apple', bookId: bookB.id, partOfSpeech: 'v.', meaning: '一种好吃的水果', example: null }
+    ]
+  }
+  let detailData: unknown = appleDetail
+  await page.route(/\/admin\/vocabulary\/[^/]+$/, (route) => {
+    if (route.request().method() === 'PUT') {
+      return route.fallback()
+    }
+
+    return json(route, { success: true, data: detailData })
+  })
+  await page.goto('/#/vocabulary')
+
+  await page.locator('.el-table__row', { hasText: 'apple' }).getByRole('button', { name: '详情' }).click()
+  const drawer = page.locator('.el-drawer')
+
+  // A disabled book's meaning is edited the same way.
+  const groupB = drawer.locator('.word-detail__group', { hasText: 'CI Old Book B' })
+  await groupB.getByRole('button', { name: '编辑', exact: true }).click()
+  await groupB.getByRole('textbox', { name: '词性' }).fill('v.')
+  await groupB.getByRole('textbox', { name: '释义' }).fill('一种好吃的水果')
+  await groupB.getByRole('textbox', { name: '例句' }).fill('')
+
+  await groupB.getByRole('button', { name: '保存本条释义' }).click()
+  expect(put.bodies).toHaveLength(1)
+  expect(put.bodies[0]).toEqual({ partOfSpeech: 'v.', meaning: '一种好吃的水果', example: null })
+  expect(put.requests[0].pathname).toBe(`/admin/vocabulary-books/${bookB.id}/words/word-apple/meanings/meaning-b1`)
+
+  detailData = updatedDetail
+  put.answer()
+  await expect(page.locator('.el-message--success')).toContainText('释义已保存')
+  await expect(groupB).toContainText('一种好吃的水果')
+  await expect(groupB).not.toContainText('一种水果')
+  // The shared fields and the other book's meanings are untouched by this save.
+  await expect(drawer).toContainText('英 /ˈæp.əl/')
+  await expect(drawer.locator('.word-detail__group', { hasText: 'CI Book A' })).toContainText('苹果树')
+})
+
+test('an unsubmitted edit sends nothing and blank required fields are refused client-side', async ({ page }) => {
+  await openLibrary(page)
+  const put = useDeferredWordPut(page)
+  const meaningPut = useDeferredMeaningPut(page)
+  await page.locator('.el-table__row', { hasText: 'apple' }).getByRole('button', { name: '详情' }).click()
+  const drawer = page.locator('.el-drawer')
+
+  await drawer.getByRole('button', { name: '编辑共享字段' }).click()
+  await drawer.getByRole('textbox', { name: '单词拼写' }).fill('   ')
+  await drawer.getByRole('button', { name: '保存共享字段' }).click()
+  await expect(drawer.locator('.word-detail__edit-error')).toContainText('请输入单词拼写')
+  expect(put.count).toBe(0)
+
+  await drawer.getByRole('button', { name: '取消' }).click()
+  await expect(drawer.getByRole('button', { name: '编辑共享字段' })).toHaveCount(1)
+  await expect(drawer).toContainText('apple')
+  await expect(drawer).toContainText('英 /ˈæp.əl/')
+
+  const groupA = drawer.locator('.word-detail__group', { hasText: 'CI Book A' })
+  await groupA.getByRole('button', { name: '编辑', exact: true }).first().click()
+  await groupA.getByRole('textbox', { name: '释义' }).fill('　')
+  await groupA.getByRole('button', { name: '保存本条释义' }).click()
+  await expect(groupA.locator('.word-detail__edit-error')).toContainText('请输入释义')
+  expect(meaningPut.bodies).toHaveLength(0)
+
+  await groupA.getByRole('button', { name: '取消' }).click()
+  await expect(groupA.getByRole('button', { name: '编辑', exact: true })).toHaveCount(2)
+  expect(put.count).toBe(0)
+  expect(meaningPut.bodies).toHaveLength(0)
+})
+
+test('a 400 keeps the draft with the server reason', async ({ page }) => {
+  await mockSession(page)
+  await mockBooksList(page)
+  await mockLibrary(page)
+  await page.route(/\/admin\/vocabulary\/[^/]+$/, (route) => {
+    if (route.request().method() !== 'PUT') {
+      return json(route, { success: true, data: appleDetail })
+    }
+
+    return json(route, { success: false, message: 'The request body is invalid.' }, 400)
+  })
+  await page.goto('/#/vocabulary')
+
+  await page.locator('.el-table__row', { hasText: 'apple' }).getByRole('button', { name: '详情' }).click()
+  const drawer = page.locator('.el-drawer')
+  await drawer.getByRole('button', { name: '编辑共享字段' }).click()
+  await drawer.getByRole('textbox', { name: '单词拼写' }).fill('apples')
+  await drawer.getByRole('button', { name: '保存共享字段' }).click()
+  await page.locator('.el-message-box').getByRole('button', { name: '保存' }).click()
+
+  const error = drawer.locator('.word-detail__edit-error')
+  await expect(error).toContainText('The request body is invalid.')
+  // A definite refusal keeps the draft exactly as it was left.
+  await expect(drawer.getByRole('textbox', { name: '单词拼写' })).toHaveValue('apples')
+})
+
+test('a 409 explains the conflict and an explicit reload replaces the draft', async ({ page }) => {
+  await mockSession(page)
+  await mockBooksList(page)
+  await mockLibrary(page)
+  const reloadedDetail = { ...apple, word: 'apple-server', meanings: appleDetail.meanings }
+  let detailData: unknown = appleDetail
+  await page.route(/\/admin\/vocabulary\/[^/]+$/, (route) => {
+    if (route.request().method() !== 'PUT') {
+      return json(route, { success: true, data: detailData })
+    }
+
+    return json(route, { success: false, message: 'A vocabulary word with the same normalized value already exists.' }, 409)
+  })
+  await page.goto('/#/vocabulary')
+
+  await page.locator('.el-table__row', { hasText: 'apple' }).getByRole('button', { name: '详情' }).click()
+  const drawer = page.locator('.el-drawer')
+  await drawer.getByRole('button', { name: '编辑共享字段' }).click()
+  await drawer.getByRole('textbox', { name: '单词拼写' }).fill('apple-mine')
+  await drawer.getByRole('button', { name: '保存共享字段' }).click()
+  await page.locator('.el-message-box').getByRole('button', { name: '保存' }).click()
+
+  const error = drawer.locator('.word-detail__edit-error')
+  await expect(error).toContainText('A vocabulary word with the same normalized value already exists.')
+  await expect(error).toContainText('重新加载')
+
+  detailData = reloadedDetail
+  await error.getByRole('button', { name: '重新加载' }).click()
+  await expect(drawer).toContainText('apple-server')
+  await expect(drawer.getByRole('button', { name: '编辑共享字段' })).toHaveCount(1)
+})
+
+test('a 404 reports the target is gone without hiding the draft', async ({ page }) => {
+  await mockSession(page)
+  await mockBooksList(page)
+  await mockLibrary(page)
+  await page.route(/\/admin\/vocabulary\/[^/]+$/, (route) => {
+    if (route.request().method() !== 'PUT') {
+      return json(route, { success: true, data: appleDetail })
+    }
+
+    return json(route, { success: false, message: 'Vocabulary word was not found.' }, 404)
+  })
+  await page.goto('/#/vocabulary')
+
+  await page.locator('.el-table__row', { hasText: 'apple' }).getByRole('button', { name: '详情' }).click()
+  const drawer = page.locator('.el-drawer')
+  await drawer.getByRole('button', { name: '编辑共享字段' }).click()
+  await drawer.getByRole('textbox', { name: '单词拼写' }).fill('apples')
+  await drawer.getByRole('button', { name: '保存共享字段' }).click()
+  await page.locator('.el-message-box').getByRole('button', { name: '保存' }).click()
+
+  const error = drawer.locator('.word-detail__edit-error')
+  await expect(error).toContainText('该单词不存在或已被删除')
+  await expect(drawer.getByRole('textbox', { name: '单词拼写' })).toHaveValue('apples')
+})
+
+test('an unknown outcome re-reads the detail and is never replayed', async ({ page }) => {
+  await mockSession(page)
+  await mockBooksList(page)
+  await mockLibrary(page)
+  let detailReads = 0
+  let putReads = 0
+  await page.route(/\/admin\/vocabulary\/[^/]+$/, async (route) => {
+    if (route.request().method() !== 'PUT') {
+      detailReads += 1
+      return json(route, { success: true, data: appleDetail })
+    }
+
+    putReads += 1
+    await route.abort('failed')
+  })
+  await page.goto('/#/vocabulary')
+
+  await page.locator('.el-table__row', { hasText: 'apple' }).getByRole('button', { name: '详情' }).click()
+  const drawer = page.locator('.el-drawer')
+  await drawer.getByRole('button', { name: '编辑共享字段' }).click()
+  await drawer.getByRole('textbox', { name: '单词拼写' }).fill('apples')
+  await drawer.getByRole('button', { name: '保存共享字段' }).click()
+  await page.locator('.el-message-box').getByRole('button', { name: '保存' }).click()
+
+  // No response arrived: the outcome is unknown, the current detail is re-read,
+  // and the save is not replayed automatically.
+  await expect(page.locator('.el-message--warning')).toContainText('保存结果未知')
+  expect(detailReads).toBe(2)
+  await expect(drawer.getByRole('button', { name: '编辑共享字段' })).toHaveCount(1)
+  await page.waitForTimeout(300)
+  expect(putReads).toBe(1)
+})
+
+test('switching targets drops the draft and a late save answer cannot land', async ({ page }) => {
+  await mockSession(page)
+  await mockBooksList(page)
+  await mockLibrary(page)
+  // One deferred route holds both the reads and the save, in arrival order.
+  const detail = useDeferredRoute(page, /\/admin\/vocabulary\/[^/]+$/)
+  await page.goto('/#/vocabulary')
+
+  await page.locator('.el-table__row', { hasText: 'apple' }).getByRole('button', { name: '详情' }).click()
+  detail.answerNext(appleDetail)
+  const drawer = page.locator('.el-drawer')
+  await expect(drawer).toContainText('apple')
+
+  await drawer.getByRole('button', { name: '编辑共享字段' }).click()
+  await drawer.getByRole('textbox', { name: '单词拼写' }).fill('apples')
+  await drawer.getByRole('button', { name: '保存共享字段' }).click()
+  await page.locator('.el-message-box').getByRole('button', { name: '保存' }).click()
+
+  await page.keyboard.press('Escape')
+  await page.locator('.el-table__row', { hasText: 'cherry' }).getByRole('button', { name: '详情' }).click()
+
+  // The new target owns the drawer; the pending save belongs to the old one.
+  detail.answerLast({ ...cherry, meanings: [{ id: 'meaning-c1', vocabularyId: 'word-cherry', bookId: bookA.id, partOfSpeech: 'n.', meaning: '樱桃', example: null }] })
+  await expect(drawer).toContainText('cherry')
+  await expect(drawer.getByRole('button', { name: '编辑共享字段' })).toHaveCount(1)
+
+  detail.answerNext({ success: true })
+  await page.waitForTimeout(200)
+  await expect(drawer).toContainText('cherry')
+  await expect(drawer).not.toContainText('apples')
+  await expect(page.locator('.el-message--success')).toHaveCount(0)
+})
+
+test('a meaning save in flight ignores repeated clicks', async ({ page }) => {
+  await mockSession(page)
+  await mockBooksList(page)
+  await mockLibrary(page)
+  const put = useDeferredMeaningPut(page)
+  await page.route(/\/admin\/vocabulary\/[^/]+$/, (route) => {
+    if (route.request().method() === 'PUT') {
+      return route.fallback()
+    }
+
+    return json(route, { success: true, data: appleDetail })
+  })
+  await page.goto('/#/vocabulary')
+
+  await page.locator('.el-table__row', { hasText: 'apple' }).getByRole('button', { name: '详情' }).click()
+  const drawer = page.locator('.el-drawer')
+  const groupA = drawer.locator('.word-detail__group', { hasText: 'CI Book A' })
+  await groupA.getByRole('button', { name: '编辑', exact: true }).first().click()
+  await groupA.getByRole('textbox', { name: '释义' }).fill('一种红色水果')
+
+  const save = groupA.getByRole('button', { name: '保存本条释义' })
+  await save.click()
+  await save.click({ force: true })
+  expect(put.bodies).toHaveLength(1)
+
+  put.answer()
+  await expect(page.locator('.el-message--success')).toContainText('释义已保存')
+})
+
+test('renders word content as text, never as HTML', async ({ page }) => {
+  const hostile = {
+    ...apple,
+    word: '<img src=x onerror="window.__drawerXss=1">apple',
+    meanings: [
+      { id: 'meaning-h1', vocabularyId: 'word-apple', bookId: bookA.id, partOfSpeech: 'n.', meaning: '<script>window.__drawerXss=2</script>苹果', example: '<b>bold</b> example' }
+    ]
+  }
+  await mockSession(page)
+  await mockBooksList(page)
+  await mockLibrary(page)
+  await page.route(/\/admin\/vocabulary\/[^/]+$/, (route) => {
+    if (route.request().method() === 'PUT') {
+      return route.fallback()
+    }
+
+    return json(route, { success: true, data: hostile })
+  })
+  await page.goto('/#/vocabulary')
+
+  await page.locator('.el-table__row', { hasText: 'apple' }).getByRole('button', { name: '详情' }).click()
+  const drawer = page.locator('.el-drawer')
+  await expect(drawer).toContainText('<img src=x onerror="window.__drawerXss=1">apple')
+  await expect(drawer).toContainText('<script>window.__drawerXss=2</script>苹果')
+  await expect(drawer).toContainText('<b>bold</b> example')
+  await expect(drawer.locator('img')).toHaveCount(0)
+  await expect(drawer.locator('script')).toHaveCount(0)
+  await expect(drawer.locator('b')).toHaveCount(0)
+  expect(await page.evaluate(() => (window as unknown as Record<string, unknown>).__drawerXss)).toBeUndefined()
+})
+
+test('an unassigned word edits through the shared area only', async ({ page }) => {
+  await mockSession(page)
+  await mockBooksList(page)
+  await mockLibrary(page)
+  const put = useDeferredWordPut(page)
+  const updated = { ...legacy, word: 'legacy2', meanings: [] }
+  let detailData: unknown = legacyDetail
+  await page.route(/\/admin\/vocabulary\/[^/]+$/, (route) => {
+    if (route.request().method() === 'PUT') {
+      return route.fallback()
+    }
+
+    return json(route, { success: true, data: detailData })
+  })
+  await page.goto('/#/vocabulary')
+
+  await page.locator('.el-table__row', { hasText: 'legacy' }).getByRole('button', { name: '详情' }).click()
+  const drawer = page.locator('.el-drawer')
+  await expect(drawer).toContainText('无教材归属')
+  await expect(drawer.getByRole('button', { name: '编辑', exact: true })).toHaveCount(0)
+
+  await drawer.getByRole('button', { name: '编辑共享字段' }).click()
+  await drawer.getByRole('textbox', { name: '单词拼写' }).fill('legacy2')
+  await drawer.getByRole('button', { name: '保存共享字段' }).click()
+  await expect(page.locator('.el-message-box')).toContainText('该单词当前没有被任何教材引用')
+  await page.locator('.el-message-box').getByRole('button', { name: '保存' }).click()
+
+  expect(put.bodies[0]).toEqual({ word: 'legacy2', phoneticUk: null, phoneticUs: null })
+  detailData = updated
+  put.answer()
+  await expect(drawer).toContainText('legacy2')
+})
+
 test('a 401 on the lists keeps the shared redirect', async ({ page }) => {
   await mockSession(page)
   await mockBooksList(page)
@@ -578,6 +1022,23 @@ for (const width of [1440, 768]) {
       await openLibrary(page)
       await page.locator('.el-table__row', { hasText: 'apple' }).getByRole('button', { name: '详情' }).click()
       await expect(page.locator('.el-drawer')).toBeVisible()
+      await page.waitForTimeout(400)
+
+      const results = await new AxeBuilder({ page }).withTags(wcagTags).analyze()
+      expect(results.violations).toEqual([])
+    })
+
+    test('the editing drawer has no WCAG 2.1 AA violations', async ({ page }) => {
+      await openLibrary(page)
+      await page.locator('.el-table__row', { hasText: 'apple' }).getByRole('button', { name: '详情' }).click()
+      const drawer = page.locator('.el-drawer')
+      await expect(drawer).toBeVisible()
+
+      // Both edit groups open at once: the shared form and a meaning form.
+      await drawer.getByRole('button', { name: '编辑共享字段' }).click()
+      const groupA = drawer.locator('.word-detail__group', { hasText: 'CI Book A' })
+      await groupA.getByRole('button', { name: '编辑', exact: true }).first().click()
+      await expect(drawer.getByRole('textbox', { name: '单词拼写' })).toBeVisible()
       await page.waitForTimeout(400)
 
       const results = await new AxeBuilder({ page }).withTags(wcagTags).analyze()

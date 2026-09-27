@@ -6,7 +6,9 @@ import type { Book } from '@/types'
  * Typed reads for the administration vocabulary queries (`GET /admin/vocabulary`,
  * `GET /admin/vocabulary/{wordId}`, `GET /admin/vocabulary-books/{bookId}/content`).
  * They return disabled books and unassigned words, which the public
- * enabled-only endpoints never do. Read-only: no write helper belongs here.
+ * enabled-only endpoints never do. Also the two full-replacement writes the
+ * detail drawer edits with: unlike the import merge, keeping a value means
+ * sending it again and every field is required on each request.
  */
 
 /** A book membership of a word. Disabled books are included with status false. */
@@ -88,4 +90,46 @@ export function getAdminBookContent(
     params,
     ...config
   })
+}
+
+/**
+ * The full replacement of the shared spelling and phonetics. The three fields
+ * are sent on every request; a null phonetic clears it and keeping a value
+ * means sending it again. The write affects every book referencing the word.
+ */
+export interface AdminWordEditPayload {
+  word: string
+  phoneticUk: string | null
+  phoneticUs: string | null
+}
+
+/** The full replacement of one book-owned meaning; ownership cannot move. */
+export interface AdminMeaningEditPayload {
+  partOfSpeech: string | null
+  meaning: string
+  example: string | null
+}
+
+/** Replaces the shared word fields (`PUT /admin/vocabulary/{wordId}`). */
+export function updateAdminVocabularyWord(
+  wordId: string,
+  payload: AdminWordEditPayload,
+  config?: AxiosRequestConfig
+) {
+  return api.put<{ success: boolean }>(`/admin/vocabulary/${wordId}`, payload, config)
+}
+
+/** Replaces one meaning's three fields (`PUT /admin/vocabulary-books/{bookId}/words/{wordId}/meanings/{meaningId}`). */
+export function updateAdminMeaning(
+  bookId: string,
+  wordId: string,
+  meaningId: string,
+  payload: AdminMeaningEditPayload,
+  config?: AxiosRequestConfig
+) {
+  return api.put<{ success: boolean }>(
+    `/admin/vocabulary-books/${bookId}/words/${wordId}/meanings/${meaningId}`,
+    payload,
+    config
+  )
 }
