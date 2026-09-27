@@ -3,11 +3,12 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getAdminBookContent } from '@/services/adminVocabularyApi'
-import type { AdminWordDetail } from '@/services/adminVocabularyApi'
+import type { AdminCleanupResult, AdminCleanupSelection, AdminWordDetail } from '@/services/adminVocabularyApi'
 import type { Book } from '@/types'
 import { getApiError } from '@/services/apiError'
 import PageHeader from '@/components/PageHeader.vue'
 import VocabularyDetailDrawer from '@/components/VocabularyDetailDrawer.vue'
+import VocabularyCleanupDialog from '@/components/VocabularyCleanupDialog.vue'
 
 /**
  * One book's word list, reached from 教材管理's 查看单词. Keyword, page, and
@@ -17,6 +18,13 @@ import VocabularyDetailDrawer from '@/components/VocabularyDetailDrawer.vue'
  * in-flight request and invalidates its generation, so a late answer cannot
  * paint the book that replaced it. A disabled book is maintained the same way
  * as an enabled one.
+ *
+ * Removals take the current page's rows only: the checkbox selection lives in
+ * page memory, is capped by the page size (the cleanup API accepts at most one
+ * hundred word ids), and is dropped whenever the page, the keyword, or the book
+ * changes — a selection never silently grows into the whole book. Every
+ * removal goes through the shared preview-and-confirm dialog, and a page
+ * emptied by one falls back to the last valid page.
  */
 
 const route = useRoute()
@@ -40,8 +48,14 @@ const loading = ref(false)
 const loadError = ref('')
 const notFound = ref(false)
 
+/** The current page's checked rows, by word id; never spans pages or filters. */
+const selectedWordIds = ref<string[]>([])
+
 const detailWordId = ref<string | null>(null)
 const detailTrigger = ref<HTMLButtonElement>()
+
+const cleanupOpen = ref(false)
+const cleanupSelection = ref<AdminCleanupSelection | null>(null)
 
 let generation = 0
 let controller: AbortController | null = null
@@ -78,9 +92,17 @@ function load() {
       meaningCount.value = data.meaningCount
       items.value = data.items
       totalCount.value = data.totalCount
+      // A new page starts unselected, whatever the table re-renders.
+      selectedWordIds.value = []
       loading.value = false
       loadError.value = ''
       notFound.value = false
+      // A removal can empty the page that held it; fall back to the last
+      // valid page instead of showing a page beyond the end.
+      if (data.totalPage > 0 && page.value > data.totalPage) {
+        page.value = data.totalPage
+        load()
+      }
     },
     (error: unknown) => {
       if (current !== generation) {
@@ -99,6 +121,41 @@ function load() {
   )
 }
 
+function handleSelectionChange(rows: AdminWordDetail[]) {
+  selectedWordIds.value = rows.map((row) => row.id)
+}
+
+function openRemoveWords(wordIds: string[]) {
+  if (!wordIds.length) {
+    return
+  }
+  if (wordIds.length > 100) {
+    ElMessage.warning('一次最多移除 100 个单词；请缩小当前页或减少选择')
+    return
+  }
+
+  cleanupSelection.value = { action: 'removeWords', wordIds }
+  cleanupOpen.value = true
+}
+
+function handleCleanupCommitted(result: AdminCleanupResult) {
+  ElMessage.success(
+    `已移除：删除释义 ${result.deletedMeaningCount} 条，${result.deletedWordCount} 个单词失去全部教材引用一并删除`
+  )
+  if (result.deletedBook) {
+    void router.replace({ name: 'books' })
+    return
+  }
+
+  load()
+}
+
+function handleCleanupUnknown() {
+  // The commit's answer never arrived: re-query the current page, which also
+  // applies the last-valid-page fallback, instead of replaying the removal.
+  load()
+}
+
 watch(bookId, () => {
   keyword.value = ''
   page.value = 1
@@ -107,6 +164,7 @@ watch(bookId, () => {
   meaningCount.value = 0
   items.value = []
   totalCount.value = 0
+  selectedWordIds.value = []
   detailWordId.value = null
   load()
 })
@@ -194,6 +252,16 @@ const emptyDescription = computed(() =>
             @keyup.enter="handleSearch"
           />
           <el-button type="primary" @click="handleSearch">搜索</el-button>
+          <el-button
+            type="danger"
+            plain
+            class="toolbar__remove"
+            :disabled="!selectedWordIds.length"
+            aria-label="从本教材移除选中的单词"
+            @click="openRemoveWords(selectedWordIds)"
+          >
+            从本教材移除（{{ selectedWordIds.length }}）
+          </el-button>
         </div>
 
         <el-alert
@@ -207,7 +275,16 @@ const emptyDescription = computed(() =>
           <el-button class="book-words__retry" size="small" @click="load">重试</el-button>
         </el-alert>
 
-        <el-table v-loading="loading" :data="items" stripe border scrollbar-tabindex="0">
+        <el-table
+          v-loading="loading"
+          :data="items"
+          row-key="id"
+          stripe
+          border
+          scrollbar-tabindex="0"
+          @selection-change="handleSelectionChange"
+        >
+          <el-table-column type="selection" width="44" />
           <el-table-column prop="word" label="单词" min-width="140" />
           <el-table-column label="英式音标" min-width="130">
             <template #default="{ row }">{{ row.phoneticUk ?? '—' }}</template>
@@ -228,9 +305,10 @@ const emptyDescription = computed(() =>
               <span v-else>—</span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="90" fixed="right">
+          <el-table-column label="操作" width="130" fixed="right">
             <template #default="{ row }">
               <el-button link type="primary" @click="openDetail(row, $event)">详情</el-button>
+              <el-button link type="danger" @click="openRemoveWords([row.id])">移除</el-button>
             </template>
           </el-table-column>
           <template #empty>
@@ -269,6 +347,14 @@ const emptyDescription = computed(() =>
       v-model="detailWordId"
       @closed="refocusDetailTrigger"
       @changed="load"
+    />
+
+    <VocabularyCleanupDialog
+      v-model="cleanupOpen"
+      :book-id="bookId"
+      :selection="cleanupSelection"
+      @committed="handleCleanupCommitted"
+      @unknown="handleCleanupUnknown"
     />
   </div>
 </template>

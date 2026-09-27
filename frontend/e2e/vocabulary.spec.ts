@@ -423,11 +423,12 @@ test('opens the same read-only detail drawer from both lists', async ({ page }) 
   await expect(drawer.locator('.word-detail__group', { hasText: 'CI Book A' })).toContainText('苹果树')
   await expect(drawer.locator('.word-detail__group', { hasText: 'CI Old Book B' })).toContainText('停用')
   await expect(drawer.locator('.word-detail__group', { hasText: 'CI Old Book B' })).toContainText('一种水果')
-  // Editing is per group: the shared fields once, and each meaning on its own.
-  // Deleting arrives with the cleanup task; nothing offers it here.
+  // Editing is per group: the shared fields once, and each meaning on its own;
+  // each meaning's deletion goes through the cleanup confirmation flow
+  // (covered by the cleanup specification).
   await expect(drawer.getByRole('button', { name: '编辑共享字段' })).toHaveCount(1)
   await expect(drawer.getByRole('button', { name: '编辑', exact: true })).toHaveCount(3)
-  await expect(drawer.getByRole('button', { name: '删除' })).toHaveCount(0)
+  await expect(drawer.getByRole('button', { name: '删除' })).toHaveCount(3)
 
   await page.keyboard.press('Escape')
   await expect(drawer).not.toBeVisible()

@@ -6,9 +6,12 @@ import type { Book } from '@/types'
  * Typed reads for the administration vocabulary queries (`GET /admin/vocabulary`,
  * `GET /admin/vocabulary/{wordId}`, `GET /admin/vocabulary-books/{bookId}/content`).
  * They return disabled books and unassigned words, which the public
- * enabled-only endpoints never do. Also the two full-replacement writes the
- * detail drawer edits with: unlike the import merge, keeping a value means
- * sending it again and every field is required on each request.
+ * enabled-only endpoints never do. Also the full-replacement writes the
+ * administration UI edits and cleans with: the two complete-replacement PUTs
+ * of the detail drawer (unlike the import merge, keeping a value means
+ * sending it again and every field is required on each request) and the
+ * cleanup pair of one preview plus one commit of the same scope, matching
+ * the server's strict per-action field whitelist.
  */
 
 /** A book membership of a word. Disabled books are included with status false. */
@@ -132,4 +135,58 @@ export function updateAdminMeaning(
     payload,
     config
   )
+}
+
+/** What a cleanup removes: one meaning, the selected words, or the whole book. */
+export type AdminCleanupSelection =
+  | { action: 'removeMeaning'; wordId: string; meaningId: string }
+  | { action: 'removeWords'; wordIds: string[] }
+  | { action: 'clear' }
+  | { action: 'delete' }
+
+/** A commit scope: the selection, with the exact book name a delete must confirm. */
+export type AdminCleanupCommit =
+  | Exclude<AdminCleanupSelection, { action: 'delete' }>
+  | { action: 'delete'; confirmedBookName: string }
+
+/** The read-only estimate a confirmation shows before anything is removed. */
+export interface AdminCleanupPreview {
+  bookId: string
+  bookName: string
+  action: AdminCleanupSelection['action']
+  affectedWordCount: number
+  meaningCount: number
+  orphanWordCount: number
+}
+
+/** What the transaction actually deleted; counts come from the server, never the client. */
+export interface AdminCleanupResult {
+  bookId: string
+  action: AdminCleanupSelection['action']
+  affectedWordCount: number
+  deletedMeaningCount: number
+  deletedWordCount: number
+  deletedBook: boolean
+}
+
+/** Estimates a scope without writing (`POST /admin/vocabulary-books/{bookId}/cleanup/preview`). */
+export function previewAdminBookCleanup(
+  bookId: string,
+  selection: AdminCleanupSelection,
+  config?: AxiosRequestConfig
+) {
+  return api.post<AdminCleanupPreview>(
+    `/admin/vocabulary-books/${bookId}/cleanup/preview`,
+    selection,
+    config
+  )
+}
+
+/** Commits a scope in one transaction (`POST /admin/vocabulary-books/{bookId}/cleanup`). */
+export function commitAdminBookCleanup(
+  bookId: string,
+  commit: AdminCleanupCommit,
+  config?: AxiosRequestConfig
+) {
+  return api.post<AdminCleanupResult>(`/admin/vocabulary-books/${bookId}/cleanup`, commit, config)
 }

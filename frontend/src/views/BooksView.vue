@@ -6,6 +6,8 @@ import type { FormInstance, FormRules } from 'element-plus'
 import { getBooks, addBook, updateBook, deleteBook, getCategories, getEducationLevels } from '@/services/bookApi'
 import { getApiError } from '@/services/apiError'
 import PageHeader from '@/components/PageHeader.vue'
+import VocabularyCleanupDialog from '@/components/VocabularyCleanupDialog.vue'
+import type { AdminCleanupResult, AdminCleanupSelection } from '@/services/adminVocabularyApi'
 import type { Book } from '@/types'
 
 const router = useRouter()
@@ -148,11 +150,47 @@ async function handleDelete(book: Book) {
     if (apiError.status === 404) {
       ElMessage.error('教材不存在或已被删除')
     } else if (apiError.status === 409) {
-      ElMessage.error('教材已被词义引用，不能删除；请编辑并禁用该教材')
+      // The plain delete stays reference-safe on purpose; the cleanup entries
+      // below are the explicit way to remove a book that still has meanings.
+      ElMessage.error('教材已被词义引用，不能直接删除；可先清空内容，或使用「删除教材及内容」')
     } else {
       ElMessage.error(apiError.message)
     }
   }
+}
+
+// Book-scoped cleanup: clear keeps the book, delete removes it with its
+// content. Both go through the shared preview-and-confirm dialog; the plain
+// delete above keeps its original empty-book behaviour.
+const cleanupOpen = ref(false)
+const cleanupBookId = ref<string | null>(null)
+const cleanupSelection = ref<AdminCleanupSelection | null>(null)
+const cleanupBookName = ref('')
+
+function openCleanup(book: Book, action: 'clear' | 'delete') {
+  cleanupBookId.value = book.id
+  cleanupBookName.value = book.bookName
+  cleanupSelection.value = { action }
+  cleanupOpen.value = true
+}
+
+function cleanupSuccessMessage(result: AdminCleanupResult) {
+  if (result.action === 'delete') {
+    return `已删除教材「${cleanupBookName.value}」及内容：删除释义 ${result.deletedMeaningCount} 条、单词 ${result.deletedWordCount} 个`
+  }
+
+  return `已清空「${cleanupBookName.value}」的内容：删除释义 ${result.deletedMeaningCount} 条、单词 ${result.deletedWordCount} 个，教材已保留`
+}
+
+function handleCleanupCommitted(result: AdminCleanupResult) {
+  ElMessage.success(cleanupSuccessMessage(result))
+  loadBooks()
+  loadFilters()
+}
+
+function handleCleanupUnknown() {
+  // The commit's answer never arrived: re-query the list instead of replaying.
+  loadBooks()
 }
 
 onMounted(() => {
@@ -206,10 +244,12 @@ onMounted(() => {
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="操作" width="330" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openBookWords(row)">查看单词</el-button>
             <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
+            <el-button link type="warning" @click="openCleanup(row, 'clear')">清空内容</el-button>
+            <el-button link type="danger" @click="openCleanup(row, 'delete')">删除教材及内容</el-button>
             <el-button link type="danger" @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -286,6 +326,14 @@ onMounted(() => {
         <el-button type="primary" @click="handleSubmit">确定</el-button>
       </template>
     </el-dialog>
+
+    <VocabularyCleanupDialog
+      v-model="cleanupOpen"
+      :book-id="cleanupBookId"
+      :selection="cleanupSelection"
+      @committed="handleCleanupCommitted"
+      @unknown="handleCleanupUnknown"
+    />
   </div>
 </template>
 

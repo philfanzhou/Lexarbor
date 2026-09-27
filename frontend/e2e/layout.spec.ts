@@ -304,7 +304,7 @@ test('Element Plus speaks Chinese in the pagination and the confirmation box', a
   await expect(pagination).toContainText('共')
   await expect(pagination).toContainText('前往')
 
-  await page.locator('.el-table').getByRole('button', { name: '删除' }).click()
+  await page.locator('.el-table').getByRole('button', { name: '删除', exact: true }).click()
   const box = page.locator('.el-message-box')
   await expect(box.getByRole('button', { name: '确定' })).toBeVisible()
   await expect(box.getByRole('button', { name: '取消' })).toBeVisible()

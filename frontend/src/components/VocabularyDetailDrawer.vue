@@ -8,12 +8,15 @@ import {
 } from '@/services/adminVocabularyApi'
 import type {
   AdminBookRef,
+  AdminCleanupResult,
+  AdminCleanupSelection,
   AdminMeaning,
   AdminMeaningEditPayload,
   AdminWordDetail,
   AdminWordEditPayload
 } from '@/services/adminVocabularyApi'
 import { getApiError } from '@/services/apiError'
+import VocabularyCleanupDialog from '@/components/VocabularyCleanupDialog.vue'
 
 /**
  * The word detail shared by both administration lists. One target generation:
@@ -30,6 +33,13 @@ import { getApiError } from '@/services/apiError'
  * reports the target is gone), while an answer that never arrives re-reads the
  * current detail instead of replaying the write. Unsubmitted drafts belong to
  * the target that opened them and are dropped when the target changes.
+ *
+ * Each meaning also carries a delete entry that goes through the shared
+ * preview-and-confirm cleanup flow, using the meaning's own book, word, and
+ * meaning identifiers. A committed deletion re-reads the detail — only the
+ * server's result decides what happened — and when the word lost its last
+ * meaning the re-read's 404 closes the drawer instead of painting a missing
+ * word. A commit whose answer never arrived re-queries rather than replaying.
  */
 
 const wordId = defineModel<string | null>({ required: true })
@@ -49,6 +59,13 @@ const detail = ref<AdminWordDetail | null>(null)
 const loading = ref(false)
 const loadError = ref('')
 const notFound = ref(false)
+
+/** The shared preview-and-confirm flow for one meaning's deletion. */
+const cleanupOpen = ref(false)
+const cleanupSelection = ref<AdminCleanupSelection | null>(null)
+const cleanupBookId = ref<string | null>(null)
+/** After our own cleanup, a 404 re-read means the word itself was deleted. */
+const closeOnMissing = ref(false)
 
 /** The shared-fields draft; initialized from the server values when editing starts. */
 const sharedForm = reactive({ word: '', phoneticUk: '', phoneticUs: '' })
@@ -122,12 +139,44 @@ function load() {
       loading.value = false
       const apiError = getApiError(error)
       if (apiError.status === 404) {
+        if (closeOnMissing.value) {
+          // The last meaning took the word with it; the drawer closes rather
+          // than reporting a word the administrator just watched disappear.
+          closeOnMissing.value = false
+          wordId.value = null
+          return
+        }
+
         notFound.value = true
       } else {
         loadError.value = apiError.message
       }
     }
   )
+}
+
+function removeMeaning(meaning: AdminMeaning) {
+  cleanupBookId.value = meaning.bookId
+  cleanupSelection.value = {
+    action: 'removeMeaning',
+    wordId: meaning.vocabularyId,
+    meaningId: meaning.id
+  }
+  cleanupOpen.value = true
+}
+
+function handleCleanupCommitted(result: AdminCleanupResult) {
+  ElMessage.success(
+    `已删除释义 ${result.deletedMeaningCount} 条${result.deletedWordCount ? `，该单词已失去全部教材引用，一并删除 ${result.deletedWordCount} 个单词` : '，其他教材中的释义保留'}`
+  )
+  closeOnMissing.value = result.deletedWordCount > 0
+  emit('changed')
+  load()
+}
+
+function handleCleanupUnknown() {
+  // The commit's answer never arrived; re-read what the server now holds.
+  load()
 }
 
 watch(wordId, () => {
@@ -491,7 +540,17 @@ async function saveMeaning(meaning: AdminMeaning) {
                   <span>{{ meaning.meaning }}</span>
                 </p>
                 <p v-if="meaning.example" class="word-detail__example">{{ meaning.example }}</p>
-                <el-button link type="primary" @click="startMeaningEdit(meaning)">编辑</el-button>
+                <div class="word-detail__meaning-actions">
+                  <el-button link type="primary" @click="startMeaningEdit(meaning)">编辑</el-button>
+                  <el-button
+                    link
+                    type="danger"
+                    :aria-label="`删除教材 ${group.book?.bookName ?? '未知'} 的这条释义`"
+                    @click="removeMeaning(meaning)"
+                  >
+                    删除
+                  </el-button>
+                </div>
               </div>
 
               <div
@@ -553,6 +612,14 @@ async function saveMeaning(meaning: AdminMeaning) {
       </template>
     </div>
   </el-drawer>
+
+  <VocabularyCleanupDialog
+    v-model="cleanupOpen"
+    :book-id="cleanupBookId"
+    :selection="cleanupSelection"
+    @committed="handleCleanupCommitted"
+    @unknown="handleCleanupUnknown"
+  />
 </template>
 
 <style scoped>
@@ -650,6 +717,16 @@ async function saveMeaning(meaning: AdminMeaning) {
 .word-detail__meaning-read .el-button {
   margin-top: var(--lx-space-1);
   align-self: flex-start;
+}
+.word-detail__meaning-actions {
+  display: flex;
+  gap: var(--lx-space-3);
+  margin-top: var(--lx-space-1);
+  align-self: flex-start;
+}
+.word-detail__meaning-actions .el-button {
+  margin-top: 0;
+  align-self: auto;
 }
 .word-detail__meaning-line {
   display: flex;
