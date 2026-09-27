@@ -195,6 +195,14 @@ GitHub Actions additionally collects TRX and Cobertura coverage, runs the contai
 
 `SystemVersionEndpointTests` covers Cookie/Bearer, custom roles, expired/malformed credentials, exact failure fields, conditional GET, concurrent immutable snapshots, cancellation and the unchanged anonymous health boundary. Missing assembly metadata fallback is covered by `ApplicationVersionTests`.
 
+## Shared word replacement verification
+
+`VocabularyWordEditTests` covers trim/lower normalization, both nullable phonetics, shared enabled/disabled memberships without any meaning changes, unassigned words, historical duplicate normalized spellings (including non-ASCII uppercase, tabs/newlines, and Unicode whitespace), self-exclusion and distinct Unicode spellings, missing/invalid/cancelled requests, and rollback after a SQLite trigger rejects an update. File-WAL tests use independent contexts and a controlled transaction barrier for edit/edit and both edit/import orders; the later successful operation wins and cancellation after admission does not undo the transaction.
+
+`VocabularyWordEditEndpointTests` verifies all required fields and JSON types, unknown fields, preserved values, Cookie/Bearer and custom roles, missing CSRF/401/403, 404/409 without partial writes, and a real external SQLite write lock producing 503 plus `Retry-After: 1`. Run the Release .NET suite and Docker persistence smoke; existing import/public tests must remain green.
+
+Historical Unicode conflict regressions also exercise the administrator word PUT through HTTP: conflicts return 409 and leave spelling and both phonetics unchanged. Domain snapshots verify that timestamps, other words, and meanings remain unchanged.
+
 ## Meaning replacement verification
 
 `VocabularyMeaningEditTests` verifies nullable/blank part of speech and example, trimmed definitions, disabled-book editing, multi-meaning/shared-word isolation, 404 resource checks, 409 ownership/equivalence checks, cancellation without writes and rollback of a SQLite constraint failure. File-WAL tests hold a controlled transaction barrier between independent contexts for edit/edit and both edit/import orders, checking the last successful update and completion after cancellation inside the transaction.
