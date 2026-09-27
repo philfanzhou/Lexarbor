@@ -1,3 +1,4 @@
+import type { AxiosRequestConfig } from 'axios'
 import api from './api'
 import type { Book, BookPageData, StringListData } from '@/types'
 
@@ -5,8 +6,10 @@ export interface BookListData {
   books: Book[]
 }
 
-export const getBooks = (params?: { keyword?: string; page?: number; size?: number }) =>
-  api.get<BookPageData>('/admin/vocabulary-books', { params })
+export const getBooks = (
+  params?: { keyword?: string; page?: number; size?: number },
+  config?: AxiosRequestConfig
+) => api.get<BookPageData>('/admin/vocabulary-books', { params, ...config })
 
 /**
  * Every enabled book, unpaged, for a picker rather than a table.

@@ -16,6 +16,8 @@
 | `/login` | Anonymous | Identity administrator username and password login |
 | `/forbidden` | Anonymous | Non-administrator notice |
 | `/books` | Administrator | Vocabulary book management |
+| `/books/:bookId/words` | Administrator | One book's word list |
+| `/vocabulary` | Administrator | Whole-library word list |
 | `/import` | Administrator | Word import |
 | `/import/batch` | Administrator | Batch word import |
 
@@ -73,6 +75,18 @@ Components use `catch (error: unknown)` with the shared conversion function, nev
 - Word import keeps the book, word, British phonetic, American phonetic, part of speech, definition, and example sentence fields.
 - The import page's book picker reads `GET /api/vocabulary-books/all`, which is unpaged and enabled-only. The paged administration search is the wrong source for a picker: called with no paging parameters it answers the default first page of twenty books, and explicit paging still answers one page, so a deployment with more than one page of books would silently lose the rest. The administration list also offers disabled books, which the import endpoint then refuses with a 422.
 - Both existing features must remain usable after a successful login.
+
+## Vocabulary list pages
+
+Two read-only list pages consume the administration vocabulary queries (`GET /admin/vocabulary`, `GET /admin/vocabulary/{wordId}`, and `GET /admin/vocabulary-books/{bookId}/content`), which unlike the public endpoints include disabled books and historical words with no book at all.
+
+`/books/:bookId/words` is reached from 教材管理's 查看单词, for disabled books as well as enabled ones. It shows the book's name and status and two whole-book counts — 去重单词 (deduplicated words) and 释义 (meanings) — which keep counting the whole book while a keyword narrows the matching page. The table shows each word once with its phonetics and this book's meanings; the keyword, page, and size run on the server. 返回教材列表 leads back to `/books`. A book deleted elsewhere is a distinct notice with the same way back, not an empty word list.
+
+`/vocabulary` (单词管理, in the 教材 navigation group) lists the whole library: each word once, with every book membership as a tag, disabled books marked 停用, and unassigned words showing 无教材归属. Its book filter is a remote-search select fed by the paged administration book search (`GET /admin/vocabulary-books`, disabled books included) with its own pager in the dropdown footer, so deployments with more than one page of books still reach the later pages; a filter selects words by membership without hiding their other books. The import pages' enabled-only picker is untouched.
+
+Both pages open the same read-only detail drawer (`VocabularyDetailDrawer`): the shared word and phonetics once, then meanings grouped per book with each book's status, an unassigned word showing 无教材归属 and no meanings. The drawer opens from the keyboard and from a pointer, closes on Escape and the close button, and returns focus to the button that opened it. Loading, a failed load with 重试, a missing word (404), and an empty result are distinct states. Editing and deleting arrive with later tasks; no inert controls are rendered.
+
+Each list and the drawer keep one target generation: switching a book, a word, or leaving the page aborts the in-flight request and invalidates its generation, so a late success or failure cannot paint the target that replaced it, and a retry stays read-only. Authentication failures keep the shared interceptor's clearing and redirect.
 
 ## Batch import page
 
@@ -145,7 +159,7 @@ Once signed in, every page sits in one shell:
 
 - A 56 px header across the page holds `.brand` (`Lexarbor`) on the left and `.session` (the username and the **退出登录** button) on the right.
 - Below it, a side navigation `<nav aria-label="主导航">` is grouped by task. Each group is a `role="group"` labelled by its title, and each entry is a real link (`RouterLink`), not a menu item:
-  - **教材**: 教材管理 (`/books`). A later book word list page belongs to this group.
+  - **教材**: 教材管理 (`/books`) and 单词管理 (`/vocabulary`).
   - **词汇导入**: 单条导入 (`/import`) and 批量导入 (`/import/batch`).
 - A side navigation rather than header links, because the groups need to be visible and later pages need vertical room; three links in the header can show neither.
 - The current page's link is highlighted and carries `aria-current="page"`, for an exact route match only.
@@ -194,7 +208,7 @@ Loading, empty, and failed states look the same on every page:
 
 ### Accessibility tests
 
-`e2e/layout.spec.ts` runs axe (`@axe-core/playwright`, tags `wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa`) at 1440 px and 768 px over the whole login and forbidden pages, over the header and navigation of `/books`, `/import`, and `/import/batch`, and over the whole of `/books` (with books, with none, and with the new book dialog open), `/import` (on arrival and after a successful import), and `/import/batch` (when empty, with valid and invalid rows in the preview, and with a file-level error); each must report no violation. A page body is added to the full-page check when that page is redesigned. The same specification checks sideways scrolling at 768 px (including `/import/batch` with a preview), the batch import help following the selected format and sitting beside the text area at 1440 px and below it at 768 px, the batch import preview's empty state, navigation and `aria-current`, the keyboard order and focus ring, logout including a failed logout, and the Chinese locale.
+`e2e/vocabulary.spec.ts` covers the two list pages and the shared detail drawer described above: entering a book's list from 查看单词 with its identity, status, and the two whole-book counts (a word with two meanings stays one row and one count), server-side keyword and paging parameters with counts that do not shrink, the empty-book versus keyword-miss distinction, maintaining a disabled book and finding the way back, a missing book and a failed load with a retry, the whole-library list with disabled-only and unassigned words, the book filter's remote search and its paging past the first page with a disabled option, the drawer's grouped read-only detail from both lists with Escape closing and focus returning to its button, the drawer's failure/404/unassigned states, out-of-order answers for both a replaced word and a replaced book (including a same-document book switch and an answer that lands after leaving the page), a 401 keeping the shared redirect, and axe plus sideways-scroll checks at 1440 px and 768 px for both pages and the open drawer. `e2e/layout.spec.ts` runs axe (`@axe-core/playwright`, tags `wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa`) at 1440 px and 768 px over the whole login and forbidden pages, over the header and navigation of `/books`, `/vocabulary`, `/import`, and `/import/batch`, and over the whole of `/books` (with books, with none, and with the new book dialog open), `/import` (on arrival and after a successful import), and `/import/batch` (when empty, with valid and invalid rows in the preview, and with a file-level error); each must report no violation. A page body is added to the full-page check when that page is redesigned. The same specification checks sideways scrolling at 768 px (including `/import/batch` with a preview), the batch import help following the selected format and sitting beside the text area at 1440 px and below it at 768 px, the batch import preview's empty state, navigation and `aria-current`, the keyboard order and focus ring, logout including a failed logout, and the Chinese locale.
 
 Two conventions follow from these checks. `/books` sets the page size with its own select labelled 每页条数, to the left of the pagination, rather than with the pagination's built-in size picker, whose input cannot be given an accessible name. A table whose columns can overflow at 768 px sets `scrollbar-tabindex="0"`, so its horizontal scroll region can be reached from the keyboard.
 

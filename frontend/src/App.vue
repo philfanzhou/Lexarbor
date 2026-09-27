@@ -3,19 +3,23 @@ import { ref } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { EditPen, Notebook, Upload } from '@element-plus/icons-vue'
+import { EditPen, Notebook, Reading, Upload } from '@element-plus/icons-vue'
 import { currentUser, isAuthenticated, logout } from '@/services/authState'
 import { getApiError } from '@/services/apiError'
 
 const router = useRouter()
 const loggingOut = ref(false)
 
-// A later book word list page belongs to the 教材 group.
+// 教材管理's 查看单词 reaches a single book's word list; 单词管理 is the
+// whole-library list. Both belong to the 教材 group.
 const navigation = [
   {
     id: 'nav-group-books',
     title: '教材',
-    links: [{ to: '/books', label: '教材管理', icon: Notebook }]
+    links: [
+      { to: '/books', label: '教材管理', icon: Notebook },
+      { to: '/vocabulary', label: '单词管理', icon: Reading }
+    ]
   },
   {
     id: 'nav-group-import',
