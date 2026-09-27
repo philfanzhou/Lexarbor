@@ -37,6 +37,11 @@ const booksRoute = /\/api\/vocabulary-books\/all$/
 async function openImportPage(page: Page, books = [starterBook]) {
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: true, data: admin }))
+  await page.route('**/admin/system/version', (route) =>
+    json(route, {
+      success: true,
+      data: { version: '1.2.3', revision: null, channel: 'release' }
+    }))
   await page.route(booksRoute, (route) => json(route, { success: true, data: { books } }))
 
   await page.goto('/#/import')
@@ -220,6 +225,11 @@ test('reports a failure envelope returned with a 200', async ({ page }) => {
 test('surfaces a failure to load the book list', async ({ page }) => {
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: true, data: admin }))
+  await page.route('**/admin/system/version', (route) =>
+    json(route, {
+      success: true,
+      data: { version: '1.2.3', revision: null, channel: 'release' }
+    }))
   await page.route(booksRoute, (route) =>
     json(route, { success: false, message: 'Books are unavailable.' }, 500))
 
@@ -324,6 +334,11 @@ test('offers a retry when the book list fails to load', async ({ page }) => {
   let fail = true
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: true, data: admin }))
+  await page.route('**/admin/system/version', (route) =>
+    json(route, {
+      success: true,
+      data: { version: '1.2.3', revision: null, channel: 'release' }
+    }))
   await page.route(booksRoute, (route) => fail
     ? json(route, { success: false, message: 'Books are unavailable.' }, 500)
     : json(route, { success: true, data: { books: [starterBook] } }))

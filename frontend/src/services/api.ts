@@ -2,6 +2,19 @@ import axios from 'axios'
 import type { AxiosRequestConfig } from 'axios'
 import { ApiError, getApiError, getEntryErrors } from './apiError'
 
+declare module 'axios' {
+  export interface AxiosRequestConfig {
+    /**
+     * Optional session-scoped guard, honoured before the global 401/403
+     * handling below. Returning false means the request no longer belongs to
+     * the current session (for example the administrator signed out while it
+     * was in flight), so its failure must not clear or redirect the session
+     * that replaced it. Requests without the guard keep the default behaviour.
+     */
+    lxIsCurrent?: () => boolean
+  }
+}
+
 type AuthFailureHandler = () => void
 
 let onUnauthorized: AuthFailureHandler = () => {}
@@ -33,10 +46,15 @@ api.interceptors.response.use(
   },
   (error: unknown) => {
     const apiError = getApiError(error)
+    const staleGuard = axios.isAxiosError(error) ? error.config?.lxIsCurrent : undefined
     if (apiError.status === 401) {
-      onUnauthorized()
+      if (staleGuard?.() !== false) {
+        onUnauthorized()
+      }
     } else if (apiError.status === 403) {
-      onForbidden()
+      if (staleGuard?.() !== false) {
+        onForbidden()
+      }
     }
 
     return Promise.reject(apiError)
