@@ -202,3 +202,9 @@ GitHub Actions additionally collects TRX and Cobertura coverage, runs the contai
 `VocabularyWordEditEndpointTests` verifies all required fields and JSON types, unknown fields, preserved values, Cookie/Bearer and custom roles, missing CSRF/401/403, 404/409 without partial writes, and a real external SQLite write lock producing 503 plus `Retry-After: 1`. Run the Release .NET suite and Docker persistence smoke; existing import/public tests must remain green.
 
 Historical Unicode conflict regressions also exercise the administrator word PUT through HTTP: conflicts return 409 and leave spelling and both phonetics unchanged. Domain snapshots verify that timestamps, other words, and meanings remain unchanged.
+
+## Meaning replacement verification
+
+`VocabularyMeaningEditTests` verifies nullable/blank part of speech and example, trimmed definitions, disabled-book editing, multi-meaning/shared-word isolation, 404 resource checks, 409 ownership/equivalence checks, cancellation without writes and rollback of a SQLite constraint failure. File-WAL tests hold a controlled transaction barrier between independent contexts for edit/edit and both edit/import orders, checking the last successful update and completion after cancellation inside the transaction.
+
+`VocabularyMeaningEditEndpointTests` covers three-field presence/types, unknown IDs/fields, Cookie/Bearer and custom roles, 401/403/missing CSRF, all path resource/ownership failures, unchanged data after rejection and an external SQLite write lock returning 503 with `Retry-After: 1`. The full Release suite retains import equivalence/example updates and public detail ordering coverage. Run Docker persistence smoke as well. New word/meaning editing combined with cleanup is a parent feature integration check once those independent APIs are delivered.
