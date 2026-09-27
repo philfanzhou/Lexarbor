@@ -209,6 +209,12 @@ Historical Unicode conflict regressions also exercise the administrator word PUT
 
 `VocabularyMeaningEditEndpointTests` covers three-field presence/types, unknown IDs/fields, Cookie/Bearer and custom roles, 401/403/missing CSRF, all path resource/ownership failures, unchanged data after rejection and an external SQLite write lock returning 503 with `Retry-After: 1`. The full Release suite retains import equivalence/example updates and public detail ordering coverage. Run Docker persistence smoke as well. New word/meaning editing combined with cleanup is a parent feature integration check once those independent APIs are delivered.
 
+## Administrator vocabulary query verification
+
+`VocabularyAdminQueryTests` uses real SQLite with enabled A, disabled B, shared polysemy, B-only vocabulary, historical orphans and an empty book. Assertions cover membership completeness, meaning isolation, independent whole-book/matched counts, stable pagination, literal LIKE metacharacters, missing resources and cancellation without writes. A file-WAL test pauses the first read with a command interceptor, lets another context commit a deletion, then verifies that the full response still sees the original snapshot.
+
+The 20,000-word fixture captures actual EF SQL and EXPLAIN output in test output. A 20-item content page executes seven SELECTs and materializes one book, 20 words and 20 meanings; projected memberships are limited to those page IDs. The plan must use the existing word and book/word indexes. This verifies bounded association loading and no per-word query loop, not a latency SLA. HTTP tests cover all three routes with Cookie/Bearer and custom roles, exact DTO fields, 401/403, pagination/404 failures, public disabled-book filtering and the unchanged legacy words endpoint. Run the standard Release .NET suite and container persistence smoke for this database query change.
+
 ## Scoped cleanup verification
 
 `VocabularyCleanupTests` exercises all four actions against a synthetic legacy book, shared multi-meaning words, a disabled referencing book, exclusive words and unrelated historical orphans. Preview counts must equal static commit results; clear retains all book properties, delete removes the book, other meanings remain byte-for-byte equivalent, and `PRAGMA foreign_key_check` is empty. Empty scopes, replay rules, changed preview data/name, wrong ownership, stale batch membership, pre-entry cancellation and the legacy DELETE 409 are checked.

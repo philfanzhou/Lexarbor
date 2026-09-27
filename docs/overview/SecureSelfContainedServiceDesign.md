@@ -501,6 +501,22 @@ The serialized write transaction checks the book, word and meaning exist (404), 
 
 The existing UnitOfWork provides atomic rollback and serial order with imports. Constraint failures return 409; external SQLite locks return 503 with `Retry-After: 1`. Cancellation detected before entry does not write. After entry, commit or rollback finishes even when the client disconnects; a missing response does not imply reversal. There is no optimistic version, automatic retry, or atomicity across this request and a separate shared-word save. Query state after an unknown result.
 
+### Administrator vocabulary reads
+
+These GET routes require `VocabularyAdmin`, including the existing Cookie/Bearer credentials and configurable required role. Anonymous callers receive 401 and authenticated non-administrators 403, with no management data. Existing public endpoints and `/admin/vocabulary-books/{id}/words` retain their contracts.
+
+| Route | Optional query | Success `data` |
+|---|---|---|
+| `/admin/vocabulary` | `keyword`, `bookId`, `page`, `size` | `{items,totalCount,totalPage}` |
+| `/admin/vocabulary/{wordId}` | none | Word summary plus all `meanings` |
+| `/admin/vocabulary-books/{bookId}/content` | `keyword`, `page`, `size` | `{book,wordCount,meaningCount,items,totalCount,totalPage}` |
+
+A summary is `{id,word,phoneticUk,phoneticUs,books}`. Its deduplicated `books` contains `{id,bookName,status}`, ordered by book name then ID, including disabled books. The unfiltered library includes words belonging only to disabled books and historical words with no book. A book filter selects words without hiding their other memberships. A supplied missing book, or a missing detail word, returns 404. Orphans have empty `books`/`meanings` arrays.
+
+Detail meanings use the existing meaning fields (`id,vocabularyId,bookId,partOfSpeech,meaning,example`), ordered by book ID, part of speech, meaning, then ID. Content items include only that book's meanings. The `book` uses the existing book DTO; `wordCount` and `meaningCount` count the whole book, while `totalCount` counts keyword-matching distinct words. Disabled and empty books are readable.
+
+Blank keywords select all; otherwise trimmed text uses SQLite ASCII case-insensitive substring LIKE with literal `%`, `_`, and backslash. Missing/zero page and size become 1 and 20. Negative values, size above 100, or integer/offset overflow return 400. Words sort by word then ID. No matches gives `totalPage:0`; out-of-range pages have empty items. Each response reads one deferred database snapshot without a write lock or mutation. Cancellation does not write data. Separate page requests can observe concurrent changes; no cross-page snapshot or additional Unicode folding is promised.
+
 ### Preview and commit vocabulary cleanup
 
 Both `POST /admin/vocabulary-books/{bookId}/cleanup/preview` and `POST /admin/vocabulary-books/{bookId}/cleanup` require `VocabularyAdmin`, including the existing Cookie CSRF header for either POST. Bearer and configurable administrator roles retain their behavior. Authorization/CSRF runs before body parsing. Requests have an explicit 1 MiB byte limit (including unknown-length/chunked bodies); oversize requests return the usual 413 failure envelope.

@@ -77,6 +77,8 @@ builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 builder.Services.AddScoped<IVocabularyWordEditRepository, VocabularyWordEditRepository>();
 builder.Services.AddScoped<VocabularyWordEditService>();
 builder.Services.AddScoped<VocabularyMeaningEditService>();
+builder.Services.AddScoped<IVocabularyAdminQueryRepository, VocabularyAdminQueryRepository>();
+builder.Services.AddScoped<VocabularyAdminQueryService>();
 builder.Services.AddScoped<IVocabularyCleanupRepository, VocabularyCleanupRepository>();
 builder.Services.AddScoped<VocabularyCleanupService>();
 builder.Services.AddScoped<VocabularyDomainService>();
@@ -365,6 +367,7 @@ app.MapAdminAuthEndpoints();
 app.MapSystemVersionEndpoints();
 app.MapVocabularyWordEditEndpoints();
 app.MapVocabularyMeaningEditEndpoints();
+app.MapVocabularyAdminQueryEndpoints();
 app.MapVocabularyCleanupEndpoints();
 app.MapVocabularyHttpEndpoints(RateLimitingExtensions.PublicApiPolicy);
 // Anonymous liveness exposes only status. Build identity is available through

@@ -53,6 +53,12 @@ The administrator word PUT uses `VocabularyWordEditService` within the existing 
 
 `VocabularyMeaningEditService` uses the existing repositories and serialized UnitOfWork to validate all three resources and ownership before changing a meaning. ID reads fetch current database values without returning earlier tracked snapshots. The existing equivalent-meaning key rejects any other matching meaning ID; book/word foreign keys never move, including in disabled books. Only that meaning's content fields and updated timestamp change. This API does not create definitions or alter import merge semantics, constraints, or schema. SQLite constraint/busy exceptions retain the existing rollback and status mappings.
 
+## Administrator read snapshots
+
+`VocabularyAdminQueryRepository` implements the separate management query contract without the public enabled-book filter. Each response opens a SQLite deferred read transaction and enlists the EF context. It does not acquire `UnitOfWork`'s write semaphore or reserve a write lock. WAL permits a concurrent writer to commit while the response continues reading its original snapshot.
+
+Filtering, distinct-word counting and paging run in SQL. Only the current page's word IDs are used to batch-load deduplicated book memberships and, where requested, applicable meanings. Summaries do not load meanings; content never loads other books' meaning text. Existing `IX_vocabulary_word` and `IX_vocabulary_meaning_book_id_vocabulary_id` support ordered traversal and membership probes. No schema or index migration is needed. Read responses promise consistency within one request, not between pages.
+
 ## Scoped cleanup
 
 The new cleanup commands are separate from the legacy book DELETE, which still refuses a book with meanings. `VocabularyCleanupService` validates the current book, ownership, selected memberships and optional exact name within the same UnitOfWork write transaction as deletion. Preview instead uses a deferred read transaction without the process write semaphore.
