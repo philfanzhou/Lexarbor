@@ -6,9 +6,12 @@ import type { Book } from '@/types'
  * Typed reads for the administration vocabulary queries (`GET /admin/vocabulary`,
  * `GET /admin/vocabulary/{wordId}`, `GET /admin/vocabulary-books/{bookId}/content`).
  * They return disabled books and unassigned words, which the public
- * enabled-only endpoints never do. Read-only: no write helper belongs here.
- * The cleanup helpers below are separate: one preview and one commit of the
- * same scope, matching the server's strict per-action field whitelist.
+ * enabled-only endpoints never do. Also the full-replacement writes the
+ * administration UI edits and cleans with: the two complete-replacement PUTs
+ * of the detail drawer (unlike the import merge, keeping a value means
+ * sending it again and every field is required on each request) and the
+ * cleanup pair of one preview plus one commit of the same scope, matching
+ * the server's strict per-action field whitelist.
  */
 
 /** A book membership of a word. Disabled books are included with status false. */
@@ -90,6 +93,48 @@ export function getAdminBookContent(
     params,
     ...config
   })
+}
+
+/**
+ * The full replacement of the shared spelling and phonetics. The three fields
+ * are sent on every request; a null phonetic clears it and keeping a value
+ * means sending it again. The write affects every book referencing the word.
+ */
+export interface AdminWordEditPayload {
+  word: string
+  phoneticUk: string | null
+  phoneticUs: string | null
+}
+
+/** The full replacement of one book-owned meaning; ownership cannot move. */
+export interface AdminMeaningEditPayload {
+  partOfSpeech: string | null
+  meaning: string
+  example: string | null
+}
+
+/** Replaces the shared word fields (`PUT /admin/vocabulary/{wordId}`). */
+export function updateAdminVocabularyWord(
+  wordId: string,
+  payload: AdminWordEditPayload,
+  config?: AxiosRequestConfig
+) {
+  return api.put<{ success: boolean }>(`/admin/vocabulary/${wordId}`, payload, config)
+}
+
+/** Replaces one meaning's three fields (`PUT /admin/vocabulary-books/{bookId}/words/{wordId}/meanings/{meaningId}`). */
+export function updateAdminMeaning(
+  bookId: string,
+  wordId: string,
+  meaningId: string,
+  payload: AdminMeaningEditPayload,
+  config?: AxiosRequestConfig
+) {
+  return api.put<{ success: boolean }>(
+    `/admin/vocabulary-books/${bookId}/words/${wordId}/meanings/${meaningId}`,
+    payload,
+    config
+  )
 }
 
 /** What a cleanup removes: one meaning, the selected words, or the whole book. */
