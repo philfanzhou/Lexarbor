@@ -433,6 +433,85 @@ test('deletes one meaning from the drawer with its own three ids', async ({ page
   expect(detailReads).toHaveLength(2)
 })
 
+test('edits one meaning and then deletes the edited row through the same drawer', async ({ page }) => {
+  await openDetailFromLibrary(page)
+  const meaningPuts: Array<{ url: URL; body: unknown }> = []
+  await page.route(/\/admin\/vocabulary-books\/[^/]+\/words\/[^/]+\/meanings\/[^/]+$/, (route) => {
+    meaningPuts.push({ url: new URL(route.request().url()), body: route.request().postDataJSON() })
+    return envelope(route, { success: true }, 200)
+  })
+  const previews = useCleanupPreview(page, () => ({
+    data: { bookId: bookA.id, bookName: bookA.bookName, action: 'removeMeaning', affectedWordCount: 1, meaningCount: 1, orphanWordCount: 0 },
+    status: 200
+  }))
+  const commits = useCleanupCommit(page, () => ({
+    data: { bookId: bookA.id, action: 'removeMeaning', affectedWordCount: 1, deletedMeaningCount: 1, deletedWordCount: 0, deletedBook: false },
+    status: 200
+  }))
+  const libraryReads: number[] = []
+  await page.route(/\/admin\/vocabulary(\?.*)?$/, (route) => {
+    libraryReads.push(1)
+    return json(route, { success: true, data: { items: [apple, cherry], totalCount: 2, totalPage: 1 } })
+  })
+  const detailReads: string[] = []
+  let detailData: unknown = appleDetail
+  await page.route(/\/admin\/vocabulary\/[^/]+$/, (route) => {
+    if (route.request().method() !== 'GET') {
+      return route.fallback()
+    }
+
+    detailReads.push(new URL(route.request().url()).pathname)
+    return json(route, { success: true, data: detailData })
+  })
+  await page.goto('/#/vocabulary')
+
+  // M first: a full replacement of the first meaning, scoped to its own ids.
+  await page.locator('.el-table__row', { hasText: 'apple' }).getByRole('button', { name: '详情' }).click()
+  const drawer = page.locator('.el-drawer')
+  const groupA = drawer.locator('.word-detail__group', { hasText: 'CI Book A' })
+  await groupA.locator('.word-detail__meaning').first().getByRole('button', { name: '编辑', exact: true }).click()
+  await groupA.getByRole('textbox', { name: '词性' }).fill('adj.')
+  await groupA.getByRole('textbox', { name: '释义' }).fill('一种红色水果')
+  await groupA.getByRole('textbox', { name: '例句' }).fill('An edited example.')
+  // The save re-reads the detail, so the fixture switches to the edited state
+  // before the request that will observe it.
+  detailData = {
+    ...appleDetail,
+    meanings: [
+      { id: 'meaning-a1', vocabularyId: 'word-apple', bookId: bookA.id, partOfSpeech: 'adj.', meaning: '一种红色水果', example: 'An edited example.' },
+      meaningsA[1]
+    ]
+  }
+  await groupA.getByRole('button', { name: '保存本条释义' }).click()
+  expect(meaningPuts).toHaveLength(1)
+  expect(meaningPuts[0].url.pathname).toBe(`/admin/vocabulary-books/${bookA.id}/words/word-apple/meanings/meaning-a1`)
+  expect(meaningPuts[0].body).toEqual({ partOfSpeech: 'adj.', meaning: '一种红色水果', example: 'An edited example.' })
+
+  // The edited content is visible after the save re-read the detail, and the
+  // word list refreshed with it.
+  await expect(drawer).toContainText('一种红色水果')
+  await expect(drawer).toContainText('An edited example.')
+  expect(detailReads).toHaveLength(2)
+  expect(libraryReads.length).toBeGreaterThanOrEqual(2)
+
+  // C second: the same drawer deletes the edited row by its own three ids.
+  await drawer.locator('.word-detail__meaning', { hasText: '一种红色水果' }).getByRole('button', { name: '删除' }).click()
+  await expect(dialog(page)).toContainText('清理操作：删除这条释义')
+  expect(previews).toHaveLength(1)
+  expect(previews[0].url.pathname).toBe(`/admin/vocabulary-books/${bookA.id}/cleanup/preview`)
+  expect(previews[0].body).toEqual({ action: 'removeMeaning', wordId: 'word-apple', meaningId: 'meaning-a1' })
+
+  // The commit succeeds; the detail and the list refresh from current state.
+  detailData = { ...appleDetail, meanings: [meaningsA[1]] }
+  await dialog(page).getByRole('button', { name: '确认清理' }).click()
+  expect(commits).toHaveLength(1)
+  expect(commits[0].body).toEqual({ action: 'removeMeaning', wordId: 'word-apple', meaningId: 'meaning-a1' })
+  await expect(drawer).not.toContainText('一种红色水果')
+  await expect(drawer).toContainText('苹果树')
+  expect(detailReads).toHaveLength(3)
+  expect(libraryReads.length).toBeGreaterThanOrEqual(3)
+})
+
 test('deleting the last meaning closes the drawer of the deleted word', async ({ page }) => {
   await openDetailFromLibrary(page)
   await useCleanupPreview(page, () => ({
