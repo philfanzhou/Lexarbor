@@ -13,7 +13,7 @@ export const getBooks = (params?: { keyword?: string; page?: number; size?: numb
  *
  * The paged administration search is the wrong source for that. Called with no
  * paging parameters, which is how a picker wants to call it, it does not return
- * everything -- it returns a 400, because those parameters were required.
+ * everything -- it returns the default first page of twenty books.
  * Supplying a page instead would have traded that for a silently short list:
  * twenty books, no page control, nothing on screen to say more exist.
  *
