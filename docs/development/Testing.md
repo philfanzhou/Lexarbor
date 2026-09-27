@@ -55,11 +55,11 @@ Run the real publish/startup matrix separately (Python 3, .NET 10, and free port
 python3 .github/scripts/test-build-identity.py
 ```
 
-Each of the five rows (release, prerelease, two different edge revisions, and defaults)
+Each of the six rows (release, prerelease, two different edge revisions, defaults, and a missing version attribute)
 uses a separate temporary output and intermediate directory. The script reads the actual
 published Host assembly and its runtime snapshot, then starts that artifact outside the
 repository with conflicting runtime environment/configuration values. It checks the exact
-startup identity and anonymous health envelope. No `.git` is present in the publish output.
+startup identity, anonymous health envelope, and authorized version HTTP fields/no-store against those exact build inputs. A .NET SDK/BCL fixture binds only a temporary loopback port and publishes OIDC discovery/JWKS; ephemeral RSA keys and the synthetic token stay in process memory/pipes and never enter logs. Production Bearer validation remains unchanged. No `.git` is present in the publish output.
 Failures preserve temporary artifacts for diagnosis; successful runs remove them. Cancellation
 stops the test process and never changes a running deployment.
 
@@ -192,6 +192,22 @@ GitHub Actions additionally collects TRX and Cobertura coverage, runs the contai
 - Do not modify the code under test to suit a test; when testability needs to improve, update this document first and change the code afterwards.
 - Identity is doubled by a fake HTTP handler implementing the full contract; JWTs use a test signing key and depend on no real administrator password.
 - When real Identity credentials are unavailable, a fake Identity result must not be described as a successful real integration.
+
+`SystemVersionEndpointTests` covers Cookie/Bearer, custom roles, expired/malformed credentials, exact failure fields, conditional GET, concurrent immutable snapshots, cancellation and the unchanged anonymous health boundary. Missing assembly metadata fallback is covered by `ApplicationVersionTests`.
+
+## Shared word replacement verification
+
+`VocabularyWordEditTests` covers trim/lower normalization, both nullable phonetics, shared enabled/disabled memberships without any meaning changes, unassigned words, historical duplicate normalized spellings (including non-ASCII uppercase, tabs/newlines, and Unicode whitespace), self-exclusion and distinct Unicode spellings, missing/invalid/cancelled requests, and rollback after a SQLite trigger rejects an update. File-WAL tests use independent contexts and a controlled transaction barrier for edit/edit and both edit/import orders; the later successful operation wins and cancellation after admission does not undo the transaction.
+
+`VocabularyWordEditEndpointTests` verifies all required fields and JSON types, unknown fields, preserved values, Cookie/Bearer and custom roles, missing CSRF/401/403, 404/409 without partial writes, and a real external SQLite write lock producing 503 plus `Retry-After: 1`. Run the Release .NET suite and Docker persistence smoke; existing import/public tests must remain green.
+
+Historical Unicode conflict regressions also exercise the administrator word PUT through HTTP: conflicts return 409 and leave spelling and both phonetics unchanged. Domain snapshots verify that timestamps, other words, and meanings remain unchanged.
+
+## Meaning replacement verification
+
+`VocabularyMeaningEditTests` verifies nullable/blank part of speech and example, trimmed definitions, disabled-book editing, multi-meaning/shared-word isolation, 404 resource checks, 409 ownership/equivalence checks, cancellation without writes and rollback of a SQLite constraint failure. File-WAL tests hold a controlled transaction barrier between independent contexts for edit/edit and both edit/import orders, checking the last successful update and completion after cancellation inside the transaction.
+
+`VocabularyMeaningEditEndpointTests` covers three-field presence/types, unknown IDs/fields, Cookie/Bearer and custom roles, 401/403/missing CSRF, all path resource/ownership failures, unchanged data after rejection and an external SQLite write lock returning 503 with `Retry-After: 1`. The full Release suite retains import equivalence/example updates and public detail ordering coverage. Run Docker persistence smoke as well. New word/meaning editing combined with cleanup is a parent feature integration check once those independent APIs are delivered.
 
 ## Administrator vocabulary query verification
 

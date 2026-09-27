@@ -3,7 +3,7 @@ using System.Reflection;
 namespace Lexarbor.Host;
 
 /// <summary>
-/// Immutable identity of the running Host build, written to startup logs only.
+/// Immutable identity of the running Host build, available in startup logs and the authorized version endpoint.
 /// Runtime configuration cannot override these assembly attributes.
 /// </summary>
 internal static class ApplicationVersion
