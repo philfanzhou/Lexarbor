@@ -42,6 +42,8 @@ info: Lexarbor build, channel release, revision 0123456789abcdef0123456789abcdef
 
 Authorized administrators can also read the running build through `GET /admin/system/version` using the existing Cookie or Bearer credentials. The response is `{"success":true,"data":{"version":"1.2.3","revision":null,"channel":"release"}}`; revision is the full SHA when supplied at build time. All responses on this path, including 401/403, use `Cache-Control: no-store`, without ETag, Last-Modified, or 304 responses. Anonymous `/health` remains exactly `{"success":true,"data":{"status":"healthy"}}`. Anonymous callers receive no build identity.
 
+The signed-in administration header shows the same identity beside the `Lexarbor` brand — `v1.2.3` (prerelease suffixes preserved), `edge · a1b2c3d`, or 开发版本 — with the full version, complete revision, and channel behind a keyboard-reachable detail opened from the label. A failed or unreadable fetch reads 版本未知 and does not block the page; the frontend asks once per administrator session and again after a browser reload, and never caches the values in web storage.
+
 | Docker build argument | MSBuild property | Local default |
 |---|---|---|
 | `APP_VERSION` | `Version` | `0.0.0-dev` |

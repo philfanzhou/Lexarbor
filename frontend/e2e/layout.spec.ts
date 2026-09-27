@@ -41,6 +41,11 @@ function json(route: Route, data: unknown, status = 200) {
 async function mockAdministrator(page: Page) {
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: true, data: admin }))
+  await page.route('**/admin/system/version', (route) =>
+    json(route, {
+      success: true,
+      data: { version: '1.2.3', revision: null, channel: 'release' }
+    }))
   await page.route('**/admin/vocabulary-books/categories', (route) =>
     json(route, { success: true, data: { items: ['English'] } }))
   await page.route('**/admin/vocabulary-books/education-levels', (route) =>
@@ -188,11 +193,17 @@ for (const width of widths) {
       })
     }
 
-    test('Tab reaches the logout button and then each navigation link, with a visible focus ring', async ({ page }) => {
+    test('Tab reaches the logout button, the version button, and then each navigation link, with a visible focus ring', async ({ page }) => {
       await openAdministration(page, '/books')
 
       await page.keyboard.press('Tab')
       expect(await focusedText(page)).toBe('退出登录')
+
+      // The build-version button is placed after the logout button in the
+      // DOM (it is moved beside the brand with CSS order), so it is next in
+      // the keyboard order; the navigation follows it unchanged.
+      await page.keyboard.press('Tab')
+      expect(await focusedText(page)).toBe('v1.2.3')
 
       for (const { name } of navLinks) {
         await page.keyboard.press('Tab')

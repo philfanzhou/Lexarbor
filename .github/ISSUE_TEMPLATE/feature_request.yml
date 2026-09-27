@@ -34,6 +34,6 @@ body:
     id: adjacent
     attributes:
       label: 已知邻近问题与依赖
-      description: 相关既有问题请单独开 issue 并链接；前置依赖没有时写“无”。
+      description: 前置依赖没有时写“无”。
     validations:
       required: true
