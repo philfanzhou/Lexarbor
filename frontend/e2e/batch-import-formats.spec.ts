@@ -36,6 +36,11 @@ const batchRoute = /\/admin\/vocabulary\/batch$/
 async function openBatchPage(page: Page) {
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: true, data: admin }))
+  await page.route('**/admin/system/version', (route) =>
+    json(route, {
+      success: true,
+      data: { version: '1.2.3', revision: null, channel: 'release' }
+    }))
   await page.route(/\/api\/vocabulary-books\/all$/, (route) =>
     json(route, { success: true, data: { books: [starterBook, otherBook] } }))
 

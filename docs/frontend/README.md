@@ -65,6 +65,16 @@ A shared `ApiError` carries the public message, an optional HTTP status, and, on
 
 Components use `catch (error: unknown)` with the shared conversion function, never `any`.
 
+The Axios response interceptor runs the global 401/403 handling before any component's `catch`. A request may carry an optional "still current" guard (`lxIsCurrent`); when it returns false — the request belonged to a session that has since ended — the interceptor skips that handling for this request only, so a late 401/403 cannot clear or redirect the session that replaced it. Every request without the guard keeps the default behaviour.
+
+## Build version display
+
+Signed-in administrators see the running backend build beside the `Lexarbor` brand: `v1.2.3` for a release (a prerelease suffix is preserved, as in `v1.3.0-rc.1`), `edge · a1b2c3d` for a `main` build (`edge · 提交未知` when no commit was recorded), and 开发版本 for a development build. A pending fetch reads 版本获取中, and a failed, timed-out, or unreadable fetch — including a `version` of `unknown` — reads 版本未知; none of these block or disturb the page, and the fetch is not retried within the session.
+
+The label is a quiet button that opens a small dialog listing the full `version`, the complete `revision` SHA (or 未知 when it is null), and the raw `channel`. It works from the keyboard and from touch — not only a hover or tooltip — closes on Escape and on an outside click, and keeps focus on the button that owns it. All values are rendered through Vue interpolation, never `v-html`.
+
+The data comes from the authorized `GET /admin/system/version` through the same Axios client. Exactly one non-blocking request is sent per administrator session generation: when a login or a page load's session restore accepts a session. Route changes send nothing, the route guard's restore of a freshly created session does not send a second one, and a browser reload fetches again. When a logout begins — or a session is cleared for any other reason — the generation ends: the in-flight request is aborted and marked stale, so its late success cannot paint the header and its late 401/403 cannot clear or redirect the session that replaced it, even for the same username signing back in. Nothing is persisted to localStorage or sessionStorage; anonymous and forbidden pages never request the version.
+
 ## Existing pages
 
 - Book management keeps search, paging, create, edit, status toggle, and delete.
@@ -143,7 +153,7 @@ Every failure other than 401 and 403 keeps the text and the preview so the batch
 
 Once signed in, every page sits in one shell:
 
-- A 56 px header across the page holds `.brand` (`Lexarbor`) on the left and `.session` (the username and the **退出登录** button) on the right.
+- A 56 px header across the page holds `.brand` (`Lexarbor`) on the left, the low-key build-version button beside it, and `.session` (the username and the **退出登录** button) on the right.
 - Below it, a side navigation `<nav aria-label="主导航">` is grouped by task. Each group is a `role="group"` labelled by its title, and each entry is a real link (`RouterLink`), not a menu item:
   - **教材**: 教材管理 (`/books`). A later book word list page belongs to this group.
   - **词汇导入**: 单条导入 (`/import`) and 批量导入 (`/import/batch`).
@@ -151,7 +161,7 @@ Once signed in, every page sits in one shell:
 - The current page's link is highlighted and carries `aria-current="page"`, for an exact route match only.
 - At 1024 px and wider the navigation is 220 px wide with icons and text. From 768 px to 1023 px it collapses to a 64 px icon bar: each link keeps its name through `aria-label` and a `title` tooltip, and the group titles are hidden visually but not from assistive technology. At 768 px no page scrolls sideways.
 - The content area is at most 1200 px wide, with 24 px padding on wide screens and 16 px below 1024 px.
-- Keyboard order follows the DOM: the logout button, then the navigation links, then the page. Our own links and buttons show `outline: 2px solid var(--lx-color-focus)` on `:focus-visible`; Element Plus components keep their own focus style.
+- Keyboard order follows the DOM: the logout button, then the build-version button (which CSS order places beside the brand), then the navigation links, then the page. Our own links and buttons show `outline: 2px solid var(--lx-color-focus)` on `:focus-visible`; Element Plus components keep their own focus style.
 - The login and forbidden pages have no shell. They use the same brand mark, card, and tokens.
 
 ### Tokens
@@ -194,7 +204,7 @@ Loading, empty, and failed states look the same on every page:
 
 ### Accessibility tests
 
-`e2e/layout.spec.ts` runs axe (`@axe-core/playwright`, tags `wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa`) at 1440 px and 768 px over the whole login and forbidden pages, over the header and navigation of `/books`, `/import`, and `/import/batch`, and over the whole of `/books` (with books, with none, and with the new book dialog open), `/import` (on arrival and after a successful import), and `/import/batch` (when empty, with valid and invalid rows in the preview, and with a file-level error); each must report no violation. A page body is added to the full-page check when that page is redesigned. The same specification checks sideways scrolling at 768 px (including `/import/batch` with a preview), the batch import help following the selected format and sitting beside the text area at 1440 px and below it at 768 px, the batch import preview's empty state, navigation and `aria-current`, the keyboard order and focus ring, logout including a failed logout, and the Chinese locale.
+`e2e/layout.spec.ts` runs axe (`@axe-core/playwright`, tags `wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa`) at 1440 px and 768 px over the whole login and forbidden pages, over the header and navigation of `/books`, `/import`, and `/import/batch`, and over the whole of `/books` (with books, with none, and with the new book dialog open), `/import` (on arrival and after a successful import), and `/import/batch` (when empty, with valid and invalid rows in the preview, and with a file-level error); each must report no violation. A page body is added to the full-page check when that page is redesigned. The same specification checks sideways scrolling at 768 px (including `/import/batch` with a preview), the batch import help following the selected format and sitting beside the text area at 1440 px and below it at 768 px, the batch import preview's empty state, navigation and `aria-current`, the keyboard order (the logout button, the build-version button, then the links) and focus ring, logout including a failed logout, and the Chinese locale. `e2e/version.spec.ts` covers the build-version display described above: every channel's label and full-identity dialog, keyboard and pointer opening with Escape and outside-click closing, one request per session generation with no route-change refetch and a reload refetch, the login-then-restore deduplication, no request on the guest pages, every failure mode reading 版本未知 with the page still working and no retry, a current 401/403 keeping its redirect, the delayed late-answer races across a logout and a same-username re-login, empty web storage, and the 375 px header with a long prerelease and a long username.
 
 Two conventions follow from these checks. `/books` sets the page size with its own select labelled 每页条数, to the left of the pagination, rather than with the pagination's built-in size picker, whose input cannot be given an accessible name. A table whose columns can overflow at 768 px sets `scrollbar-tabindex="0"`, so its horizontal scroll region can be reached from the keyboard.
 

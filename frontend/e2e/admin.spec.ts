@@ -27,6 +27,11 @@ function json(route: Route, data: unknown, status = 200) {
 }
 
 async function mockCatalog(page: Page, books = [starterBook]) {
+  await page.route('**/admin/system/version', (route) =>
+    json(route, {
+      success: true,
+      data: { version: '1.2.3', revision: null, channel: 'release' }
+    }))
   await page.route('**/admin/vocabulary-books/categories', (route) =>
     json(route, { success: true, data: { items: books.length ? ['English'] : [] } }))
   await page.route('**/admin/vocabulary-books/education-levels', (route) =>
