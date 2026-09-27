@@ -79,24 +79,32 @@ The data comes from the authorized `GET /admin/system/version` through the same 
 
 ## Existing pages
 
-- Book management keeps search, paging, create, edit, status toggle, and delete.
+- Book management keeps search, paging, create, edit, status toggle, and delete, plus the two cleanup entries described under [Book cleanup](#book-cleanup).
 - The administration list contains both enabled and disabled books.
-- Deleting a book that still has meanings answers 409, which prompts the administrator to disable it.
+- Deleting a book that still has meanings answers 409 from the plain delete, which now points at 清空内容 or 删除教材及内容; the plain delete itself stays reference-safe and never cascades.
 - Word import keeps the book, word, British phonetic, American phonetic, part of speech, definition, and example sentence fields.
 - The import page's book picker reads `GET /api/vocabulary-books/all`, which is unpaged and enabled-only. The paged administration search is the wrong source for a picker: called with no paging parameters it answers the default first page of twenty books, and explicit paging still answers one page, so a deployment with more than one page of books would silently lose the rest. The administration list also offers disabled books, which the import endpoint then refuses with a 422.
 - Both existing features must remain usable after a successful login.
 
 ## Vocabulary list pages
 
-Two read-only list pages consume the administration vocabulary queries (`GET /admin/vocabulary`, `GET /admin/vocabulary/{wordId}`, and `GET /admin/vocabulary-books/{bookId}/content`), which unlike the public endpoints include disabled books and historical words with no book at all.
+Two list pages consume the administration vocabulary queries (`GET /admin/vocabulary`, `GET /admin/vocabulary/{wordId}`, and `GET /admin/vocabulary-books/{bookId}/content`), which unlike the public endpoints include disabled books and historical words with no book at all.
 
-`/books/:bookId/words` is reached from 教材管理's 查看单词, for disabled books as well as enabled ones. It shows the book's name and status and two whole-book counts — 去重单词 (deduplicated words) and 释义 (meanings) — which keep counting the whole book while a keyword narrows the matching page. The table shows each word once with its phonetics and this book's meanings; the keyword, page, and size run on the server. 返回教材列表 leads back to `/books`. A book deleted elsewhere is a distinct notice with the same way back, not an empty word list.
+`/books/:bookId/words` is reached from 教材管理's 查看单词, for disabled books as well as enabled ones. It shows the book's name and status and two whole-book counts — 去重单词 (deduplicated words) and 释义 (meanings) — which keep counting the whole book while a keyword narrows the matching page. The table shows each word once with its phonetics and this book's meanings; the keyword, page, and size run on the server. 返回教材列表 leads back to `/books`. A book deleted elsewhere is a distinct notice with the same way back, not an empty word list. Each row offers 移除, and a checkbox column plus 从本教材移除（N） removes the checked rows of the current page: the selection lives in page memory only, is bounded by the page size (the cleanup API accepts at most one hundred word ids), and is dropped whenever the page, the keyword, or the book changes, so it never silently grows into the whole book.
 
 `/vocabulary` (单词管理, in the 教材 navigation group) lists the whole library: each word once, with every book membership as a tag, disabled books marked 停用, and unassigned words showing 无教材归属. Its book filter is a remote-search select fed by the paged administration book search (`GET /admin/vocabulary-books`, disabled books included) with its own pager in the dropdown footer, so deployments with more than one page of books still reach the later pages; a filter selects words by membership without hiding their other books. The import pages' enabled-only picker is untouched.
 
-Both pages open the same read-only detail drawer (`VocabularyDetailDrawer`): the shared word and phonetics once, then meanings grouped per book with each book's status, an unassigned word showing 无教材归属 and no meanings. The drawer opens from the keyboard and from a pointer, closes on Escape and the close button, and returns focus to the button that opened it. Loading, a failed load with 重试, a missing word (404), and an empty result are distinct states. Editing and deleting arrive with later tasks; no inert controls are rendered.
+Both pages open the same detail drawer (`VocabularyDetailDrawer`): the shared word and phonetics once, then meanings grouped per book with each book's status, an unassigned word showing 无教材归属 and no meanings. The drawer opens from the keyboard and from a pointer, closes on Escape and the close button, and returns focus to the button that opened it. Loading, a failed load with 重试, a missing word (404), and an empty result are distinct states. Editing arrives with its own task; each meaning carries a 删除 entry that starts the meaning-deletion flow below.
 
-Each list and the drawer keep one target generation: switching a book, a word, or leaving the page aborts the in-flight request and invalidates its generation, so a late success or failure cannot paint the target that replaced it, and a retry stays read-only. Authentication failures keep the shared interceptor's clearing and redirect.
+Each list and the drawer keep one target generation: switching a book, a word, or leaving the page aborts the in-flight request and invalidates its generation, so a late success or failure cannot paint the target that replaced it, and a retry only re-reads. Authentication failures keep the shared interceptor's clearing and redirect.
+
+## Book cleanup
+
+Every cleanup entry — 教材管理's 清空内容 and 删除教材及内容, the book word list's 移除 and 从本教材移除（N）, and the detail drawer's per-meaning 删除 — goes through one shared dialog (`VocabularyCleanupDialog`) against the cleanup API (`POST /admin/vocabulary-books/{bookId}/cleanup/preview` and `POST /admin/vocabulary-books/{bookId}/cleanup`).
+
+Opening the dialog always fetches a fresh, read-only preview and shows the target book's name, the action, the deduplicated word count, the meaning count, and the estimated orphan word count, stating that these are estimates re-validated against the current content at commit time and that meanings and shared words in other books — disabled ones included — are retained. Deleting a book additionally requires typing its exact name; 确认清理 stays disabled until the typed name matches the previewed one, and the commit sends it as `confirmedBookName`. Cancelling ends the preview only and commits nothing. The confirm button cannot be double-submitted, and closing the dialog never promises to undo a transaction that already started.
+
+A refused preview or commit keeps a distinct message: 404 reports the target gone, 409 explains that the scope or the confirmed name no longer matches the current data and offers 重新预览, 503 reports a busy store, and 400 shows the server reason. A commit whose answer never arrived is an unknown outcome: the dialog warns, asks its surroundings to re-query current state, and never replays itself. The frontend never computes orphan counts or decides deletions from them; only the server's committed result is trusted. On success the pages report the server's actual counts, refresh their lists, and re-read the detail: a deleted book leaves the word list back at 教材管理, a word whose last meaning was deleted closes the drawer, and a page emptied by a removal falls back to the last valid page.
 
 ## Batch import page
 

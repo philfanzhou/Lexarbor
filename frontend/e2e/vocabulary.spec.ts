@@ -423,9 +423,10 @@ test('opens the same read-only detail drawer from both lists', async ({ page }) 
   await expect(drawer.locator('.word-detail__group', { hasText: 'CI Book A' })).toContainText('苹果树')
   await expect(drawer.locator('.word-detail__group', { hasText: 'CI Old Book B' })).toContainText('停用')
   await expect(drawer.locator('.word-detail__group', { hasText: 'CI Old Book B' })).toContainText('一种水果')
-  // Read-only: no edit or delete controls before their tasks land.
+  // Editing arrives with its own task; each meaning's deletion goes through
+  // the cleanup confirmation flow (covered by the cleanup specification).
   await expect(drawer.getByRole('button', { name: '编辑' })).toHaveCount(0)
-  await expect(drawer.getByRole('button', { name: '删除' })).toHaveCount(0)
+  await expect(drawer.getByRole('button', { name: '删除' })).toHaveCount(3)
 
   await page.keyboard.press('Escape')
   await expect(drawer).not.toBeVisible()

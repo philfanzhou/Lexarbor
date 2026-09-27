@@ -1,23 +1,37 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { ElMessage } from 'element-plus'
 import {
   getAdminVocabularyWord
 } from '@/services/adminVocabularyApi'
-import type { AdminBookRef, AdminMeaning, AdminWordDetail } from '@/services/adminVocabularyApi'
+import type {
+  AdminBookRef,
+  AdminCleanupResult,
+  AdminCleanupSelection,
+  AdminMeaning,
+  AdminWordDetail
+} from '@/services/adminVocabularyApi'
 import { getApiError } from '@/services/apiError'
+import VocabularyCleanupDialog from '@/components/VocabularyCleanupDialog.vue'
 
 /**
- * The read-only word detail shared by both administration lists. One target
- * generation: switching the word (or closing) aborts the in-flight request,
- * and a late success or failure can never paint the word that replaced it;
- * unmounting ends the generation the same way. Authentication failures keep
- * the shared interceptor's clearing and redirect. Editing and deleting arrive
- * with later tasks; no placeholder controls are rendered here.
+ * The word detail shared by both administration lists. One target generation:
+ * switching the word (or closing) aborts the in-flight request, and a late
+ * success or failure can never paint the word that replaced it; unmounting
+ * ends the generation the same way. Authentication failures keep the shared
+ * interceptor's clearing and redirect.
+ *
+ * Each meaning carries a delete entry that goes through the shared
+ * preview-and-confirm cleanup flow, using the meaning's own book, word, and
+ * meaning identifiers. A committed deletion re-reads the detail — only the
+ * server's result decides what happened — and when the word lost its last
+ * meaning the re-read's 404 closes the drawer instead of painting a missing
+ * word. A commit whose answer never arrived re-queries rather than replaying.
  */
 
 const wordId = defineModel<string | null>({ required: true })
 
-const emit = defineEmits<{ closed: [] }>()
+const emit = defineEmits<{ closed: []; changed: [] }>()
 
 const drawerOpen = computed({
   get: () => wordId.value !== null,
@@ -32,6 +46,13 @@ const detail = ref<AdminWordDetail | null>(null)
 const loading = ref(false)
 const loadError = ref('')
 const notFound = ref(false)
+
+/** The shared preview-and-confirm flow for one meaning's deletion. */
+const cleanupOpen = ref(false)
+const cleanupSelection = ref<AdminCleanupSelection | null>(null)
+const cleanupBookId = ref<string | null>(null)
+/** After our own cleanup, a 404 re-read means the word itself was deleted. */
+const closeOnMissing = ref(false)
 
 let generation = 0
 let controller: AbortController | null = null
@@ -69,12 +90,44 @@ function load() {
       loading.value = false
       const apiError = getApiError(error)
       if (apiError.status === 404) {
+        if (closeOnMissing.value) {
+          // The last meaning took the word with it; the drawer closes rather
+          // than reporting a word the administrator just watched disappear.
+          closeOnMissing.value = false
+          wordId.value = null
+          return
+        }
+
         notFound.value = true
       } else {
         loadError.value = apiError.message
       }
     }
   )
+}
+
+function removeMeaning(meaning: AdminMeaning) {
+  cleanupBookId.value = meaning.bookId
+  cleanupSelection.value = {
+    action: 'removeMeaning',
+    wordId: meaning.vocabularyId,
+    meaningId: meaning.id
+  }
+  cleanupOpen.value = true
+}
+
+function handleCleanupCommitted(result: AdminCleanupResult) {
+  ElMessage.success(
+    `已删除释义 ${result.deletedMeaningCount} 条${result.deletedWordCount ? `，该单词已失去全部教材引用，一并删除 ${result.deletedWordCount} 个单词` : '，其他教材中的释义保留'}`
+  )
+  closeOnMissing.value = result.deletedWordCount > 0
+  emit('changed')
+  load()
+}
+
+function handleCleanupUnknown() {
+  // The commit's answer never arrived; re-read what the server now holds.
+  load()
 }
 
 watch(wordId, () => {
@@ -188,6 +241,15 @@ function displayValue(value?: string | null) {
                 <span>{{ meaning.meaning }}</span>
               </p>
               <p v-if="meaning.example" class="word-detail__example">{{ meaning.example }}</p>
+              <el-button
+                link
+                type="danger"
+                class="word-detail__meaning-remove"
+                :aria-label="`删除教材 ${group.book?.bookName ?? '未知'} 的这条释义`"
+                @click="removeMeaning(meaning)"
+              >
+                删除
+              </el-button>
             </li>
           </ul>
         </section>
@@ -200,6 +262,14 @@ function displayValue(value?: string | null) {
       </template>
     </div>
   </el-drawer>
+
+  <VocabularyCleanupDialog
+    v-model="cleanupOpen"
+    :book-id="cleanupBookId"
+    :selection="cleanupSelection"
+    @committed="handleCleanupCommitted"
+    @unknown="handleCleanupUnknown"
+  />
 </template>
 
 <style scoped>
@@ -279,5 +349,10 @@ function displayValue(value?: string | null) {
   color: var(--lx-color-text-secondary);
   font-size: var(--lx-font-size-xs);
   word-break: break-word;
+}
+.word-detail__meaning-remove {
+  margin-top: var(--lx-space-1);
+  height: auto;
+  padding: 0;
 }
 </style>

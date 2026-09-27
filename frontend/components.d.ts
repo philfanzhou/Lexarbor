@@ -31,6 +31,7 @@ declare module 'vue' {
     PageHeader: typeof import('./src/components/PageHeader.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+    VocabularyCleanupDialog: typeof import('./src/components/VocabularyCleanupDialog.vue')['default']
     VocabularyDetailDrawer: typeof import('./src/components/VocabularyDetailDrawer.vue')['default']
   }
   export interface ComponentCustomProperties {
