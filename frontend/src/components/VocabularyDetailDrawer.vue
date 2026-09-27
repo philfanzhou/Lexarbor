@@ -1,23 +1,40 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  getAdminVocabularyWord
+  getAdminVocabularyWord,
+  updateAdminMeaning,
+  updateAdminVocabularyWord
 } from '@/services/adminVocabularyApi'
-import type { AdminBookRef, AdminMeaning, AdminWordDetail } from '@/services/adminVocabularyApi'
+import type {
+  AdminBookRef,
+  AdminMeaning,
+  AdminMeaningEditPayload,
+  AdminWordDetail,
+  AdminWordEditPayload
+} from '@/services/adminVocabularyApi'
 import { getApiError } from '@/services/apiError'
 
 /**
- * The read-only word detail shared by both administration lists. One target
- * generation: switching the word (or closing) aborts the in-flight request,
- * and a late success or failure can never paint the word that replaced it;
- * unmounting ends the generation the same way. Authentication failures keep
- * the shared interceptor's clearing and redirect. Editing and deleting arrive
- * with later tasks; no placeholder controls are rendered here.
+ * The word detail shared by both administration lists. One target generation:
+ * switching the word (or closing) aborts the in-flight read, and a late success
+ * or failure can never paint the word that replaced it; unmounting ends the
+ * generation the same way. Authentication failures keep the shared
+ * interceptor's clearing and redirect.
+ *
+ * Two independent edit groups live here. The shared spelling and phonetics
+ * replace through one API and every meaning replaces through its own; each
+ * group has its own loading, error, and success state, one save in flight at a
+ * time, and neither promises an atomic combined save. A save keeps the draft on
+ * a definite refusal (400 shows the reason, 409 offers an explicit reload, 404
+ * reports the target is gone), while an answer that never arrives re-reads the
+ * current detail instead of replaying the write. Unsubmitted drafts belong to
+ * the target that opened them and are dropped when the target changes.
  */
 
 const wordId = defineModel<string | null>({ required: true })
 
-const emit = defineEmits<{ closed: [] }>()
+const emit = defineEmits<{ closed: []; changed: [] }>()
 
 const drawerOpen = computed({
   get: () => wordId.value !== null,
@@ -33,8 +50,43 @@ const loading = ref(false)
 const loadError = ref('')
 const notFound = ref(false)
 
+/** The shared-fields draft; initialized from the server values when editing starts. */
+const sharedForm = reactive({ word: '', phoneticUk: '', phoneticUs: '' })
+const sharedEditing = ref(false)
+const sharedSaving = ref(false)
+const sharedError = ref('')
+/** Whether the error offers an explicit reload of the server state (409/404). */
+const sharedErrorReload = ref(false)
+
+/** One meaning's independent draft and save state, keyed by meaning id. */
+interface MeaningEdit {
+  draft: { partOfSpeech: string; meaning: string; example: string }
+  saving: boolean
+  error: string
+  errorReload: boolean
+}
+
+const meaningEdits = ref<Record<string, MeaningEdit | undefined>>({})
+
 let generation = 0
 let controller: AbortController | null = null
+
+function blankToNull(value: string): string | null {
+  const trimmed = value.trim()
+  return trimmed ? trimmed : null
+}
+
+/** Drafts belong to one target: a new read starts from the server values again. */
+function resetEditState() {
+  sharedEditing.value = false
+  sharedSaving.value = false
+  sharedError.value = ''
+  sharedErrorReload.value = false
+  sharedForm.word = ''
+  sharedForm.phoneticUk = ''
+  sharedForm.phoneticUs = ''
+  meaningEdits.value = {}
+}
 
 function load() {
   const target = wordId.value
@@ -51,6 +103,7 @@ function load() {
   loadError.value = ''
   notFound.value = false
   detail.value = null
+  resetEditState()
 
   getAdminVocabularyWord(target, { signal: controller.signal }).then(
     (data) => {
@@ -82,6 +135,7 @@ watch(wordId, () => {
     // Closing ends the target too: nothing may land in a closed drawer.
     generation += 1
     controller?.abort()
+    resetEditState()
     return
   }
 
@@ -95,12 +149,15 @@ onBeforeUnmount(() => {
 
 /** Meanings grouped per book, in the stable order the endpoint returns. */
 const groupedMeanings = computed(() => {
-  const byBookId = new Map<string, { book: AdminBookRef | null; meanings: AdminMeaning[] }>()
+  const byBookId = new Map<
+    string,
+    { book: AdminBookRef | null; meanings: Array<{ meaning: AdminMeaning; edit: MeaningEdit | null }> }
+  >()
   const knownBooks = new Map((detail.value?.books ?? []).map((book) => [book.id, book]))
   for (const meaning of detail.value?.meanings ?? []) {
     const book = knownBooks.get(meaning.bookId) ?? null
     const group = byBookId.get(meaning.bookId) ?? { book, meanings: [] }
-    group.meanings.push(meaning)
+    group.meanings.push({ meaning, edit: meaningEdits.value[meaning.id] ?? null })
     byBookId.set(meaning.bookId, group)
   }
 
@@ -110,6 +167,198 @@ const groupedMeanings = computed(() => {
 function displayValue(value?: string | null) {
   const trimmed = value?.trim()
   return trimmed ? trimmed : '—'
+}
+
+function startSharedEdit() {
+  if (!detail.value) {
+    return
+  }
+
+  sharedForm.word = detail.value.word
+  sharedForm.phoneticUk = detail.value.phoneticUk ?? ''
+  sharedForm.phoneticUs = detail.value.phoneticUs ?? ''
+  sharedError.value = ''
+  sharedErrorReload.value = false
+  sharedEditing.value = true
+}
+
+function cancelSharedEdit(event: Event) {
+  const trigger = event.currentTarget as HTMLButtonElement | null
+  sharedEditing.value = false
+  sharedError.value = ''
+  sharedErrorReload.value = false
+  void nextTick(() => trigger?.focus())
+}
+
+/** The confirmation names every referencing book, disabled ones included. */
+function sharedConfirmMessage() {
+  const books = detail.value?.books ?? []
+  if (!books.length) {
+    return '该单词当前没有被任何教材引用；保存仍会更新其共享的拼写与音标。'
+  }
+
+  const names = books
+    .map((book) => (book.status ? book.bookName : `${book.bookName}（停用）`))
+    .join('、')
+  return `拼写与音标是共享字段，保存后会影响引用该单词的全部教材（含停用）：${names}。`
+}
+
+/**
+ * Maps a refused save. A definite refusal keeps the draft with a reason; 409
+ * and 404 additionally offer an explicit reload. An answer that never arrived
+ * (no response) has an unknown outcome: the current detail is re-read and null
+ * is returned because the re-read already reset the form.
+ */
+function describeSaveFailure(
+  error: unknown,
+  goneMessage: string
+): { message: string; reload: boolean } | null {
+  const apiError = getApiError(error)
+  if (apiError.status === undefined) {
+    ElMessage.warning('保存结果未知，已重新读取当前数据；请核对后再决定是否重新保存')
+    load()
+    return null
+  }
+
+  if (apiError.status === 404) {
+    return { message: `保存失败：${goneMessage}`, reload: true }
+  }
+  if (apiError.status === 409) {
+    return {
+      message: `保存失败：${apiError.message} 数据可能已被他人修改，可重新加载最新内容后再试。`,
+      reload: true
+    }
+  }
+
+  return { message: `保存失败：${apiError.message}`, reload: false }
+}
+
+async function saveShared() {
+  const target = detail.value
+  if (!target || sharedSaving.value) {
+    return
+  }
+
+  sharedError.value = ''
+  sharedErrorReload.value = false
+  const word = sharedForm.word.trim()
+  if (!word) {
+    sharedError.value = '请输入单词拼写'
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm(sharedConfirmMessage(), '确认修改共享字段', {
+      type: 'warning',
+      confirmButtonText: '保存',
+      cancelButtonText: '取消'
+    })
+  } catch {
+    // Cancelled before any request: the draft stays exactly as it was.
+    return
+  }
+
+  const payload: AdminWordEditPayload = {
+    word,
+    phoneticUk: blankToNull(sharedForm.phoneticUk),
+    phoneticUs: blankToNull(sharedForm.phoneticUs)
+  }
+
+  const current = generation
+  sharedSaving.value = true
+  try {
+    await updateAdminVocabularyWord(target.id, payload)
+    if (current !== generation) {
+      return
+    }
+
+    ElMessage.success('共享字段已保存')
+    emit('changed')
+    load()
+  } catch (error: unknown) {
+    if (current !== generation) {
+      return
+    }
+
+    const failure = describeSaveFailure(error, '该单词不存在或已被删除')
+    if (failure) {
+      sharedError.value = failure.message
+      sharedErrorReload.value = failure.reload
+    }
+  } finally {
+    sharedSaving.value = false
+  }
+}
+
+function startMeaningEdit(meaning: AdminMeaning) {
+  meaningEdits.value = {
+    ...meaningEdits.value,
+    [meaning.id]: {
+      draft: {
+        partOfSpeech: meaning.partOfSpeech ?? '',
+        meaning: meaning.meaning,
+        example: meaning.example ?? ''
+      },
+      saving: false,
+      error: '',
+      errorReload: false
+    }
+  }
+}
+
+function cancelMeaningEdit(meaningId: string, event: Event) {
+  const trigger = event.currentTarget as HTMLButtonElement | null
+  const next = { ...meaningEdits.value }
+  delete next[meaningId]
+  meaningEdits.value = next
+  void nextTick(() => trigger?.focus())
+}
+
+async function saveMeaning(meaning: AdminMeaning) {
+  const edit = meaningEdits.value[meaning.id]
+  const target = detail.value
+  if (!edit || !target || edit.saving) {
+    return
+  }
+
+  edit.error = ''
+  edit.errorReload = false
+  const definition = edit.draft.meaning.trim()
+  if (!definition) {
+    edit.error = '请输入释义'
+    return
+  }
+
+  const payload: AdminMeaningEditPayload = {
+    partOfSpeech: blankToNull(edit.draft.partOfSpeech),
+    meaning: definition,
+    example: blankToNull(edit.draft.example)
+  }
+
+  const current = generation
+  edit.saving = true
+  try {
+    await updateAdminMeaning(meaning.bookId, meaning.vocabularyId, meaning.id, payload)
+    if (current !== generation) {
+      return
+    }
+
+    ElMessage.success('释义已保存')
+    emit('changed')
+    load()
+  } catch (error: unknown) {
+    if (current !== generation) {
+      return
+    }
+
+    const failure = describeSaveFailure(error, '该释义、单词或教材不存在或已被删除')
+    if (failure) {
+      edit.error = failure.message
+      edit.errorReload = failure.reload
+    }
+  } finally {
+    edit.saving = false
+  }
 }
 </script>
 
@@ -141,11 +390,14 @@ function displayValue(value?: string | null) {
 
       <template v-else-if="detail">
         <section class="word-detail__summary" aria-label="共享字段">
-          <h2 class="word-detail__word">{{ detail.word }}</h2>
-          <p class="word-detail__phonetics">
-            <span>英 {{ displayValue(detail.phoneticUk) }}</span>
-            <span>美 {{ displayValue(detail.phoneticUs) }}</span>
-          </p>
+          <template v-if="!sharedEditing">
+            <h2 class="word-detail__word">{{ detail.word }}</h2>
+            <p class="word-detail__phonetics">
+              <span>英 {{ displayValue(detail.phoneticUk) }}</span>
+              <span>美 {{ displayValue(detail.phoneticUs) }}</span>
+            </p>
+          </template>
+
           <p class="word-detail__books">
             <template v-if="detail.books.length">
               <el-tag
@@ -159,9 +411,55 @@ function displayValue(value?: string | null) {
             </template>
             <el-tag v-else type="info" size="small">无教材归属</el-tag>
           </p>
+
+          <el-button
+            v-if="!sharedEditing"
+            link
+            type="primary"
+            class="word-detail__edit-toggle"
+            @click="startSharedEdit"
+          >
+            编辑共享字段
+          </el-button>
+
+          <div v-else class="word-detail__edit" role="group" aria-label="编辑共享字段">
+            <el-alert
+              v-if="sharedError"
+              class="word-detail__edit-error"
+              type="error"
+              :title="sharedError"
+              :closable="false"
+              show-icon
+            >
+              <el-button v-if="sharedErrorReload" size="small" @click="load">重新加载</el-button>
+            </el-alert>
+
+            <el-form class="word-detail__form" label-position="top" @submit.prevent="saveShared">
+              <el-form-item label="单词拼写（共享）">
+                <el-input v-model="sharedForm.word" :disabled="sharedSaving" />
+              </el-form-item>
+              <el-form-item label="英式音标（共享，留空保存为空）">
+                <el-input v-model="sharedForm.phoneticUk" :disabled="sharedSaving" />
+              </el-form-item>
+              <el-form-item label="美式音标（共享，留空保存为空）">
+                <el-input v-model="sharedForm.phoneticUs" :disabled="sharedSaving" />
+              </el-form-item>
+              <p class="word-detail__edit-hint">
+                拼写与音标为全库共享字段，保存影响以上全部教材；留空的可选音标会明确清空，保存前需确认。
+              </p>
+              <div class="word-detail__edit-actions">
+                <el-button :disabled="sharedSaving" @click="cancelSharedEdit">取消</el-button>
+                <el-button type="primary" :loading="sharedSaving" @click="saveShared">
+                  保存共享字段
+                </el-button>
+              </div>
+            </el-form>
+          </div>
         </section>
 
-        <p class="word-detail__hint">拼写与音标为全库共享字段；以下释义按教材分组。</p>
+        <p class="word-detail__hint">
+          拼写与音标为全库共享字段；以下释义按教材分组，每条释义仅属于对应教材，可单独编辑。
+        </p>
 
         <section
           v-for="group in groupedMeanings"
@@ -180,14 +478,69 @@ function displayValue(value?: string | null) {
             </el-tag>
           </h3>
           <ul class="word-detail__meanings">
-            <li v-for="meaning in group.meanings" :key="meaning.id" class="word-detail__meaning">
-              <p class="word-detail__meaning-line">
-                <el-tag v-if="meaning.partOfSpeech" size="small" type="primary">
-                  {{ meaning.partOfSpeech }}
-                </el-tag>
-                <span>{{ meaning.meaning }}</span>
-              </p>
-              <p v-if="meaning.example" class="word-detail__example">{{ meaning.example }}</p>
+            <li
+              v-for="{ meaning, edit } in group.meanings"
+              :key="meaning.id"
+              class="word-detail__meaning"
+            >
+              <div v-if="!edit" class="word-detail__meaning-read">
+                <p class="word-detail__meaning-line">
+                  <el-tag v-if="meaning.partOfSpeech" size="small" type="primary">
+                    {{ meaning.partOfSpeech }}
+                  </el-tag>
+                  <span>{{ meaning.meaning }}</span>
+                </p>
+                <p v-if="meaning.example" class="word-detail__example">{{ meaning.example }}</p>
+                <el-button link type="primary" @click="startMeaningEdit(meaning)">编辑</el-button>
+              </div>
+
+              <div
+                v-else
+                class="word-detail__meaning-edit"
+                role="group"
+                :aria-label="`编辑教材 ${group.book?.bookName ?? '未知'} 的这条释义`"
+              >
+                <el-alert
+                  v-if="edit.error"
+                  class="word-detail__edit-error"
+                  type="error"
+                  :title="edit.error"
+                  :closable="false"
+                  show-icon
+                >
+                  <el-button v-if="edit.errorReload" size="small" @click="load">重新加载</el-button>
+                </el-alert>
+
+                <el-form class="word-detail__form" label-position="top" @submit.prevent="saveMeaning(meaning)">
+                  <el-form-item label="词性（仅本教材，可清空）">
+                    <el-input v-model="edit.draft.partOfSpeech" :disabled="edit.saving" />
+                  </el-form-item>
+                  <el-form-item label="释义（仅本教材）">
+                    <el-input
+                      v-model="edit.draft.meaning"
+                      type="textarea"
+                      :rows="2"
+                      :disabled="edit.saving"
+                    />
+                  </el-form-item>
+                  <el-form-item label="例句（仅本教材，可清空）">
+                    <el-input
+                      v-model="edit.draft.example"
+                      type="textarea"
+                      :rows="2"
+                      :disabled="edit.saving"
+                    />
+                  </el-form-item>
+                  <div class="word-detail__edit-actions">
+                    <el-button :disabled="edit.saving" @click="cancelMeaningEdit(meaning.id, $event)">
+                      取消
+                    </el-button>
+                    <el-button type="primary" :loading="edit.saving" @click="saveMeaning(meaning)">
+                      保存本条释义
+                    </el-button>
+                  </div>
+                </el-form>
+              </div>
             </li>
           </ul>
         </section>
@@ -236,6 +589,29 @@ function displayValue(value?: string | null) {
   gap: var(--lx-space-2);
   margin: var(--lx-space-3) 0 0;
 }
+.word-detail__edit-toggle {
+  margin-top: var(--lx-space-2);
+}
+
+.word-detail__edit {
+  margin-top: var(--lx-space-3);
+}
+.word-detail__edit-error {
+  margin-bottom: var(--lx-space-3);
+}
+.word-detail__form :deep(.el-form-item) {
+  margin-bottom: var(--lx-space-3);
+}
+.word-detail__edit-hint {
+  margin: 0 0 var(--lx-space-3);
+  color: var(--lx-color-text-secondary);
+  font-size: var(--lx-font-size-xs);
+}
+.word-detail__edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--lx-space-2);
+}
 
 .word-detail__hint {
   margin: var(--lx-space-3) 0 0;
@@ -265,6 +641,16 @@ function displayValue(value?: string | null) {
   padding-top: var(--lx-space-3);
   border-top: 1px solid var(--lx-color-border-light);
 }
+.word-detail__meaning-read {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--lx-space-1);
+}
+.word-detail__meaning-read .el-button {
+  margin-top: var(--lx-space-1);
+  align-self: flex-start;
+}
 .word-detail__meaning-line {
   display: flex;
   align-items: baseline;
@@ -279,5 +665,8 @@ function displayValue(value?: string | null) {
   color: var(--lx-color-text-secondary);
   font-size: var(--lx-font-size-xs);
   word-break: break-word;
+}
+.word-detail__meaning-edit {
+  width: 100%;
 }
 </style>

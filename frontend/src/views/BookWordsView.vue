@@ -265,7 +265,11 @@ const emptyDescription = computed(() =>
       </template>
     </section>
 
-    <VocabularyDetailDrawer v-model="detailWordId" @closed="refocusDetailTrigger" />
+    <VocabularyDetailDrawer
+      v-model="detailWordId"
+      @closed="refocusDetailTrigger"
+      @changed="load"
+    />
   </div>
 </template>
 
