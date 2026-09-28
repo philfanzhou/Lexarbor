@@ -2,9 +2,10 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { getAdminBookContent } from '@/services/adminVocabularyApi'
+import { getAdminBookContent, getAdminUnitContent } from '@/services/adminVocabularyApi'
 import type { AdminCleanupResult, AdminCleanupSelection, AdminWordDetail } from '@/services/adminVocabularyApi'
-import type { Book } from '@/types'
+import { getBookUnits } from '@/services/bookApi'
+import type { Book, BookUnit } from '@/types'
 import { getApiError } from '@/services/apiError'
 import PageHeader from '@/components/PageHeader.vue'
 import VocabularyDetailDrawer from '@/components/VocabularyDetailDrawer.vue'
@@ -18,6 +19,16 @@ import VocabularyCleanupDialog from '@/components/VocabularyCleanupDialog.vue'
  * in-flight request and invalidates its generation, so a late answer cannot
  * paint the book that replaced it. A disabled book is maintained the same way
  * as an enabled one.
+ *
+ * A unit picker narrows the same page to one unit of the book, served by the
+ * unit content read with unit-scoped counts; the whole-book view and its
+ * behaviour are unchanged. The unit choice is page state like the keyword —
+ * it never enters the route — and is reset by a book switch. Unit switches
+ * share the content request's generation and aborting, so an answer for a
+ * replaced unit or book cannot paint the current view. A unit deleted while
+ * its view is open answers 404 and gets its own notice with a way back to
+ * the whole book; the removal entries are disabled there, because the whole
+ * book, not the unit, is what they remove.
  *
  * Removals take the current page's rows only: the checkbox selection lives in
  * page memory, is capped by the page size (the cleanup API accepts at most one
@@ -44,6 +55,19 @@ const page = ref(1)
 const size = ref(20)
 const pageSizes = [10, 20, 50, 100]
 
+const units = ref<BookUnit[]>([])
+const unitsLoading = ref(false)
+const unitsError = ref('')
+/**
+ * The picker's value: the whole book by default, a unit's id once picked.
+ * A sentinel rather than '', because an empty value is how the select says
+ * nothing is chosen.
+ */
+const WHOLE_BOOK = '__whole__'
+const unitId = ref(WHOLE_BOOK)
+/** A unit view that answered 404: the unit (or its book) is gone. */
+const unitGone = ref(false)
+
 const loading = ref(false)
 const loadError = ref('')
 const notFound = ref(false)
@@ -60,6 +84,12 @@ const cleanupSelection = ref<AdminCleanupSelection | null>(null)
 let generation = 0
 let controller: AbortController | null = null
 
+let unitsGeneration = 0
+let unitsController: AbortController | null = null
+
+const isUnitView = computed(() => unitId.value !== WHOLE_BOOK)
+const currentUnit = computed(() => units.value.find((unit) => unit.id === unitId.value))
+
 function load() {
   if (!bookId.value) {
     return
@@ -73,15 +103,16 @@ function load() {
   loading.value = true
   searchedKeyword.value = keyword.value
 
-  getAdminBookContent(
-    bookId.value,
-    {
-      keyword: keyword.value.trim() || undefined,
-      page: page.value,
-      size: size.value
-    },
-    { signal: controller.signal }
-  ).then(
+  const params = {
+    keyword: keyword.value.trim() || undefined,
+    page: page.value,
+    size: size.value
+  }
+  const request = isUnitView.value
+    ? getAdminUnitContent(bookId.value, unitId.value, params, { signal: controller.signal })
+    : getAdminBookContent(bookId.value, params, { signal: controller.signal })
+
+  request.then(
     (data) => {
       if (current !== generation) {
         return
@@ -97,6 +128,7 @@ function load() {
       loading.value = false
       loadError.value = ''
       notFound.value = false
+      unitGone.value = false
       // A removal can empty the page that held it; fall back to the last
       // valid page instead of showing a page beyond the end.
       if (data.totalPage > 0 && page.value > data.totalPage) {
@@ -112,11 +144,65 @@ function load() {
       loading.value = false
       const apiError = getApiError(error)
       if (apiError.status === 404) {
+        if (isUnitView.value) {
+          // The unit — or the book behind it — is gone; the whole book is the
+          // way back, and it answers for itself when it is the one missing.
+          unitGone.value = true
+          items.value = []
+          selectedWordIds.value = []
+          return
+        }
+
         notFound.value = true
       } else {
         ElMessage.error(apiError.message)
         loadError.value = apiError.message
       }
+    }
+  )
+}
+
+/**
+ * The unit picker's list, in unit order. Its own generation and abort keep a
+ * book switch's answer from painting the next book's units; a failure keeps
+ * the whole-book view working and offers a retry, because a picker without
+ * its list cannot name a unit.
+ */
+function loadUnits() {
+  if (!bookId.value) {
+    return
+  }
+
+  unitsGeneration += 1
+  const current = unitsGeneration
+  unitsController?.abort()
+  unitsController = new AbortController()
+
+  unitsLoading.value = true
+  unitsError.value = ''
+  getBookUnits(bookId.value, { signal: unitsController.signal }).then(
+    (data) => {
+      if (current !== unitsGeneration) {
+        return
+      }
+
+      units.value = data.units
+      unitsLoading.value = false
+      // The picked unit can have been deleted meanwhile; the view falls back
+      // to the whole book rather than asking for a unit that no longer is.
+      if (isUnitView.value && !data.units.some((unit) => unit.id === unitId.value)) {
+        unitId.value = WHOLE_BOOK
+      }
+    },
+    (error: unknown) => {
+      if (current !== unitsGeneration) {
+        return
+      }
+
+      unitsLoading.value = false
+      const apiError = getApiError(error)
+      ElMessage.error(apiError.message)
+      unitsError.value = apiError.message
     }
   )
 }
@@ -148,6 +234,7 @@ function handleCleanupCommitted(result: AdminCleanupResult) {
   }
 
   load()
+  loadUnits()
 }
 
 function handleCleanupUnknown() {
@@ -166,14 +253,32 @@ watch(bookId, () => {
   totalCount.value = 0
   selectedWordIds.value = []
   detailWordId.value = null
+  unitId.value = WHOLE_BOOK
+  units.value = []
+  unitsError.value = ''
+  unitGone.value = false
+  load()
+  loadUnits()
+})
+
+// A unit switch is a new view of the same book: the page restarts and the
+// previous view's selection does not carry over.
+watch(unitId, () => {
+  page.value = 1
+  selectedWordIds.value = []
   load()
 })
 
-onMounted(() => load())
+onMounted(() => {
+  load()
+  loadUnits()
+})
 
 onBeforeUnmount(() => {
   generation += 1
   controller?.abort()
+  unitsGeneration += 1
+  unitsController?.abort()
 })
 
 function handleSearch() {
@@ -196,6 +301,11 @@ function backToBooks() {
   void router.push({ name: 'books' })
 }
 
+/** Leaves a gone unit's notice for the whole-book view of the same book. */
+function backToWholeBook() {
+  unitId.value = WHOLE_BOOK
+}
+
 function openDetail(row: AdminWordDetail, event: Event) {
   detailTrigger.value = event.currentTarget as HTMLButtonElement
   detailWordId.value = row.id
@@ -206,7 +316,11 @@ function refocusDetailTrigger() {
 }
 
 const emptyDescription = computed(() =>
-  searchedKeyword.value ? '没有匹配的单词' : '该教材暂无单词'
+  searchedKeyword.value
+    ? '没有匹配的单词'
+    : isUnitView.value
+      ? '该单元暂无单词'
+      : '该教材暂无单词'
 )
 </script>
 
@@ -233,16 +347,57 @@ const emptyDescription = computed(() =>
         <el-button size="small" @click="backToBooks">返回教材列表</el-button>
       </el-alert>
 
+      <el-alert
+        v-else-if="unitGone"
+        class="book-words__notice"
+        type="warning"
+        title="该单元不存在或已被删除"
+        :closable="false"
+        show-icon
+      >
+        <el-button size="small" @click="backToWholeBook">返回全书</el-button>
+        <el-button size="small" @click="backToBooks">返回教材列表</el-button>
+      </el-alert>
+
       <template v-else>
         <p v-if="book" class="book-words__meta">
           <el-tag :type="book.status ? 'success' : 'info'" size="small">
             {{ book.status ? '启用' : '停用' }}
           </el-tag>
+          <el-tag v-if="currentUnit" size="small" type="warning">
+            单元 {{ currentUnit.number }}{{ currentUnit.title ? ` · ${currentUnit.title}` : '' }}
+          </el-tag>
           <span>去重单词 {{ wordCount }}</span>
           <span>释义 {{ meaningCount }}</span>
         </p>
 
+        <el-alert
+          v-if="unitsError"
+          class="book-words__error"
+          type="error"
+          :title="`单元列表加载失败：${unitsError}`"
+          :closable="false"
+          show-icon
+        >
+          <el-button class="book-words__retry" size="small" @click="loadUnits">重试单元列表</el-button>
+        </el-alert>
+
         <div class="toolbar">
+          <el-select
+            v-model="unitId"
+            class="toolbar__unit"
+            aria-label="筛选单元"
+            :loading="unitsLoading"
+            :disabled="!!unitsError"
+          >
+            <el-option label="全书" :value="WHOLE_BOOK" />
+            <el-option
+              v-for="unit in units"
+              :key="unit.id"
+              :value="unit.id"
+              :label="unit.title ? `单元 ${unit.number} · ${unit.title}` : `单元 ${unit.number}`"
+            />
+          </el-select>
           <el-input
             v-model="keyword"
             class="toolbar__search"
@@ -252,16 +407,24 @@ const emptyDescription = computed(() =>
             @keyup.enter="handleSearch"
           />
           <el-button type="primary" @click="handleSearch">搜索</el-button>
-          <el-button
-            type="danger"
-            plain
-            class="toolbar__remove"
-            :disabled="!selectedWordIds.length"
-            aria-label="从本教材移除选中的单词"
-            @click="openRemoveWords(selectedWordIds)"
+          <el-tooltip
+            :disabled="!isUnitView"
+            content="单元视图下不能从本教材移除；请切回全书视图操作"
+            placement="top"
           >
-            从本教材移除（{{ selectedWordIds.length }}）
-          </el-button>
+            <span class="toolbar__remove-wrap">
+              <el-button
+                type="danger"
+                plain
+                class="toolbar__remove"
+                :disabled="isUnitView || !selectedWordIds.length"
+                aria-label="从本教材移除选中的单词"
+                @click="openRemoveWords(selectedWordIds)"
+              >
+                从本教材移除（{{ selectedWordIds.length }}）
+              </el-button>
+            </span>
+          </el-tooltip>
         </div>
 
         <el-alert
@@ -292,7 +455,7 @@ const emptyDescription = computed(() =>
           <el-table-column label="美式音标" min-width="130">
             <template #default="{ row }">{{ row.phoneticUs ?? '—' }}</template>
           </el-table-column>
-          <el-table-column label="本教材释义" min-width="260">
+          <el-table-column :label="isUnitView ? '本单元释义' : '本教材释义'" min-width="260">
             <template #default="{ row }">
               <ul v-if="row.meanings.length" class="book-words__meanings">
                 <li v-for="meaning in row.meanings" :key="meaning.id">
@@ -308,7 +471,17 @@ const emptyDescription = computed(() =>
           <el-table-column label="操作" width="130" fixed="right">
             <template #default="{ row }">
               <el-button link type="primary" @click="openDetail(row, $event)">详情</el-button>
-              <el-button link type="danger" @click="openRemoveWords([row.id])">移除</el-button>
+              <el-tooltip
+                :disabled="!isUnitView"
+                content="单元视图下不能从本教材移除；请切回全书视图操作"
+                placement="top"
+              >
+                <span class="book-words__remove-wrap">
+                  <el-button link type="danger" :disabled="isUnitView" @click="openRemoveWords([row.id])">
+                    移除
+                  </el-button>
+                </span>
+              </el-tooltip>
             </template>
           </el-table-column>
           <template #empty>
@@ -385,11 +558,19 @@ const emptyDescription = computed(() =>
 .toolbar {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: var(--lx-space-3);
   margin-bottom: var(--lx-space-4);
 }
 .toolbar__search {
   width: min(320px, 100%);
+}
+.toolbar__unit {
+  width: min(220px, 100%);
+}
+.toolbar__remove-wrap,
+.book-words__remove-wrap {
+  display: inline-flex;
 }
 
 .book-words__error {

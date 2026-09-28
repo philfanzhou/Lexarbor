@@ -538,6 +538,15 @@ async function saveMeaning(meaning: AdminMeaning) {
                     {{ meaning.partOfSpeech }}
                   </el-tag>
                   <span>{{ meaning.meaning }}</span>
+                  <el-tag
+                    v-for="unit in meaning.units ?? []"
+                    :key="unit.unitId"
+                    class="word-detail__unit-tag"
+                    size="small"
+                    type="info"
+                  >
+                    单元 {{ unit.number }}{{ unit.title ? ` · ${unit.title}` : '' }}
+                  </el-tag>
                 </p>
                 <p v-if="meaning.example" class="word-detail__example">{{ meaning.example }}</p>
                 <div class="word-detail__meaning-actions">
@@ -742,6 +751,9 @@ async function saveMeaning(meaning: AdminMeaning) {
   color: var(--lx-color-text-secondary);
   font-size: var(--lx-font-size-xs);
   word-break: break-word;
+}
+.word-detail__unit-tag {
+  flex-shrink: 0;
 }
 .word-detail__meaning-edit {
   width: 100%;

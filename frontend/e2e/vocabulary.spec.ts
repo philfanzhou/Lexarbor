@@ -43,7 +43,10 @@ const refA = ref(bookA)
 const refB = ref(bookB)
 
 const meaningsA = [
-  { id: 'meaning-a1', vocabularyId: 'word-apple', bookId: bookA.id, partOfSpeech: 'n.', meaning: '苹果', example: 'An apple a day.' },
+  { id: 'meaning-a1', vocabularyId: 'word-apple', bookId: bookA.id, partOfSpeech: 'n.', meaning: '苹果', example: 'An apple a day.', units: [
+    { unitId: 'unit-a2', number: 2, title: 'School Life' },
+    { unitId: 'unit-a6', number: 6, title: null }
+  ] },
   { id: 'meaning-a2', vocabularyId: 'word-apple', bookId: bookA.id, partOfSpeech: 'n.', meaning: '苹果树', example: null }
 ]
 const meaningB = [
@@ -88,6 +91,52 @@ const libraryPage = {
   totalPage: 1
 }
 
+// Bank has two meanings in book A, one per unit: the same word with different
+// meanings narrows differently. Apple's first meaning belongs to both units.
+const bank = { id: 'word-bank', word: 'bank', phoneticUk: null, phoneticUs: null, books: [refA] }
+const bankRiver = { id: 'meaning-bank-river', vocabularyId: 'word-bank', bookId: bookA.id, partOfSpeech: 'n.', meaning: '河岸', example: null, units: [{ unitId: 'unit-a2', number: 2, title: 'School Life' }] }
+const bankMoney = { id: 'meaning-bank-money', vocabularyId: 'word-bank', bookId: bookA.id, partOfSpeech: 'n.', meaning: '银行', example: null, units: [{ unitId: 'unit-a6', number: 6, title: null }] }
+const appleInUnit = { ...apple, meanings: [meaningsA[0]] }
+
+const unitContent: Record<string, unknown> = {
+  'unit-a2': {
+    book: bookA,
+    unit: { id: 'unit-a2', bookId: bookA.id, number: 2, title: 'School Life' },
+    wordCount: 2,
+    meaningCount: 2,
+    items: [{ ...appleInUnit, meanings: [meaningsA[0]] }, { ...bank, meanings: [bankRiver] }],
+    totalCount: 2,
+    totalPage: 1
+  },
+  'unit-a6': {
+    book: bookA,
+    unit: { id: 'unit-a6', bookId: bookA.id, number: 6, title: null },
+    wordCount: 2,
+    meaningCount: 2,
+    items: [{ ...appleInUnit, meanings: [meaningsA[0]] }, { ...bank, meanings: [bankMoney] }],
+    totalCount: 2,
+    totalPage: 1
+  },
+  'unit-a9': {
+    book: bookA,
+    unit: { id: 'unit-a9', bookId: bookA.id, number: 9, title: 'Empty Unit' },
+    wordCount: 0,
+    meaningCount: 0,
+    items: [],
+    totalCount: 0,
+    totalPage: 0
+  },
+  'unit-b1': {
+    book: bookB,
+    unit: { id: 'unit-b1', bookId: bookB.id, number: 1, title: 'Greetings' },
+    wordCount: 1,
+    meaningCount: 1,
+    items: [{ ...banana, meanings: [{ id: 'meaning-d1', vocabularyId: 'word-banana', bookId: bookB.id, partOfSpeech: 'n.', meaning: '香蕉', example: null, units: [{ unitId: 'unit-b1', number: 1, title: 'Greetings' }] }] }],
+    totalCount: 1,
+    totalPage: 1
+  }
+}
+
 const wcagTags = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']
 
 function json(route: Route, data: unknown, status = 200) {
@@ -124,6 +173,32 @@ async function mockBookContent(page: Page) {
   })
 }
 
+const unitsA = [
+  { id: 'unit-a2', bookId: bookA.id, number: 2, title: 'School Life', meaningCount: 3 },
+  { id: 'unit-a6', bookId: bookA.id, number: 6, title: null, meaningCount: 1 },
+  { id: 'unit-a9', bookId: bookA.id, number: 9, title: 'Empty Unit', meaningCount: 0 }
+]
+const unitsB = [
+  { id: 'unit-b1', bookId: bookB.id, number: 1, title: 'Greetings', meaningCount: 2 }
+]
+
+async function mockBookUnits(page: Page) {
+  await page.route(/\/admin\/vocabulary-books\/[^/]+\/units(\?.*)?$/, (route) => {
+    const bookId = new URL(route.request().url()).pathname.split('/')[3]
+    return json(route, { success: true, data: { units: bookId === bookB.id ? unitsB : unitsA } })
+  })
+}
+
+async function mockUnitContent(page: Page) {
+  await page.route(/\/admin\/vocabulary-books\/[^/]+\/units\/[^/]+\/content(\?.*)?$/, (route) => {
+    const unitId = new URL(route.request().url()).pathname.split('/').at(-2)
+    const data = unitContent[unitId]
+    return data
+      ? json(route, { success: true, data })
+      : json(route, { success: false, message: 'Vocabulary book unit was not found.' }, 404)
+  })
+}
+
 async function mockLibrary(page: Page, data = libraryPage) {
   await page.route(/\/admin\/vocabulary(\?.*)?$/, (route) =>
     json(route, { success: true, data }))
@@ -140,6 +215,8 @@ async function openBooksList(page: Page, books = [bookA, bookB]) {
   await mockSession(page)
   await mockBooksList(page, books)
   await mockBookContent(page)
+  await mockBookUnits(page)
+  await mockUnitContent(page)
   await page.goto('/#/books')
   await expect(page.locator('.session')).toContainText(admin.username)
 }

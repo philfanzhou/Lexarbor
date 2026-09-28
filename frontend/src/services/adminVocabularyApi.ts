@@ -4,7 +4,8 @@ import type { Book } from '@/types'
 
 /**
  * Typed reads for the administration vocabulary queries (`GET /admin/vocabulary`,
- * `GET /admin/vocabulary/{wordId}`, `GET /admin/vocabulary-books/{bookId}/content`).
+ * `GET /admin/vocabulary/{wordId}`, `GET /admin/vocabulary-books/{bookId}/content`,
+ * `GET /admin/vocabulary-books/{bookId}/units/{unitId}/content`).
  * They return disabled books and unassigned words, which the public
  * enabled-only endpoints never do. Also the full-replacement writes the
  * administration UI edits and cleans with: the two complete-replacement PUTs
@@ -21,6 +22,13 @@ export interface AdminBookRef {
   status: boolean
 }
 
+/** A unit a meaning is assigned to, in unit-number order. */
+export interface AdminMeaningUnit {
+  unitId: string
+  number: number
+  title?: string | null
+}
+
 /** One meaning record; it belongs to exactly one book. */
 export interface AdminMeaning {
   id: string
@@ -29,6 +37,8 @@ export interface AdminMeaning {
   partOfSpeech?: string | null
   meaning: string
   example?: string | null
+  /** The units this meaning is assigned to; absent in older reads. */
+  units?: AdminMeaningUnit[]
 }
 
 /**
@@ -64,6 +74,30 @@ export interface AdminBookContent {
   totalPage: number
 }
 
+/** The unit a unit-content response is scoped to. */
+export interface AdminUnitRef {
+  id: string
+  bookId: string
+  number: number
+  title?: string | null
+}
+
+/**
+ * One unit's content page: same shape as the whole-book page scoped to the
+ * unit — counts are unit-scoped whatever the keyword, and each item's meanings
+ * are only those assigned to the unit. A missing unit and a unit of another
+ * book both answer 404.
+ */
+export interface AdminUnitContent {
+  book: Book
+  unit: AdminUnitRef
+  wordCount: number
+  meaningCount: number
+  items: AdminWordDetail[]
+  totalCount: number
+  totalPage: number
+}
+
 export interface AdminWordListQuery {
   keyword?: string
   page?: number
@@ -90,6 +124,19 @@ export function getAdminBookContent(
   config?: AxiosRequestConfig
 ) {
   return api.get<AdminBookContent>(`/admin/vocabulary-books/${bookId}/content`, {
+    params,
+    ...config
+  })
+}
+
+/** One unit's word list, in the same shape as the whole-book page. */
+export function getAdminUnitContent(
+  bookId: string,
+  unitId: string,
+  params: AdminWordListQuery,
+  config?: AxiosRequestConfig
+) {
+  return api.get<AdminUnitContent>(`/admin/vocabulary-books/${bookId}/units/${unitId}/content`, {
     params,
     ...config
   })
