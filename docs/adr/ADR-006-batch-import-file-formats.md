@@ -14,12 +14,12 @@
 
 Each format has a parser that turns text into either a list of preview rows or one file-level error, never both:
 
-- A **preview row** has a position, the seven values in the canonical order `word`, `phonetic_uk`, `phonetic_us`, `part_of_speech`, `meaning`, `example`, `unit`, and either an entry or a reason it is invalid.
+- A **preview row** has a position, the eight values in the canonical order `word`, `phonetic_uk`, `phonetic_us`, `part_of_speech`, `meaning`, `example`, `unit`, `section`, and either an entry or a reason it is invalid.
 - A **file-level error** means the input as a whole cannot be read. The page shows the error in place of the preview, renders no rows, and refuses to submit.
 
 Every format checks its rows with the same function: values are trimmed, a row with a blank `word` or `meaning` is invalid, and a blank optional value is left out of the entry rather than sent as an empty string. The same data therefore produces a byte-identical request whichever format it was imported from. `entries[i]` of the request is the `i`th preview row, so the server's `errors[].index` maps back to a position. The preview, the invalid-row filter, paging, the submit checks, and the mapping of server errors do not depend on the format.
 
-The `unit` value is carried in the row and resolved by the page, which knows the selected book's units, rather than by the shared row check, which cannot (see [The unit column](#the-unit-column)).
+The `unit` and `section` values are carried in the row and resolved by the page, which knows the selected book's units, rather than by the shared row check, which cannot (see [The unit column](#the-unit-column)).
 
 What a position means depends on the format:
 
@@ -57,7 +57,7 @@ Encodings are not detected. Text in another encoding that happens to be valid UT
 
 Formats with a header row, CSV and Excel, share these rules:
 
-- The names are the ADR-005 TSV column names: `word`, `phonetic_uk`, `phonetic_us`, `part_of_speech`, `meaning`, `example`, `unit`. They are trimmed and matched without regard to case, and the columns may be in any order.
+- The names are the ADR-005 TSV column names: `word`, `phonetic_uk`, `phonetic_us`, `part_of_speech`, `meaning`, `example`, `unit`, `section`. They are trimmed and matched without regard to case, and the columns may be in any order.
 - `word` and `meaning` are required; the other columns may be absent, and an absent column is blank in every row.
 - A column whose name is blank is ignored when every value under it is blank after trimming, such as the trailing empty column spreadsheet exports often write.
 - Each of the following is a file-level error that names the column number and, where there is one, the name: an unrecognized name, a name used twice, a blank name over a column with values, and a missing `word` or `meaning` column.
@@ -74,6 +74,15 @@ Every format carries an optional unit assignment for an entry: the TSV seventh c
 - A blank unit value is no assignment, the same as every other blank optional value.
 - A value that matches no unit makes the row invalid with the value shown, so the administrator can find it; the preview shows the resolved unit's number and title beside each row that has one. An import never creates a unit.
 - The resolved `unitId` is the only thing the request carries; the server re-validates it under [ADR-005](./ADR-005-bulk-vocabulary-import.md), so a unit deleted between the load and the submit is refused there, on the row of its `index`.
+
+### The section column
+
+Every format also carries the optional section of that assignment: the TSV eighth column, the CSV and Excel `section` header column, and the JSON `section` field. The value is `A` or `B` exactly as the book prints them.
+
+- The value is trimmed and then matched exactly, with case significant: ` A ` is Section A, while `a` matches nothing and makes the row invalid with the value shown, for the same reason a padded `02` does — a guessed match could put a meaning in the wrong place.
+- A blank value is no section, and an input without the section column or field at all parses and submits exactly as before: its entries carry no `section`.
+- A section requires the row's unit: a section without a unit number names a place of nothing, and the row is invalid with that reason (`有分节但未填写单元`) rather than being sent for the server to refuse.
+- The resolved section is sent as the entry's `section`, only when the row carries one; the server re-validates it under [ADR-005](./ADR-005-bulk-vocabulary-import.md).
 
 ### CSV
 
@@ -95,7 +104,7 @@ JSON is an array of entries that use the field names of the API: the items of th
 - The top level must be an array; anything else is a file-level error. When it is an object with an `entries` property, such as a complete `{ bookId, entries }` request, the error adds that only the array is accepted and that the book is the one picked on the page.
 - Each item is one preview row, numbered from 1 in array order. The preview heads its position column 序号 (number) for JSON instead of 行号 (line).
 - An item that is not an object, including an array and `null`, is invalid.
-- The fields are `word`, `phoneticUk`, `phoneticUs`, `partOfSpeech`, `meaning`, `example`, and `unit`, matched with their case. The keys are read with `Object.keys`, and any other key makes the item invalid with every such key named. That includes `__proto__`, which `JSON.parse` creates as an ordinary own key. There are no aliases such as `phonetic_uk`, and the API's `unitId` is not accepted either: the item names a unit by its number, which the page resolves as [the unit column](#the-unit-column) describes.
+- The fields are `word`, `phoneticUk`, `phoneticUs`, `partOfSpeech`, `meaning`, `example`, `unit`, and `section`, matched with their case. The keys are read with `Object.keys`, and any other key makes the item invalid with every such key named. That includes `__proto__`, which `JSON.parse` creates as an ordinary own key. There are no aliases such as `phonetic_uk`, and the API's `unitId` is not accepted either: the item names a unit by its number, which the page resolves as [the unit column](#the-unit-column) describes, and its section as [the section column](#the-section-column) describes.
 - Every value must be a string. A field that is absent or `null` is blank: a blank optional field is left out, and a blank `word` or `meaning` is reported by the shared row check. A number, boolean, object, or array makes the item invalid rather than being converted, and the preview shows it as `JSON.stringify` writes it, so the administrator sees the value that was refused.
 - String values are then trimmed and checked like every other format's rows, so an item gives the same entry as a TSV line with the same values. When an item has several problems, their reasons are joined with `；`, as for TSV.
 - An empty array has no data rows.
@@ -160,7 +169,7 @@ Imported entries remain user-supplied data under [ADR-002](./ADR-002-bundled-voc
 - Administrators can import CSV files and pasted CSV text on `/import/batch`, as described in the [frontend specification](../frontend/README.md#batch-import-page).
 - Administrators can import a JSON array of entries from a file or pasted text, with the API field names.
 - Administrators can import the first sheet of an `.xlsx` workbook without saving it as CSV first.
-- Every format carries an optional unit number — the TSV seventh column, the CSV and Excel `unit` column, the JSON `unit` field — which the page resolves to the selected book's `unitId`; inputs without it parse and submit exactly as before.
+- Every format carries an optional unit number — the TSV seventh column, the CSV and Excel `unit` column, the JSON `unit` field — which the page resolves to the selected book's `unitId`, and an optional section — the TSV eighth column, the `section` column, the `section` field — subject to [the section column](#the-section-column) rules; inputs without them parse and submit exactly as before.
 - The frontend has two more runtime dependencies, `read-excel-file` and `fflate`, both installed from the npm registry, covered by Dependabot and `npm audit`, and bundled only into the worker chunk.
 - Non-UTF-8 files, including TSV files, are refused instead of being imported with replacement characters.
 - CSV formula injection is not addressed: the feature exports nothing, and imported values are stored as text as they are.

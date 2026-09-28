@@ -22,11 +22,12 @@ export interface AdminBookRef {
   status: boolean
 }
 
-/** A unit a meaning is assigned to, in unit-number order. */
+/** A unit a meaning is assigned to, in unit-number order. `section` is `A` or `B` when the assignment sits in one of the unit's sections; absent in older reads. */
 export interface AdminMeaningUnit {
   unitId: string
   number: number
   title?: string | null
+  section?: string | null
 }
 
 /** One meaning record; it belongs to exactly one book. */
@@ -82,17 +83,26 @@ export interface AdminUnitRef {
   title?: string | null
 }
 
+/** How many assignment places the unit holds per section, always counted over the whole unit. */
+export interface AdminSectionCounts {
+  sectionA: number
+  sectionB: number
+  noSection: number
+}
+
 /**
  * One unit's content page: same shape as the whole-book page scoped to the
  * unit — counts are unit-scoped whatever the keyword, and each item's meanings
- * are only those assigned to the unit. A missing unit and a unit of another
- * book both answer 404.
+ * are only those assigned to the unit, narrowed to the requested section's
+ * places when one was asked for, while `sectionCounts` always reports the whole
+ * unit. A missing unit and a unit of another book both answer 404.
  */
 export interface AdminUnitContent {
   book: Book
   unit: AdminUnitRef
   wordCount: number
   meaningCount: number
+  sectionCounts: AdminSectionCounts
   items: AdminWordDetail[]
   totalCount: number
   totalPage: number
@@ -103,6 +113,9 @@ export interface AdminWordListQuery {
   page?: number
   size?: number
 }
+
+/** The unit-content page's section filter: one section's places, or the unsectioned ones. */
+export type AdminUnitSectionFilter = 'A' | 'B' | 'none'
 
 /** The whole library, deduplicated; `bookId` selects memberships, it does not trim them. */
 export function searchAdminVocabulary(
@@ -129,11 +142,11 @@ export function getAdminBookContent(
   })
 }
 
-/** One unit's word list, in the same shape as the whole-book page. */
+/** One unit's word list, in the same shape as the whole-book page. `section` narrows the page and the counts to that section's places of the unit. */
 export function getAdminUnitContent(
   bookId: string,
   unitId: string,
-  params: AdminWordListQuery,
+  params: AdminWordListQuery & { section?: AdminUnitSectionFilter },
   config?: AxiosRequestConfig
 ) {
   return api.get<AdminUnitContent>(`/admin/vocabulary-books/${bookId}/units/${unitId}/content`, {

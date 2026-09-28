@@ -28,6 +28,7 @@ public sealed class VocabularyAdminQueryService(IVocabularyAdminQueryRepository 
         string bookId,
         string unitId,
         string? keyword,
+        string? section,
         int? page,
         int? size,
         CancellationToken cancellationToken = default)
@@ -37,9 +38,31 @@ public sealed class VocabularyAdminQueryService(IVocabularyAdminQueryRepository 
             bookId.Trim(),
             unitId.Trim(),
             keyword?.Trim(),
+            ResolveSection(section),
             paging.Page,
             paging.Size,
             cancellationToken);
+    }
+
+    /// <summary>
+    /// Maps the query parameter: absent or blank reads every place of the unit,
+    /// <c>A</c> and <c>B</c> name a section, and <c>none</c> names the
+    /// unsectioned places. Anything else is refused rather than guessed at.
+    /// </summary>
+    private static string? ResolveSection(string? section)
+    {
+        if (string.IsNullOrWhiteSpace(section))
+        {
+            return null;
+        }
+
+        return section.Trim() switch
+        {
+            "A" => "A",
+            "B" => "B",
+            "none" => string.Empty,
+            _ => throw new DomainValidationException("Section must be A, B, or none.")
+        };
     }
 
     private static (int Page, int Size) Paging(int? requestedPage, int? requestedSize)

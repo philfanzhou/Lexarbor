@@ -540,12 +540,12 @@ async function saveMeaning(meaning: AdminMeaning) {
                   <span>{{ meaning.meaning }}</span>
                   <el-tag
                     v-for="unit in meaning.units ?? []"
-                    :key="unit.unitId"
+                    :key="`${unit.unitId}:${unit.section ?? ''}`"
                     class="word-detail__unit-tag"
                     size="small"
                     type="info"
                   >
-                    单元 {{ unit.number }}{{ unit.title ? ` · ${unit.title}` : '' }}
+                    单元 {{ unit.number }}{{ unit.title ? ` · ${unit.title}` : '' }}{{ unit.section ? ` · ${unit.section}` : '' }}
                   </el-tag>
                 </p>
                 <p v-if="meaning.example" class="word-detail__example">{{ meaning.example }}</p>

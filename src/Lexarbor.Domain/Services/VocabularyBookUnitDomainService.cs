@@ -8,8 +8,8 @@ namespace Lexarbor.Domain.Services;
 /// The domain rules for book units and meaning-to-unit assignments. This
 /// service owns the invariants later management, import and query tasks build
 /// on: unit numbers are unique per book and positive, one meaning may be
-/// assigned to many units of its own book, and a repeated assignment changes
-/// nothing.
+/// assigned to many units of its own book and to several sections of one
+/// unit, and a repeated assignment of the same place changes nothing.
 /// </summary>
 /// <remarks>
 /// Cross-book assignments are rejected here with an explicit conflict and are
@@ -201,14 +201,19 @@ public class VocabularyBookUnitDomainService
     }
 
     /// <summary>
-    /// Assigns a meaning to a unit. Assigning an already-assigned meaning again
-    /// returns without writing, so replaying an assignment is idempotent. The
-    /// meaning must belong to the unit's book.
+    /// Assigns a meaning to one place of a unit: its Section A, its Section B,
+    /// or — with a null <paramref name="section"/> — the unit as a whole.
+    /// Assigning a meaning to a place it already holds returns without writing,
+    /// so replaying an assignment is idempotent; the same meaning may hold
+    /// several places of the same unit. The meaning must belong to the unit's
+    /// book. A section other than <c>A</c> or <c>B</c> after trimming is
+    /// rejected rather than guessed at, matching the unit-number rule.
     /// </summary>
-    public async Task AssignMeaningAsync(string unitId, string meaningId)
+    public async Task AssignMeaningAsync(string unitId, string meaningId, string? section)
     {
         var normalizedUnitId = NormalizeRequired(unitId, "Unit ID is required.");
         var normalizedMeaningId = NormalizeRequired(meaningId, "Meaning ID is required.");
+        var normalizedSection = NormalizeSection(section);
 
         await _unitOfWork.ExecuteInTransactionAsync(async () =>
         {
@@ -224,7 +229,7 @@ public class VocabularyBookUnitDomainService
                     "A meaning can only be assigned to a unit of the same vocabulary book.");
             }
 
-            if (await _membershipRepository.ExistsAsync(unit.Id, meaning.Id))
+            if (await _membershipRepository.ExistsAsync(unit.Id, meaning.Id, normalizedSection))
             {
                 return 0;
             }
@@ -233,7 +238,8 @@ public class VocabularyBookUnitDomainService
             {
                 UnitId = unit.Id,
                 MeaningId = meaning.Id,
-                BookId = unit.BookId
+                BookId = unit.BookId,
+                Section = normalizedSection
             });
             await _unitOfWork.SaveChangesAsync();
             return 0;
@@ -241,26 +247,43 @@ public class VocabularyBookUnitDomainService
     }
 
     /// <summary>
-    /// Removes one assignment. The meaning itself survives, including its
+    /// Removes one assignment — one place of one unit. The meaning itself
+    /// survives, including its other positions of the same unit and its
     /// assignments to other units.
     /// </summary>
-    public async Task RemoveMeaningAsync(string unitId, string meaningId)
+    public async Task RemoveMeaningAsync(string unitId, string meaningId, string? section)
     {
         var normalizedUnitId = NormalizeRequired(unitId, "Unit ID is required.");
         var normalizedMeaningId = NormalizeRequired(meaningId, "Meaning ID is required.");
+        var normalizedSection = NormalizeSection(section);
 
         await _unitOfWork.ExecuteInTransactionAsync(async () =>
         {
-            if (!await _membershipRepository.ExistsAsync(normalizedUnitId, normalizedMeaningId))
+            if (!await _membershipRepository.ExistsAsync(normalizedUnitId, normalizedMeaningId, normalizedSection))
             {
                 throw new ResourceNotFoundException(
                     "The meaning is not assigned to this vocabulary book unit.");
             }
 
-            await _membershipRepository.DeleteAsync(normalizedUnitId, normalizedMeaningId);
+            await _membershipRepository.DeleteAsync(normalizedUnitId, normalizedMeaningId, normalizedSection);
             await _unitOfWork.SaveChangesAsync();
             return 0;
         });
+    }
+
+    /// <summary>
+    /// Null or blank is no section; anything else must be exactly <c>A</c> or
+    /// <c>B</c> after trimming, with case significant.
+    /// </summary>
+    private static string? NormalizeSection(string? section)
+    {
+        var normalized = VocabularyMeaningUnitSections.NormalizeOrNull(section);
+        if (!VocabularyMeaningUnitSections.IsValid(normalized))
+        {
+            throw new DomainValidationException("Section must be A or B.");
+        }
+
+        return normalized;
     }
 
     private static string NormalizeRequired(string? value, string message)

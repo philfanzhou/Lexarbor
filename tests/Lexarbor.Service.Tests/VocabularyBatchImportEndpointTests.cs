@@ -410,6 +410,81 @@ public class VocabularyBatchImportEndpointTests :
         }
     }
 
+    // A section names a place of the entry's unit: A and B are the only
+    // values, with case significant, and a section without a unitId names a
+    // place of nothing. Both are reported per entry, like every other entry
+    // error, and the batch writes nothing.
+    [Fact]
+    public async Task SectionWithoutUnitOrInvalidSection_Returns400WithEntryErrorsAndWritesNothing()
+    {
+        var bookId = await CreateBookAsync();
+        var suffix = bookId[^8..];
+        var unitId = await CreateUnitAsync(bookId, 2);
+        using var client = CreateAdminClient();
+
+        var response = await client.PostAsJsonAsync(
+            BatchPath,
+            Batch(
+                bookId,
+                Entry($"apple{suffix}", "苹果"),
+                Entry($"banana{suffix}", "香蕉", section: "A"),
+                Entry($"cherry{suffix}", "樱桃", unitId: unitId, section: "a"),
+                Entry($"durian{suffix}", "榴莲", unitId: unitId, section: "AB")),
+            TestContext.Current.CancellationToken);
+
+        var envelope = await AssertFailureAsync(response, HttpStatusCode.BadRequest);
+        Assert.Equal("3 entries are invalid.", envelope.GetProperty("message").GetString());
+        var errors = envelope.GetProperty("errors").EnumerateArray().ToList();
+        Assert.Equal([1, 2, 3], errors.Select(error => error.GetProperty("index").GetInt32()));
+        Assert.Equal(
+            ["Section requires a unitId.", "Section must be A or B.", "Section must be A or B."],
+            errors.Select(error => error.GetProperty("message").GetString()));
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var context = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+        Assert.Equal(0, await context.VocabularyMeanings.CountAsync(
+            meaning => meaning.BookId == bookId, TestContext.Current.CancellationToken));
+        Assert.Equal(0, await context.VocabularyMeaningUnits.CountAsync(
+            membership => membership.BookId == bookId, TestContext.Current.CancellationToken));
+        await AssertWordAbsentAsync($"apple{suffix}");
+    }
+
+    // Both sections of one unit are two idempotent positions of one meaning;
+    // the counts still speak about meanings, and a request without the new
+    // field imports exactly as before — an unsectioned position.
+    [Fact]
+    public async Task SectionsOfOneUnit_StoreTwoPositionsIdempotently()
+    {
+        var bookId = await CreateBookAsync();
+        var suffix = bookId[^8..];
+        var unit2Id = await CreateUnitAsync(bookId, 2);
+        using var client = CreateAdminClient();
+        var batch = Batch(
+            bookId,
+            Entry($"apple{suffix}", "苹果", unitId: unit2Id, section: "A"),
+            Entry($"apple{suffix}", "苹果", unitId: unit2Id, section: "B"),
+            Entry($"apple{suffix}", "苹果", unitId: unit2Id));
+
+        var first = await PostForDataAsync(client, batch);
+        var second = await PostForDataAsync(client, batch);
+
+        Assert.Equal((3, 1, 2), Counts(first));
+        Assert.Equal((3, 0, 3), Counts(second));
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var context = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+        Assert.Equal(
+            1,
+            await context.VocabularyMeanings.CountAsync(
+                meaning => meaning.BookId == bookId,
+                TestContext.Current.CancellationToken));
+        var positions = await context.VocabularyMeaningUnits
+            .Where(membership => membership.BookId == bookId)
+            .Select(membership => membership.Section)
+            .ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(["", "A", "B"], positions.Order(StringComparer.Ordinal));
+    }
+
     // A failure while writing rolls the assignments back with the entries they
     // belong to; nothing of the batch survives.
     [Theory]
@@ -575,8 +650,9 @@ public class VocabularyBatchImportEndpointTests :
         string? phoneticUk = null,
         string? partOfSpeech = null,
         string? example = null,
-        string? unitId = null) =>
-        new { word, meaning, phoneticUk, partOfSpeech, example, unitId };
+        string? unitId = null,
+        string? section = null) =>
+        new { word, meaning, phoneticUk, partOfSpeech, example, unitId, section };
 
     /// <summary>
     /// A valid one-entry batch padded with trailing whitespace, which JSON

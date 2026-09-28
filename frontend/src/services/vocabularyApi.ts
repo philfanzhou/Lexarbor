@@ -18,6 +18,8 @@ export interface VocabularyBatchEntry {
   meaning: string
   example?: string
   unitId?: string
+  /** The unit's section the assignment sits in: exactly `A` or `B`; requires `unitId`. */
+  section?: string
 }
 
 export interface VocabularyBatchImportPayload {

@@ -20,9 +20,9 @@ const PAGE_SIZE = 100
 
 const formatLabels: Record<VocabularyInputFormat, string> = { tsv: 'TSV', csv: 'CSV', json: 'JSON' }
 const placeholders: Record<VocabularyInputFormat, string> = {
-  tsv: '每行一条，制表符分隔：单词、英式音标、美式音标、词性、释义，可选第 6 列例句、第 7 列单元编号；空行和 # 开头的行忽略',
-  csv: '第一行为表头，逗号分隔，例如：word,phonetic_uk,phonetic_us,part_of_speech,meaning,example,unit',
-  json: '[{"word":"apple","meaning":"苹果","unit":"2"}]'
+  tsv: '每行一条，制表符分隔：单词、英式音标、美式音标、词性、释义，可选第 6 列例句、第 7 列单元编号、第 8 列分节（A/B）；空行和 # 开头的行忽略',
+  csv: '第一行为表头，逗号分隔，例如：word,phonetic_uk,phonetic_us,part_of_speech,meaning,example,unit,section',
+  json: '[{"word":"apple","meaning":"苹果","unit":"2","section":"A"}]'
 }
 /** The help panel's text for each format; what every format shares is in the template. */
 const formatHints: Record<VocabularyFileFormat, { title: string; rules: string[]; example: string }> = {
@@ -30,27 +30,27 @@ const formatHints: Record<VocabularyFileFormat, { title: string; rules: string[]
     title: 'TSV：制表符分隔',
     rules: [
       '没有表头，每行一条，列之间用制表符（Tab）分隔',
-      '列的顺序固定：单词、英式音标、美式音标、词性、释义，可选的第 6 列例句、第 7 列单元编号',
+      '列的顺序固定：单词、英式音标、美式音标、词性、释义，可选的第 6 列例句、第 7 列单元编号、第 8 列分节（A/B）',
       '空行和 # 开头的行忽略'
     ],
-    example: 'apple\t/ˈæp.əl/\t/ˈæp.əl/\tn.\t苹果\tI eat an apple.\t2'
+    example: 'apple\t/ˈæp.əl/\t/ˈæp.əl/\tn.\t苹果\tI eat an apple.\t2\tA'
   },
   csv: {
     title: 'CSV：逗号分隔',
     rules: [
-      '第一行为表头，可用的列名：word、phonetic_uk、phonetic_us、part_of_speech、meaning、example、unit',
+      '第一行为表头，可用的列名：word、phonetic_uk、phonetic_us、part_of_speech、meaning、example、unit、section',
       '表头不区分大小写，顺序不限；word 和 meaning 必填',
       '只支持逗号分隔'
     ],
-    example: 'word,phonetic_uk,phonetic_us,part_of_speech,meaning,example,unit\napple,/ˈæp.əl/,/ˈæp.əl/,n.,苹果,I eat an apple.,2'
+    example: 'word,phonetic_uk,phonetic_us,part_of_speech,meaning,example,unit,section\napple,/ˈæp.əl/,/ˈæp.əl/,n.,苹果,I eat an apple.,2,A'
   },
   json: {
     title: 'JSON：对象数组',
     rules: [
       '顶层是一个数组，每项是一个对象',
-      '字段名与 API 相同：word、phoneticUk、phoneticUs、partOfSpeech、meaning、example、unit；word 和 meaning 必填'
+      '字段名与 API 相同：word、phoneticUk、phoneticUs、partOfSpeech、meaning、example、unit、section；word 和 meaning 必填'
     ],
-    example: '[\n  { "word": "apple", "phoneticUk": "/ˈæp.əl/", "meaning": "苹果", "unit": "2" },\n  { "word": "banana", "meaning": "香蕉" }\n]'
+    example: '[\n  { "word": "apple", "phoneticUk": "/ˈæp.əl/", "meaning": "苹果", "unit": "2", "section": "A" },\n  { "word": "banana", "meaning": "香蕉" }\n]'
   },
   xlsx: {
     title: 'Excel：.xlsx 工作簿',
@@ -58,7 +58,7 @@ const formatHints: Record<VocabularyFileFormat, { title: string; rules: string[]
       '只读取第一个工作表',
       '第一条非空行是表头，列名和规则与 CSV 相同'
     ],
-    example: 'word | phonetic_uk | phonetic_us | part_of_speech | meaning | example | unit\napple | /ˈæp.əl/ | /ˈæp.əl/ | n. | 苹果 | I eat an apple. | 2'
+    example: 'word | phonetic_uk | phonetic_us | part_of_speech | meaning | example | unit | section\napple | /ˈæp.əl/ | /ˈæp.əl/ | n. | 苹果 | I eat an apple. | 2 | A'
   }
 }
 // A JSON row is numbered by its item in the array, not by a line.
@@ -146,13 +146,41 @@ function resolveUnit(columns: string[]): { unit?: BookUnit; unknownFor?: string 
   return unit === undefined ? { unknownFor: raw } : { unit }
 }
 
+/**
+ * One row's section column, checked the way the server checks it: blank is no
+ * section, and only `A` and `B` after trimming name one, with case
+ * significant. A section also requires the row's unit — it names a place of
+ * that unit — so a section without a unit number is a row error here, not a
+ * server rejection.
+ */
+function resolveSection(columns: string[]): { section?: string; reason?: string } {
+  const raw = (columns[7] ?? '').trim()
+  if (raw === '') {
+    return {}
+  }
+
+  if (raw !== 'A' && raw !== 'B') {
+    return { reason: `分节应为 A 或 B：${raw}` }
+  }
+
+  if ((columns[6] ?? '').trim() === '') {
+    return { reason: '有分节但未填写单元' }
+  }
+
+  return { section: raw }
+}
+
 const previewRows = computed(() =>
   rows.value.map((row) => {
     const serverError = serverErrors.value.get(row.position)
     const resolved = resolveUnit(row.columns)
+    const sectioned = resolveSection(row.columns)
     let reason = row.error
     if (reason === undefined && resolved?.unknownFor !== undefined) {
       reason = `未知单元：${resolved.unknownFor}`
+    }
+    if (reason === undefined && sectioned.reason !== undefined) {
+      reason = sectioned.reason
     }
     if (reason === undefined && serverError !== undefined) {
       reason = `服务端：${serverError}`
@@ -160,7 +188,7 @@ const previewRows = computed(() =>
     const unitText = resolved?.unit === undefined
       ? row.columns[6] ?? ''
       : resolved.unit.title ? `${resolved.unit.number} · ${resolved.unit.title}` : String(resolved.unit.number)
-    return { ...row, unit: resolved?.unit, unitUnknown: resolved?.unknownFor, unitText, reason }
+    return { ...row, unit: resolved?.unit, unitUnknown: resolved?.unknownFor, unitText, section: sectioned.section, reason }
   })
 )
 
@@ -202,6 +230,11 @@ const payload = computed<VocabularyBatchImportPayload | undefined>(() => {
       const entry = { ...row.entry! }
       if (row.unit !== undefined) {
         entry.unitId = row.unit.id
+      }
+      // A section is sent only when the row carries one, like every other
+      // optional value.
+      if (row.section !== undefined) {
+        entry.section = row.section
       }
       return entry
     })
@@ -556,6 +589,7 @@ onBeforeUnmount(stopReadingExcel)
             <li>单批不超过 {{ MAX_ENTRIES }} 条</li>
             <li>整批在一个事务中写入：任何一条失败，整批都不写入</li>
             <li>单元编号填写所选教材单元管理中的编号（如 2），去空白后精确匹配；空白计为不归属，写错编号的行无法提交，导入不会创建单元</li>
+            <li>分节在第 8 列（CSV/Excel 表头 `section`、JSON 字段 `section`）填写 A 或 B，去空白后精确匹配、区分大小写；空白计为未分节；有分节时必须同时填写单元编号</li>
             <li>文件只在浏览器中解析，不会上传</li>
           </ul>
         </div>
@@ -645,6 +679,9 @@ onBeforeUnmount(stopReadingExcel)
           </el-table-column>
           <el-table-column label="单元" min-width="120">
             <template #default="{ row }">{{ row.unitText }}</template>
+          </el-table-column>
+          <el-table-column label="分节" width="70">
+            <template #default="{ row }">{{ row.columns[7] ?? '' }}</template>
           </el-table-column>
           <el-table-column label="状态" min-width="180">
             <template #default="{ row }">

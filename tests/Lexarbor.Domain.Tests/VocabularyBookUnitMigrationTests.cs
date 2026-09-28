@@ -144,8 +144,8 @@ public sealed class VocabularyBookUnitMigrationTests : IDisposable
             Assert.Equal(6, (await unitService.GetByBookAsync("book-a")).Count);
             Assert.Equal(2, (await unitService.GetByBookAsync("book-b")).Count);
 
-            await unitService.AssignMeaningAsync(unit2InB.Id, "meaning-3");
-            await unitService.AssignMeaningAsync(unit6InB.Id, "meaning-3");
+            await unitService.AssignMeaningAsync(unit2InB.Id, "meaning-3", null);
+            await unitService.AssignMeaningAsync(unit6InB.Id, "meaning-3", null);
             Assert.Equal(2, await context.VocabularyMeaningUnits.CountAsync(TestContext.Current.CancellationToken));
         }
     }

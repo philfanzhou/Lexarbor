@@ -179,6 +179,66 @@ public class VocabularyBatchImportTests : TestBase
     }
 
     [Fact]
+    public async Task ImportBatchAsync_SectionWithoutUnitOrInvalidSection_IsRejectedBeforeAnyWrite()
+    {
+        var book = await CreateBookAsync();
+        await CreateUnitAsync(book.Id, 1);
+
+        // A section names a place of a unit, so it cannot appear without one;
+        // and only A and B exist, with case significant.
+        await Assert.ThrowsAsync<DomainValidationException>(() => _service.ImportBatchAsync(
+            book.Id,
+            [Entry("apple", "苹果", section: "A")]));
+        await Assert.ThrowsAsync<DomainValidationException>(() => _service.ImportBatchAsync(
+            book.Id,
+            [Entry("apple", "苹果", section: "a")]));
+        // A valid entry ahead of the invalid one is not written.
+        await Assert.ThrowsAsync<DomainValidationException>(() => _service.ImportBatchAsync(
+            book.Id,
+            [Entry("apple", "苹果"), Entry("banana", "香蕉", section: "B")]));
+
+        Assert.Equal(0, await _dbContext.Vocabularies.CountAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(0, await CountMeaningsAsync(book.Id));
+        Assert.Equal(0, await _dbContext.VocabularyMeaningUnits.CountAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task ImportBatchAsync_SameUnitDifferentSections_StoreTwoPositionsOfOneMeaning()
+    {
+        var book = await CreateBookAsync();
+        var unit = await CreateUnitAsync(book.Id, 2);
+
+        var first = await _service.ImportBatchAsync(
+            book.Id,
+            [
+                Entry("apple", "苹果", unitId: unit.Id, section: "A"),
+                Entry("apple", "苹果", unitId: unit.Id, section: "B"),
+                // The same two positions again in one batch, plus a padded
+                // section and an unsectioned position of the same unit.
+                Entry("apple", "苹果", unitId: unit.Id, section: " A "),
+                Entry("apple", "苹果", unitId: unit.Id)
+            ]);
+
+        Assert.Equal(new VocabularyBatchImportResult(4, 1, 3), first);
+        Assert.Equal(1, await CountMeaningsAsync(book.Id));
+        var memberships = await _dbContext.VocabularyMeaningUnits
+            .Select(membership => membership.Section)
+            .ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(["", "A", "B"], memberships.Order(StringComparer.Ordinal));
+
+        // Resubmitting the batch writes nothing: each position is idempotent.
+        var second = await _service.ImportBatchAsync(
+            book.Id,
+            [
+                Entry("apple", "苹果", unitId: unit.Id, section: "A"),
+                Entry("apple", "苹果", unitId: unit.Id, section: "B"),
+                Entry("apple", "苹果", unitId: unit.Id)
+            ]);
+        Assert.Equal(new VocabularyBatchImportResult(3, 0, 3), second);
+        Assert.Equal(3, await _dbContext.VocabularyMeaningUnits.CountAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task ImportBatchAsync_UnknownOrCrossBookUnitId_ReportsEveryEntryAndWritesNothing()
     {
         var book = await CreateBookAsync();
@@ -239,7 +299,7 @@ public class VocabularyBatchImportTests : TestBase
     {
         var book = await CreateBookAsync();
         var unit = await CreateUnitAsync(book.Id, 1);
-        var entries = new List<(VocabularyModel, VocabularyMeaningModel, string?)>
+        var entries = new List<(VocabularyModel Word, VocabularyMeaningModel Meaning, string? UnitId, string? Section)>
         {
             Entry("apple", "苹果", unitId: unit.Id)
         };
@@ -319,15 +379,29 @@ public class VocabularyBatchImportTests : TestBase
     }
 
     [Theory]
-    [InlineData("apple", "苹果", null)]
-    [InlineData(" ", "苹果", "Word is required.")]
-    [InlineData("apple", "", "Meaning is required.")]
-    [InlineData(null, null, "Word and meaning are required.")]
-    public void ValidateBatchEntry_ReportsMissingRequiredFields(string? word, string? meaning, string? expected)
+    [InlineData("apple", "苹果", null, null, null)]
+    [InlineData(" ", "苹果", null, null, "Word is required.")]
+    [InlineData("apple", "", null, null, "Meaning is required.")]
+    [InlineData(null, null, null, null, "Word and meaning are required.")]
+    [InlineData("apple", "苹果", null, "a", "Section must be A or B.")]
+    [InlineData("apple", "苹果", null, "C", "Section must be A or B.")]
+    // A padded section trims to a valid one, so it fails only for the missing unit.
+    [InlineData("apple", "苹果", null, "B ", "Section requires a unitId.")]
+    [InlineData("apple", "苹果", null, "A", "Section requires a unitId.")]
+    [InlineData("apple", "苹果", "unit-1", " A ", null)]
+    [InlineData("apple", "苹果", "unit-1", "B", null)]
+    public void ValidateBatchEntry_ReportsMissingRequiredFields(
+        string? word,
+        string? meaning,
+        string? unitId,
+        string? section,
+        string? expected)
     {
-        var (vocabulary, vocabularyMeaning, _) = Entry(word!, meaning!);
+        var (vocabulary, vocabularyMeaning, _, _) = Entry(word!, meaning!, unitId: unitId, section: section);
 
-        Assert.Equal(expected, VocabularyDomainService.ValidateBatchEntry(vocabulary, vocabularyMeaning));
+        Assert.Equal(
+            expected,
+            VocabularyDomainService.ValidateBatchEntry(vocabulary, vocabularyMeaning, unitId, section));
     }
 
     private VocabularyDomainService CreateService(IVocabularyMeaningRepository meaningRepository)
@@ -359,19 +433,21 @@ public class VocabularyBatchImportTests : TestBase
         return await unitService.CreateAsync(bookId, number, null);
     }
 
-    private static (VocabularyModel Word, VocabularyMeaningModel Meaning, string? UnitId) Entry(
+    private static (VocabularyModel Word, VocabularyMeaningModel Meaning, string? UnitId, string? Section) Entry(
         string word,
         string meaning,
         string? partOfSpeech = null,
         string? phoneticUk = null,
         string? phoneticUs = null,
         string? example = null,
-        string? unitId = null)
+        string? unitId = null,
+        string? section = null)
     {
         return (
             new VocabularyModel { Word = word, PhoneticUk = phoneticUk, PhoneticUs = phoneticUs },
             new VocabularyMeaningModel { PartOfSpeech = partOfSpeech, Meaning = meaning, Example = example },
-            unitId);
+            unitId,
+            section);
     }
 
     /// <summary>

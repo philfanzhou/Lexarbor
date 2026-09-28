@@ -152,7 +152,7 @@ test('imports JSON files and pasted JSON with the same payload as the same batch
   }
 
   await selectFormat(page, 'JSON')
-  await expect(dataInput(page)).toHaveAttribute('placeholder', '[{"word":"apple","meaning":"苹果","unit":"2"}]')
+  await expect(dataInput(page)).toHaveAttribute('placeholder', '[{"word":"apple","meaning":"苹果","unit":"2","section":"A"}]')
   await dataInput(page).fill(pretty)
   await expect(page.locator('.batch-summary')).toContainText('数据行 3 条，有效 3 条，无效 0 条')
   await submitButton(page).click()
@@ -228,7 +228,7 @@ test('marks items invalid by their number and shows the values they were refused
   await expect(previewRow(page, 2)).toContainText('未知字段：Word、__proto__')
   await expect(previewRow(page, 3)).toContainText('字段 phoneticUk 应为字符串；字段 meaning 应为字符串；字段 example 应为字符串')
   await expect(previewRow(page, 3).locator('td')).toHaveText(
-    ['3', 'banana', '["a"]', '', '', '1', 'true', '', /字段 phoneticUk 应为字符串/])
+    ['3', 'banana', '["a"]', '', '', '1', 'true', '', '', /字段 phoneticUk 应为字符串/])
   for (const position of [4, 5, 6]) {
     await expect(previewRow(page, position)).toContainText('该项不是对象')
   }

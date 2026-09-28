@@ -4,8 +4,12 @@ public record VocabularyAdminBookDto(string Id, string BookName, bool Status);
 public record VocabularyAdminWordDto(string Id, string Word, string? PhoneticUk, string? PhoneticUs,
     IReadOnlyList<VocabularyAdminBookDto> Books);
 
-/// <summary>A unit a meaning of an administrative detail is assigned to.</summary>
-public record VocabularyAdminUnitDto(string UnitId, int Number, string? Title);
+/// <summary>
+/// A unit a meaning of an administrative detail is assigned to. A meaning
+/// with two places of one unit reads as two entries whose <c>Section</c>
+/// differs; null is the unsectioned place.
+/// </summary>
+public record VocabularyAdminUnitDto(string UnitId, int Number, string? Title, string? Section);
 
 /// <summary>
 /// A meaning of an administrative detail: the fields the public meaning DTO

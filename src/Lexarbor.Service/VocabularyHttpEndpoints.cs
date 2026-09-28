@@ -169,7 +169,7 @@ public static partial class VocabularyHttpEndpoints
                 $"A batch can contain at most {VocabularyDomainService.MaxBatchEntries} entries.");
         }
 
-        var entries = new List<(VocabularyModel Word, VocabularyMeaningModel Meaning, string? UnitId)>(
+        var entries = new List<(VocabularyModel Word, VocabularyMeaningModel Meaning, string? UnitId, string? Section)>(
             request.Entries.Count);
         var errors = new List<VocabularyBatchEntryError>();
         for (var index = 0; index < request.Entries.Count; index++)
@@ -182,7 +182,7 @@ public static partial class VocabularyHttpEndpoints
             }
 
             var models = entry.ToEntities(request.BookId);
-            var error = VocabularyDomainService.ValidateBatchEntry(models.Word, models.Meaning);
+            var error = VocabularyDomainService.ValidateBatchEntry(models.Word, models.Meaning, models.UnitId, models.Section);
             if (error != null)
             {
                 errors.Add(new VocabularyBatchEntryError { Index = index, Message = error });

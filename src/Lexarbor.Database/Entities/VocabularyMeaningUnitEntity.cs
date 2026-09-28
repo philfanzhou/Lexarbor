@@ -4,12 +4,23 @@ using System.ComponentModel.DataAnnotations.Schema;
 namespace Lexarbor.Database.Entities;
 
 /// <summary>
-/// The assignment of one meaning to one unit. A meaning can be assigned to
-/// several units of its book, and a unit holds several meanings; the pair is
-/// the primary key, so repeating an assignment is a conflict rather than a
-/// second row.
+/// The assignment of one meaning to one place of one unit. A meaning can be
+/// assigned to several units of its book, and — because books split their
+/// units into Section A and Section B — to several places of the same unit;
+/// the triple <c>(unit_id, meaning_id, section)</c> is the primary key, so
+/// repeating an assignment is a conflict rather than a second row.
 /// </summary>
 /// <remarks>
+/// <para>
+/// <c>section</c> is stored as a non-nullable sentinel rather than NULL:
+/// SQLite treats NULLs in a composite primary key as mutually unequal, so
+/// NULL storage would let the same unsectioned assignment be inserted twice
+/// and cannot back the idempotent re-import the batch contract promises. The
+/// sentinel is the empty string, with <c>A</c> and <c>B</c> the only section
+/// names; a CHECK constraint enforces that domain. The domain model hides the
+/// sentinel behind a nullable <see cref="string"/> where null means no
+/// section; the repository translates.
+/// </para>
 /// <para>
 /// <c>book_id</c> is deliberately redundant: it duplicates the book both the
 /// unit and the meaning already carry, and the two composite foreign keys
@@ -35,6 +46,9 @@ public class VocabularyMeaningUnitEntity
 
     [Column("book_id")]
     public string BookId { get; set; } = string.Empty;
+
+    [Column("section")]
+    public string Section { get; set; } = string.Empty;
 
     public virtual VocabularyBookUnitEntity? Unit { get; set; }
 

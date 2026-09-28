@@ -108,7 +108,22 @@ public class VocabularyDbContext : DbContext
 
         modelBuilder.Entity<VocabularyMeaningUnitEntity>(entity =>
         {
-            entity.HasKey(e => new { e.UnitId, e.MeaningId });
+            // The section completes the position: a meaning may sit in the
+            // same unit's Section A and Section B as two rows. The property is
+            // the empty-string sentinel rather than null because SQLite treats
+            // NULLs in a composite primary key as distinct, which would break
+            // the idempotent re-import of an unsectioned assignment.
+            entity.HasKey(e => new { e.UnitId, e.MeaningId, e.Section });
+
+            entity.Property(e => e.Section)
+                .HasDefaultValue(string.Empty);
+
+            entity.ToTable(table =>
+            {
+                table.HasCheckConstraint(
+                    "CK_vocabulary_meaning_unit_section",
+                    "section IN ('', 'A', 'B')");
+            });
 
             // Both foreign keys include book_id and point at a (id, book_id)
             // parent key, so a row can only exist when the unit and the meaning

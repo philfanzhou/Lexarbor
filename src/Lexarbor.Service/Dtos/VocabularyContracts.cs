@@ -136,6 +136,13 @@ public class VocabularyBatchEntryDto
     /// name an existing unit of that book; units are never created here.
     /// </summary>
     public string? UnitId { get; set; }
+
+    /// <summary>
+    /// Optional section of that unit the assignment sits in: exactly <c>A</c>
+    /// or <c>B</c> after trimming, case significant. Requires <c>unitId</c>; a
+    /// blank value is no section.
+    /// </summary>
+    public string? Section { get; set; }
 }
 
 /// <summary>

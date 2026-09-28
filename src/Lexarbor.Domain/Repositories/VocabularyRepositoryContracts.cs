@@ -71,9 +71,11 @@ public interface IVocabularyBookUnitRepository
     Task<VocabularyBookUnitModel?> GetByIdAsync(string id);
     Task<List<VocabularyBookUnitModel>> GetByBookIdAsync(string bookId);
     /// <summary>
-    /// How many meanings each unit of one book has assigned, from a single
-    /// grouped read. Units with no assignments are absent from the dictionary,
-    /// and the caller treats a missing key as zero.
+    /// How many distinct meanings each unit of one book has assigned, from a
+    /// single grouped read. A meaning that holds two positions of one unit —
+    /// its Section A and its Section B — is one meaning, not two. Units with
+    /// no assignments are absent from the dictionary, and the caller treats a
+    /// missing key as zero.
     /// </summary>
     Task<Dictionary<string, int>> GetAssignmentCountsByBookIdAsync(string bookId);
     Task AddAsync(VocabularyBookUnitModel model);
@@ -83,9 +85,11 @@ public interface IVocabularyBookUnitRepository
 
 public interface IVocabularyMeaningUnitRepository
 {
-    Task<bool> ExistsAsync(string unitId, string meaningId);
+    /// <param name="section">Null for the unsectioned position of the unit.</param>
+    Task<bool> ExistsAsync(string unitId, string meaningId, string? section);
     Task<List<VocabularyMeaningUnitModel>> GetByUnitIdAsync(string unitId);
     Task<List<VocabularyMeaningUnitModel>> GetByMeaningIdAsync(string meaningId);
     Task AddAsync(VocabularyMeaningUnitModel model);
-    Task DeleteAsync(string unitId, string meaningId);
+    /// <param name="section">Null for the unsectioned position of the unit.</param>
+    Task DeleteAsync(string unitId, string meaningId, string? section);
 }
