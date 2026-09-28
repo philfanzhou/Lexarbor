@@ -23,6 +23,14 @@ function book(id: string, bookName: string, displayOrder: number) {
 const starterBook = book('11111111-1111-1111-1111-111111111111', 'CI Starter Book', 1)
 const otherBook = book('22222222-2222-2222-2222-222222222222', 'CI Other Book', 2)
 
+const starterUnits = [
+  { id: 'unit-2', bookId: starterBook.id, number: 2, title: 'School Life', meaningCount: 0 },
+  { id: 'unit-5', bookId: starterBook.id, number: 5, title: null, meaningCount: 0 }
+]
+const otherUnits = [
+  { id: 'other-unit-1', bookId: otherBook.id, number: 1, title: 'Greetings', meaningCount: 0 }
+]
+
 function json(route: Route, data: unknown, status = 200) {
   return route.fulfill({
     status,
@@ -43,6 +51,11 @@ async function openBatchPage(page: Page) {
     }))
   await page.route(/\/api\/vocabulary-books\/all$/, (route) =>
     json(route, { success: true, data: { books: [starterBook, otherBook] } }))
+  await page.route(/\/admin\/vocabulary-books\/[^/]+\/units$/, (route) => {
+    const bookId = new URL(route.request().url()).pathname.split('/')[3]
+    const units = bookId === otherBook.id ? otherUnits : starterUnits
+    return json(route, { success: true, data: { units } })
+  })
 
   await page.goto('/#/import/batch')
   await expect(page.locator('.session')).toContainText(admin.username)
@@ -226,7 +239,7 @@ const fileLevelErrors = [
   {
     name: 'an unknown header',
     csv: 'word,phonetic_uk,meanings\napple,,苹果',
-    expected: '第 3 列表头「meanings」无法识别；支持：word、phonetic_uk、phonetic_us、part_of_speech、meaning、example（CSV 只支持逗号分隔）'
+    expected: '第 3 列表头「meanings」无法识别；支持：word、phonetic_uk、phonetic_us、part_of_speech、meaning、example、unit（CSV 只支持逗号分隔）'
   },
   {
     name: 'a semicolon-separated file',

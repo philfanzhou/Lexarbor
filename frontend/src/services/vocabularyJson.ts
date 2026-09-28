@@ -4,9 +4,10 @@ import type { VocabularyPreviewRow } from './vocabularyRow'
 /**
  * The field names an item may use, in canonical order: the `VocabularyBatchEntry`
  * names of the API, so an index here is also an index into
- * `VocabularyPreviewRow.columns`.
+ * `VocabularyPreviewRow.columns`. The last name, `unit`, is the optional unit
+ * number as a string, which the page resolves against the selected book's units.
  */
-const JSON_FIELDS = ['word', 'phoneticUk', 'phoneticUs', 'partOfSpeech', 'meaning', 'example'] as const
+const JSON_FIELDS = ['word', 'phoneticUk', 'phoneticUs', 'partOfSpeech', 'meaning', 'example', 'unit'] as const
 
 export interface VocabularyJsonResult {
   rows: VocabularyPreviewRow[]
