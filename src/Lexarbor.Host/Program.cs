@@ -73,6 +73,8 @@ builder.Services.AddDbContext<VocabularyDbContext>(options =>
 builder.Services.AddScoped<IVocabularyRepository, VocabularyRepository>();
 builder.Services.AddScoped<IVocabularyBookRepository, VocabularyBookRepository>();
 builder.Services.AddScoped<IVocabularyMeaningRepository, VocabularyMeaningRepository>();
+builder.Services.AddScoped<IVocabularyBookUnitRepository, VocabularyBookUnitRepository>();
+builder.Services.AddScoped<IVocabularyMeaningUnitRepository, VocabularyMeaningUnitRepository>();
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 builder.Services.AddScoped<IVocabularyWordEditRepository, VocabularyWordEditRepository>();
 builder.Services.AddScoped<VocabularyWordEditService>();
@@ -83,6 +85,7 @@ builder.Services.AddScoped<IVocabularyCleanupRepository, VocabularyCleanupReposi
 builder.Services.AddScoped<VocabularyCleanupService>();
 builder.Services.AddScoped<VocabularyDomainService>();
 builder.Services.AddScoped<VocabularyBookDomainService>();
+builder.Services.AddScoped<VocabularyBookUnitDomainService>();
 builder.Services.Configure<RouteHandlerOptions>(options =>
 {
     options.ThrowOnBadRequest = true;

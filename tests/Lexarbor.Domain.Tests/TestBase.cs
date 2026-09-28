@@ -15,6 +15,8 @@ public class TestBase : IDisposable
     protected readonly IVocabularyRepository _vocabularyRepository;
     protected readonly IVocabularyBookRepository _bookRepository;
     protected readonly IVocabularyMeaningRepository _meaningRepository;
+    protected readonly IVocabularyBookUnitRepository _bookUnitRepository;
+    protected readonly IVocabularyMeaningUnitRepository _meaningUnitRepository;
     protected readonly IUnitOfWork _unitOfWork;
 
     public TestBase()
@@ -31,6 +33,8 @@ public class TestBase : IDisposable
         _vocabularyRepository = new VocabularyRepository(_dbContext);
         _bookRepository = new VocabularyBookRepository(_dbContext);
         _meaningRepository = new VocabularyMeaningRepository(_dbContext);
+        _bookUnitRepository = new VocabularyBookUnitRepository(_dbContext);
+        _meaningUnitRepository = new VocabularyMeaningUnitRepository(_dbContext);
         _unitOfWork = new UnitOfWork(_dbContext);
     }
 
