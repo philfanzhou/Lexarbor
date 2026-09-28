@@ -351,6 +351,134 @@ test('blocks submission while the unit list cannot be loaded, and retries', asyn
   expect(payloads).toEqual([{ bookId: starterBook.id, entries: unitsEntries }])
 })
 
+test('resolves the TSV eighth column into sections and keeps invalid ones on their rows', async ({ page }) => {
+  await openBatchPage(page)
+  const payloads = await acceptBatch(page)
+  await selectBook(page)
+
+  const text = [
+    'apple\t\t\tn.\t苹果\t\t2\tA',
+    'banana\t\t\t\t香蕉\t\t2\tB',
+    'cherry\t\t\t\t樱桃\t\t5',
+    'date\t\t\t\t枣\t\t\tA',
+    'egg\t\t\t\t蛋\t\t2\ta',
+    'fig\t\t\t\t无花果\t\t2\t A '
+  ].join('\n')
+  await dataInput(page).fill(text)
+
+  await expect(page.locator('.batch-summary')).toContainText('数据行 6 条，有效 4 条，无效 2 条')
+  await expect(previewRow(page, 1).locator('td').nth(7)).toHaveText('2 · School Life')
+  await expect(previewRow(page, 1).locator('td').nth(8)).toHaveText('A')
+  await expect(previewRow(page, 2).locator('td').nth(8)).toHaveText('B')
+  await expect(previewRow(page, 3).locator('td').nth(8)).toHaveText('')
+  // A section without a unit names a place of nothing, and only A and B are
+  // sections — lowercase is not normalized into one. A padded section trims
+  // to a valid one.
+  await expect(previewRow(page, 4)).toContainText('有分节但未填写单元')
+  await expect(previewRow(page, 5)).toContainText('分节应为 A 或 B：a')
+  await expect(previewRow(page, 6).locator('td').nth(8)).toHaveText('A')
+  await expect(page.locator('.batch-blockers')).toContainText('存在 2 行无效数据')
+  await expect(submitButton(page)).toBeDisabled()
+  await submitButton(page).click({ force: true })
+  expect(payloads).toHaveLength(0)
+
+  // Corrected rows import with their sections; the padded one trims to A.
+  const fixed = [
+    'apple\t\t\tn.\t苹果\t\t2\tA',
+    'banana\t\t\t\t香蕉\t\t2\tB',
+    'cherry\t\t\t\t樱桃\t\t5',
+    'date\t\t\t\t枣\t\t2\tA',
+    'egg\t\t\t\t蛋\t\t2\tB',
+    'fig\t\t\t\t无花果\t\t2\t A '
+  ].join('\n')
+  await dataInput(page).fill(fixed)
+  await expect(page.locator('.batch-summary')).toContainText('数据行 6 条，有效 6 条，无效 0 条')
+  await submitButton(page).click()
+  await expect(page.locator('.batch-result')).toBeVisible()
+  expect(payloads).toEqual([{
+    bookId: starterBook.id,
+    entries: [
+      { word: 'apple', partOfSpeech: 'n.', meaning: '苹果', unitId: 'unit-2', section: 'A' },
+      { word: 'banana', meaning: '香蕉', unitId: 'unit-2', section: 'B' },
+      { word: 'cherry', meaning: '樱桃', unitId: 'unit-5' },
+      { word: 'date', meaning: '枣', unitId: 'unit-2', section: 'A' },
+      { word: 'egg', meaning: '蛋', unitId: 'unit-2', section: 'B' },
+      { word: 'fig', meaning: '无花果', unitId: 'unit-2', section: 'A' }
+    ]
+  }])
+})
+
+test('resolves a CSV section column and a JSON section field into the same entries', async ({ page }) => {
+  await openBatchPage(page)
+  const payloads = await acceptBatch(page)
+  await selectBook(page)
+
+  const csv = [
+    'word,meaning,unit,section',
+    'apple,苹果,2,A',
+    'banana,香蕉,2,B',
+    'cherry,樱桃,5,'
+  ].join('\r\n')
+  await page.locator('.batch-file-input').setInputFiles({
+    name: 'words.csv',
+    mimeType: 'text/csv',
+    buffer: Buffer.from(csv, 'utf-8')
+  })
+  await expect(page.locator('.batch-summary')).toContainText('数据行 3 条，有效 3 条，无效 0 条')
+  await expect(previewRow(page, 2).locator('td').nth(8)).toHaveText('A')
+
+  await submitButton(page).click()
+  await expect(page.locator('.batch-result')).toBeVisible()
+
+  await selectFormat(page, 'JSON')
+  await dataInput(page).fill(JSON.stringify([
+    { word: 'apple', meaning: '苹果', unit: '2', section: 'A' },
+    { word: 'banana', meaning: '香蕉', unit: '2', section: 'B' },
+    { word: 'cherry', meaning: '樱桃', unit: '5' }
+  ]))
+  await expect(page.locator('.batch-summary')).toContainText('数据行 3 条，有效 3 条，无效 0 条')
+  await submitButton(page).click()
+  await expect(page.locator('.batch-result')).toBeVisible()
+
+  expect(payloads).toEqual([
+    {
+      bookId: starterBook.id,
+      entries: [
+        { word: 'apple', meaning: '苹果', unitId: 'unit-2', section: 'A' },
+        { word: 'banana', meaning: '香蕉', unitId: 'unit-2', section: 'B' },
+        { word: 'cherry', meaning: '樱桃', unitId: 'unit-5' }
+      ]
+    },
+    {
+      bookId: starterBook.id,
+      entries: [
+        { word: 'apple', meaning: '苹果', unitId: 'unit-2', section: 'A' },
+        { word: 'banana', meaning: '香蕉', unitId: 'unit-2', section: 'B' },
+        { word: 'cherry', meaning: '樱桃', unitId: 'unit-5' }
+      ]
+    }
+  ])
+})
+
+test('refuses a non-string JSON section value instead of converting it', async ({ page }) => {
+  await openBatchPage(page)
+  const payloads = await acceptBatch(page)
+  await selectBook(page)
+
+  await selectFormat(page, 'JSON')
+  await dataInput(page).fill(JSON.stringify([
+    { word: 'apple', meaning: '苹果', unit: '2', section: 2 },
+    { word: 'banana', meaning: '香蕉' }
+  ]))
+
+  await expect(page.locator('.batch-summary')).toContainText('数据行 2 条，有效 1 条，无效 1 条')
+  await expect(previewRow(page, 1)).toContainText('字段 section 应为字符串')
+  await expect(page.locator('.batch-blockers')).toContainText('存在 1 行无效数据')
+  await expect(submitButton(page)).toBeDisabled()
+  await submitButton(page).click({ force: true })
+  expect(payloads).toHaveLength(0)
+})
+
 test('re-checks the unit column when a file replaces pasted text', async ({ page }) => {
   await openBatchPage(page)
   const payloads = await acceptBatch(page)

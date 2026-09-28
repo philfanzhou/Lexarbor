@@ -37,18 +37,26 @@ public static class VocabularyAdminQueryEndpoints
         });
         // Read-only unit content. A disabled book stays readable, matching the
         // whole-book content route; the meanings listed are only those assigned
-        // to this unit, and the unit-scoped totals ignore the keyword.
+        // to this unit, and the unit-scoped totals ignore the keyword. A
+        // `section` of A, B, or none narrows the page and the counts to that
+        // section's places; the section counts always speak for the whole unit.
         group.MapGet("/vocabulary-books/{bookId}/units/{unitId}/content", async (string bookId, string unitId,
-            [FromQuery] string? keyword, [FromQuery] int? page, [FromQuery] int? size,
+            [FromQuery] string? keyword, [FromQuery] string? section, [FromQuery] int? page, [FromQuery] int? size,
             VocabularyAdminQueryService service, CancellationToken cancellationToken) =>
         {
-            var result = await service.GetUnitContentAsync(bookId, unitId, keyword, page, size, cancellationToken);
+            var result = await service.GetUnitContentAsync(bookId, unitId, keyword, section, page, size, cancellationToken);
             return VocabularyHttpResponse.Ok(new
             {
                 book = result.Book.ToDto(),
                 unit = new VocabularyAdminUnitRefDto(result.Unit.Id, result.Unit.BookId, result.Unit.Number, result.Unit.Title),
                 result.WordCount,
                 result.MeaningCount,
+                sectionCounts = new
+                {
+                    sectionA = result.SectionCounts.SectionA,
+                    sectionB = result.SectionCounts.SectionB,
+                    noSection = result.SectionCounts.NoSection
+                },
                 items = result.Page.Items.Select(Detail),
                 result.Page.TotalCount,
                 result.Page.TotalPage
@@ -65,7 +73,7 @@ public static class VocabularyAdminQueryEndpoints
             item.Meanings.Select(m => new VocabularyAdminMeaningDetailDto(
                 m.Meaning.Id, m.Meaning.VocabularyId, m.Meaning.BookId, m.Meaning.PartOfSpeech,
                 m.Meaning.Meaning, m.Meaning.Example,
-                m.Units.Select(u => new VocabularyAdminUnitDto(u.UnitId, u.Number, u.Title)).ToList())).ToList());
+                m.Units.Select(u => new VocabularyAdminUnitDto(u.UnitId, u.Number, u.Title, u.Section)).ToList())).ToList());
 }
 
 /// <summary>The unit a unit-content response is scoped to.</summary>

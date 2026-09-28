@@ -26,7 +26,7 @@ internal static class VocabularyMappingExtensions
         return model.Adapt<VocabularyMeaningDto>();
     }
 
-    public static (VocabularyModel Word, VocabularyMeaningModel Meaning, string? UnitId) ToEntities(
+    public static (VocabularyModel Word, VocabularyMeaningModel Meaning, string? UnitId, string? Section) ToEntities(
         this VocabularyBatchEntryDto dto,
         string bookId)
     {
@@ -44,7 +44,8 @@ internal static class VocabularyMappingExtensions
                 Meaning = dto.Meaning ?? string.Empty,
                 Example = dto.Example
             },
-            dto.UnitId);
+            dto.UnitId,
+            dto.Section);
     }
 
     public static VocabularyBookModel ToEntity(this VocabularyBookDto dto)

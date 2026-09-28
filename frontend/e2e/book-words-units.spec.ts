@@ -427,6 +427,124 @@ test('labels each meaning\'s units in the shared detail drawer', async ({ page }
   await expect(group).toContainText('单元 6')
 })
 
+// Apple's one meaning sits in unit 2's Section A and Section B both; bank's
+// meaning is unsectioned there. The section picker narrows the unit view to
+// one section's places, the counts follow the narrowing, and the per-section
+// place counts beside them always speak for the whole unit.
+const sectionedAppleMeaning = {
+  ...appleMeaning,
+  units: [
+    { unitId: 'unit-2', number: 2, title: 'School Life', section: 'A' },
+    { unitId: 'unit-2', number: 2, title: 'School Life', section: 'B' },
+    { unitId: 'unit-6', number: 6, title: null, section: null }
+  ]
+}
+
+test('narrows the unit view to one section and reports the whole unit\'s sections', async ({ page }) => {
+  const sectionCounts = { sectionA: 1, sectionB: 1, noSection: 1 }
+  const bothSections = unitPage(
+    unitsA[0],
+    [
+      { ...apple, meanings: [sectionedAppleMeaning] },
+      { ...bank, meanings: [bankRiver] }
+    ],
+    { wordCount: 2, meaningCount: 2, totalCount: 2, totalPage: 1 }
+  )
+  const onlyApple = unitPage(
+    unitsA[0],
+    [{ ...apple, meanings: [sectionedAppleMeaning] }],
+    { wordCount: 1, meaningCount: 1, totalCount: 1, totalPage: 1 }
+  )
+  const onlyBank = unitPage(
+    unitsA[0],
+    [{ ...bank, meanings: [bankRiver] }],
+    { wordCount: 1, meaningCount: 1, totalCount: 1, totalPage: 1 }
+  )
+
+  await page.route('**/admin/auth/session', (route) =>
+    json(route, { success: true, data: admin }))
+  await page.route('**/admin/system/version', (route) =>
+    json(route, { success: true, data: { version: '1.2.3', revision: null, channel: 'release' } }))
+  await page.route(bookContentRoute, (route) =>
+    json(route, { success: true, data: contentA }))
+  await page.route(unitsRoute, (route) =>
+    json(route, { success: true, data: { units: unitsA } }))
+  await page.route(/\/admin\/vocabulary\/[^/]+$/, (route) =>
+    json(route, { success: true, data: { ...apple, meanings: [sectionedAppleMeaning] } }))
+
+  const askedFor: string[] = []
+  await page.route(unitContentRoute, (route) => {
+    const url = new URL(route.request().url())
+    const unitId = url.pathname.split('/').at(-2)
+    askedFor.push(`${unitId}?section=${url.searchParams.get('section') ?? '-'}`)
+    if (unitId !== 'unit-2') {
+      return json(route, { success: true, data: unit6Content })
+    }
+    switch (url.searchParams.get('section')) {
+      case 'A':
+      case 'B':
+        return json(route, { success: true, data: { ...onlyApple, sectionCounts } })
+      case 'none':
+        return json(route, { success: true, data: { ...onlyBank, sectionCounts } })
+      default:
+        return json(route, { success: true, data: { ...bothSections, sectionCounts } })
+    }
+  })
+
+  await page.goto(`/#/books/${bookA.id}/words`)
+  await expect(page.locator('.el-table')).toContainText('apple')
+  // The section picker exists only inside a unit view.
+  await expect(page.locator('.toolbar__section')).toHaveCount(0)
+
+  await pickUnit(page, '单元 2 · School Life')
+  await expect(page.locator('.toolbar__section')).toBeVisible()
+  await expect(page.locator('.toolbar__section')).toContainText('全部分节')
+  await expect(page.locator('.book-words__meta')).toContainText('释义 2')
+  await expect(page.locator('.book-words__sections')).toHaveText('分节 A 1 · B 1 · 未分节 1')
+  await expect(askedFor.at(-1)).toBe('unit-2?section=-')
+
+  const pickSection = async (label: string) => {
+    await page.locator('.toolbar__section').click()
+    await page.locator('.el-select-dropdown__item:visible').filter({ hasText: label }).first().click()
+  }
+
+  await pickSection('Section A')
+  await expect(page.locator('.el-table__row', { hasText: 'bank' })).toHaveCount(0)
+  await expect(page.locator('.el-table__row', { hasText: 'apple' })).toContainText('苹果')
+  await expect(page.locator('.book-words__meta')).toContainText('去重单词 1')
+  await expect(page.locator('.book-words__meta')).toContainText('释义 1')
+  await expect(page.locator('.book-words__sections')).toHaveText('分节 A 1 · B 1 · 未分节 1')
+  await expect(askedFor.at(-1)).toBe('unit-2?section=A')
+
+  await pickSection('未分节')
+  await expect(page.locator('.el-table__row', { hasText: 'apple' })).toHaveCount(0)
+  await expect(page.locator('.el-table__row', { hasText: 'bank' })).toContainText('河岸')
+  await expect(askedFor.at(-1)).toBe('unit-2?section=none')
+
+  await pickSection('全部分节')
+  await expect(page.locator('.el-table')).toContainText('apple')
+  await expect(page.locator('.el-table')).toContainText('河岸')
+  await expect(askedFor.at(-1)).toBe('unit-2?section=-')
+
+  // A unit switch resets the section refinement to 全部分节.
+  await pickSection('Section B')
+  await expect(askedFor.at(-1)).toBe('unit-2?section=B')
+  await pickUnit(page, '单元 6')
+  await expect(page.locator('.toolbar__section')).toContainText('全部分节')
+  await expect(askedFor.at(-1)).toBe('unit-6?section=-')
+
+  // The drawer names the section each place sits in, and a meaning in both
+  // sections of one unit reads as two tags of that unit.
+  await pickUnit(page, '单元 2 · School Life')
+  await page.locator('.el-table__row', { hasText: 'apple' }).getByRole('button', { name: '详情' }).click()
+  const drawer = page.locator('.el-drawer')
+  await expect(drawer).toBeVisible()
+  await expect(drawer.locator('.word-detail__unit-tag')).toHaveCount(3)
+  await expect(drawer.locator('.word-detail__unit-tag').first()).toHaveText('单元 2 · School Life · A')
+  await expect(drawer.locator('.word-detail__unit-tag').nth(1)).toHaveText('单元 2 · School Life · B')
+  await expect(drawer.locator('.word-detail__unit-tag').nth(2)).toHaveText('单元 6')
+})
+
 for (const width of [1440, 768]) {
   test.describe(`unit view at ${width} px`, () => {
     test.use({ viewport: { width, height: 900 } })

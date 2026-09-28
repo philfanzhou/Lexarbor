@@ -1,6 +1,8 @@
 using Lexarbor.Database;
 using Lexarbor.Database.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Xunit;
 
 namespace Lexarbor.Domain.Tests;
@@ -107,9 +109,12 @@ public class VocabularyDbContextModelTests
     }
 
     /// <summary>
-    /// The membership's two composite foreign keys share the same <c>book_id</c>
-    /// column and both cascade; together they make a cross-book assignment
-    /// unrepresentable and keep deletions from leaving dangling rows.
+    /// The membership's key names the place — unit, meaning, section — with the
+    /// section stored as the empty-string sentinel so a repeated unsectioned
+    /// assignment is still a conflict; its two composite foreign keys share the
+    /// same <c>book_id</c> column and both cascade, which together make a
+    /// cross-book assignment unrepresentable and keep deletions from leaving
+    /// dangling rows.
     /// </summary>
     [Fact]
     public void MeaningUnit_CompositeForeignKeys_ShareBookIdAndCascade()
@@ -119,8 +124,17 @@ public class VocabularyDbContextModelTests
 
         Assert.NotNull(entityType);
         Assert.Equal(
-            [nameof(VocabularyMeaningUnitEntity.UnitId), nameof(VocabularyMeaningUnitEntity.MeaningId)],
+            [nameof(VocabularyMeaningUnitEntity.UnitId), nameof(VocabularyMeaningUnitEntity.MeaningId), nameof(VocabularyMeaningUnitEntity.Section)],
             entityType.FindPrimaryKey()!.Properties.Select(property => property.Name));
+
+        // Check constraints live only in the design-time model; the read-optimized
+        // runtime model does not carry them.
+        var designTimeEntityType = dbContext.GetService<IDesignTimeModel>()
+            .Model.FindEntityType(typeof(VocabularyMeaningUnitEntity))!;
+        Assert.Contains(
+            designTimeEntityType.GetCheckConstraints(),
+            constraint => constraint.Name == "CK_vocabulary_meaning_unit_section"
+                          && constraint.Sql == "section IN ('', 'A', 'B')");
 
         var unitForeignKey = Assert.Single(
             entityType.GetForeignKeys(),

@@ -3,7 +3,14 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getAdminBookContent, getAdminUnitContent } from '@/services/adminVocabularyApi'
-import type { AdminCleanupResult, AdminCleanupSelection, AdminWordDetail } from '@/services/adminVocabularyApi'
+import type {
+  AdminCleanupResult,
+  AdminCleanupSelection,
+  AdminSectionCounts,
+  AdminUnitContent,
+  AdminUnitSectionFilter,
+  AdminWordDetail
+} from '@/services/adminVocabularyApi'
 import { getBookUnits } from '@/services/bookApi'
 import type { Book, BookUnit } from '@/types'
 import { getApiError } from '@/services/apiError'
@@ -22,8 +29,13 @@ import VocabularyCleanupDialog from '@/components/VocabularyCleanupDialog.vue'
  *
  * A unit picker narrows the same page to one unit of the book, served by the
  * unit content read with unit-scoped counts; the whole-book view and its
- * behaviour are unchanged. The unit choice is page state like the keyword —
- * it never enters the route — and is reset by a book switch. Unit switches
+ * behaviour are unchanged. In a unit view a second picker narrows further to
+ * one section's places of the unit — Section A, Section B, or the unsectioned
+ * ones — through the same read's `section` parameter; the counts follow the
+ * narrowing while the per-section place counts beside them always speak for
+ * the whole unit. The unit choice is page state like the keyword —
+ * it never enters the route — and is reset by a book switch, and the section
+ * choice by a unit or book switch. Unit switches
  * share the content request's generation and aborting, so an answer for a
  * replaced unit or book cannot paint the current view. A unit deleted while
  * its view is open answers 404 and gets its own notice with a way back to
@@ -68,6 +80,18 @@ const unitId = ref(WHOLE_BOOK)
 /** A unit view that answered 404: the unit (or its book) is gone. */
 const unitGone = ref(false)
 
+/**
+ * The section picker's value, a unit-view-only refinement of the unit content
+ * read: every place of the unit by default, or one section's (or the
+ * unsectioned) places. Like the unit choice it is page state and never enters
+ * the route; it resets on every unit or book switch because it belongs to the
+ * view it narrowed.
+ */
+const ALL_SECTIONS = 'all'
+const sectionFilter = ref<typeof ALL_SECTIONS | AdminUnitSectionFilter>(ALL_SECTIONS)
+/** The unit's per-section place counts, reported by the unit content read whatever the filter. */
+const sectionCounts = ref<AdminSectionCounts>({ sectionA: 0, sectionB: 0, noSection: 0 })
+
 const loading = ref(false)
 const loadError = ref('')
 const notFound = ref(false)
@@ -108,8 +132,9 @@ function load() {
     page: page.value,
     size: size.value
   }
+  const section = sectionFilter.value === ALL_SECTIONS ? undefined : { section: sectionFilter.value }
   const request = isUnitView.value
-    ? getAdminUnitContent(bookId.value, unitId.value, params, { signal: controller.signal })
+    ? getAdminUnitContent(bookId.value, unitId.value, { ...params, ...section }, { signal: controller.signal })
     : getAdminBookContent(bookId.value, params, { signal: controller.signal })
 
   request.then(
@@ -121,6 +146,9 @@ function load() {
       book.value = data.book
       wordCount.value = data.wordCount
       meaningCount.value = data.meaningCount
+      // Only the unit read reports section counts; the whole-book view keeps zeros.
+      sectionCounts.value = (data as AdminUnitContent).sectionCounts
+        ?? { sectionA: 0, sectionB: 0, noSection: 0 }
       items.value = data.items
       totalCount.value = data.totalCount
       // A new page starts unselected, whatever the table re-renders.
@@ -249,11 +277,13 @@ watch(bookId, () => {
   book.value = null
   wordCount.value = 0
   meaningCount.value = 0
+  sectionCounts.value = { sectionA: 0, sectionB: 0, noSection: 0 }
   items.value = []
   totalCount.value = 0
   selectedWordIds.value = []
   detailWordId.value = null
   unitId.value = WHOLE_BOOK
+  sectionFilter.value = ALL_SECTIONS
   units.value = []
   unitsError.value = ''
   unitGone.value = false
@@ -261,10 +291,12 @@ watch(bookId, () => {
   loadUnits()
 })
 
-// A unit switch is a new view of the same book: the page restarts and the
-// previous view's selection does not carry over.
+// A unit switch is a new view of the same book: the page restarts, the section
+// refinement belongs to the view it replaced, and the previous view's
+// selection does not carry over.
 watch(unitId, () => {
   page.value = 1
+  sectionFilter.value = ALL_SECTIONS
   selectedWordIds.value = []
   load()
 })
@@ -289,6 +321,13 @@ function handleSearch() {
 function handleSizeChange(newSize: number) {
   size.value = newSize
   page.value = 1
+  load()
+}
+
+/** A section picked in the unit view: same restart as a size change, without touching the unit. */
+function handleSectionChange() {
+  page.value = 1
+  selectedWordIds.value = []
   load()
 }
 
@@ -369,6 +408,9 @@ const emptyDescription = computed(() =>
           </el-tag>
           <span>去重单词 {{ wordCount }}</span>
           <span>释义 {{ meaningCount }}</span>
+          <span v-if="isUnitView" class="book-words__sections">
+            分节 A {{ sectionCounts.sectionA }} · B {{ sectionCounts.sectionB }} · 未分节 {{ sectionCounts.noSection }}
+          </span>
         </p>
 
         <el-alert
@@ -397,6 +439,18 @@ const emptyDescription = computed(() =>
               :value="unit.id"
               :label="unit.title ? `单元 ${unit.number} · ${unit.title}` : `单元 ${unit.number}`"
             />
+          </el-select>
+          <el-select
+            v-if="isUnitView"
+            v-model="sectionFilter"
+            class="toolbar__section"
+            aria-label="筛选分节"
+            @change="handleSectionChange"
+          >
+            <el-option label="全部分节" :value="ALL_SECTIONS" />
+            <el-option label="Section A" value="A" />
+            <el-option label="Section B" value="B" />
+            <el-option label="未分节" value="none" />
           </el-select>
           <el-input
             v-model="keyword"
@@ -565,8 +619,12 @@ const emptyDescription = computed(() =>
 .toolbar__search {
   width: min(320px, 100%);
 }
-.toolbar__unit {
+.toolbar__unit,
+.toolbar__section {
   width: min(220px, 100%);
+}
+.toolbar__section {
+  width: min(150px, 100%);
 }
 .toolbar__remove-wrap,
 .book-words__remove-wrap {

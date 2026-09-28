@@ -84,19 +84,40 @@ public class VocabularyDomainService
     /// <summary>
     /// Returns why one batch entry would be rejected, or null when it is valid.
     /// The HTTP endpoint reports this per entry; <see cref="ImportBatchAsync"/>
-    /// applies the same rule so that a direct caller cannot skip it.
+    /// applies the same rule so that a direct caller cannot skip it. A section
+    /// is valid only together with the entry's unit reference: a section
+    /// without a unit names a place of nothing.
     /// </summary>
-    public static string? ValidateBatchEntry(VocabularyModel word, VocabularyMeaningModel meaning)
+    public static string? ValidateBatchEntry(
+        VocabularyModel word,
+        VocabularyMeaningModel meaning,
+        string? unitId,
+        string? section)
     {
         var missingWord = string.IsNullOrWhiteSpace(word.Word);
         var missingMeaning = string.IsNullOrWhiteSpace(meaning.Meaning);
-        return (missingWord, missingMeaning) switch
+        if (missingWord || missingMeaning)
         {
-            (true, true) => "Word and meaning are required.",
-            (true, false) => "Word is required.",
-            (false, true) => "Meaning is required.",
-            _ => null
-        };
+            return (missingWord, missingMeaning) switch
+            {
+                (true, true) => "Word and meaning are required.",
+                (true, false) => "Word is required.",
+                _ => "Meaning is required."
+            };
+        }
+
+        var normalizedSection = VocabularyMeaningUnitSections.NormalizeOrNull(section);
+        if (!VocabularyMeaningUnitSections.IsValid(normalizedSection))
+        {
+            return "Section must be A or B.";
+        }
+
+        if (normalizedSection != null && string.IsNullOrWhiteSpace(unitId))
+        {
+            return "Section requires a unitId.";
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -112,12 +133,14 @@ public class VocabularyDomainService
     /// transaction, so a concurrent disable, delete or unit removal cannot land
     /// between the check and the writes. An entry carrying a <c>unitId</c> gets
     /// the meaning it resolves to — created, reused from an earlier entry of the
-    /// same batch, or already stored — assigned to that unit; a repeated
+    /// same batch, or already stored — assigned to that unit; a <c>section</c>
+    /// narrows the assignment to that section's place of the unit, so a meaning
+    /// may be assigned twice to one unit under two sections. A repeated
     /// assignment writes nothing, and the counts still refer to meanings only.
     /// </remarks>
     public async Task<VocabularyBatchImportResult> ImportBatchAsync(
         string bookId,
-        IReadOnlyList<(VocabularyModel Word, VocabularyMeaningModel Meaning, string? UnitId)> entries)
+        IReadOnlyList<(VocabularyModel Word, VocabularyMeaningModel Meaning, string? UnitId, string? Section)> entries)
     {
         var normalizedBookId = NormalizeRequired(bookId, "Book ID is required.");
         if (entries.Count == 0)
@@ -132,11 +155,11 @@ public class VocabularyDomainService
         }
 
         var normalizedEntries =
-            new List<(VocabularyModel Word, VocabularyMeaningModel Meaning, string? UnitId)>(
+            new List<(VocabularyModel Word, VocabularyMeaningModel Meaning, string? UnitId, string? Section)>(
                 entries.Count);
-        foreach (var (word, meaning, unitId) in entries)
+        foreach (var (word, meaning, unitId, section) in entries)
         {
-            var error = ValidateBatchEntry(word, meaning);
+            var error = ValidateBatchEntry(word, meaning, unitId, section);
             if (error != null)
             {
                 throw new DomainValidationException(error);
@@ -151,7 +174,7 @@ public class VocabularyDomainService
             meaning.BookId = normalizedBookId;
             meaning.PartOfSpeech = NullIfWhiteSpace(meaning.PartOfSpeech);
             meaning.Example = NullIfWhiteSpace(meaning.Example);
-            normalizedEntries.Add((word, meaning, NullIfWhiteSpace(unitId)));
+            normalizedEntries.Add((word, meaning, NullIfWhiteSpace(unitId), VocabularyMeaningUnitSections.NormalizeOrNull(section)));
         }
 
         return await _unitOfWork.ExecuteInTransactionAsync(async () =>
@@ -194,7 +217,7 @@ public class VocabularyDomainService
             }
 
             var created = 0;
-            foreach (var (word, meaning, unitId) in normalizedEntries)
+            foreach (var (word, meaning, unitId, section) in normalizedEntries)
             {
                 var (_, storedMeaning, meaningCreated) = await AddOrUpdateCoreAsync(word, meaning);
                 if (meaningCreated)
@@ -208,14 +231,16 @@ public class VocabularyDomainService
                     // failure anywhere leaves no half-imported assignments. The
                     // existence check sees rows this same transaction saved, so
                     // a meaning reused by a later entry of the same batch is not
-                    // assigned twice.
-                    if (!await _membershipRepository.ExistsAsync(unitId, storedMeaning.Id))
+                    // assigned twice — and a section names a place of the unit,
+                    // so A and B of one unit are two idempotent places.
+                    if (!await _membershipRepository.ExistsAsync(unitId, storedMeaning.Id, section))
                     {
                         await _membershipRepository.AddAsync(new VocabularyMeaningUnitModel
                         {
                             UnitId = unitId,
                             MeaningId = storedMeaning.Id,
-                            BookId = normalizedBookId
+                            BookId = normalizedBookId,
+                            Section = section
                         });
                         await _unitOfWork.SaveChangesAsync();
                     }
