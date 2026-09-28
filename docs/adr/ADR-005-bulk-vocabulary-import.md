@@ -20,14 +20,15 @@ Two properties of the storage layer shape the decision. First, SQLite has one wr
 {
   "bookId": "book-id",
   "entries": [
-    { "word": "apple", "phoneticUk": "/ˈæp.əl/", "phoneticUs": "/ˈæp.əl/", "partOfSpeech": "n.", "meaning": "苹果", "example": "I eat an apple." }
+    { "word": "apple", "phoneticUk": "/ˈæp.əl/", "phoneticUs": "/ˈæp.əl/", "partOfSpeech": "n.", "meaning": "苹果", "example": "I eat an apple.", "unitId": "unit-id" }
   ]
 }
 ```
 
 - `word` and `meaning` are required and must not be blank after trimming.
 - `phoneticUk`, `phoneticUs`, `partOfSpeech`, and `example` are optional. A blank string counts as absent, so an empty column never clears a stored phonetic or example.
-- Success answers 200 with `{ "success": true, "data": { "total": 3, "created": 2, "reused": 1 } }`. `created` counts the meanings the batch inserted; `reused` counts the entries that matched an equivalent meaning, whether stored earlier or written by an earlier entry of the same batch; `total = created + reused`. `data` carries exactly these three fields.
+- `unitId` is optional and names an existing unit of `bookId`'s book; an import never creates a unit. The meaning the entry resolves to — inserted by the entry, reused from an earlier entry of the same batch, or already stored — is assigned to that unit, so a meaning shared with earlier data still gets the entry's assignment, and the same meaning may appear in several units. Repeating an assignment writes nothing: the `(unit_id, meaning_id)` primary key and an existence check inside the batch transaction keep a resubmitted batch from duplicating rows. A blank `unitId` counts as absent. A `unitId` that does not exist, or that belongs to another book, is reported like any other entry error and leaves the batch unwritten; the answer does not distinguish the two, so one book's unit ids do not leak another book's contents.
+- Success answers 200 with `{ "success": true, "data": { "total": 3, "created": 2, "reused": 1 } }`. `created` counts the meanings the batch inserted; `reused` counts the entries that matched an equivalent meaning, whether stored earlier or written by an earlier entry of the same batch; `total = created + reused`. Assignments are not meanings and never enter the counts. `data` carries exactly these three fields.
 - Invalid entries answer 400 with an `errors` array that lists every invalid entry in ascending `index` order, where `index` is the zero-based position in `entries`:
 
   ```json
@@ -39,6 +40,8 @@ Two properties of the storage layer shape the decision. First, SQLite has one wr
 ### Entries apply in order, as the single-entry path would
 
 The entries of one batch are applied in array order with the normalization and matching of `POST /admin/vocabulary`. The result is the same as posting them one by one, except that the batch is atomic. A later entry's non-blank phonetics and example overwrite an earlier one's. Phonetics live on the shared word row, so a batch for one book can change the phonetics another book displays for the same word; that is the existing single-entry behaviour.
+
+An entry with a `unitId` adds one step the single-entry path does not have: after its meaning is resolved, the meaning is assigned to that unit. Entries that share a meaning therefore share the meaning row, while each still assigns it to its own unit.
 
 ### A batch is atomic
 
@@ -56,12 +59,13 @@ Every check that needs no database runs first. The batch is then written in one 
 | 8 | An entry is `null`, or its `word` or `meaning` is blank | 400 with `errors` listing every invalid entry |
 | 9 | The book does not exist | 404 `Vocabulary book was not found.` |
 | 10 | The book is disabled | 422 `New meanings cannot be added to a disabled vocabulary book.` |
-| 11 | All entries valid | 200 with `{ total, created, reused }` |
-| 12 | A constraint violation, a busy database, or an unexpected error while writing | 409, 503 with `Retry-After: 1`, or 500 through the existing middleware; the whole batch is rolled back |
+| 11 | An entry's `unitId` is not an existing unit of the book | 400 with `errors` listing every invalid entry |
+| 12 | All entries valid | 200 with `{ total, created, reused }` |
+| 13 | A constraint violation, a busy database, or an unexpected error while writing | 409, 503 with `Retry-After: 1`, or 500 through the existing middleware; the whole batch is rolled back |
 
-Rows 1 to 8 take no write lock. Rows 9 and 10 are checked inside the write transaction, so a concurrent disable or delete cannot land between the check and the writes.
+Rows 1 to 8 take no write lock. Rows 9 to 11 are checked inside the write transaction, so a concurrent disable or delete, or a unit removed concurrently, cannot land between the check and the writes. The unit check reads the book's units once per batch and compares every entry against that set; a unit deleted by a writer outside the process is still caught by the membership's foreign keys, which rolls the whole batch back as row 13.
 
-Atomic semantics were chosen because they make resubmission safe. A batch that failed wrote nothing, and a batch that succeeded matches itself on the next attempt, so a corrected batch can be sent again whole without duplicating rows. Nothing is left half-imported, and the result does not depend on the browser remembering which rows already went through. A client that disconnects mid-write gets the same guarantee: the server commits or rolls back the whole batch, and the client can resubmit, which is idempotent.
+Atomic semantics were chosen because they make resubmission safe. A batch that failed wrote nothing, and a batch that succeeded matches itself on the next attempt, so a corrected batch can be sent again whole without duplicating rows — meanings and unit assignments alike. Nothing is left half-imported, and the result does not depend on the browser remembering which rows already went through. A client that disconnects mid-write gets the same guarantee: the server commits or rolls back the whole batch, and the client can resubmit, which is idempotent.
 
 ### Limits
 
@@ -112,7 +116,7 @@ Imported entries are user-supplied data under [ADR-002](./ADR-002-bundled-vocabu
 ## Consequences
 
 - Administrators can import up to 500 entries per request, from the administration UI's `/import/batch` page, which parses the TSV in the browser as described in the [frontend specification](../frontend/README.md#batch-import-page). [ADR-006](./ADR-006-batch-import-file-formats.md) adds CSV to the same page.
-- Resubmitting a batch creates no duplicate `vocabulary` or `vocabulary_meaning` rows, and a failed batch leaves no trace.
+- Resubmitting a batch creates no duplicate `vocabulary`, `vocabulary_meaning`, or `vocabulary_meaning_unit` rows, and a failed batch leaves no trace.
 - While a batch is being written, other administrative writes wait for up to a few seconds; anonymous reads are unaffected.
 - The exception middleware now maps Kestrel's body-too-large error to 413 with the envelope. Other routes bind their body as a parameter, so the framework handles an oversized body before the middleware sees it and still answers Kestrel's default 30 MB limit with an empty 413. Their contracts are unchanged.
 - The SQLite schema and migrations are unchanged; rows written by a batch have the same shape as rows written one by one, so removing the route loses no data.

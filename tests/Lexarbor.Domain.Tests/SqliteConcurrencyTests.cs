@@ -91,11 +91,12 @@ public sealed class SqliteConcurrencyTests : IDisposable
         }
 
         const int entryCount = 50;
-        static List<(VocabularyModel, VocabularyMeaningModel)> Batch() =>
+        static List<(VocabularyModel, VocabularyMeaningModel, string?)> Batch() =>
             Enumerable.Range(0, entryCount)
                 .Select(index => (
                     new VocabularyModel { Word = $"word{index:D2}" },
-                    new VocabularyMeaningModel { PartOfSpeech = "n.", Meaning = $"meaning {index:D2}" }))
+                    new VocabularyMeaningModel { PartOfSpeech = "n.", Meaning = $"meaning {index:D2}" },
+                    (string?)null))
                 .ToList();
 
         await using var firstContext = CreateContext(databasePath);
@@ -311,6 +312,8 @@ public sealed class SqliteConcurrencyTests : IDisposable
             new VocabularyRepository(context),
             new VocabularyBookRepository(context),
             new VocabularyMeaningRepository(context),
+            new VocabularyBookUnitRepository(context),
+            new VocabularyMeaningUnitRepository(context),
             new UnitOfWork(context));
     }
 

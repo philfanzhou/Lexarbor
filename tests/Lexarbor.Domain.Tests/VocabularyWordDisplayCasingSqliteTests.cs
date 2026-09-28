@@ -119,6 +119,8 @@ public sealed class VocabularyWordDisplayCasingSqliteTests : IDisposable
             new VocabularyRepository(context),
             new VocabularyBookRepository(context),
             new VocabularyMeaningRepository(context),
+            new VocabularyBookUnitRepository(context),
+            new VocabularyMeaningUnitRepository(context),
             new UnitOfWork(context));
     }
 

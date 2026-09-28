@@ -307,6 +307,162 @@ public class VocabularyBatchImportEndpointTests :
                 TestContext.Current.CancellationToken));
     }
 
+    // Two entries that resolve to one meaning, each naming a different unit of
+    // the book: one meaning row, two assignments, and the counts still count
+    // meanings only. Resubmitting the batch changes nothing.
+    [Fact]
+    public async Task EntriesWithDifferentUnitIds_StoreOneMeaningAndTwoAssignments()
+    {
+        var bookId = await CreateBookAsync();
+        var suffix = bookId[^8..];
+        var unit2Id = await CreateUnitAsync(bookId, 2);
+        var unit6Id = await CreateUnitAsync(bookId, 6);
+        using var client = CreateAdminClient();
+        var batch = Batch(
+            bookId,
+            Entry($"apple{suffix}", "苹果", unitId: unit2Id),
+            Entry($"apple{suffix}", "苹果", unitId: unit6Id));
+
+        var first = await PostForDataAsync(client, batch);
+        var second = await PostForDataAsync(client, batch);
+
+        Assert.Equal((2, 1, 1), Counts(first));
+        Assert.Equal((2, 0, 2), Counts(second));
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var context = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+        Assert.Equal(
+            1,
+            await context.VocabularyMeanings.CountAsync(
+                meaning => meaning.BookId == bookId,
+                TestContext.Current.CancellationToken));
+        var assignments = await context.VocabularyMeaningUnits
+            .Where(membership => membership.BookId == bookId)
+            .ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(
+            new HashSet<string> { unit2Id, unit6Id },
+            assignments.Select(membership => membership.UnitId).ToHashSet());
+    }
+
+    // A batch without unitId behaves exactly as before: no assignment rows.
+    [Fact]
+    public async Task EntriesWithoutUnitId_WriteNoAssignments()
+    {
+        var bookId = await CreateBookAsync();
+        var suffix = bookId[^8..];
+        await CreateUnitAsync(bookId, 1);
+        using var client = CreateAdminClient();
+
+        var data = await PostForDataAsync(
+            client,
+            Batch(bookId, Entry($"apple{suffix}", "苹果")));
+
+        Assert.Equal((1, 1, 0), Counts(data));
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var context = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+        Assert.Equal(
+            0,
+            await context.VocabularyMeaningUnits.CountAsync(
+                membership => membership.BookId == bookId,
+                TestContext.Current.CancellationToken));
+    }
+
+    // A unitId that is blank counts as absent; one that does not exist, or
+    // belongs to another book, is reported per entry and the batch writes
+    // nothing — words, meanings, and assignments alike.
+    [Fact]
+    public async Task UnknownOrCrossBookUnitId_Returns400WithEntryErrorsAndWritesNothing()
+    {
+        var bookId = await CreateBookAsync();
+        var suffix = bookId[^8..];
+        var otherBookId = await CreateBookAsync();
+        var otherBookUnitId = await CreateUnitAsync(otherBookId, 1);
+        using var client = CreateAdminClient();
+
+        var response = await client.PostAsJsonAsync(
+            BatchPath,
+            Batch(
+                bookId,
+                Entry($"apple{suffix}", "苹果"),
+                Entry($"banana{suffix}", "香蕉", unitId: $"missing-{bookId}"),
+                Entry($"cherry{suffix}", "樱桃", unitId: otherBookUnitId),
+                Entry($"durian{suffix}", "榴莲", unitId: "  ")),
+            TestContext.Current.CancellationToken);
+
+        var envelope = await AssertFailureAsync(response, HttpStatusCode.BadRequest);
+        Assert.Equal("2 entries are invalid.", envelope.GetProperty("message").GetString());
+        var errors = envelope.GetProperty("errors").EnumerateArray().ToList();
+        Assert.Equal([1, 2], errors.Select(error => error.GetProperty("index").GetInt32()));
+        Assert.Equal(
+            ["Unit was not found in the requested vocabulary book.",
+             "Unit was not found in the requested vocabulary book."],
+            errors.Select(error => error.GetProperty("message").GetString()));
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var context = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+        Assert.Equal(0, await context.VocabularyMeanings.CountAsync(
+            meaning => meaning.BookId == bookId, TestContext.Current.CancellationToken));
+        Assert.Equal(0, await context.VocabularyMeaningUnits.CountAsync(
+            membership => membership.BookId == bookId, TestContext.Current.CancellationToken));
+        foreach (var word in new[] { $"apple{suffix}", $"banana{suffix}", $"cherry{suffix}" })
+        {
+            await AssertWordAbsentAsync(word);
+        }
+    }
+
+    // A failure while writing rolls the assignments back with the entries they
+    // belong to; nothing of the batch survives.
+    [Theory]
+    [InlineData("conflict", HttpStatusCode.Conflict)]
+    [InlineData("busy", HttpStatusCode.ServiceUnavailable)]
+    [InlineData("unexpected", HttpStatusCode.InternalServerError)]
+    public async Task FailureWhileWritingWithUnitIds_RollsBackAssignmentsToo(
+        string failure,
+        HttpStatusCode expected)
+    {
+        var bookId = await CreateBookAsync();
+        var suffix = bookId[^8..];
+        var unitId = await CreateUnitAsync(bookId, 1);
+        using var factory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<IVocabularyMeaningRepository>();
+                services.AddScoped<IVocabularyMeaningRepository>(provider =>
+                    new FailingOnThirdAddMeaningRepository(
+                        new Lexarbor.Database.Repositories.VocabularyMeaningRepository(
+                            provider.GetRequiredService<VocabularyDbContext>()),
+                        failure switch
+                        {
+                            "conflict" => new ConflictException("The requested vocabulary data conflicts with existing data."),
+                            "busy" => new StorageBusyException("The vocabulary database is busy. Please retry the request."),
+                            _ => new InvalidOperationException("boom")
+                        }));
+            });
+        });
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", _factory.CreateToken("admin"));
+
+        var response = await client.PostAsJsonAsync(
+            BatchPath,
+            Batch(
+                bookId,
+                Entry($"apple{suffix}", "苹果", unitId: unitId),
+                Entry($"banana{suffix}", "香蕉", unitId: unitId),
+                Entry($"cherry{suffix}", "樱桃", unitId: unitId)),
+            TestContext.Current.CancellationToken);
+
+        await AssertFailureAsync(response, expected);
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var context = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+        Assert.Equal(0, await context.VocabularyMeanings.CountAsync(
+            meaning => meaning.BookId == bookId, TestContext.Current.CancellationToken));
+        Assert.Equal(0, await context.VocabularyMeaningUnits.CountAsync(
+            membership => membership.BookId == bookId, TestContext.Current.CancellationToken));
+    }
+
     // Row 12, scenario 7: a failure while writing the third entry rolls back the
     // two before it, and each failure keeps its existing status mapping.
     [Theory]
@@ -418,8 +574,9 @@ public class VocabularyBatchImportEndpointTests :
         string? meaning,
         string? phoneticUk = null,
         string? partOfSpeech = null,
-        string? example = null) =>
-        new { word, meaning, phoneticUk, partOfSpeech, example };
+        string? example = null,
+        string? unitId = null) =>
+        new { word, meaning, phoneticUk, partOfSpeech, example, unitId };
 
     /// <summary>
     /// A valid one-entry batch padded with trailing whitespace, which JSON
@@ -468,6 +625,24 @@ public class VocabularyBatchImportEndpointTests :
         });
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         return bookId;
+    }
+
+    private async Task<string> CreateUnitAsync(string bookId, int number)
+    {
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var context = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+        var unitId = $"unit-{Guid.NewGuid():N}";
+        var now = DateTimeOffset.UtcNow;
+        context.VocabularyBookUnits.Add(new VocabularyBookUnitEntity
+        {
+            Id = unitId,
+            BookId = bookId,
+            Number = number,
+            CreatedAt = now,
+            UpdatedAt = now
+        });
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        return unitId;
     }
 
     private Task AssertBookIsEmptyAsync(string bookId) => AssertBookIsEmptyAsync(bookId, _factory);

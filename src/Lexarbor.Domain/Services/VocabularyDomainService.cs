@@ -17,17 +17,23 @@ public class VocabularyDomainService
     private readonly IVocabularyRepository _vocabularyRepository;
     private readonly IVocabularyBookRepository _bookRepository;
     private readonly IVocabularyMeaningRepository _meaningRepository;
+    private readonly IVocabularyBookUnitRepository _unitRepository;
+    private readonly IVocabularyMeaningUnitRepository _membershipRepository;
     private readonly IUnitOfWork _unitOfWork;
 
     public VocabularyDomainService(
         IVocabularyRepository vocabularyRepository,
         IVocabularyBookRepository bookRepository,
         IVocabularyMeaningRepository meaningRepository,
+        IVocabularyBookUnitRepository unitRepository,
+        IVocabularyMeaningUnitRepository membershipRepository,
         IUnitOfWork unitOfWork)
     {
         _vocabularyRepository = vocabularyRepository;
         _bookRepository = bookRepository;
         _meaningRepository = meaningRepository;
+        _unitRepository = unitRepository;
+        _membershipRepository = membershipRepository;
         _unitOfWork = unitOfWork;
     }
 
@@ -102,12 +108,16 @@ public class VocabularyDomainService
     /// </summary>
     /// <remarks>
     /// Every check that needs no database runs before the write lock is taken.
-    /// The book is checked inside the transaction, so a concurrent disable or
-    /// delete cannot land between the check and the writes.
+    /// The book and the entries' unit references are checked inside the
+    /// transaction, so a concurrent disable, delete or unit removal cannot land
+    /// between the check and the writes. An entry carrying a <c>unitId</c> gets
+    /// the meaning it resolves to — created, reused from an earlier entry of the
+    /// same batch, or already stored — assigned to that unit; a repeated
+    /// assignment writes nothing, and the counts still refer to meanings only.
     /// </remarks>
     public async Task<VocabularyBatchImportResult> ImportBatchAsync(
         string bookId,
-        IReadOnlyList<(VocabularyModel Word, VocabularyMeaningModel Meaning)> entries)
+        IReadOnlyList<(VocabularyModel Word, VocabularyMeaningModel Meaning, string? UnitId)> entries)
     {
         var normalizedBookId = NormalizeRequired(bookId, "Book ID is required.");
         if (entries.Count == 0)
@@ -121,7 +131,10 @@ public class VocabularyDomainService
                 $"A batch can contain at most {MaxBatchEntries} entries.");
         }
 
-        foreach (var (word, meaning) in entries)
+        var normalizedEntries =
+            new List<(VocabularyModel Word, VocabularyMeaningModel Meaning, string? UnitId)>(
+                entries.Count);
+        foreach (var (word, meaning, unitId) in entries)
         {
             var error = ValidateBatchEntry(word, meaning);
             if (error != null)
@@ -138,6 +151,7 @@ public class VocabularyDomainService
             meaning.BookId = normalizedBookId;
             meaning.PartOfSpeech = NullIfWhiteSpace(meaning.PartOfSpeech);
             meaning.Example = NullIfWhiteSpace(meaning.Example);
+            normalizedEntries.Add((word, meaning, NullIfWhiteSpace(unitId)));
         }
 
         return await _unitOfWork.ExecuteInTransactionAsync(async () =>
@@ -149,13 +163,62 @@ public class VocabularyDomainService
                 throw new BusinessRuleException("New meanings cannot be added to a disabled vocabulary book.");
             }
 
-            var created = 0;
-            foreach (var (word, meaning) in entries)
+            // One read answers every entry's unit reference. Checked inside the
+            // same transaction the memberships are written in: the serialized
+            // write lock keeps a concurrent unit delete from landing between the
+            // check and the write, and a unit removed by an outside writer is
+            // still caught by the membership's foreign keys, which rolls the
+            // whole batch back. A unit of another book is indistinguishable from
+            // a missing one here, so neither leaks that the other book has it.
+            var bookUnitIds = (await _unitRepository.GetByBookIdAsync(normalizedBookId))
+                .Select(unit => unit.Id)
+                .ToHashSet();
+            List<(int Index, string Message)>? unitErrors = null;
+            for (var index = 0; index < normalizedEntries.Count; index++)
             {
-                var (_, _, meaningCreated) = await AddOrUpdateCoreAsync(word, meaning);
+                var unitId = normalizedEntries[index].UnitId;
+                if (unitId != null && !bookUnitIds.Contains(unitId))
+                {
+                    (unitErrors ??= new List<(int, string)>())
+                        .Add((index, "Unit was not found in the requested vocabulary book."));
+                }
+            }
+
+            if (unitErrors != null)
+            {
+                throw new BatchEntryValidationException(
+                    unitErrors.Count == 1
+                        ? "1 entry is invalid."
+                        : $"{unitErrors.Count} entries are invalid.",
+                    unitErrors);
+            }
+
+            var created = 0;
+            foreach (var (word, meaning, unitId) in normalizedEntries)
+            {
+                var (_, storedMeaning, meaningCreated) = await AddOrUpdateCoreAsync(word, meaning);
                 if (meaningCreated)
                 {
                     created++;
+                }
+
+                if (unitId != null)
+                {
+                    // The membership write shares the batch transaction, so a
+                    // failure anywhere leaves no half-imported assignments. The
+                    // existence check sees rows this same transaction saved, so
+                    // a meaning reused by a later entry of the same batch is not
+                    // assigned twice.
+                    if (!await _membershipRepository.ExistsAsync(unitId, storedMeaning.Id))
+                    {
+                        await _membershipRepository.AddAsync(new VocabularyMeaningUnitModel
+                        {
+                            UnitId = unitId,
+                            MeaningId = storedMeaning.Id,
+                            BookId = normalizedBookId
+                        });
+                        await _unitOfWork.SaveChangesAsync();
+                    }
                 }
             }
 

@@ -169,7 +169,7 @@ public static partial class VocabularyHttpEndpoints
                 $"A batch can contain at most {VocabularyDomainService.MaxBatchEntries} entries.");
         }
 
-        var entries = new List<(VocabularyModel Word, VocabularyMeaningModel Meaning)>(
+        var entries = new List<(VocabularyModel Word, VocabularyMeaningModel Meaning, string? UnitId)>(
             request.Entries.Count);
         var errors = new List<VocabularyBatchEntryError>();
         for (var index = 0; index < request.Entries.Count; index++)
@@ -199,7 +199,25 @@ public static partial class VocabularyHttpEndpoints
                 errors);
         }
 
-        var result = await vocabularyService.ImportBatchAsync(request.BookId, entries);
+        // Unit references are the one entry check that needs the database, so
+        // the domain service runs it inside the batch transaction and reports
+        // the failures the same way the static checks above do.
+        VocabularyBatchImportResult result;
+        try
+        {
+            result = await vocabularyService.ImportBatchAsync(request.BookId, entries);
+        }
+        catch (BatchEntryValidationException exception)
+        {
+            var unitErrors = exception.EntryErrors
+                .Select(unitError => new VocabularyBatchEntryError
+                {
+                    Index = unitError.Index,
+                    Message = unitError.Message
+                })
+                .ToList();
+            return VocabularyHttpResponse.BadRequest(exception.Message, unitErrors);
+        }
 
         // Counts only: entry content is user data and stays out of the log.
         loggerFactory.CreateLogger(nameof(VocabularyHttpEndpoints)).LogInformation(
