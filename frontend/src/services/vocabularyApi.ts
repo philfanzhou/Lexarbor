@@ -17,6 +17,7 @@ export interface VocabularyBatchEntry {
   partOfSpeech?: string
   meaning: string
   example?: string
+  unitId?: string
 }
 
 export interface VocabularyBatchImportPayload {

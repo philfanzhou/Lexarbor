@@ -38,6 +38,8 @@ async function openBatchPage(page: Page) {
     }))
   await page.route(/\/api\/vocabulary-books\/all$/, (route) =>
     json(route, { success: true, data: { books: [starterBook] } }))
+  await page.route(/\/admin\/vocabulary-books\/[^/]+\/units$/, (route) =>
+    json(route, { success: true, data: { units: [] } }))
 
   await page.goto('/#/import/batch')
   await expect(page.locator('.session')).toContainText(admin.username)
@@ -185,11 +187,11 @@ test('marks invalid rows with their physical line number and does not submit', a
   await expect(page.locator('.batch-summary')).toContainText('数据行 6 条，有效 1 条，无效 5 条')
   // Blank and comment lines are not rows, but they are lines: the numbers are
   // the ones an editor shows, so the administrator can find the row.
-  await expect(previewRow(page, 4)).toContainText('列数应为 5 或 6，实际为 3')
+  await expect(previewRow(page, 4)).toContainText('列数应为 5 到 7，实际为 3')
   await expect(previewRow(page, 5)).toContainText('缺少单词')
   await expect(previewRow(page, 6)).toContainText('缺少释义')
   await expect(previewRow(page, 7)).toContainText('缺少单词；缺少释义')
-  await expect(previewRow(page, 8)).toContainText('列数应为 5 或 6，实际为 1')
+  await expect(previewRow(page, 8)).toContainText('列数应为 5 到 7，实际为 1')
   await expect(previewRow(page, 2)).toContainText('有效')
 
   await page.locator('.batch-only-invalid').click()
