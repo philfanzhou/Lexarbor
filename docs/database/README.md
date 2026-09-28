@@ -6,6 +6,9 @@ Vocabulary supports SQLite only. The default database file is `data/vocabulary.d
 
 ```text
 vocabulary_book (1) <-[RESTRICT]- vocabulary_meaning -[CASCADE]-> (1) vocabulary
+vocabulary_book (1) <-[CASCADE]- vocabulary_book_unit
+vocabulary_meaning_unit -[(unit_id, book_id) CASCADE]-> (1) vocabulary_book_unit (id, book_id)
+vocabulary_meaning_unit -[(meaning_id, book_id) CASCADE]-> (1) vocabulary_meaning (id, book_id)
 ```
 
 | Table | Responsibility | Key constraints |
@@ -13,8 +16,14 @@ vocabulary_book (1) <-[RESTRICT]- vocabulary_meaning -[CASCADE]-> (1) vocabulary
 | `vocabulary` | Words with British and American phonetics | `word` is unique; `normalized_word` is generated and indexed; `phonetic_uk` and `phonetic_us` are nullable |
 | `vocabulary_book` | Book metadata and enabled state | `status=false` means disabled |
 | `vocabulary_meaning` | A word's meaning within one book | Both foreign keys are required; the normalized logical key is unique |
+| `vocabulary_book_unit` | A unit of a book | `(book_id, number)` is unique within one book; `book_id` cascades on book delete; `(id, book_id)` carries a unique index that serves as the parent key of the membership foreign key |
+| `vocabulary_meaning_unit` | The assignment of one meaning to one unit | `(unit_id, meaning_id)` is the primary key, so repeating an assignment is a conflict; two composite foreign keys both compare the same `book_id` and cascade on delete |
 
-Deleting a word clears its meanings through `ON DELETE CASCADE`. Deleting a book uses `ON DELETE RESTRICT`; when related meanings exist the business layer answers 409 and the administrator should disable the book instead.
+Deleting a word clears its meanings through `ON DELETE CASCADE`. Deleting a book uses `ON DELETE RESTRICT`; when related meanings exist the business layer answers 409 and the administrator should disable the book instead. Deleting a unit removes only the unit and its assignments through `ON DELETE CASCADE`; meanings, shared words, and other units' assignments survive. A book with units but no meanings can still be deleted, and its units follow it away.
+
+Units and unit assignments are storage and domain rules only: they are created, read and deleted through `VocabularyBookUnitDomainService` inside the serialized `UnitOfWork` transaction. Unit numbers must be positive integers and are unique per book — two books may both have a Unit 2. A meaning may be assigned to several units of its own book; a repeated assignment is idempotent. A cross-book assignment is rejected by the domain service with 409 and is additionally unrepresentable in the database: both membership foreign keys compare the same `book_id` column, so no row can pair book A's unit with book B's meaning. Existing meanings are not required to have any unit assignment, and unit membership never changes a word's or meaning's own book.
+
+Because both membership foreign keys reference `(id, book_id)` parent keys, `vocabulary_meaning` carries a unique index over `(id, book_id)` (added by the `AddVocabularyBookUnits` migration; the primary key on `id` already implies its uniqueness). SQLite cannot `ALTER TABLE ... ADD CONSTRAINT` on a table that already exists, so the parent keys are realized as unique indexes rather than table constraints.
 
 The database logical key for an equivalent meaning is:
 
@@ -34,6 +43,10 @@ The connection string defaults to `Data Source=data/vocabulary.db`. The startup 
 Startup writes no books, words, or meanings, whether the file is new or already exists, so a new database starts empty and data already in an existing one is neither overwritten, duplicated, nor removed. Lexarbor ships no vocabulary data ([ADR-002](../adr/ADR-002-bundled-vocabulary-data.md)); databases created by releases that still loaded the former `Starter English 300` book keep it unchanged.
 
 The database file must live on a persistent volume. Docker mounts the host's `data/` at `/app/data` by default; never put a prebuilt `.db` into the image.
+
+## Upgrading an existing database
+
+Migrations are the only startup writer, and each migration states exactly what it changes. `AddVocabularyBookUnits` adds the two new tables, their indexes, and the `(id, book_id)` unique index on `vocabulary_meaning`; it rewrites no existing row, so books, words, meanings, and their query results cross the upgrade unchanged. Existing meanings keep working without any unit assignment. Back up the database consistently before upgrading (stop writes first, or use a SQLite online-backup tool), as with any release.
 
 ## Write consistency
 

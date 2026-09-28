@@ -65,3 +65,20 @@ public interface IVocabularyMeaningRepository
     Task DeleteAsync(string id);
     Task DeleteByVocabularyIdAsync(string vocabularyId);
 }
+
+public interface IVocabularyBookUnitRepository
+{
+    Task<VocabularyBookUnitModel?> GetByIdAsync(string id);
+    Task<List<VocabularyBookUnitModel>> GetByBookIdAsync(string bookId);
+    Task AddAsync(VocabularyBookUnitModel model);
+    Task DeleteAsync(string id);
+}
+
+public interface IVocabularyMeaningUnitRepository
+{
+    Task<bool> ExistsAsync(string unitId, string meaningId);
+    Task<List<VocabularyMeaningUnitModel>> GetByUnitIdAsync(string unitId);
+    Task<List<VocabularyMeaningUnitModel>> GetByMeaningIdAsync(string meaningId);
+    Task AddAsync(VocabularyMeaningUnitModel model);
+    Task DeleteAsync(string unitId, string meaningId);
+}
