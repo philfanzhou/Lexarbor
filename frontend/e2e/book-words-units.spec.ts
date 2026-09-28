@@ -382,6 +382,10 @@ test('disables both whole-book removal entries in the unit view and explains why
 
   await toolbarRemove.hover()
   await expect(page.getByRole('tooltip', { name: '单元视图下不能从本教材移除；请切回全书视图操作' })).toBeVisible()
+  // The toolbar now carries a third select beside the unit picker, and the
+  // popper of this tooltip sits over it; leave the button so the tooltip
+  // closes before the picker is used.
+  await page.mouse.move(0, 0)
 
   // Back in the whole book the entries work again.
   await pickUnit(page, '全书')
@@ -542,6 +546,133 @@ test('narrows the unit view to one section and reports the whole unit\'s section
   await expect(drawer.locator('.word-detail__unit-tag')).toHaveCount(3)
   await expect(drawer.locator('.word-detail__unit-tag').first()).toHaveText('单元 2 · School Life · A')
   await expect(drawer.locator('.word-detail__unit-tag').nth(1)).toHaveText('单元 2 · School Life · B')
+  await expect(drawer.locator('.word-detail__unit-tag').nth(2)).toHaveText('单元 6')
+})
+
+// Apple's one meaning sits in unit 2 under both kinds of its unsectioned
+// place; bank's meaning is an unclassified word there. The kind picker narrows
+// the unit view to one kind's places, the counts follow the narrowing, and the
+// per-kind place counts beside them always speak for the whole unit.
+const kindedAppleMeaning = {
+  ...appleMeaning,
+  units: [
+    { unitId: 'unit-2', number: 2, title: 'School Life', section: null, entryKind: 'word' },
+    { unitId: 'unit-2', number: 2, title: 'School Life', section: null, entryKind: 'phrase' },
+    { unitId: 'unit-6', number: 6, title: null, section: null, entryKind: null }
+  ]
+}
+const kindedBankRiver = {
+  ...bankRiver,
+  units: [{ unitId: 'unit-2', number: 2, title: 'School Life', section: null, entryKind: null }]
+}
+
+test('narrows the unit view to one entry kind and reports the whole unit\'s kinds', async ({ page }) => {
+  const entryKindCounts = { word: 1, phrase: 1, none: 1 }
+  const bothKinds = unitPage(
+    unitsA[0],
+    [
+      { ...apple, meanings: [kindedAppleMeaning] },
+      { ...bank, meanings: [kindedBankRiver] }
+    ],
+    { wordCount: 2, meaningCount: 2, totalCount: 2, totalPage: 1 }
+  )
+  const onlyWords = unitPage(
+    unitsA[0],
+    [{ ...apple, meanings: [kindedAppleMeaning] }],
+    { wordCount: 1, meaningCount: 1, totalCount: 1, totalPage: 1 }
+  )
+  const onlyUnclassified = unitPage(
+    unitsA[0],
+    [{ ...bank, meanings: [kindedBankRiver] }],
+    { wordCount: 1, meaningCount: 1, totalCount: 1, totalPage: 1 }
+  )
+
+  await page.route('**/admin/auth/session', (route) =>
+    json(route, { success: true, data: admin }))
+  await page.route('**/admin/system/version', (route) =>
+    json(route, { success: true, data: { version: '1.2.3', revision: null, channel: 'release' } }))
+  await page.route(bookContentRoute, (route) =>
+    json(route, { success: true, data: contentA }))
+  await page.route(unitsRoute, (route) =>
+    json(route, { success: true, data: { units: unitsA } }))
+  await page.route(/\/admin\/vocabulary\/[^/]+$/, (route) =>
+    json(route, { success: true, data: { ...apple, meanings: [kindedAppleMeaning] } }))
+
+  const askedFor: string[] = []
+  await page.route(unitContentRoute, (route) => {
+    const url = new URL(route.request().url())
+    const unitId = url.pathname.split('/').at(-2)
+    askedFor.push(`${unitId}?section=${url.searchParams.get('section') ?? '-'}&entryKind=${url.searchParams.get('entryKind') ?? '-'}`)
+    if (unitId !== 'unit-2') {
+      return json(route, { success: true, data: unit6Content })
+    }
+    switch (url.searchParams.get('entryKind')) {
+      case 'word':
+      case 'phrase':
+        return json(route, { success: true, data: { ...onlyWords, entryKindCounts } })
+      case 'none':
+        return json(route, { success: true, data: { ...onlyUnclassified, entryKindCounts } })
+      default:
+        return json(route, { success: true, data: { ...bothKinds, entryKindCounts } })
+    }
+  })
+
+  await page.goto(`/#/books/${bookA.id}/words`)
+  await expect(page.locator('.el-table')).toContainText('apple')
+  // The kind picker exists only inside a unit view.
+  await expect(page.locator('.toolbar__kind')).toHaveCount(0)
+
+  await pickUnit(page, '单元 2 · School Life')
+  await expect(page.locator('.toolbar__kind')).toBeVisible()
+  await expect(page.locator('.toolbar__kind')).toContainText('全部类别')
+  await expect(page.locator('.book-words__meta')).toContainText('释义 2')
+  await expect(page.locator('.book-words__kinds')).toHaveText('单词 1 · 短语 1 · 未分类 1')
+  await expect(askedFor.at(-1)).toBe('unit-2?section=-&entryKind=-')
+
+  const pickKind = async (label: string) => {
+    await page.locator('.toolbar__kind').click()
+    await page.locator('.el-select-dropdown__item:visible').filter({ hasText: label }).first().click()
+  }
+
+  await pickKind('单词')
+  await expect(page.locator('.el-table__row', { hasText: 'bank' })).toHaveCount(0)
+  await expect(page.locator('.el-table__row', { hasText: 'apple' })).toContainText('苹果')
+  await expect(page.locator('.book-words__meta')).toContainText('去重单词 1')
+  await expect(page.locator('.book-words__meta')).toContainText('释义 1')
+  await expect(page.locator('.book-words__kinds')).toHaveText('单词 1 · 短语 1 · 未分类 1')
+  await expect(askedFor.at(-1)).toBe('unit-2?section=-&entryKind=word')
+
+  await pickKind('未分类')
+  await expect(page.locator('.el-table__row', { hasText: 'apple' })).toHaveCount(0)
+  await expect(page.locator('.el-table__row', { hasText: 'bank' })).toContainText('河岸')
+  await expect(askedFor.at(-1)).toBe('unit-2?section=-&entryKind=none')
+
+  await pickKind('全部类别')
+  await expect(page.locator('.el-table')).toContainText('apple')
+  await expect(page.locator('.el-table')).toContainText('河岸')
+  await expect(askedFor.at(-1)).toBe('unit-2?section=-&entryKind=-')
+
+  // The section and kind dimensions combine by intersection.
+  await page.locator('.toolbar__section').click()
+  await page.locator('.el-select-dropdown__item:visible').filter({ hasText: 'Section A' }).first().click()
+  await expect(askedFor.at(-1)).toBe('unit-2?section=A&entryKind=-')
+
+  // A unit switch resets the kind refinement to 全部类别.
+  await pickKind('短语')
+  await expect(askedFor.at(-1)).toBe('unit-2?section=A&entryKind=phrase')
+  await pickUnit(page, '单元 6')
+  await expect(page.locator('.toolbar__kind')).toContainText('全部类别')
+  await expect(askedFor.at(-1)).toBe('unit-6?section=-&entryKind=-')
+
+  // The drawer names the kind each place sits under, and a meaning under two
+  // kinds of one place reads as two tags of that place.
+  await pickUnit(page, '单元 2 · School Life')
+  await page.locator('.el-table__row', { hasText: 'apple' }).getByRole('button', { name: '详情' }).click()
+  const drawer = page.locator('.el-drawer')
+  await expect(drawer).toBeVisible()
+  await expect(drawer.locator('.word-detail__unit-tag')).toHaveCount(3)
+  await expect(drawer.locator('.word-detail__unit-tag').first()).toHaveText('单元 2 · School Life · 单词')
+  await expect(drawer.locator('.word-detail__unit-tag').nth(1)).toHaveText('单元 2 · School Life · 短语')
   await expect(drawer.locator('.word-detail__unit-tag').nth(2)).toHaveText('单元 6')
 })
 

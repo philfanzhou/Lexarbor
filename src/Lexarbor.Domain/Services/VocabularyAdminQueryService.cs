@@ -29,6 +29,7 @@ public sealed class VocabularyAdminQueryService(IVocabularyAdminQueryRepository 
         string unitId,
         string? keyword,
         string? section,
+        string? entryKind,
         int? page,
         int? size,
         CancellationToken cancellationToken = default)
@@ -39,9 +40,32 @@ public sealed class VocabularyAdminQueryService(IVocabularyAdminQueryRepository 
             unitId.Trim(),
             keyword?.Trim(),
             ResolveSection(section),
+            ResolveEntryKind(entryKind),
             paging.Page,
             paging.Size,
             cancellationToken);
+    }
+
+    /// <summary>
+    /// Maps the query parameter: absent or blank reads every kind of the
+    /// unit's places, <c>word</c> and <c>phrase</c> name a kind, and
+    /// <c>none</c> names the unclassified places. Anything else is refused
+    /// rather than guessed at.
+    /// </summary>
+    private static string? ResolveEntryKind(string? entryKind)
+    {
+        if (string.IsNullOrWhiteSpace(entryKind))
+        {
+            return null;
+        }
+
+        return entryKind.Trim() switch
+        {
+            "word" => "word",
+            "phrase" => "phrase",
+            "none" => string.Empty,
+            _ => throw new DomainValidationException("EntryKind must be word, phrase, or none.")
+        };
     }
 
     /// <summary>

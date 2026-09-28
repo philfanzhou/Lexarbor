@@ -7,9 +7,10 @@ public record VocabularyAdminWordDto(string Id, string Word, string? PhoneticUk,
 /// <summary>
 /// A unit a meaning of an administrative detail is assigned to. A meaning
 /// with two places of one unit reads as two entries whose <c>Section</c>
-/// differs; null is the unsectioned place.
+/// differs, and two kinds of one place as two entries whose <c>EntryKind</c>
+/// differs; null is the unsectioned place or the unclassified kind.
 /// </summary>
-public record VocabularyAdminUnitDto(string UnitId, int Number, string? Title, string? Section);
+public record VocabularyAdminUnitDto(string UnitId, int Number, string? Title, string? Section, string? EntryKind);
 
 /// <summary>
 /// A meaning of an administrative detail: the fields the public meaning DTO

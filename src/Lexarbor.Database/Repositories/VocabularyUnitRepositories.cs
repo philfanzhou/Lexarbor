@@ -90,13 +90,15 @@ public class VocabularyMeaningUnitRepository : IVocabularyMeaningUnitRepository
         _context = context;
     }
 
-    public Task<bool> ExistsAsync(string unitId, string meaningId, string? section)
+    public Task<bool> ExistsAsync(string unitId, string meaningId, string? section, string? entryKind)
     {
         var storedSection = ToStoredSection(section);
+        var storedKind = ToStoredKind(entryKind);
         return _context.VocabularyMeaningUnits
             .AsNoTracking()
             .AnyAsync(membership =>
-                membership.UnitId == unitId && membership.MeaningId == meaningId && membership.Section == storedSection);
+                membership.UnitId == unitId && membership.MeaningId == meaningId && membership.Section == storedSection
+                && membership.EntryKind == storedKind);
     }
 
     public async Task<List<VocabularyMeaningUnitModel>> GetByUnitIdAsync(string unitId)
@@ -122,23 +124,28 @@ public class VocabularyMeaningUnitRepository : IVocabularyMeaningUnitRepository
         await _context.VocabularyMeaningUnits.AddAsync(ToEntity(model));
     }
 
-    public async Task DeleteAsync(string unitId, string meaningId, string? section)
+    public async Task DeleteAsync(string unitId, string meaningId, string? section, string? entryKind)
     {
-        var entity = await _context.VocabularyMeaningUnits.FindAsync(unitId, meaningId, ToStoredSection(section));
+        var entity = await _context.VocabularyMeaningUnits.FindAsync(unitId, meaningId, ToStoredSection(section), ToStoredKind(entryKind));
         if (entity != null)
         {
             _context.VocabularyMeaningUnits.Remove(entity);
         }
     }
 
-    // The entity stores no section as the empty string, because SQLite treats
-    // NULLs in a composite primary key as mutually unequal and the key is what
-    // makes a repeated assignment a conflict. The model uses null for "no
-    // section" so writers never need to know the sentinel; these two methods
-    // are the only place that translates.
+    // The entity stores no section and no entry kind as the empty string,
+    // because SQLite treats NULLs in a composite primary key as mutually
+    // unequal and the key is what makes a repeated assignment a conflict. The
+    // model uses null for "no section" and "no kind" so writers never need to
+    // know the sentinels; these methods are the only place that translates.
     private static string ToStoredSection(string? section)
     {
         return section ?? string.Empty;
+    }
+
+    private static string ToStoredKind(string? entryKind)
+    {
+        return entryKind ?? string.Empty;
     }
 
     private static VocabularyMeaningUnitEntity ToEntity(VocabularyMeaningUnitModel model) => new()
@@ -146,7 +153,8 @@ public class VocabularyMeaningUnitRepository : IVocabularyMeaningUnitRepository
         UnitId = model.UnitId,
         MeaningId = model.MeaningId,
         BookId = model.BookId,
-        Section = ToStoredSection(model.Section)
+        Section = ToStoredSection(model.Section),
+        EntryKind = ToStoredKind(model.EntryKind)
     };
 
     private static VocabularyMeaningUnitModel ToModel(VocabularyMeaningUnitEntity entity) => new()
@@ -154,6 +162,7 @@ public class VocabularyMeaningUnitRepository : IVocabularyMeaningUnitRepository
         UnitId = entity.UnitId,
         MeaningId = entity.MeaningId,
         BookId = entity.BookId,
-        Section = entity.Section == string.Empty ? null : entity.Section
+        Section = entity.Section == string.Empty ? null : entity.Section,
+        EntryKind = entity.EntryKind == string.Empty ? null : entity.EntryKind
     };
 }

@@ -26,8 +26,8 @@ export function parseVocabularyTsv(text: string): VocabularyPreviewRow[] {
 
 function parseLine(line: string, lineNumber: number): VocabularyPreviewRow {
   const columns = line.split('\t').map((column) => column.trim())
-  if (columns.length < 5 || columns.length > 8) {
-    return { position: lineNumber, columns, error: `列数应为 5 到 8，实际为 ${columns.length}` }
+  if (columns.length < 5 || columns.length > 9) {
+    return { position: lineNumber, columns, error: `列数应为 5 到 9，实际为 ${columns.length}` }
   }
 
   return toPreviewRow(lineNumber, columns)

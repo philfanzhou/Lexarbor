@@ -20,15 +20,16 @@ Two properties of the storage layer shape the decision. First, SQLite has one wr
 {
   "bookId": "book-id",
   "entries": [
-    { "word": "apple", "phoneticUk": "/ˈæp.əl/", "phoneticUs": "/ˈæp.əl/", "partOfSpeech": "n.", "meaning": "苹果", "example": "I eat an apple.", "unitId": "unit-id", "section": "A" }
+    { "word": "apple", "phoneticUk": "/ˈæp.əl/", "phoneticUs": "/ˈæp.əl/", "partOfSpeech": "n.", "meaning": "苹果", "example": "I eat an apple.", "unitId": "unit-id", "section": "A", "entryKind": "word" }
   ]
 }
 ```
 
 - `word` and `meaning` are required and must not be blank after trimming.
 - `phoneticUk`, `phoneticUs`, `partOfSpeech`, and `example` are optional. A blank string counts as absent, so an empty column never clears a stored phonetic or example.
-- `unitId` is optional and names an existing unit of `bookId`'s book; an import never creates a unit. The meaning the entry resolves to — inserted by the entry, reused from an earlier entry of the same batch, or already stored — is assigned to that unit, so a meaning shared with earlier data still gets the entry's assignment, and the same meaning may appear in several units. Repeating an assignment writes nothing: the `(unit_id, meaning_id, section)` primary key and an existence check inside the batch transaction keep a resubmitted batch from duplicating rows. A blank `unitId` counts as absent — unless the entry carries a `section`, which requires one. A `unitId` that does not exist, or that belongs to another book, is reported like any other entry error and leaves the batch unwritten; the answer does not distinguish the two, so one book's unit ids do not leak another book's contents.
+- `unitId` is optional and names an existing unit of `bookId`'s book; an import never creates a unit. The meaning the entry resolves to — inserted by the entry, reused from an earlier entry of the same batch, or already stored — is assigned to that unit, so a meaning shared with earlier data still gets the entry's assignment, and the same meaning may appear in several units. Repeating an assignment writes nothing: the `(unit_id, meaning_id, section, entry_kind)` primary key and an existence check inside the batch transaction keep a resubmitted batch from duplicating rows. A blank `unitId` counts as absent — unless the entry carries a `section` or an `entryKind`, either of which requires one. A `unitId` that does not exist, or that belongs to another book, is reported like any other entry error and leaves the batch unwritten; the answer does not distinguish the two, so one book's unit ids do not leak another book's contents.
 - `section` is optional and names which part of that unit the assignment sits in. Books split a unit into Section A and Section B, so the value is exactly `A` or `B` after trimming, with case significant — `a` is invalid, the same exact-match-no-guessing rule the unit number follows. A blank value is no section. A section requires `unitId`: a section without a unit names a place of nothing and is a per-entry 400. The same meaning may hold several positions of the same unit — its Section A and its Section B and its unsectioned place are three rows — and each is idempotent on its own; the counts still refer to meanings only, so a meaning in both sections counts once.
+- `entryKind` is optional and classifies the entry at that place. The value is exactly `word` or `phrase` after trimming, with case significant — `Word` is invalid, the same rule the section follows. A blank value is unclassified, and nothing is ever inferred: the kind comes only from what the entry says, never from the word's spelling, part of speech, source file, or definition. A kind requires `unitId`, because it is a property of an assignment's position — a kind without a unit classifies nothing and is a per-entry 400. The same meaning may hold several positions of one place — as a word and as a phrase are two rows of the same `(unit, meaning, section)` place — and each is idempotent on its own; the counts still refer to meanings only.
 - Success answers 200 with `{ "success": true, "data": { "total": 3, "created": 2, "reused": 1 } }`. `created` counts the meanings the batch inserted; `reused` counts the entries that matched an equivalent meaning, whether stored earlier or written by an earlier entry of the same batch; `total = created + reused`. Assignments are not meanings and never enter the counts. `data` carries exactly these three fields.
 - Invalid entries answer 400 with an `errors` array that lists every invalid entry in ascending `index` order, where `index` is the zero-based position in `entries`:
 
@@ -42,7 +43,7 @@ Two properties of the storage layer shape the decision. First, SQLite has one wr
 
 The entries of one batch are applied in array order with the normalization and matching of `POST /admin/vocabulary`. The result is the same as posting them one by one, except that the batch is atomic. A later entry's non-blank phonetics and example overwrite an earlier one's. Phonetics live on the shared word row, so a batch for one book can change the phonetics another book displays for the same word; that is the existing single-entry behaviour.
 
-An entry with a `unitId` adds one step the single-entry path does not have: after its meaning is resolved, the meaning is assigned to that unit. Entries that share a meaning therefore share the meaning row, while each still assigns it to its own unit. A `section` names the place of the unit the assignment sits in, so two entries naming one unit with different sections write two positions of one meaning.
+An entry with a `unitId` adds one step the single-entry path does not have: after its meaning is resolved, the meaning is assigned to that unit. Entries that share a meaning therefore share the meaning row, while each still assigns it to its own unit. A `section` names the place of the unit the assignment sits in, and an `entryKind` names the kind of the entry at that place, so two entries naming one unit with different sections write two positions of one meaning, and two entries naming one place with different kinds write two positions of it.
 
 ### A batch is atomic
 
@@ -57,7 +58,7 @@ Every check that needs no database runs first. The batch is then written in one 
 | 5 | `bookId` blank | 400 `Book ID is required.` |
 | 6 | `entries` missing or empty | 400 `At least one entry is required.` |
 | 7 | More than 500 entries | 400 `A batch can contain at most 500 entries.` |
-| 8 | An entry is `null`, its `word` or `meaning` is blank, its `section` is not `A` or `B` after trimming, or its `section` is present without a `unitId` | 400 with `errors` listing every invalid entry |
+| 8 | An entry is `null`, its `word` or `meaning` is blank, its `section` is not `A` or `B` after trimming, its `section` is present without a `unitId`, its `entryKind` is not `word` or `phrase` after trimming, or its `entryKind` is present without a `unitId` | 400 with `errors` listing every invalid entry |
 | 9 | The book does not exist | 404 `Vocabulary book was not found.` |
 | 10 | The book is disabled | 422 `New meanings cannot be added to a disabled vocabulary book.` |
 | 11 | An entry's `unitId` is not an existing unit of the book | 400 with `errors` listing every invalid entry |
@@ -93,11 +94,11 @@ The server accepts JSON only, never a file, so no upload surface is added. The a
 The TSV format the UI accepts:
 
 - UTF-8 text, one entry per line, columns separated by a tab;
-- columns in order: `word`, `phonetic_uk`, `phonetic_us`, `part_of_speech`, `meaning`, an optional sixth `example`, an optional seventh `unit`, and an optional eighth `section`;
+- columns in order: `word`, `phonetic_uk`, `phonetic_us`, `part_of_speech`, `meaning`, an optional sixth `example`, an optional seventh `unit`, an optional eighth `section`, and an optional ninth `entry_kind`;
 - blank lines and lines starting with `#` are ignored;
-- every other line must have exactly five, six, seven, or eight columns.
+- every other line must have exactly five through nine columns.
 
-The `unit` column holds a unit number a human can check against the unit administration page, not a `unitId`: the page resolves it against the selected book's units and refuses the row when it matches none. A blank `unit` column is no assignment. The `section` column holds `A` or `B` and is subject to the same rules the request field has: exact after trimming, blank for no section, and a value without a unit number makes the row invalid. [ADR-006](./ADR-006-batch-import-file-formats.md) defines how the page resolves the unit column, what the other formats call the section, and what the other formats call the unit.
+The `unit` column holds a unit number a human can check against the unit administration page, not a `unitId`: the page resolves it against the selected book's units and refuses the row when it matches none. A blank `unit` column is no assignment. The `section` column holds `A` or `B` and the `entry_kind` column holds `word` or `phrase`, each subject to the same rules the request field has: exact after trimming, blank for no section or no classification, and a value without a unit number makes the row invalid. [ADR-006](./ADR-006-batch-import-file-formats.md) defines how the page resolves the unit column, what the other formats call the section and the kind, and what the other formats call the unit.
 
 A file must be UTF-8; the page refuses a file that is not, rather than importing replacement characters. The page also accepts CSV, and [ADR-006](./ADR-006-batch-import-file-formats.md) defines the formats other than TSV, how a file is read, and the rules they share.
 
@@ -119,7 +120,7 @@ Imported entries are user-supplied data under [ADR-002](./ADR-002-bundled-vocabu
 ## Consequences
 
 - Administrators can import up to 500 entries per request, from the administration UI's `/import/batch` page, which parses the TSV in the browser as described in the [frontend specification](../frontend/README.md#batch-import-page). [ADR-006](./ADR-006-batch-import-file-formats.md) adds CSV to the same page.
-- Resubmitting a batch creates no duplicate `vocabulary`, `vocabulary_meaning`, or `vocabulary_meaning_unit` rows, and a failed batch leaves no trace. Section positions are part of that guarantee: each `(unit, meaning, section)` place is one row.
+- Resubmitting a batch creates no duplicate `vocabulary`, `vocabulary_meaning`, or `vocabulary_meaning_unit` rows, and a failed batch leaves no trace. Section positions and entry kinds are part of that guarantee: each `(unit, meaning, section, entry_kind)` place is one row.
 - While a batch is being written, other administrative writes wait for up to a few seconds; anonymous reads are unaffected.
 - The exception middleware now maps Kestrel's body-too-large error to 413 with the envelope. Other routes bind their body as a parameter, so the framework handles an oversized body before the middleware sees it and still answers Kestrel's default 30 MB limit with an empty 413. Their contracts are unchanged.
-- The `vocabulary_meaning_unit` table now carries a `section` column (`''`/`A`/`B`, empty string for no section) and a `(unit_id, meaning_id, section)` primary key; the `AddMeaningUnitSections` migration rebuilds the table and every existing assignment crosses the upgrade as the unsectioned place. See [the database documentation](../database/README.md).
+- The `vocabulary_meaning_unit` table now carries a `section` column (`''`/`A`/`B`, empty string for no section) and an `entry_kind` column (`''`/`word`/`phrase`, empty string for unclassified) with a `(unit_id, meaning_id, section, entry_kind)` primary key; the `AddMeaningUnitSections` and `AddMeaningUnitEntryKinds` migrations rebuild the table and every existing assignment crosses each upgrade with its values unchanged — unsectioned and unclassified. See [the database documentation](../database/README.md).

@@ -22,12 +22,13 @@ export interface AdminBookRef {
   status: boolean
 }
 
-/** A unit a meaning is assigned to, in unit-number order. `section` is `A` or `B` when the assignment sits in one of the unit's sections; absent in older reads. */
+/** A unit a meaning is assigned to, in unit-number order. `section` is `A` or `B` when the assignment sits in one of the unit's sections; `entryKind` is `word` or `phrase` when the entry is classified; absent in older reads. */
 export interface AdminMeaningUnit {
   unitId: string
   number: number
   title?: string | null
   section?: string | null
+  entryKind?: string | null
 }
 
 /** One meaning record; it belongs to exactly one book. */
@@ -90,12 +91,20 @@ export interface AdminSectionCounts {
   noSection: number
 }
 
+/** How many assignment places the unit holds per entry kind, always counted over the whole unit. */
+export interface AdminEntryKindCounts {
+  word: number
+  phrase: number
+  none: number
+}
+
 /**
  * One unit's content page: same shape as the whole-book page scoped to the
  * unit — counts are unit-scoped whatever the keyword, and each item's meanings
  * are only those assigned to the unit, narrowed to the requested section's
- * places when one was asked for, while `sectionCounts` always reports the whole
- * unit. A missing unit and a unit of another book both answer 404.
+ * places and entry kind's places when either was asked for, while
+ * `sectionCounts` and `entryKindCounts` always report the whole unit. A
+ * missing unit and a unit of another book both answer 404.
  */
 export interface AdminUnitContent {
   book: Book
@@ -103,6 +112,7 @@ export interface AdminUnitContent {
   wordCount: number
   meaningCount: number
   sectionCounts: AdminSectionCounts
+  entryKindCounts: AdminEntryKindCounts
   items: AdminWordDetail[]
   totalCount: number
   totalPage: number
@@ -116,6 +126,9 @@ export interface AdminWordListQuery {
 
 /** The unit-content page's section filter: one section's places, or the unsectioned ones. */
 export type AdminUnitSectionFilter = 'A' | 'B' | 'none'
+
+/** The unit-content page's entry-kind filter: one kind's places, or the unclassified ones. */
+export type AdminUnitEntryKindFilter = 'word' | 'phrase' | 'none'
 
 /** The whole library, deduplicated; `bookId` selects memberships, it does not trim them. */
 export function searchAdminVocabulary(
@@ -142,11 +155,11 @@ export function getAdminBookContent(
   })
 }
 
-/** One unit's word list, in the same shape as the whole-book page. `section` narrows the page and the counts to that section's places of the unit. */
+/** One unit's word list, in the same shape as the whole-book page. `section` and `entryKind` narrow the page and the counts to that dimension's places of the unit, and combine by intersection. */
 export function getAdminUnitContent(
   bookId: string,
   unitId: string,
-  params: AdminWordListQuery & { section?: AdminUnitSectionFilter },
+  params: AdminWordListQuery & { section?: AdminUnitSectionFilter; entryKind?: AdminUnitEntryKindFilter },
   config?: AxiosRequestConfig
 ) {
   return api.get<AdminUnitContent>(`/admin/vocabulary-books/${bookId}/units/${unitId}/content`, {

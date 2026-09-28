@@ -108,14 +108,19 @@ public class VocabularyDbContext : DbContext
 
         modelBuilder.Entity<VocabularyMeaningUnitEntity>(entity =>
         {
-            // The section completes the position: a meaning may sit in the
-            // same unit's Section A and Section B as two rows. The property is
-            // the empty-string sentinel rather than null because SQLite treats
-            // NULLs in a composite primary key as distinct, which would break
-            // the idempotent re-import of an unsectioned assignment.
-            entity.HasKey(e => new { e.UnitId, e.MeaningId, e.Section });
+            // The section and the entry kind complete the position: a meaning
+            // may sit in the same unit's Section A and Section B, as a word and
+            // as a phrase, as separate rows. Both properties are empty-string
+            // sentinels rather than null because SQLite treats NULLs in a
+            // composite primary key as distinct, which would break the
+            // idempotent re-import of an unsectioned or unclassified
+            // assignment.
+            entity.HasKey(e => new { e.UnitId, e.MeaningId, e.Section, e.EntryKind });
 
             entity.Property(e => e.Section)
+                .HasDefaultValue(string.Empty);
+
+            entity.Property(e => e.EntryKind)
                 .HasDefaultValue(string.Empty);
 
             entity.ToTable(table =>
@@ -123,6 +128,9 @@ public class VocabularyDbContext : DbContext
                 table.HasCheckConstraint(
                     "CK_vocabulary_meaning_unit_section",
                     "section IN ('', 'A', 'B')");
+                table.HasCheckConstraint(
+                    "CK_vocabulary_meaning_unit_entry_kind",
+                    "entry_kind IN ('', 'word', 'phrase')");
             });
 
             // Both foreign keys include book_id and point at a (id, book_id)

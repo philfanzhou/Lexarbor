@@ -39,12 +39,16 @@ public static class VocabularyAdminQueryEndpoints
         // whole-book content route; the meanings listed are only those assigned
         // to this unit, and the unit-scoped totals ignore the keyword. A
         // `section` of A, B, or none narrows the page and the counts to that
-        // section's places; the section counts always speak for the whole unit.
+        // section's places, and an `entryKind` of word, phrase, or none to that
+        // kind's places — the two combine as independent dimensions of one
+        // position — while the section and kind counts always speak for the
+        // whole unit.
         group.MapGet("/vocabulary-books/{bookId}/units/{unitId}/content", async (string bookId, string unitId,
-            [FromQuery] string? keyword, [FromQuery] string? section, [FromQuery] int? page, [FromQuery] int? size,
+            [FromQuery] string? keyword, [FromQuery] string? section, [FromQuery] string? entryKind,
+            [FromQuery] int? page, [FromQuery] int? size,
             VocabularyAdminQueryService service, CancellationToken cancellationToken) =>
         {
-            var result = await service.GetUnitContentAsync(bookId, unitId, keyword, section, page, size, cancellationToken);
+            var result = await service.GetUnitContentAsync(bookId, unitId, keyword, section, entryKind, page, size, cancellationToken);
             return VocabularyHttpResponse.Ok(new
             {
                 book = result.Book.ToDto(),
@@ -56,6 +60,12 @@ public static class VocabularyAdminQueryEndpoints
                     sectionA = result.SectionCounts.SectionA,
                     sectionB = result.SectionCounts.SectionB,
                     noSection = result.SectionCounts.NoSection
+                },
+                entryKindCounts = new
+                {
+                    word = result.EntryKindCounts.Word,
+                    phrase = result.EntryKindCounts.Phrase,
+                    none = result.EntryKindCounts.None
                 },
                 items = result.Page.Items.Select(Detail),
                 result.Page.TotalCount,
@@ -73,7 +83,7 @@ public static class VocabularyAdminQueryEndpoints
             item.Meanings.Select(m => new VocabularyAdminMeaningDetailDto(
                 m.Meaning.Id, m.Meaning.VocabularyId, m.Meaning.BookId, m.Meaning.PartOfSpeech,
                 m.Meaning.Meaning, m.Meaning.Example,
-                m.Units.Select(u => new VocabularyAdminUnitDto(u.UnitId, u.Number, u.Title, u.Section)).ToList())).ToList());
+                m.Units.Select(u => new VocabularyAdminUnitDto(u.UnitId, u.Number, u.Title, u.Section, u.EntryKind)).ToList())).ToList());
 }
 
 /// <summary>The unit a unit-content response is scoped to.</summary>

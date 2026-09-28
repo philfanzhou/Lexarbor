@@ -6,20 +6,23 @@ namespace Lexarbor.Database.Entities;
 /// <summary>
 /// The assignment of one meaning to one place of one unit. A meaning can be
 /// assigned to several units of its book, and — because books split their
-/// units into Section A and Section B — to several places of the same unit;
-/// the triple <c>(unit_id, meaning_id, section)</c> is the primary key, so
+/// units into Section A and Section B and classify entries as words or
+/// phrases — to several places of the same unit; the quadruple
+/// <c>(unit_id, meaning_id, section, entry_kind)</c> is the primary key, so
 /// repeating an assignment is a conflict rather than a second row.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <c>section</c> is stored as a non-nullable sentinel rather than NULL:
-/// SQLite treats NULLs in a composite primary key as mutually unequal, so
-/// NULL storage would let the same unsectioned assignment be inserted twice
-/// and cannot back the idempotent re-import the batch contract promises. The
-/// sentinel is the empty string, with <c>A</c> and <c>B</c> the only section
-/// names; a CHECK constraint enforces that domain. The domain model hides the
-/// sentinel behind a nullable <see cref="string"/> where null means no
-/// section; the repository translates.
+/// <c>section</c> and <c>entry_kind</c> are stored as non-nullable sentinels
+/// rather than NULL: SQLite treats NULLs in a composite primary key as mutually
+/// unequal, so NULL storage would let the same unsectioned or unclassified
+/// assignment be inserted twice and cannot back the idempotent re-import the
+/// batch contract promises. The sentinels are the empty string, with
+/// <c>A</c> and <c>B</c> the only section names and <c>word</c> and
+/// <c>phrase</c> the only entry kinds; a CHECK constraint enforces each
+/// domain. The domain model hides the sentinels behind nullable
+/// <see cref="string"/>s where null means no section or no kind; the
+/// repository translates.
 /// </para>
 /// <para>
 /// <c>book_id</c> is deliberately redundant: it duplicates the book both the
@@ -49,6 +52,9 @@ public class VocabularyMeaningUnitEntity
 
     [Column("section")]
     public string Section { get; set; } = string.Empty;
+
+    [Column("entry_kind")]
+    public string EntryKind { get; set; } = string.Empty;
 
     public virtual VocabularyBookUnitEntity? Unit { get; set; }
 
