@@ -153,7 +153,7 @@ public class VocabularyAdminQueryTests : TestBase
         var detail = await Service.GetAsync("shared", TestContext.Current.CancellationToken);
         Assert.Equal(new[] { "a1", "a2", "b1" }, detail.Meanings.Select(m => m.Meaning.Id));
         Assert.Equal(new[] { 2, 6 }, detail.Meanings.Single(m => m.Meaning.Id == "a1").Units.Select(u => u.Number));
-        Assert.Empty(detail.Meanings.Single(m => m.Meaning.Id == "b1").Units.Where(u => u.UnitId == "u2"));
+        Assert.Equal("ub", detail.Meanings.Single(m => m.Meaning.Id == "b1").Units.Single().UnitId);
         Assert.Empty((await Service.GetAsync("orphan", TestContext.Current.CancellationToken)).Meanings.SelectMany(m => m.Units));
     }
 
