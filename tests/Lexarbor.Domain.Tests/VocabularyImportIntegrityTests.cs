@@ -20,7 +20,7 @@ public class VocabularyImportIntegrityTests : TestBase
     }
 
     [Fact]
-    public async Task AddOrUpdateAsync_TrimsAndLowercasesWord()
+    public async Task AddOrUpdateAsync_TrimsWordAndKeepsImportedCasing()
     {
         var book = await CreateBookAsync();
 
@@ -28,9 +28,11 @@ public class VocabularyImportIntegrityTests : TestBase
             new VocabularyModel { Word = "  Apple  " },
             new VocabularyMeaningModel { BookId = book.Id, Meaning = " apple " });
 
-        Assert.Equal("apple", word.Word);
+        // The display spelling keeps the imported casing; equivalence is the
+        // normalized key's job.
+        Assert.Equal("Apple", word.Word);
         Assert.Equal(
-            "apple",
+            "Apple",
             await _dbContext.Vocabularies
                 .Select(item => item.Word)
                 .SingleAsync(TestContext.Current.CancellationToken));
@@ -51,6 +53,42 @@ public class VocabularyImportIntegrityTests : TestBase
         Assert.Equal(firstWord.Id, secondWord.Id);
         Assert.Equal(1, await _dbContext.Vocabularies.CountAsync(TestContext.Current.CancellationToken));
         Assert.Equal(2, await _dbContext.VocabularyMeanings.CountAsync(TestContext.Current.CancellationToken));
+    }
+
+    /// <summary>
+    /// The first creation's spelling is the one that stays: a later import of
+    /// the same normalized word with different casing must not silently
+    /// overwrite the stored display value.
+    /// </summary>
+    [Fact]
+    public async Task AddOrUpdateAsync_EquivalentWordWithOtherCasing_KeepsFirstDisplaySpelling()
+    {
+        var book = await CreateBookAsync();
+        var (firstWord, _) = await _service.AddOrUpdateAsync(
+            new VocabularyModel { Word = "Nobel Prize" },
+            new VocabularyMeaningModel { BookId = book.Id, Meaning = "诺贝尔奖" });
+
+        var (secondWord, secondMeaning) = await _service.AddOrUpdateAsync(
+            new VocabularyModel { Word = "  NOBEL PRIZE  " },
+            new VocabularyMeaningModel { BookId = book.Id, PartOfSpeech = "n.", Meaning = "诺贝尔奖" });
+
+        Assert.Equal(firstWord.Id, secondWord.Id);
+        Assert.Equal(
+            "Nobel Prize",
+            await _dbContext.Vocabularies
+                .Select(item => item.Word)
+                .SingleAsync(TestContext.Current.CancellationToken));
+
+        // Updating through the word's own ID does not rewrite the spelling
+        // either: an import is not an edit.
+        var (byId, _) = await _service.AddOrUpdateAsync(
+            new VocabularyModel { Id = firstWord.Id, Word = "nobel prize" },
+            new VocabularyMeaningModel { Id = secondMeaning.Id, BookId = book.Id, PartOfSpeech = "n.", Meaning = "诺贝尔奖" });
+        Assert.Equal(
+            "Nobel Prize",
+            await _dbContext.Vocabularies
+                .Select(item => item.Word)
+                .SingleAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]

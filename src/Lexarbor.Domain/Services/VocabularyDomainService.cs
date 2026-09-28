@@ -306,7 +306,13 @@ public class VocabularyDomainService
             {
                 var now = DateTimeOffset.UtcNow;
                 requested.Id = Guid.NewGuid().ToString();
-                requested.Word = normalizedWord;
+                // The display spelling keeps the imported casing; equivalence is
+                // the normalized key's job, not the stored word's. First
+                // creation wins: a later import of the same normalized word with
+                // different casing resolves to this row and leaves the spelling
+                // alone, and only the administrator's explicit edit can correct
+                // it while the normalized key is unchanged.
+                requested.Word = requested.Word.Trim();
                 requested.CreatedAt = now;
                 requested.UpdatedAt = now;
                 await _vocabularyRepository.AddAsync(requested);
@@ -314,12 +320,13 @@ public class VocabularyDomainService
             }
         }
 
+        // The stored spelling is deliberately not rewritten to the imported
+        // casing: an import is not an edit, and overwriting here would silently
+        // discard the first creator's spelling (or re-lowercase it, as this
+        // path used to do). Equivalence is decided by the normalized key
+        // above; phonetics still merge because importing a word that carries
+        // new phonetic information should store it.
         var changed = false;
-        if (!string.Equals(existing.Word, normalizedWord, StringComparison.Ordinal))
-        {
-            existing.Word = normalizedWord;
-            changed = true;
-        }
 
         if (requested.PhoneticUk != null &&
             !string.Equals(existing.PhoneticUk, requested.PhoneticUk, StringComparison.Ordinal))

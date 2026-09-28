@@ -275,6 +275,38 @@ public class VocabularyBatchImportEndpointTests :
         Assert.Equal("/ˈæp.əl/", apple.PhoneticUk);
     }
 
+    // Display casing: the first import's spelling is stored as-is, a re-import
+    // with other casing reuses the row without touching it, and equivalence
+    // stays keyed on the normalized form.
+    [Fact]
+    public async Task BatchImport_StoresDisplayCasingAndDoesNotOverwriteItOnReimport()
+    {
+        var bookId = await CreateBookAsync();
+        var suffix = bookId[^8..];
+        using var client = CreateAdminClient();
+
+        var first = await PostForDataAsync(
+            client,
+            Batch(bookId, Entry($"Nobel Prize{suffix}", "诺贝尔奖", partOfSpeech: "n.")));
+        Assert.Equal((1, 1, 0), Counts(first));
+        var second = await PostForDataAsync(
+            client,
+            Batch(bookId, Entry($"  NOBEL PRIZE{suffix}  ", "诺贝尔奖", partOfSpeech: "n.")));
+        Assert.Equal((1, 0, 1), Counts(second));
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var context = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+        var stored = await context.Vocabularies.SingleOrDefaultAsync(
+            word => word.Word == $"Nobel Prize{suffix}",
+            TestContext.Current.CancellationToken);
+        Assert.NotNull(stored);
+        Assert.Equal(
+            1,
+            await context.Vocabularies.CountAsync(
+                word => word.NormalizedWord == $"nobel prize{suffix}",
+                TestContext.Current.CancellationToken));
+    }
+
     // Row 12, scenario 7: a failure while writing the third entry rolls back the
     // two before it, and each failure keeps its existing status mapping.
     [Theory]

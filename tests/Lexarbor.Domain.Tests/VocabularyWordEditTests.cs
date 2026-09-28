@@ -26,7 +26,9 @@ public class VocabularyWordEditTests : TestBase
         var original = await _dbContext.Vocabularies.AsNoTracking().SingleAsync(v => v.Id == "w", TestContext.Current.CancellationToken);
         await Service(_dbContext).ReplaceAsync("w", " REPLACED ", uk, us, TestContext.Current.CancellationToken);
         var updated = await _dbContext.Vocabularies.AsNoTracking().SingleAsync(v => v.Id == "w", TestContext.Current.CancellationToken);
-        Assert.Equal("replaced", updated.Word);
+        // An explicit edit stores the submitted spelling as the display value
+        // while the normalized key decides equivalence.
+        Assert.Equal("REPLACED", updated.Word);
         Assert.Equal(string.IsNullOrWhiteSpace(uk) ? null : "uk", updated.PhoneticUk);
         Assert.Equal(string.IsNullOrWhiteSpace(us) ? null : "us", updated.PhoneticUs);
         Assert.Equal(original.CreatedAt, updated.CreatedAt);
@@ -34,6 +36,30 @@ public class VocabularyWordEditTests : TestBase
         Assert.Equal(meanings, JsonSerializer.Serialize(await _dbContext.VocabularyMeanings.AsNoTracking().ToListAsync(TestContext.Current.CancellationToken)));
         await Service(_dbContext).ReplaceAsync("orphan", " historical ", null, null, TestContext.Current.CancellationToken);
         Assert.Equal("historical", (await _dbContext.Vocabularies.AsNoTracking().SingleAsync(v => v.Id == "orphan", TestContext.Current.CancellationToken)).Word);
+    }
+
+    /// <summary>
+    /// Editing only the casing of a word whose normalized key is unchanged is
+    /// the one sanctioned way display spelling moves; a different word holding
+    /// the same normalized key still conflicts.
+    /// </summary>
+    [Fact]
+    public async Task Replace_CasingOnlyChange_IsAppliedAndConflictStillRejectsOtherHolders()
+    {
+        await SeedAsync(_dbContext);
+        await Service(_dbContext).ReplaceAsync("w", "Original", null, null, TestContext.Current.CancellationToken);
+        Assert.Equal(
+            "Original",
+            (await _dbContext.Vocabularies.AsNoTracking().SingleAsync(v => v.Id == "w", TestContext.Current.CancellationToken)).Word);
+
+        // A different row with the same normalized key stays a conflict.
+        _dbContext.Vocabularies.Add(new VocabularyEntity { Id = "other", Word = "ORIGINAL" });
+        await _dbContext.SaveChangesAsync(TestContext.Current.CancellationToken);
+        await Assert.ThrowsAsync<ConflictException>(
+            () => Service(_dbContext).ReplaceAsync("w", "ORIGINAL", null, null, TestContext.Current.CancellationToken));
+        Assert.Equal(
+            "Original",
+            (await _dbContext.Vocabularies.AsNoTracking().SingleAsync(v => v.Id == "w", TestContext.Current.CancellationToken)).Word);
     }
 
     [Fact]
