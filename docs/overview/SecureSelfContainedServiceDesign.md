@@ -205,6 +205,10 @@ GET    /admin/vocabulary-books/education-levels
 GET    /admin/vocabulary-books/grades
 GET    /admin/vocabulary-books/grades-by-level
 GET    /admin/vocabulary-books/{id}/words?page&size
+GET    /admin/vocabulary-books/{bookId}/units
+POST   /admin/vocabulary-books/{bookId}/units
+PUT    /admin/vocabulary-books/{bookId}/units/{unitId}
+DELETE /admin/vocabulary-books/{bookId}/units/{unitId}
 DELETE /admin/vocabulary-books/{id}
 ```
 
@@ -501,6 +505,16 @@ Edits and imports serialize through the existing UnitOfWork. Last successful com
 The serialized write transaction checks the book, word and meaning exist (404), then verifies exact ownership (409) and rejects an equivalent definition belonging to another meaning ID (409). Existing meanings in disabled books may be edited. It updates only the target meaning's three fields and `updatedAt`, never moves ownership or changes the shared word or other meanings. Success uses the existing BoolResponse envelope. Existing Cookie/Bearer/custom role and Cookie CSRF checks apply; 401/403 never write management data.
 
 The existing UnitOfWork provides atomic rollback and serial order with imports. Constraint failures return 409; external SQLite locks return 503 with `Retry-After: 1`. Cancellation detected before entry does not write. After entry, commit or rollback finishes even when the client disconnects; a missing response does not imply reversal. There is no optimistic version, automatic retry, or atomicity across this request and a separate shared-word save. Query state after an unknown result.
+
+### Manage book units
+
+The four `/admin/vocabulary-books/{bookId}/units` routes require `VocabularyAdmin`, including the existing Cookie/Bearer credentials, configurable required role, and the Cookie CSRF header on the three writes. They are the only way an administrator creates or maintains the units later import and query tasks reference by stable ID; an import never creates or renames a unit implicitly.
+
+`GET` lists the book's units in ascending unit order, unpaged, as `data.units = [{id,bookId,number,title,meaningCount}]`. Each `meaningCount` is how many meanings the unit has assigned, from one grouped read over the book's memberships; a unit with no assignments reads zero. A missing book returns 404; a disabled book lists like an enabled one.
+
+Both writes take the strict body `{number:number,title:string|null}`: both fields must appear, `null` is the explicit absent title, and unknown fields, missing fields, or invalid types return the usual 400 envelope (a body without `number` answers "Unit number is required."). The number must be a positive integer. A whitespace-only title normalizes to `null`; other titles are trimmed. `POST` returns the created unit's DTO with its stable `id` and `meaningCount` 0; `PUT` replaces the editable fields entirely — keeping a value means sending it again — and returns the updated DTO with the current `meaningCount`. `DELETE` returns the BoolResponse envelope.
+
+The serialized write transaction checks the book and unit exist (404), and that the unit belongs to the path's book (409, matching the nested meaning-edit precedent; the read side keeps its own contracts). A number another unit of the same book already holds is a 409 for `POST` and for a renumbering `PUT`; keeping the unit's own number is not a conflict. The `UNIQUE(book_id, number)` index backs concurrent renumbers. Deleting removes only the unit and its assignments; meanings, shared words, and other units' assignments survive, all in one UnitOfWork transaction. Units of disabled books are managed like any other's. Constraint failures return 409, external SQLite locks 503 with `Retry-After: 1`, and the `meaningCount` shown to a confirming administrator is a display snapshot that may differ from commit-time state; the server deletes unconditionally and the committed result is authoritative.
 
 ### Administrator vocabulary reads
 

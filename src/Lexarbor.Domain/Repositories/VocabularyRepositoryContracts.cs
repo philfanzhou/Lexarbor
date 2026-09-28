@@ -70,7 +70,14 @@ public interface IVocabularyBookUnitRepository
 {
     Task<VocabularyBookUnitModel?> GetByIdAsync(string id);
     Task<List<VocabularyBookUnitModel>> GetByBookIdAsync(string bookId);
+    /// <summary>
+    /// How many meanings each unit of one book has assigned, from a single
+    /// grouped read. Units with no assignments are absent from the dictionary,
+    /// and the caller treats a missing key as zero.
+    /// </summary>
+    Task<Dictionary<string, int>> GetAssignmentCountsByBookIdAsync(string bookId);
     Task AddAsync(VocabularyBookUnitModel model);
+    Task UpdateAsync(VocabularyBookUnitModel model);
     Task DeleteAsync(string id);
 }
 

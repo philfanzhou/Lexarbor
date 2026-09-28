@@ -370,6 +370,7 @@ app.MapAdminAuthEndpoints();
 app.MapSystemVersionEndpoints();
 app.MapVocabularyWordEditEndpoints();
 app.MapVocabularyMeaningEditEndpoints();
+app.MapVocabularyBookUnitEndpoints();
 app.MapVocabularyAdminQueryEndpoints();
 app.MapVocabularyCleanupEndpoints();
 app.MapVocabularyHttpEndpoints(RateLimitingExtensions.PublicApiPolicy);

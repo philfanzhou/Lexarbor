@@ -80,6 +80,7 @@ The data comes from the authorized `GET /admin/system/version` through the same 
 ## Existing pages
 
 - Book management keeps search, paging, create, edit, status toggle, and delete, plus the two cleanup entries described under [Book cleanup](#book-cleanup).
+- Every book row also offers 单元, which opens the unit-management dialog described under [Book units](#book-units), for disabled books as well as enabled ones.
 - The administration list contains both enabled and disabled books.
 - Deleting a book that still has meanings answers 409 from the plain delete, which now points at 清空内容 or 删除教材及内容; the plain delete itself stays reference-safe and never cascades.
 - Word import keeps the book, word, British phonetic, American phonetic, part of speech, definition, and example sentence fields.
@@ -107,6 +108,12 @@ Every cleanup entry — 教材管理's 清空内容 and 删除教材及内容, t
 Opening the dialog always fetches a fresh, read-only preview and shows the target book's name, the action, the deduplicated word count, the meaning count, and the estimated orphan word count, stating that these are estimates re-validated against the current content at commit time and that meanings and shared words in other books — disabled ones included — are retained. Deleting a book additionally requires typing its exact name; 确认清理 stays disabled until the typed name matches the previewed one, and the commit sends it as `confirmedBookName`. Cancelling ends the preview only and commits nothing. The confirm button cannot be double-submitted, and closing the dialog never promises to undo a transaction that already started.
 
 A refused preview or commit keeps a distinct message: 404 reports the target gone, 409 explains that the scope or the confirmed name no longer matches the current data and offers 重新预览, 503 reports a busy store, and 400 shows the server reason. A commit whose answer never arrived is an unknown outcome: the dialog warns, asks its surroundings to re-query current state, and never replays itself. The frontend never computes orphan counts or decides deletions from them; only the server's committed result is trusted. On success the pages report the server's actual counts, refresh their lists, and re-read the detail: a deleted book leaves the word list back at 教材管理, a word whose last meaning was deleted closes the drawer, and a page emptied by a removal falls back to the last valid page.
+
+## Book units
+
+教材管理's per-row 单元 opens one shared dialog (`VocabularyBookUnitDialog`) against the unit API (`GET`/`POST`/`PUT`/`DELETE` on `/admin/vocabulary-books/{bookId}/units`). It lists the book's units in unit order with each unit's 关联词义数, and maintains them: the form below the table adds a unit, a row's 编辑 fills the same form for a full replacement (改号 and 改名 together, both fields sent every time with an empty title as `null`), and a row's 删除 first confirms in plain text what it removes — the unit and its assignment count, with meanings, shared words, and other units' assignments retained. Creating a unit is the administrator's explicit act; the import pages never create or rename units. Disabled books are managed the same way, and a book deleted elsewhere is reported with its way back to 教材管理 instead of an empty unit list.
+
+A refused write keeps the entered values: 400 shows the server's reason (a duplicate unit number answers 409 and explains the conflict with a 刷新列表 that re-reads current state), and 404 reports the target gone. A write whose answer never arrived is an unknown outcome: the dialog says so and offers the same re-read, never replaying itself. Success refreshes the unit list. The 关联词义数 shown next to a delete confirmation is a display snapshot the server may have moved past by commit time; the committed result is authoritative. `e2e/book-units.spec.ts` covers the dialog: listing with counts, adding and editing through the strict replace body, the duplicate-number refusal keeping the draft, the delete confirmation and refresh, a failed list load with a working retry, the disabled-book entry, the gone-book notice, and axe plus sideways-scroll checks at 1440 px and 768 px.
 
 ## Batch import page
 

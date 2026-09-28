@@ -55,4 +55,16 @@ internal static class VocabularyMappingExtensions
     {
         return model.Adapt<VocabularyBookDto>();
     }
+
+    public static VocabularyBookUnitDto ToDto(this VocabularyBookUnitModel model, int meaningCount)
+    {
+        return new VocabularyBookUnitDto
+        {
+            Id = model.Id,
+            BookId = model.BookId,
+            Number = model.Number,
+            Title = model.Title,
+            MeaningCount = meaningCount
+        };
+    }
 }
