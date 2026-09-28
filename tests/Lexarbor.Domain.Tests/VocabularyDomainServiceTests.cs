@@ -17,6 +17,8 @@ public class VocabularyDomainServiceTests : TestBase
             _vocabularyRepository,
             _bookRepository,
             _meaningRepository,
+            _bookUnitRepository,
+            _meaningUnitRepository,
             _unitOfWork);
     }
 

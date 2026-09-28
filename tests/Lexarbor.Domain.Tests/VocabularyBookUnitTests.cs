@@ -26,6 +26,8 @@ public class VocabularyBookUnitTests : TestBase
             _vocabularyRepository,
             _bookRepository,
             _meaningRepository,
+            _bookUnitRepository,
+            _meaningUnitRepository,
             _unitOfWork);
     }
 
