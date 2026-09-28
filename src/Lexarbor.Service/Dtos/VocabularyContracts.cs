@@ -143,6 +143,15 @@ public class VocabularyBatchEntryDto
     /// blank value is no section.
     /// </summary>
     public string? Section { get; set; }
+
+    /// <summary>
+    /// Optional classification of the entry at that place: exactly <c>word</c>
+    /// or <c>phrase</c> after trimming, case significant — <c>Word</c> is
+    /// invalid. Requires <c>unitId</c>, because the kind is a property of an
+    /// assignment's position; a blank value is unclassified, and nothing is
+    /// ever inferred from the entry's text.
+    /// </summary>
+    public string? EntryKind { get; set; }
 }
 
 /// <summary>

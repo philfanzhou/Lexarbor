@@ -12,6 +12,14 @@ public class VocabularyMeaningUnitModel
     /// may hold several positions of the same unit, one per section.
     /// </summary>
     public string? Section { get; set; }
+
+    /// <summary>
+    /// Whether the entry at this position is a <c>word</c> or a <c>phrase</c>,
+    /// or null when the administrator did not classify it. A meaning may hold
+    /// several positions of the same place of a unit, one per kind; the kind is
+    /// a property of the assignment, never inferred from the entry's text.
+    /// </summary>
+    public string? EntryKind { get; set; }
 }
 
 /// <summary>
@@ -32,5 +40,27 @@ public static class VocabularyMeaningUnitSections
     public static bool IsValid(string? normalizedSection)
     {
         return normalizedSection is null or "A" or "B";
+    }
+}
+
+/// <summary>
+/// The entry-kind rule every writer of meaning-to-unit assignments shares: a
+/// kind is absent, or exactly <c>word</c> or <c>phrase</c> after trimming. Case
+/// is significant — <c>Word</c> is invalid, matching the section rule: the
+/// administrator classifies the entry explicitly, and a guessed kind would put
+/// a meaning in a place it was never assigned to.
+/// </summary>
+public static class VocabularyMeaningUnitEntryKinds
+{
+    /// <summary>Trims the stored form: null for no kind, the trimmed value otherwise.</summary>
+    public static string? NormalizeOrNull(string? entryKind)
+    {
+        return string.IsNullOrWhiteSpace(entryKind) ? null : entryKind.Trim();
+    }
+
+    /// <summary>Whether a normalized kind value names a kind that exists.</summary>
+    public static bool IsValid(string? normalizedEntryKind)
+    {
+        return normalizedEntryKind is null or "word" or "phrase";
     }
 }

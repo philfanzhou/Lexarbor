@@ -5,11 +5,12 @@ import type { VocabularyBatchEntry } from './vocabularyApi'
  * `position` is where the row starts in the source, as the format defines it
  * (ADR-006); `columns` holds the trimmed values in the canonical order `word`,
  * `phonetic_uk`, `phonetic_us`, `part_of_speech`, `meaning`, `example`, `unit`,
- * `section`, for display. The unit column is the raw unit number as written and
- * the section column the raw section as written; the page, which knows the
- * selected book's units, resolves the pair to a `unitId` and a section verdict
- * or a row error. `entry` is set only when the row is valid, and `error` only
- * when it is not.
+ * `section`, `entry_kind`, for display. The unit column is the raw unit number
+ * as written, the section column the raw section as written, and the kind
+ * column the raw entry kind as written; the page, which knows the selected
+ * book's units, resolves the unit to a `unitId` and the section and kind to
+ * verdicts or row errors. `entry` is set only when the row is valid, and
+ * `error` only when it is not.
  */
 export interface VocabularyPreviewRow {
   position: number

@@ -20,6 +20,8 @@ export interface VocabularyBatchEntry {
   unitId?: string
   /** The unit's section the assignment sits in: exactly `A` or `B`; requires `unitId`. */
   section?: string
+  /** The entry's classification at that place: exactly `word` or `phrase`; requires `unitId`. */
+  entryKind?: string
 }
 
 export interface VocabularyBatchImportPayload {

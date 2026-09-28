@@ -239,6 +239,124 @@ public class VocabularyBatchImportTests : TestBase
     }
 
     [Fact]
+    public async Task ImportBatchAsync_SamePlaceDifferentKinds_StoreTwoPositionsOfOneMeaning()
+    {
+        var book = await CreateBookAsync();
+        var unit = await CreateUnitAsync(book.Id, 2);
+
+        var first = await _service.ImportBatchAsync(
+            book.Id,
+            [
+                Entry("apple", "苹果", unitId: unit.Id, entryKind: "word"),
+                Entry("apple", "苹果", unitId: unit.Id, entryKind: "phrase"),
+                // The same two positions again in one batch, plus a padded kind
+                // and an unclassified position of the same place.
+                Entry("apple", "苹果", unitId: unit.Id, entryKind: " word "),
+                Entry("apple", "苹果", unitId: unit.Id)
+            ]);
+
+        Assert.Equal(new VocabularyBatchImportResult(4, 1, 3), first);
+        Assert.Equal(1, await CountMeaningsAsync(book.Id));
+        var kinds = await _dbContext.VocabularyMeaningUnits
+            .Select(membership => membership.EntryKind)
+            .ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(["", "phrase", "word"], kinds.Order(StringComparer.Ordinal));
+
+        // Resubmitting the batch writes nothing: each position is idempotent.
+        var second = await _service.ImportBatchAsync(
+            book.Id,
+            [
+                Entry("apple", "苹果", unitId: unit.Id, entryKind: "word"),
+                Entry("apple", "苹果", unitId: unit.Id, entryKind: "phrase"),
+                Entry("apple", "苹果", unitId: unit.Id)
+            ]);
+        Assert.Equal(new VocabularyBatchImportResult(3, 0, 3), second);
+        Assert.Equal(3, await _dbContext.VocabularyMeaningUnits.CountAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task ImportBatchAsync_KindCombinesWithSectionAsIndependentDimensions()
+    {
+        var book = await CreateBookAsync();
+        var unit = await CreateUnitAsync(book.Id, 2);
+
+        await _service.ImportBatchAsync(
+            book.Id,
+            [
+                Entry("apple", "苹果", unitId: unit.Id, section: "A", entryKind: "word"),
+                Entry("apple", "苹果", unitId: unit.Id, section: "A", entryKind: "phrase"),
+                Entry("apple", "苹果", unitId: unit.Id, section: "B", entryKind: "word"),
+                Entry("banana", "香蕉", unitId: unit.Id, section: "B")
+            ]);
+
+        // One meaning of apple holds three of unit 2's four positions; the
+        // counts still refer to meanings only.
+        Assert.Equal(2, await CountMeaningsAsync(book.Id));
+        var appleWord = await _dbContext.Vocabularies.SingleAsync(
+            word => word.Word == "apple", TestContext.Current.CancellationToken);
+        var appleMeaningId = await _dbContext.VocabularyMeanings
+            .Where(meaning => meaning.VocabularyId == appleWord.Id && meaning.BookId == book.Id)
+            .Select(meaning => meaning.Id)
+            .SingleAsync(TestContext.Current.CancellationToken);
+        var positions = await _dbContext.VocabularyMeaningUnits.AsNoTracking()
+            .Where(membership => membership.UnitId == unit.Id)
+            .Select(membership => new { membership.MeaningId, membership.Section, membership.EntryKind })
+            .ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(
+            [("A", "phrase"), ("A", "word"), ("B", ""), ("B", "word")],
+            positions
+                .OrderBy(position => position.Section, StringComparer.Ordinal)
+                .ThenBy(position => position.EntryKind, StringComparer.Ordinal)
+                .Select(position => (position.Section, position.EntryKind))
+                .ToArray());
+        Assert.Equal(3, positions.Count(position => position.MeaningId == appleMeaningId));
+    }
+
+    [Fact]
+    public async Task ImportBatchAsync_EntriesWithoutEntryKind_StoreUnclassifiedPositions()
+    {
+        var book = await CreateBookAsync();
+        var unit = await CreateUnitAsync(book.Id, 1);
+
+        // An old request — no entryKind anywhere — answers exactly as before
+        // and stores every position as the unclassified kind.
+        var result = await _service.ImportBatchAsync(
+            book.Id,
+            [Entry("apple", "苹果", unitId: unit.Id, section: "A")]);
+
+        Assert.Equal(new VocabularyBatchImportResult(1, 1, 0), result);
+        var membership = Assert.Single(
+            await _dbContext.VocabularyMeaningUnits.AsNoTracking().ToListAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(string.Empty, membership.EntryKind);
+        Assert.Equal("A", membership.Section);
+    }
+
+    [Fact]
+    public async Task ImportBatchAsync_KindWithoutUnitOrInvalidKind_IsRejectedBeforeAnyWrite()
+    {
+        var book = await CreateBookAsync();
+        await CreateUnitAsync(book.Id, 1);
+
+        // A kind is a property of an assignment's position, so it cannot
+        // appear without a unit; and only word and phrase exist, with case
+        // significant — Word is not normalized into one.
+        await Assert.ThrowsAsync<DomainValidationException>(() => _service.ImportBatchAsync(
+            book.Id,
+            [Entry("apple", "苹果", entryKind: "word")]));
+        await Assert.ThrowsAsync<DomainValidationException>(() => _service.ImportBatchAsync(
+            book.Id,
+            [Entry("apple", "苹果", entryKind: "Word")]));
+        // A valid entry ahead of the invalid one is not written.
+        await Assert.ThrowsAsync<DomainValidationException>(() => _service.ImportBatchAsync(
+            book.Id,
+            [Entry("apple", "苹果"), Entry("banana", "香蕉", entryKind: "verb")]));
+
+        Assert.Equal(0, await _dbContext.Vocabularies.CountAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(0, await CountMeaningsAsync(book.Id));
+        Assert.Equal(0, await _dbContext.VocabularyMeaningUnits.CountAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task ImportBatchAsync_UnknownOrCrossBookUnitId_ReportsEveryEntryAndWritesNothing()
     {
         var book = await CreateBookAsync();
@@ -299,7 +417,7 @@ public class VocabularyBatchImportTests : TestBase
     {
         var book = await CreateBookAsync();
         var unit = await CreateUnitAsync(book.Id, 1);
-        var entries = new List<(VocabularyModel Word, VocabularyMeaningModel Meaning, string? UnitId, string? Section)>
+        var entries = new List<(VocabularyModel Word, VocabularyMeaningModel Meaning, string? UnitId, string? Section, string? EntryKind)>
         {
             Entry("apple", "苹果", unitId: unit.Id)
         };
@@ -379,29 +497,38 @@ public class VocabularyBatchImportTests : TestBase
     }
 
     [Theory]
-    [InlineData("apple", "苹果", null, null, null)]
-    [InlineData(" ", "苹果", null, null, "Word is required.")]
-    [InlineData("apple", "", null, null, "Meaning is required.")]
-    [InlineData(null, null, null, null, "Word and meaning are required.")]
-    [InlineData("apple", "苹果", null, "a", "Section must be A or B.")]
-    [InlineData("apple", "苹果", null, "C", "Section must be A or B.")]
+    [InlineData("apple", "苹果", null, null, null, null)]
+    [InlineData(" ", "苹果", null, null, null, "Word is required.")]
+    [InlineData("apple", "", null, null, null, "Meaning is required.")]
+    [InlineData(null, null, null, null, null, "Word and meaning are required.")]
+    [InlineData("apple", "苹果", null, "a", null, "Section must be A or B.")]
+    [InlineData("apple", "苹果", null, "C", null, "Section must be A or B.")]
     // A padded section trims to a valid one, so it fails only for the missing unit.
-    [InlineData("apple", "苹果", null, "B ", "Section requires a unitId.")]
-    [InlineData("apple", "苹果", null, "A", "Section requires a unitId.")]
-    [InlineData("apple", "苹果", "unit-1", " A ", null)]
-    [InlineData("apple", "苹果", "unit-1", "B", null)]
+    [InlineData("apple", "苹果", null, "B ", null, "Section requires a unitId.")]
+    [InlineData("apple", "苹果", null, "A", null, "Section requires a unitId.")]
+    [InlineData("apple", "苹果", "unit-1", " A ", null, null)]
+    [InlineData("apple", "苹果", "unit-1", "B", null, null)]
+    [InlineData("apple", "苹果", null, null, "Word", "EntryKind must be word or phrase.")]
+    [InlineData("apple", "苹果", null, null, "PHRASE", "EntryKind must be word or phrase.")]
+    [InlineData("apple", "苹果", null, null, "noun", "EntryKind must be word or phrase.")]
+    // A padded kind trims to a valid one, so it fails only for the missing unit.
+    [InlineData("apple", "苹果", null, null, " phrase ", "EntryKind requires a unitId.")]
+    [InlineData("apple", "苹果", null, null, "word", "EntryKind requires a unitId.")]
+    [InlineData("apple", "苹果", "unit-1", null, "word", null)]
+    [InlineData("apple", "苹果", "unit-1", "B", " phrase ", null)]
     public void ValidateBatchEntry_ReportsMissingRequiredFields(
         string? word,
         string? meaning,
         string? unitId,
         string? section,
+        string? entryKind,
         string? expected)
     {
-        var (vocabulary, vocabularyMeaning, _, _) = Entry(word!, meaning!, unitId: unitId, section: section);
+        var (vocabulary, vocabularyMeaning, _, _, _) = Entry(word!, meaning!, unitId: unitId, section: section, entryKind: entryKind);
 
         Assert.Equal(
             expected,
-            VocabularyDomainService.ValidateBatchEntry(vocabulary, vocabularyMeaning, unitId, section));
+            VocabularyDomainService.ValidateBatchEntry(vocabulary, vocabularyMeaning, unitId, section, entryKind));
     }
 
     private VocabularyDomainService CreateService(IVocabularyMeaningRepository meaningRepository)
@@ -433,7 +560,7 @@ public class VocabularyBatchImportTests : TestBase
         return await unitService.CreateAsync(bookId, number, null);
     }
 
-    private static (VocabularyModel Word, VocabularyMeaningModel Meaning, string? UnitId, string? Section) Entry(
+    private static (VocabularyModel Word, VocabularyMeaningModel Meaning, string? UnitId, string? Section, string? EntryKind) Entry(
         string word,
         string meaning,
         string? partOfSpeech = null,
@@ -441,13 +568,15 @@ public class VocabularyBatchImportTests : TestBase
         string? phoneticUs = null,
         string? example = null,
         string? unitId = null,
-        string? section = null)
+        string? section = null,
+        string? entryKind = null)
     {
         return (
             new VocabularyModel { Word = word, PhoneticUk = phoneticUk, PhoneticUs = phoneticUs },
             new VocabularyMeaningModel { PartOfSpeech = partOfSpeech, Meaning = meaning, Example = example },
             unitId,
-            section);
+            section,
+            entryKind);
     }
 
     /// <summary>

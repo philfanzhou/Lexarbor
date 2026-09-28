@@ -513,3 +513,168 @@ test('re-checks the unit column when a file replaces pasted text', async ({ page
     entries: [{ word: 'date', meaning: '枣', unitId: 'unit-2' }]
   }])
 })
+
+// The ninth column classifies the entry at its place: word and phrase are the
+// only values, with case significant, and a kind without a unit classifies
+// nothing. Inputs without the column, header, or field keep parsing and
+// submitting exactly as before — no entryKind anywhere.
+test('resolves the TSV ninth column into entry kinds and keeps invalid ones on their rows', async ({ page }) => {
+  await openBatchPage(page)
+  const payloads = await acceptBatch(page)
+  await selectBook(page)
+
+  const text = [
+    'apple\t\t\tn.\t苹果\t\t2\tA\tword',
+    'banana\t\t\t\t香蕉\t\t2\tA\tphrase',
+    'cherry\t\t\t\t樱桃\t\t5\t\t',
+    'date\t\t\t\t枣\t\t\t\tword',
+    'egg\t\t\t\t蛋\t\t2\tA\tWord',
+    'fig\t\t\t\t无花果\t\t2\tA\t word '
+  ].join('\n')
+  await dataInput(page).fill(text)
+
+  await expect(page.locator('.batch-summary')).toContainText('数据行 6 条，有效 4 条，无效 2 条')
+  await expect(previewRow(page, 1).locator('td').nth(9)).toHaveText('word')
+  await expect(previewRow(page, 2).locator('td').nth(9)).toHaveText('phrase')
+  await expect(previewRow(page, 3).locator('td').nth(9)).toHaveText('')
+  // A kind without a unit names a place of nothing, and only word and phrase
+  // are kinds — the capitalized spelling is not normalized into one. A padded
+  // kind trims to a valid one.
+  await expect(previewRow(page, 4)).toContainText('有类别但未填写单元')
+  await expect(previewRow(page, 5)).toContainText('类别应为 word 或 phrase：Word')
+  await expect(previewRow(page, 6).locator('td').nth(9)).toHaveText('word')
+  await expect(page.locator('.batch-blockers')).toContainText('存在 2 行无效数据')
+  await expect(submitButton(page)).toBeDisabled()
+  await submitButton(page).click({ force: true })
+  expect(payloads).toHaveLength(0)
+
+  // Corrected rows import with their kinds; the padded one trims to word.
+  const fixed = [
+    'apple\t\t\tn.\t苹果\t\t2\tA\tword',
+    'banana\t\t\t\t香蕉\t\t2\tA\tphrase',
+    'cherry\t\t\t\t樱桃\t\t5\t\t',
+    'date\t\t\t\t枣\t\t2\tA\tword',
+    'egg\t\t\t\t蛋\t\t2\tA\tphrase',
+    'fig\t\t\t\t无花果\t\t2\tA\t word '
+  ].join('\n')
+  await dataInput(page).fill(fixed)
+  await expect(page.locator('.batch-summary')).toContainText('数据行 6 条，有效 6 条，无效 0 条')
+  await submitButton(page).click()
+  await expect(page.locator('.batch-result')).toBeVisible()
+  expect(payloads).toEqual([{
+    bookId: starterBook.id,
+    entries: [
+      { word: 'apple', partOfSpeech: 'n.', meaning: '苹果', unitId: 'unit-2', section: 'A', entryKind: 'word' },
+      { word: 'banana', meaning: '香蕉', unitId: 'unit-2', section: 'A', entryKind: 'phrase' },
+      { word: 'cherry', meaning: '樱桃', unitId: 'unit-5' },
+      { word: 'date', meaning: '枣', unitId: 'unit-2', section: 'A', entryKind: 'word' },
+      { word: 'egg', meaning: '蛋', unitId: 'unit-2', section: 'A', entryKind: 'phrase' },
+      { word: 'fig', meaning: '无花果', unitId: 'unit-2', section: 'A', entryKind: 'word' }
+    ]
+  }])
+})
+
+test('resolves a CSV entry_kind column and a JSON entryKind field into the same entries', async ({ page }) => {
+  await openBatchPage(page)
+  const payloads = await acceptBatch(page)
+  await selectBook(page)
+
+  const csv = [
+    'word,meaning,unit,section,entry_kind',
+    'apple,苹果,2,A,word',
+    'banana,香蕉,2,A,phrase',
+    'cherry,樱桃,5,,'
+  ].join('\r\n')
+  await page.locator('.batch-file-input').setInputFiles({
+    name: 'words.csv',
+    mimeType: 'text/csv',
+    buffer: Buffer.from(csv, 'utf-8')
+  })
+  await expect(page.locator('.batch-summary')).toContainText('数据行 3 条，有效 3 条，无效 0 条')
+  await expect(previewRow(page, 2).locator('td').nth(9)).toHaveText('word')
+
+  await submitButton(page).click()
+  await expect(page.locator('.batch-result')).toBeVisible()
+
+  await selectFormat(page, 'JSON')
+  await dataInput(page).fill(JSON.stringify([
+    { word: 'apple', meaning: '苹果', unit: '2', section: 'A', entryKind: 'word' },
+    { word: 'banana', meaning: '香蕉', unit: '2', section: 'A', entryKind: 'phrase' },
+    { word: 'cherry', meaning: '樱桃', unit: '5' }
+  ]))
+  await expect(page.locator('.batch-summary')).toContainText('数据行 3 条，有效 3 条，无效 0 条')
+  await submitButton(page).click()
+  await expect(page.locator('.batch-result')).toBeVisible()
+
+  expect(payloads).toEqual([
+    {
+      bookId: starterBook.id,
+      entries: [
+        { word: 'apple', meaning: '苹果', unitId: 'unit-2', section: 'A', entryKind: 'word' },
+        { word: 'banana', meaning: '香蕉', unitId: 'unit-2', section: 'A', entryKind: 'phrase' },
+        { word: 'cherry', meaning: '樱桃', unitId: 'unit-5' }
+      ]
+    },
+    {
+      bookId: starterBook.id,
+      entries: [
+        { word: 'apple', meaning: '苹果', unitId: 'unit-2', section: 'A', entryKind: 'word' },
+        { word: 'banana', meaning: '香蕉', unitId: 'unit-2', section: 'A', entryKind: 'phrase' },
+        { word: 'cherry', meaning: '樱桃', unitId: 'unit-5' }
+      ]
+    }
+  ])
+})
+
+test('refuses a non-string JSON entryKind value instead of converting it', async ({ page }) => {
+  await openBatchPage(page)
+  const payloads = await acceptBatch(page)
+  await selectBook(page)
+
+  await selectFormat(page, 'JSON')
+  await dataInput(page).fill(JSON.stringify([
+    { word: 'apple', meaning: '苹果', unit: '2', entryKind: 1 },
+    { word: 'banana', meaning: '香蕉' }
+  ]))
+
+  await expect(page.locator('.batch-summary')).toContainText('数据行 2 条，有效 1 条，无效 1 条')
+  await expect(previewRow(page, 1)).toContainText('字段 entryKind 应为字符串')
+  await expect(page.locator('.batch-blockers')).toContainText('存在 1 行无效数据')
+  await expect(submitButton(page)).toBeDisabled()
+  await submitButton(page).click({ force: true })
+  expect(payloads).toHaveLength(0)
+})
+
+test('keeps eight-column TSV, header-only CSV fields, and JSON without entryKind unchanged', async ({ page }) => {
+  await openBatchPage(page)
+  const payloads = await acceptBatch(page)
+  await selectBook(page)
+
+  // The old shapes parse and submit exactly as before: no entryKind is sent.
+  await dataInput(page).fill('apple\t\t\tn.\t苹果\t\t2\tA')
+  await expect(page.locator('.batch-summary')).toContainText('数据行 1 条，有效 1 条，无效 0 条')
+  await submitButton(page).click()
+  await expect(page.locator('.batch-result')).toBeVisible()
+
+  const csv = 'word,meaning,unit,section\r\napple,苹果,2,A\r\n'
+  await page.locator('.batch-file-input').setInputFiles({
+    name: 'words.csv',
+    mimeType: 'text/csv',
+    buffer: Buffer.from(csv, 'utf-8')
+  })
+  await expect(page.locator('.batch-summary')).toContainText('数据行 1 条，有效 1 条，无效 0 条')
+  await submitButton(page).click()
+  await expect(page.locator('.batch-result')).toBeVisible()
+
+  await selectFormat(page, 'JSON')
+  await dataInput(page).fill(JSON.stringify([{ word: 'apple', meaning: '苹果', unit: '2', section: 'A' }]))
+  await expect(page.locator('.batch-summary')).toContainText('数据行 1 条，有效 1 条，无效 0 条')
+  await submitButton(page).click()
+  await expect(page.locator('.batch-result')).toBeVisible()
+
+  expect(payloads).toEqual([
+    { bookId: starterBook.id, entries: [{ word: 'apple', partOfSpeech: 'n.', meaning: '苹果', unitId: 'unit-2', section: 'A' }] },
+    { bookId: starterBook.id, entries: [{ word: 'apple', meaning: '苹果', unitId: 'unit-2', section: 'A' }] },
+    { bookId: starterBook.id, entries: [{ word: 'apple', meaning: '苹果', unitId: 'unit-2', section: 'A' }] }
+  ])
+})

@@ -90,6 +90,13 @@ public class VocabularyAdminQueryEndpointTests
     [InlineData("/admin/vocabulary-books/A/units/u2/content?section=all", 400)]
     [InlineData("/admin/vocabulary-books/A/units/u2/content?section=none", 200)]
     [InlineData("/admin/vocabulary-books/A/units/u2/content?section=A", 200)]
+    [InlineData("/admin/vocabulary-books/A/units/u2/content?entryKind=Word", 400)]
+    [InlineData("/admin/vocabulary-books/A/units/u2/content?entryKind=words", 400)]
+    [InlineData("/admin/vocabulary-books/A/units/u2/content?entryKind=verb", 400)]
+    [InlineData("/admin/vocabulary-books/A/units/u2/content?entryKind=word", 200)]
+    [InlineData("/admin/vocabulary-books/A/units/u2/content?entryKind=phrase", 200)]
+    [InlineData("/admin/vocabulary-books/A/units/u2/content?entryKind=none", 200)]
+    [InlineData("/admin/vocabulary-books/A/units/u2/content?section=A&entryKind=word", 200)]
     [InlineData("/admin/vocabulary-books/A/units/u2/content?page=0&size=0", 200)]
     [InlineData("/admin/vocabulary?size=100", 200)]
     [InlineData("/admin/vocabulary?page=0&size=0", 200)]
@@ -120,13 +127,18 @@ public class VocabularyAdminQueryEndpointTests
         Assert.Equal(HttpStatusCode.NotFound, crossBook.StatusCode);
 
         using var unit2 = await GetAsync(client, "/admin/vocabulary-books/A/units/u2/content");
-        Assert.Equal(new[] { "book", "items", "meaningCount", "sectionCounts", "totalCount", "totalPage", "unit", "wordCount" },
+        Assert.Equal(new[] { "book", "entryKindCounts", "items", "meaningCount", "sectionCounts", "totalCount", "totalPage", "unit", "wordCount" },
             unit2.RootElement.EnumerateObject().Select(p => p.Name).Order());
         var sectionCounts = unit2.RootElement.GetProperty("sectionCounts");
         Assert.Equal(new[] { "noSection", "sectionA", "sectionB" }, sectionCounts.EnumerateObject().Select(p => p.Name).Order());
         Assert.Equal(2, sectionCounts.GetProperty("noSection").GetInt32());
         Assert.Equal(0, sectionCounts.GetProperty("sectionA").GetInt32());
         Assert.Equal(0, sectionCounts.GetProperty("sectionB").GetInt32());
+        var entryKindCounts = unit2.RootElement.GetProperty("entryKindCounts");
+        Assert.Equal(new[] { "none", "phrase", "word" }, entryKindCounts.EnumerateObject().Select(p => p.Name).Order());
+        Assert.Equal(2, entryKindCounts.GetProperty("none").GetInt32());
+        Assert.Equal(0, entryKindCounts.GetProperty("word").GetInt32());
+        Assert.Equal(0, entryKindCounts.GetProperty("phrase").GetInt32());
         var unit = unit2.RootElement.GetProperty("unit");
         Assert.Equal(new[] { "bookId", "id", "number", "title" }, unit.EnumerateObject().Select(p => p.Name).Order());
         Assert.Equal("u2", unit.GetProperty("id").GetString());
@@ -142,9 +154,10 @@ public class VocabularyAdminQueryEndpointTests
         var units = Assert.Single(unitMeanings).GetProperty("units").EnumerateArray().ToList();
         Assert.Equal([2, 6], units.Select(u => u.GetProperty("number").GetInt32()));
         Assert.All(units, u => Assert.Equal(
-            new[] { "number", "section", "title", "unitId" }, u.EnumerateObject().Select(p => p.Name).Order()));
-        // The unsectioned position serializes as null, not as the sentinel.
+            new[] { "entryKind", "number", "section", "title", "unitId" }, u.EnumerateObject().Select(p => p.Name).Order()));
+        // The unsectioned, unclassified position serializes as null, not as the sentinels.
         Assert.All(units, u => Assert.Null(u.GetProperty("section").GetString()));
+        Assert.All(units, u => Assert.Null(u.GetProperty("entryKind").GetString()));
 
         // A keyword narrows the page but not the unit totals.
         using var narrowed = await GetAsync(client, "/admin/vocabulary-books/A/units/u6/content?keyword=solo");
@@ -237,6 +250,105 @@ public class VocabularyAdminQueryEndpointTests
             detailMeanings[0].GetProperty("units").EnumerateArray()
                 .Select(u => (u.GetProperty("unitId").GetString(), u.GetProperty("section").GetString()))
                 .OrderBy(t => t.Item1).ThenBy(t => t.Item2 ?? ""));
+    }
+
+    // The entry-kind slice of the unit-content route: the `entryKind` query
+    // parameter narrows the page, the words, and the counts to that kind's
+    // places, the kind counts always report the whole unit, it combines with
+    // `section` as two independent dimensions of one position, and the
+    // detail's unit assignments name the kind they sit under.
+    [Fact]
+    public async Task UnitContent_EntryKindQuery_NarrowsPageAndCounts_AndReportsWholeUnitKinds()
+    {
+        await using var factory = new VocabularyWebApplicationFactory();
+        await SeedKindedUnitContentAsync(factory);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", factory.CreateToken("admin"));
+
+        using var words = await GetAsync(client, "/admin/vocabulary-books/A/units/u2/content?entryKind=word");
+        Assert.Equal(1, words.RootElement.GetProperty("wordCount").GetInt32());
+        Assert.Equal(1, words.RootElement.GetProperty("meaningCount").GetInt32());
+        Assert.Equal(["shared"], words.RootElement.GetProperty("items").EnumerateArray()
+            .Select(item => item.GetProperty("word").GetString()));
+        Assert.Equal((1, 2, 0), KindCounts(words.RootElement.GetProperty("entryKindCounts")));
+
+        using var phrases = await GetAsync(client, "/admin/vocabulary-books/A/units/u2/content?entryKind=phrase");
+        Assert.Equal(2, phrases.RootElement.GetProperty("wordCount").GetInt32());
+        Assert.Equal(2, phrases.RootElement.GetProperty("meaningCount").GetInt32());
+        Assert.Equal(["shared", "solo"], phrases.RootElement.GetProperty("items").EnumerateArray()
+            .Select(item => item.GetProperty("word").GetString()).Order());
+
+        using var unclassified = await GetAsync(client, "/admin/vocabulary-books/A/units/u2/content?entryKind=none");
+        Assert.Equal(0, unclassified.RootElement.GetProperty("meaningCount").GetInt32());
+        Assert.Empty(unclassified.RootElement.GetProperty("items").EnumerateArray());
+        // The kind counts keep speaking for the whole unit whatever the filter.
+        Assert.Equal((1, 2, 0), KindCounts(unclassified.RootElement.GetProperty("entryKindCounts")));
+
+        // The two dimensions intersect: Section A's word place and Section B's
+        // phrase places, and neither dimension alone narrows the other.
+        using var sectionAWord = await GetAsync(client, "/admin/vocabulary-books/A/units/u2/content?section=A&entryKind=word");
+        Assert.Equal(1, sectionAWord.RootElement.GetProperty("meaningCount").GetInt32());
+        Assert.Equal(["shared"], sectionAWord.RootElement.GetProperty("items").EnumerateArray()
+            .Select(item => item.GetProperty("word").GetString()));
+        using var sectionBWord = await GetAsync(client, "/admin/vocabulary-books/A/units/u2/content?section=B&entryKind=word");
+        Assert.Equal(0, sectionBWord.RootElement.GetProperty("meaningCount").GetInt32());
+        Assert.Empty(sectionBWord.RootElement.GetProperty("items").EnumerateArray());
+        using var sectionAPhrase = await GetAsync(client, "/admin/vocabulary-books/A/units/u2/content?section=A&entryKind=phrase");
+        Assert.Equal(1, sectionAPhrase.RootElement.GetProperty("meaningCount").GetInt32());
+        Assert.Equal(["shared"], sectionAPhrase.RootElement.GetProperty("items").EnumerateArray()
+            .Select(item => item.GetProperty("word").GetString()));
+
+        // Unfiltered: the same meaning under two kinds of one place counts
+        // once, and the detail reads every position with its kind.
+        using var whole = await GetAsync(client, "/admin/vocabulary-books/A/units/u2/content");
+        Assert.Equal(2, whole.RootElement.GetProperty("meaningCount").GetInt32());
+        var sharedMeaning = whole.RootElement.GetProperty("items").EnumerateArray()
+            .Single(item => item.GetProperty("word").GetString() == "shared")
+            .GetProperty("meanings").EnumerateArray().Single();
+        Assert.Equal(
+            [("u2", "A", "phrase"), ("u2", "A", "word")],
+            sharedMeaning.GetProperty("units").EnumerateArray()
+                .Select(u => (u.GetProperty("unitId").GetString(), u.GetProperty("section").GetString(), u.GetProperty("entryKind").GetString()))
+                .OrderBy(t => t.Item2 ?? "").ThenBy(t => t.Item3 ?? ""));
+
+        using var detail = await GetAsync(client, "/admin/vocabulary/shared");
+        var detailMeanings = detail.RootElement.GetProperty("meanings").EnumerateArray().ToList();
+        Assert.Equal(
+            [("u2", "A", "phrase"), ("u2", "A", "word")],
+            detailMeanings[0].GetProperty("units").EnumerateArray()
+                .Select(u => (u.GetProperty("unitId").GetString(), u.GetProperty("section").GetString(), u.GetProperty("entryKind").GetString()))
+                .OrderBy(t => t.Item2 ?? "").ThenBy(t => t.Item3 ?? ""));
+    }
+
+    private static (int Word, int Phrase, int None) KindCounts(JsonElement entryKindCounts) => (
+        entryKindCounts.GetProperty("word").GetInt32(),
+        entryKindCounts.GetProperty("phrase").GetInt32(),
+        entryKindCounts.GetProperty("none").GetInt32());
+
+    /// <summary>
+    /// A kind-aware variant of <see cref="SeedSectionedUnitContentAsync"/>:
+    /// a1 sits in unit 2's Section A under both kinds — the same meaning under
+    /// two kinds of one place — and s1 is a phrase of unit 2's Section B, so
+    /// the unit holds one word place and two phrase places.
+    /// </summary>
+    private static async Task SeedKindedUnitContentAsync(VocabularyWebApplicationFactory factory)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+        db.VocabularyBooks.Add(new VocabularyBookEntity { Id = "A", BookName = "A", Status = true });
+        db.Vocabularies.AddRange(
+            new VocabularyEntity { Id = "shared", Word = "shared" },
+            new VocabularyEntity { Id = "solo", Word = "solo" });
+        db.VocabularyMeanings.AddRange(
+            new VocabularyMeaningEntity { Id = "a1", VocabularyId = "shared", BookId = "A", Meaning = "a" },
+            new VocabularyMeaningEntity { Id = "s1", VocabularyId = "solo", BookId = "A", Meaning = "s" });
+        db.VocabularyBookUnits.Add(new VocabularyBookUnitEntity { Id = "u2", BookId = "A", Number = 2, Title = "Two" });
+        db.VocabularyMeaningUnits.AddRange(
+            new VocabularyMeaningUnitEntity { UnitId = "u2", MeaningId = "a1", BookId = "A", Section = "A", EntryKind = "word" },
+            new VocabularyMeaningUnitEntity { UnitId = "u2", MeaningId = "a1", BookId = "A", Section = "A", EntryKind = "phrase" },
+            new VocabularyMeaningUnitEntity { UnitId = "u2", MeaningId = "s1", BookId = "A", Section = "B", EntryKind = "phrase" });
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
     }
 
     /// <summary>

@@ -239,7 +239,7 @@ const fileLevelErrors = [
   {
     name: 'an unknown header',
     csv: 'word,phonetic_uk,meanings\napple,,苹果',
-    expected: '第 3 列表头「meanings」无法识别；支持：word、phonetic_uk、phonetic_us、part_of_speech、meaning、example、unit、section（CSV 只支持逗号分隔）'
+    expected: '第 3 列表头「meanings」无法识别；支持：word、phonetic_uk、phonetic_us、part_of_speech、meaning、example、unit、section、entry_kind（CSV 只支持逗号分隔）'
   },
   {
     name: 'a semicolon-separated file',

@@ -22,7 +22,7 @@ public sealed class VocabularyAdminQueryRepository(VocabularyDbContext context) 
         {
             var word = await context.Vocabularies.AsNoTracking().SingleOrDefaultAsync(v => v.Id == wordId, cancellationToken)
                 ?? throw new ResourceNotFoundException("Vocabulary word was not found.");
-            return (await LoadPageAsync([word], null, null, null, true, cancellationToken)).Single();
+            return (await LoadPageAsync([word], null, null, null, null, true, cancellationToken)).Single();
         }, cancellationToken);
 
     public Task<VocabularyAdminContent> GetContentAsync(string bookId, string? keyword, int page, int size, CancellationToken cancellationToken)
@@ -37,7 +37,7 @@ public sealed class VocabularyAdminQueryRepository(VocabularyDbContext context) 
         }, cancellationToken);
 
     public Task<VocabularyAdminUnitContent> GetUnitContentAsync(string bookId, string unitId, string? keyword,
-        string? section, int page, int size, CancellationToken cancellationToken)
+        string? section, string? entryKind, int page, int size, CancellationToken cancellationToken)
         => SnapshotAsync(async () =>
         {
             var book = await GetBookAsync(bookId, cancellationToken);
@@ -48,18 +48,21 @@ public sealed class VocabularyAdminQueryRepository(VocabularyDbContext context) 
                            .SingleOrDefaultAsync(u => u.Id == unitId && u.BookId == bookId, cancellationToken)
                        ?? throw new ResourceNotFoundException("Vocabulary book unit was not found.");
             // Unit totals ignore the keyword, matching the whole-book content
-            // route's totals: the keyword narrows the page only. A section
-            // narrows the totals too — it selects which places of the unit
-            // count — while meanings stay counted per distinct meaning.
+            // route's totals: the keyword narrows the page only. A section and
+            // an entry kind narrow the totals too — each selects which places
+            // of the unit count — while meanings stay counted per distinct
+            // meaning.
             var unitMeanings = context.VocabularyMeanings
                 .Where(m => m.BookId == bookId
                     && context.VocabularyMeaningUnits.Any(mu => mu.MeaningId == m.Id && mu.UnitId == unitId
-                        && (section == null || mu.Section == section)));
+                        && (section == null || mu.Section == section)
+                        && (entryKind == null || mu.EntryKind == entryKind)));
             var meaningCount = await unitMeanings.CountAsync(cancellationToken);
             var wordCount = await unitMeanings.Select(m => m.VocabularyId).Distinct().CountAsync(cancellationToken);
-            // The section counts always speak for the whole unit, whatever the
-            // section the page was narrowed to: one grouped read over the
-            // unit's places, split by the stored section.
+            // The section and kind counts always speak for the whole unit,
+            // whatever the section or kind the page was narrowed to: one
+            // grouped read over the unit's places, split by the stored section
+            // and one more by the stored kind.
             var sections = await context.VocabularyMeaningUnits.AsNoTracking()
                 .Where(mu => mu.UnitId == unitId)
                 .GroupBy(mu => mu.Section)
@@ -69,9 +72,18 @@ public sealed class VocabularyAdminQueryRepository(VocabularyDbContext context) 
                 sections.FirstOrDefault(entry => entry.Section == "A")?.Count ?? 0,
                 sections.FirstOrDefault(entry => entry.Section == "B")?.Count ?? 0,
                 sections.FirstOrDefault(entry => entry.Section == string.Empty)?.Count ?? 0);
-            var result = await PageUnitAsync(bookId, unitId, keyword, section, page, size, cancellationToken);
+            var kinds = await context.VocabularyMeaningUnits.AsNoTracking()
+                .Where(mu => mu.UnitId == unitId)
+                .GroupBy(mu => mu.EntryKind)
+                .Select(group => new { Kind = group.Key, Count = group.Count() })
+                .ToListAsync(cancellationToken);
+            var entryKindCounts = new VocabularyAdminEntryKindCounts(
+                kinds.FirstOrDefault(entry => entry.Kind == "word")?.Count ?? 0,
+                kinds.FirstOrDefault(entry => entry.Kind == "phrase")?.Count ?? 0,
+                kinds.FirstOrDefault(entry => entry.Kind == string.Empty)?.Count ?? 0);
+            var result = await PageUnitAsync(bookId, unitId, keyword, section, entryKind, page, size, cancellationToken);
             return new VocabularyAdminUnitContent(
-                book, unit.Adapt<VocabularyBookUnitModel>(), wordCount, meaningCount, sectionCounts, result);
+                book, unit.Adapt<VocabularyBookUnitModel>(), wordCount, meaningCount, sectionCounts, entryKindCounts, result);
         }, cancellationToken);
 
     private async Task<VocabularyBookModel> GetBookAsync(string bookId, CancellationToken cancellationToken)
@@ -94,23 +106,25 @@ public sealed class VocabularyAdminQueryRepository(VocabularyDbContext context) 
         }
         var count = await query.CountAsync(cancellationToken);
         var words = await query.OrderBy(v => v.Word).ThenBy(v => v.Id).Skip((page - 1) * size).Take(size).ToListAsync(cancellationToken);
-        var items = await LoadPageAsync(words, bookId, null, null, includeMeanings, cancellationToken);
+        var items = await LoadPageAsync(words, bookId, null, null, null, includeMeanings, cancellationToken);
         return new VocabularyAdminPage(items, count, (int)Math.Ceiling(count / (double)size));
     }
 
     /// <summary>
     /// The unit-content twin of <see cref="PageAsync"/>: same keyword filter,
     /// same stable order and paging, but a word qualifies through a meaning
-    /// assigned to the unit — to the named section's place of it when one is
-    /// given — rather than through any meaning of the book.
+    /// assigned to the unit — to the named section's place of it and kind of
+    /// that place when either is given — rather than through any meaning of
+    /// the book.
     /// </summary>
     private async Task<VocabularyAdminPage> PageUnitAsync(string bookId, string unitId, string? keyword,
-        string? section, int page, int size, CancellationToken cancellationToken)
+        string? section, string? entryKind, int page, int size, CancellationToken cancellationToken)
     {
         var query = context.Vocabularies.AsNoTracking()
             .Where(v => context.VocabularyMeanings.Any(m => m.BookId == bookId && m.VocabularyId == v.Id
                 && context.VocabularyMeaningUnits.Any(mu => mu.MeaningId == m.Id && mu.UnitId == unitId
-                    && (section == null || mu.Section == section))));
+                    && (section == null || mu.Section == section)
+                    && (entryKind == null || mu.EntryKind == entryKind))));
         if (!string.IsNullOrWhiteSpace(keyword))
         {
             var pattern = SqliteSearchPattern.Contains(keyword);
@@ -118,12 +132,12 @@ public sealed class VocabularyAdminQueryRepository(VocabularyDbContext context) 
         }
         var count = await query.CountAsync(cancellationToken);
         var words = await query.OrderBy(v => v.Word).ThenBy(v => v.Id).Skip((page - 1) * size).Take(size).ToListAsync(cancellationToken);
-        var items = await LoadPageAsync(words, bookId, unitId, section, true, cancellationToken);
+        var items = await LoadPageAsync(words, bookId, unitId, section, entryKind, true, cancellationToken);
         return new VocabularyAdminPage(items, count, (int)Math.Ceiling(count / (double)size));
     }
 
     private async Task<IReadOnlyList<VocabularyAdminWord>> LoadPageAsync(List<VocabularyEntity> words, string? bookId,
-        string? unitId, string? section, bool includeMeanings, CancellationToken cancellationToken)
+        string? unitId, string? section, string? entryKind, bool includeMeanings, CancellationToken cancellationToken)
     {
         if (words.Count == 0) return [];
         var ids = words.Select(v => v.Id).ToArray();
@@ -137,23 +151,24 @@ public sealed class VocabularyAdminQueryRepository(VocabularyDbContext context) 
         // Meaning-level unit assignments of the page, in one batched read over
         // the meanings that were loaded, so a detail page never costs one query
         // per meaning.
-        var assignments = new List<(string MeaningId, string UnitId, int Number, string? Title, string Section)>();
+        var assignments = new List<(string MeaningId, string UnitId, int Number, string? Title, string Section, string EntryKind)>();
         if (includeMeanings)
         {
             meanings = await context.VocabularyMeanings.AsNoTracking()
                 .Where(m => ids.Contains(m.VocabularyId) && (bookId == null || m.BookId == bookId)
                     && (unitId == null
                         || context.VocabularyMeaningUnits.Any(mu => mu.MeaningId == m.Id && mu.UnitId == unitId
-                            && (section == null || mu.Section == section))))
+                            && (section == null || mu.Section == section)
+                            && (entryKind == null || mu.EntryKind == entryKind))))
                 .ToListAsync(cancellationToken);
             if (meanings.Count > 0)
             {
                 var meaningIds = meanings.Select(m => m.Id).ToArray();
                 assignments = (await context.VocabularyMeaningUnits.AsNoTracking()
                         .Where(mu => meaningIds.Contains(mu.MeaningId))
-                        .Select(mu => new { mu.MeaningId, mu.UnitId, mu.Unit!.Number, mu.Unit.Title, mu.Section })
+                        .Select(mu => new { mu.MeaningId, mu.UnitId, mu.Unit!.Number, mu.Unit.Title, mu.Section, mu.EntryKind })
                         .ToListAsync(cancellationToken))
-                    .Select(mu => (mu.MeaningId, mu.UnitId, mu.Number, mu.Title, mu.Section))
+                    .Select(mu => (mu.MeaningId, mu.UnitId, mu.Number, mu.Title, mu.Section, mu.EntryKind))
                     .ToList();
             }
         }
@@ -166,15 +181,17 @@ public sealed class VocabularyAdminQueryRepository(VocabularyDbContext context) 
                 .ThenBy(m => m.PartOfSpeech, StringComparer.Ordinal).ThenBy(m => m.Meaning, StringComparer.Ordinal)
                 .ThenBy(m => m.Id, StringComparer.Ordinal).Select(m => new VocabularyAdminMeaningDetail(
                     m.Adapt<VocabularyMeaningModel>(),
-                    // Every place of the page's meanings, whatever section the
-                    // page was narrowed to: the detail's assignments are the
-                    // whole truth about each meaning it lists. A meaning in a
-                    // unit's A and B reads as two entries; the empty-string
-                    // sentinel becomes null for the contract.
+                    // Every place of the page's meanings, whatever section or
+                    // kind the page was narrowed to: the detail's assignments
+                    // are the whole truth about each meaning it lists. A
+                    // meaning in a unit's A and B reads as two entries, and so
+                    // does one under two kinds of one place; the empty-string
+                    // sentinels become null for the contract.
                     unitsByMeaning[m.Id].OrderBy(u => u.Number).ThenBy(u => u.UnitId, StringComparer.Ordinal)
-                        .ThenBy(u => u.Section, StringComparer.Ordinal)
+                        .ThenBy(u => u.Section, StringComparer.Ordinal).ThenBy(u => u.EntryKind, StringComparer.Ordinal)
                         .Select(u => new VocabularyAdminUnit(
-                            u.UnitId, u.Number, u.Title, u.Section == string.Empty ? null : u.Section)).ToList())).ToList())).ToList();
+                            u.UnitId, u.Number, u.Title, u.Section == string.Empty ? null : u.Section,
+                            u.EntryKind == string.Empty ? null : u.EntryKind)).ToList())).ToList())).ToList();
     }
 
     private async Task<T> SnapshotAsync<T>(Func<Task<T>> read, CancellationToken cancellationToken)

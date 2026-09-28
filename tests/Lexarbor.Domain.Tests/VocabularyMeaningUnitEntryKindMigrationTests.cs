@@ -15,23 +15,23 @@ using Xunit;
 namespace Lexarbor.Domain.Tests;
 
 /// <summary>
-/// Covers the upgrade path for <c>AddMeaningUnitSections</c>: a database at the
-/// previous schema keeps every existing assignment — as the unsectioned
-/// position — and can store sectioned assignments afterwards; a database
-/// created from scratch by the full migration chain builds the same structure;
-/// and the Down migration merges a meaning's positions of one unit back to the
-/// one row the previous key allows.
+/// Covers the upgrade path for <c>AddMeaningUnitEntryKinds</c>: a database at
+/// the previous schema keeps every existing assignment — sectioned or not, all
+/// as the unclassified kind — and can store kinded assignments afterwards; a
+/// database created from scratch by the full migration chain builds the same
+/// structure; and the Down migration merges a meaning's kinds of one place back
+/// to the one row the previous key allows.
 /// </summary>
-public sealed class VocabularyMeaningUnitSectionMigrationTests : IDisposable
+public sealed class VocabularyMeaningUnitEntryKindMigrationTests : IDisposable
 {
-    private const string PreviousMigration = "20260928071346_AddVocabularyBookUnits";
+    private const string PreviousMigration = "20260928113247_AddMeaningUnitSections";
 
     private readonly string _temporaryDirectory = Path.Combine(
         Path.GetTempPath(),
         $"lexarbor-tests-{Guid.NewGuid():N}");
 
     [Fact]
-    public async Task Upgrade_KeepsAssignmentsAsUnsectioned_AndStoresSectionsAfterwards()
+    public async Task Upgrade_KeepsAssignmentsAsUnclassified_AndStoresKindsAfterwards()
     {
         Directory.CreateDirectory(_temporaryDirectory);
         var databasePath = Path.Combine(_temporaryDirectory, "upgraded.db");
@@ -41,8 +41,8 @@ public sealed class VocabularyMeaningUnitSectionMigrationTests : IDisposable
             context.GetService<IMigrator>().Migrate(PreviousMigration);
 
             // Stands in for a database an earlier release filled in: one book,
-            // one word, two meanings, two units, three assignments — written
-            // with raw SQL because the section column the entity now carries
+            // one word, two meanings, one unit, three positions — written with
+            // raw SQL because the entry_kind column the entity now carries
             // does not exist yet at this schema.
             var now = DateTimeOffset.UtcNow;
             context.VocabularyBooks.Add(new VocabularyBookEntity
@@ -100,37 +100,37 @@ public sealed class VocabularyMeaningUnitSectionMigrationTests : IDisposable
                 });
             await context.SaveChangesAsync(TestContext.Current.CancellationToken);
             await context.Database.ExecuteSqlRawAsync("""
-                INSERT INTO vocabulary_meaning_unit (unit_id, meaning_id, book_id) VALUES
-                ('unit-2', 'meaning-1', 'book-a'),
-                ('unit-6', 'meaning-1', 'book-a'),
-                ('unit-2', 'meaning-2', 'book-a');
+                INSERT INTO vocabulary_meaning_unit (unit_id, meaning_id, book_id, section) VALUES
+                ('unit-2', 'meaning-1', 'book-a', ''),
+                ('unit-2', 'meaning-1', 'book-a', 'A'),
+                ('unit-6', 'meaning-1', 'book-a', 'B'),
+                ('unit-2', 'meaning-2', 'book-a', '');
                 """, TestContext.Current.CancellationToken);
         }
 
-        // The previous schema has no section column, so the pre-migration read
-        // selects the three columns that exist; the post-migration read below
-        // adds the new one.
-        var before = await ReadRowsAsync(databasePath, "SELECT unit_id, meaning_id, book_id FROM vocabulary_meaning_unit ORDER BY unit_id, meaning_id", 3);
+        // The previous schema has no entry_kind column, so the pre-migration
+        // read selects the four columns that exist; the post-migration read
+        // below adds the new one.
+        var before = await ReadRowsAsync(databasePath, "SELECT unit_id, meaning_id, book_id, section FROM vocabulary_meaning_unit ORDER BY unit_id, meaning_id, section", 4);
 
         await using (var context = CreateContext(databasePath))
         {
             await context.Database.MigrateAsync(TestContext.Current.CancellationToken);
         }
 
-        // Every assignment crossed the upgrade as the unsectioned place, with
-        // its book untouched.
-        var after = await ReadRowsAsync(databasePath, "SELECT unit_id, meaning_id, book_id, section FROM vocabulary_meaning_unit ORDER BY unit_id, meaning_id", 4);
-        Assert.Equal(before.Select(ToTriple), after.Select(ToTriple));
-        Assert.All(after, columns => Assert.Equal(string.Empty, columns[3]));
+        // Every assignment crossed the upgrade as the unclassified kind, with
+        // its book and section untouched.
+        var after = await ReadRowsAsync(databasePath, "SELECT unit_id, meaning_id, book_id, section, entry_kind FROM vocabulary_meaning_unit ORDER BY unit_id, meaning_id, section", 5);
+        Assert.Equal(before.Select(ToKey), after.Select(columns => ToKey([columns[0], columns[1], columns[2], columns[3]])));
+        Assert.All(after, columns => Assert.Equal(string.Empty, columns[4]));
 
-        // The rebuilt table carries the constraint set: the wider key, the
-        // domain CHECK, and both membership indexes. Migrating without a
-        // target runs the whole chain, so the schema now also reflects the
-        // later entry-kind migration's four-column key; the exact schema
-        // string is compared with a from-scratch database in the test below.
+        // The rebuilt table carries the constraint set: the wider key, both
+        // domain CHECKs, and both membership indexes. The exact schema string
+        // is compared with a from-scratch database in the test below.
         var schema = await ReadSchemaAsync(databasePath, "vocabulary_meaning_unit");
         Assert.Contains("PRIMARY KEY (\"unit_id\", \"meaning_id\", \"section\", \"entry_kind\")", schema);
         Assert.Contains("CHECK (section IN ('', 'A', 'B'))", schema);
+        Assert.Contains("CHECK (entry_kind IN ('', 'word', 'phrase'))", schema);
         Assert.Equal(
             ["IX_vocabulary_meaning_unit_meaning_id_book_id", "IX_vocabulary_meaning_unit_unit_id_book_id"],
             (await ReadIndexNamesAsync(databasePath)).Order());
@@ -140,17 +140,17 @@ public sealed class VocabularyMeaningUnitSectionMigrationTests : IDisposable
         {
             await Assert.ThrowsAsync<SqliteException>(
                 () => context.Database.ExecuteSqlRawAsync(
-                    "INSERT INTO vocabulary_meaning_unit (unit_id, meaning_id, book_id, section) VALUES ('unit-2', 'meaning-2', 'book-a', 'C')",
+                    "INSERT INTO vocabulary_meaning_unit (unit_id, meaning_id, book_id, section, entry_kind) VALUES ('unit-2', 'meaning-2', 'book-a', '', 'noun')",
                     TestContext.Current.CancellationToken));
-            // A repeated unsectioned assignment is a conflict, not a second row.
+            // A repeated unclassified assignment is a conflict, not a second row.
             await Assert.ThrowsAsync<SqliteException>(
                 () => context.Database.ExecuteSqlRawAsync(
-                    "INSERT INTO vocabulary_meaning_unit (unit_id, meaning_id, book_id, section) VALUES ('unit-2', 'meaning-2', 'book-a', '')",
+                    "INSERT INTO vocabulary_meaning_unit (unit_id, meaning_id, book_id, section, entry_kind) VALUES ('unit-2', 'meaning-2', 'book-a', '', '')",
                     TestContext.Current.CancellationToken));
         }
 
-        // The upgraded database stores sectioned positions through the domain
-        // service: both sections of one unit, idempotent on replay.
+        // The upgraded database stores kinded positions through the domain
+        // service: both kinds of one sectioned place, idempotent on replay.
         await using (var context = CreateContext(databasePath))
         {
             var unitOfWork = new UnitOfWork(context);
@@ -161,14 +161,14 @@ public sealed class VocabularyMeaningUnitSectionMigrationTests : IDisposable
                 new VocabularyMeaningUnitRepository(context),
                 unitOfWork);
 
-            await unitService.AssignMeaningAsync("unit-2", "meaning-1", "A", null);
-            await unitService.AssignMeaningAsync("unit-2", "meaning-1", "B", null);
-            await unitService.AssignMeaningAsync("unit-2", "meaning-1", "A", null);
+            await unitService.AssignMeaningAsync("unit-2", "meaning-1", "A", "word");
+            await unitService.AssignMeaningAsync("unit-2", "meaning-1", "A", "phrase");
+            await unitService.AssignMeaningAsync("unit-2", "meaning-1", "A", "word");
             var stored = await context.VocabularyMeaningUnits.AsNoTracking()
-                .Where(membership => membership.MeaningId == "meaning-1" && membership.UnitId == "unit-2")
-                .Select(membership => membership.Section)
+                .Where(membership => membership.MeaningId == "meaning-1" && membership.UnitId == "unit-2" && membership.Section == "A")
+                .Select(membership => membership.EntryKind)
                 .ToListAsync(TestContext.Current.CancellationToken);
-            Assert.Equal(["", "A", "B"], stored.Order(StringComparer.Ordinal));
+            Assert.Equal(["", "phrase", "word"], stored.Order(StringComparer.Ordinal));
         }
     }
 
@@ -202,7 +202,7 @@ public sealed class VocabularyMeaningUnitSectionMigrationTests : IDisposable
     }
 
     [Fact]
-    public async Task Down_MergesMultiPositionAssignments_ToOneRowPerUnitAndMeaning()
+    public async Task Down_MergesMultiKindPositions_ToOneRowPerPlace()
     {
         Directory.CreateDirectory(_temporaryDirectory);
         var databasePath = Path.Combine(_temporaryDirectory, "down.db");
@@ -239,6 +239,15 @@ public sealed class VocabularyMeaningUnitSectionMigrationTests : IDisposable
                 CreatedAt = now,
                 UpdatedAt = now
             });
+            context.VocabularyMeanings.Add(new VocabularyMeaningEntity
+            {
+                Id = "meaning-2",
+                VocabularyId = "word-apple",
+                BookId = "book-a",
+                Meaning = "另一种苹果",
+                CreatedAt = now,
+                UpdatedAt = now
+            });
             context.VocabularyBookUnits.Add(new VocabularyBookUnitEntity
             {
                 Id = "unit-2",
@@ -248,13 +257,14 @@ public sealed class VocabularyMeaningUnitSectionMigrationTests : IDisposable
                 UpdatedAt = now
             });
             await context.SaveChangesAsync(TestContext.Current.CancellationToken);
-            // One meaning in all three places of one unit, and a second meaning
-            // in one place: the old schema keeps one row of each pair.
+            // One meaning in all three kinds of one place, and a second
+            // meaning in one: the previous schema keeps one row of each.
             await context.Database.ExecuteSqlRawAsync("""
-                INSERT INTO vocabulary_meaning_unit (unit_id, meaning_id, book_id, section) VALUES
-                ('unit-2', 'meaning-1', 'book-a', 'A'),
-                ('unit-2', 'meaning-1', 'book-a', 'B'),
-                ('unit-2', 'meaning-1', 'book-a', '');
+                INSERT INTO vocabulary_meaning_unit (unit_id, meaning_id, book_id, section, entry_kind) VALUES
+                ('unit-2', 'meaning-1', 'book-a', 'A', 'word'),
+                ('unit-2', 'meaning-1', 'book-a', 'A', 'phrase'),
+                ('unit-2', 'meaning-1', 'book-a', 'A', ''),
+                ('unit-2', 'meaning-2', 'book-a', 'B', 'phrase');
                 """, TestContext.Current.CancellationToken);
         }
 
@@ -263,15 +273,16 @@ public sealed class VocabularyMeaningUnitSectionMigrationTests : IDisposable
             context.GetService<IMigrator>().Migrate(PreviousMigration);
         }
 
-        // The previous schema has no section column, so the check reads the
-        // three columns that exist: one row per (unit, meaning) survived the
-        // merge.
-        var rows = await ReadRowsAsync(databasePath, "SELECT unit_id, meaning_id, book_id FROM vocabulary_meaning_unit", 3);
-        var merged = Assert.Single(rows);
-        Assert.Equal(["unit-2", "meaning-1", "book-a"], merged);
+        // The previous schema has no entry_kind column, so the check reads the
+        // four columns that exist: one row per (unit, meaning, section)
+        // survived the merge, each with its section intact.
+        var rows = await ReadRowsAsync(databasePath, "SELECT unit_id, meaning_id, book_id, section FROM vocabulary_meaning_unit ORDER BY section", 4);
+        Assert.Equal(
+            [["unit-2", "meaning-1", "book-a", "A"], ["unit-2", "meaning-2", "book-a", "B"]],
+            rows);
     }
 
-    private static string ToTriple(string[] columns) => $"{columns[0]}|{columns[1]}|{columns[2]}";
+    private static string ToKey(string[] columns) => $"{columns[0]}|{columns[1]}|{columns[2]}|{columns[3]}";
 
     private static async Task<List<string[]>> ReadRowsAsync(string databasePath, string sql, int columnCount)
     {

@@ -109,10 +109,11 @@ public class VocabularyDbContextModelTests
     }
 
     /// <summary>
-    /// The membership's key names the place — unit, meaning, section — with the
-    /// section stored as the empty-string sentinel so a repeated unsectioned
-    /// assignment is still a conflict; its two composite foreign keys share the
-    /// same <c>book_id</c> column and both cascade, which together make a
+    /// The membership's key names the place — unit, meaning, section, entry
+    /// kind — with the section and the kind stored as empty-string sentinels
+    /// so a repeated unsectioned or unclassified assignment is still a
+    /// conflict; its two composite foreign keys share the same
+    /// <c>book_id</c> column and both cascade, which together make a
     /// cross-book assignment unrepresentable and keep deletions from leaving
     /// dangling rows.
     /// </summary>
@@ -124,7 +125,7 @@ public class VocabularyDbContextModelTests
 
         Assert.NotNull(entityType);
         Assert.Equal(
-            [nameof(VocabularyMeaningUnitEntity.UnitId), nameof(VocabularyMeaningUnitEntity.MeaningId), nameof(VocabularyMeaningUnitEntity.Section)],
+            [nameof(VocabularyMeaningUnitEntity.UnitId), nameof(VocabularyMeaningUnitEntity.MeaningId), nameof(VocabularyMeaningUnitEntity.Section), nameof(VocabularyMeaningUnitEntity.EntryKind)],
             entityType.FindPrimaryKey()!.Properties.Select(property => property.Name));
 
         // Check constraints live only in the design-time model; the read-optimized
@@ -135,6 +136,10 @@ public class VocabularyDbContextModelTests
             designTimeEntityType.GetCheckConstraints(),
             constraint => constraint.Name == "CK_vocabulary_meaning_unit_section"
                           && constraint.Sql == "section IN ('', 'A', 'B')");
+        Assert.Contains(
+            designTimeEntityType.GetCheckConstraints(),
+            constraint => constraint.Name == "CK_vocabulary_meaning_unit_entry_kind"
+                          && constraint.Sql == "entry_kind IN ('', 'word', 'phrase')");
 
         var unitForeignKey = Assert.Single(
             entityType.GetForeignKeys(),

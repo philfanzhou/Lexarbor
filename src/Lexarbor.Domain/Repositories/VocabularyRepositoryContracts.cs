@@ -86,10 +86,12 @@ public interface IVocabularyBookUnitRepository
 public interface IVocabularyMeaningUnitRepository
 {
     /// <param name="section">Null for the unsectioned position of the unit.</param>
-    Task<bool> ExistsAsync(string unitId, string meaningId, string? section);
+    /// <param name="entryKind">Null for the unclassified position of that place.</param>
+    Task<bool> ExistsAsync(string unitId, string meaningId, string? section, string? entryKind);
     Task<List<VocabularyMeaningUnitModel>> GetByUnitIdAsync(string unitId);
     Task<List<VocabularyMeaningUnitModel>> GetByMeaningIdAsync(string meaningId);
     Task AddAsync(VocabularyMeaningUnitModel model);
     /// <param name="section">Null for the unsectioned position of the unit.</param>
-    Task DeleteAsync(string unitId, string meaningId, string? section);
+    /// <param name="entryKind">Null for the unclassified position of that place.</param>
+    Task DeleteAsync(string unitId, string meaningId, string? section, string? entryKind);
 }

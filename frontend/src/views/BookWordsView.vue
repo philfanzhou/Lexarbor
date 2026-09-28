@@ -6,8 +6,10 @@ import { getAdminBookContent, getAdminUnitContent } from '@/services/adminVocabu
 import type {
   AdminCleanupResult,
   AdminCleanupSelection,
+  AdminEntryKindCounts,
   AdminSectionCounts,
   AdminUnitContent,
+  AdminUnitEntryKindFilter,
   AdminUnitSectionFilter,
   AdminWordDetail
 } from '@/services/adminVocabularyApi'
@@ -31,11 +33,13 @@ import VocabularyCleanupDialog from '@/components/VocabularyCleanupDialog.vue'
  * unit content read with unit-scoped counts; the whole-book view and its
  * behaviour are unchanged. In a unit view a second picker narrows further to
  * one section's places of the unit — Section A, Section B, or the unsectioned
- * ones — through the same read's `section` parameter; the counts follow the
- * narrowing while the per-section place counts beside them always speak for
- * the whole unit. The unit choice is page state like the keyword —
- * it never enters the route — and is reset by a book switch, and the section
- * choice by a unit or book switch. Unit switches
+ * ones — through the same read's `section` parameter, and a third to one
+ * entry kind's places — word, phrase, or the unclassified ones — through its
+ * `entryKind` parameter; the two combine by intersection, the counts follow
+ * the narrowing while the per-section and per-kind place counts beside them
+ * always speak for the whole unit. The unit choice is page state like the
+ * keyword — it never enters the route — and is reset by a book switch, and
+ * the section and kind choices by a unit or book switch. Unit switches
  * share the content request's generation and aborting, so an answer for a
  * replaced unit or book cannot paint the current view. A unit deleted while
  * its view is open answers 404 and gets its own notice with a way back to
@@ -92,6 +96,18 @@ const sectionFilter = ref<typeof ALL_SECTIONS | AdminUnitSectionFilter>(ALL_SECT
 /** The unit's per-section place counts, reported by the unit content read whatever the filter. */
 const sectionCounts = ref<AdminSectionCounts>({ sectionA: 0, sectionB: 0, noSection: 0 })
 
+/**
+ * The entry-kind picker's value, a second unit-view-only refinement of the
+ * same read: every kind of the narrowed places by default, or the word or
+ * phrase places, or the unclassified ones. It combines with the section
+ * choice as two independent dimensions of one position; it is page state too
+ * and resets on every unit or book switch.
+ */
+const ALL_KINDS = 'all'
+const kindFilter = ref<typeof ALL_KINDS | AdminUnitEntryKindFilter>(ALL_KINDS)
+/** The unit's per-kind place counts, reported by the unit content read whatever the filter. */
+const entryKindCounts = ref<AdminEntryKindCounts>({ word: 0, phrase: 0, none: 0 })
+
 const loading = ref(false)
 const loadError = ref('')
 const notFound = ref(false)
@@ -133,8 +149,9 @@ function load() {
     size: size.value
   }
   const section = sectionFilter.value === ALL_SECTIONS ? undefined : { section: sectionFilter.value }
+  const entryKind = kindFilter.value === ALL_KINDS ? undefined : { entryKind: kindFilter.value }
   const request = isUnitView.value
-    ? getAdminUnitContent(bookId.value, unitId.value, { ...params, ...section }, { signal: controller.signal })
+    ? getAdminUnitContent(bookId.value, unitId.value, { ...params, ...section, ...entryKind }, { signal: controller.signal })
     : getAdminBookContent(bookId.value, params, { signal: controller.signal })
 
   request.then(
@@ -146,9 +163,12 @@ function load() {
       book.value = data.book
       wordCount.value = data.wordCount
       meaningCount.value = data.meaningCount
-      // Only the unit read reports section counts; the whole-book view keeps zeros.
+      // Only the unit read reports section and kind counts; the whole-book
+      // view keeps zeros.
       sectionCounts.value = (data as AdminUnitContent).sectionCounts
         ?? { sectionA: 0, sectionB: 0, noSection: 0 }
+      entryKindCounts.value = (data as AdminUnitContent).entryKindCounts
+        ?? { word: 0, phrase: 0, none: 0 }
       items.value = data.items
       totalCount.value = data.totalCount
       // A new page starts unselected, whatever the table re-renders.
@@ -278,12 +298,14 @@ watch(bookId, () => {
   wordCount.value = 0
   meaningCount.value = 0
   sectionCounts.value = { sectionA: 0, sectionB: 0, noSection: 0 }
+  entryKindCounts.value = { word: 0, phrase: 0, none: 0 }
   items.value = []
   totalCount.value = 0
   selectedWordIds.value = []
   detailWordId.value = null
   unitId.value = WHOLE_BOOK
   sectionFilter.value = ALL_SECTIONS
+  kindFilter.value = ALL_KINDS
   units.value = []
   unitsError.value = ''
   unitGone.value = false
@@ -292,11 +314,12 @@ watch(bookId, () => {
 })
 
 // A unit switch is a new view of the same book: the page restarts, the section
-// refinement belongs to the view it replaced, and the previous view's
+// and kind refinements belong to the view it replaced, and the previous view's
 // selection does not carry over.
 watch(unitId, () => {
   page.value = 1
   sectionFilter.value = ALL_SECTIONS
+  kindFilter.value = ALL_KINDS
   selectedWordIds.value = []
   load()
 })
@@ -324,7 +347,7 @@ function handleSizeChange(newSize: number) {
   load()
 }
 
-/** A section picked in the unit view: same restart as a size change, without touching the unit. */
+/** A section or a kind picked in the unit view: same restart as a size change, without touching the unit. */
 function handleSectionChange() {
   page.value = 1
   selectedWordIds.value = []
@@ -411,6 +434,9 @@ const emptyDescription = computed(() =>
           <span v-if="isUnitView" class="book-words__sections">
             分节 A {{ sectionCounts.sectionA }} · B {{ sectionCounts.sectionB }} · 未分节 {{ sectionCounts.noSection }}
           </span>
+          <span v-if="isUnitView" class="book-words__kinds">
+            单词 {{ entryKindCounts.word }} · 短语 {{ entryKindCounts.phrase }} · 未分类 {{ entryKindCounts.none }}
+          </span>
         </p>
 
         <el-alert
@@ -451,6 +477,18 @@ const emptyDescription = computed(() =>
             <el-option label="Section A" value="A" />
             <el-option label="Section B" value="B" />
             <el-option label="未分节" value="none" />
+          </el-select>
+          <el-select
+            v-if="isUnitView"
+            v-model="kindFilter"
+            class="toolbar__kind"
+            aria-label="筛选类别"
+            @change="handleSectionChange"
+          >
+            <el-option label="全部类别" :value="ALL_KINDS" />
+            <el-option label="单词" value="word" />
+            <el-option label="短语" value="phrase" />
+            <el-option label="未分类" value="none" />
           </el-select>
           <el-input
             v-model="keyword"
@@ -624,6 +662,9 @@ const emptyDescription = computed(() =>
   width: min(220px, 100%);
 }
 .toolbar__section {
+  width: min(150px, 100%);
+}
+.toolbar__kind {
   width: min(150px, 100%);
 }
 .toolbar__remove-wrap,
