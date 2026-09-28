@@ -95,6 +95,8 @@ public sealed class NormalizedWordLookupTests : IDisposable
             new VocabularyRepository(context),
             bookRepository,
             new VocabularyMeaningRepository(context),
+            new VocabularyBookUnitRepository(context),
+            new VocabularyMeaningUnitRepository(context),
             unitOfWork);
 
         await bookRepository.AddAsync(new VocabularyBookModel

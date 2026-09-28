@@ -130,6 +130,12 @@ public class VocabularyBatchEntryDto
     public string? PartOfSpeech { get; set; }
     public string? Meaning { get; set; }
     public string? Example { get; set; }
+
+    /// <summary>
+    /// Optional unit of <c>bookId</c> the resolved meaning is assigned to. Must
+    /// name an existing unit of that book; units are never created here.
+    /// </summary>
+    public string? UnitId { get; set; }
 }
 
 /// <summary>

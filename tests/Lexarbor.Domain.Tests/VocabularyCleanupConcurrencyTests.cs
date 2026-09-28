@@ -208,7 +208,7 @@ public class VocabularyCleanupConcurrencyTests
         }
         finally { foreach (var suffix in new[] { "", "-wal", "-shm" }) File.Delete(path + suffix); }
     }
-    private static VocabularyDomainService ImportService(VocabularyDbContext db) => new(new VocabularyRepository(db), new VocabularyBookRepository(db), new VocabularyMeaningRepository(db), new UnitOfWork(db));
+    private static VocabularyDomainService ImportService(VocabularyDbContext db) => new(new VocabularyRepository(db), new VocabularyBookRepository(db), new VocabularyMeaningRepository(db), new VocabularyBookUnitRepository(db), new VocabularyMeaningUnitRepository(db), new UnitOfWork(db));
     private static async Task ImportAsync(VocabularyDbContext db, string bookId) => await ImportService(db).AddOrUpdateAsync(new VocabularyModel { Word = "exclusive" }, new VocabularyMeaningModel { BookId = bookId, Meaning = "imported" });
     private sealed class ReadBarrier(TaskCompletionSource entered, TaskCompletionSource release) : DbCommandInterceptor
     {
