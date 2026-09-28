@@ -125,9 +125,10 @@ public class VocabularyEditCleanupCombinationTests
             Assert.Equal((2, 3, 1, false), (result.AffectedWordCount, result.DeletedMeaningCount, result.DeletedWordCount, result.DeletedBook));
 
             await using var verify = new VocabularyDbContext(options);
-            // The word survives through disabled B with the edited shared fields.
+            // The word survives through disabled B with the edited shared fields;
+            // the edit's submitted casing is the new display spelling.
             var shared = await verify.Vocabularies.AsNoTracking().SingleAsync(v => v.Id == "shared", TestContext.Current.CancellationToken);
-            Assert.Equal("renamed", shared.Word);
+            Assert.Equal("Renamed", shared.Word);
             Assert.Equal("new-uk", shared.PhoneticUk);
             Assert.Null(shared.PhoneticUs);
             Assert.True(await verify.Vocabularies.AnyAsync(v => v.Id == "historical", TestContext.Current.CancellationToken));

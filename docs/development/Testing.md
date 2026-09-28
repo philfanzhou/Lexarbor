@@ -88,7 +88,7 @@ checks them in real container logs while retaining health, non-root, and persist
 |------|------|
 | GetDetailAsync succeeds | Returns (word, meanings) |
 | SearchAsync paging | Returns the correct page |
-| Word normalization | Trims surrounding whitespace and lowercases |
+| Word normalization | Trims surrounding whitespace; equivalence is the normalized key, while the stored display spelling keeps the imported casing |
 | Repeated import | Reuses the word and the equivalent meaning |
 | Book missing or disabled | Returns NotFound or a business rule error respectively |
 | Update with a non-existent ID | Returns NotFound and creates no new object |
@@ -196,7 +196,7 @@ GitHub Actions additionally collects TRX and Cobertura coverage, runs the contai
 
 ## Shared word replacement verification
 
-`VocabularyWordEditTests` covers trim/lower normalization, both nullable phonetics, shared enabled/disabled memberships without any meaning changes, unassigned words, historical duplicate normalized spellings (including non-ASCII uppercase, tabs/newlines, and Unicode whitespace), self-exclusion and distinct Unicode spellings, missing/invalid/cancelled requests, and rollback after a SQLite trigger rejects an update. File-WAL tests use independent contexts and a controlled transaction barrier for edit/edit and both edit/import orders; the later successful operation wins and cancellation after admission does not undo the transaction.
+`VocabularyWordEditTests` covers trim normalization with the submitted casing stored as the display value (a casing-only change applies while the normalized key is unchanged), both nullable phonetics, shared enabled/disabled memberships without any meaning changes, unassigned words, historical duplicate normalized spellings (including non-ASCII uppercase, tabs/newlines, and Unicode whitespace), self-exclusion and distinct Unicode spellings, missing/invalid/cancelled requests, and rollback after a SQLite trigger rejects an update. File-WAL tests use independent contexts and a controlled transaction barrier for edit/edit and both edit/import orders; the later successful operation wins and cancellation after admission does not undo the transaction.
 
 `VocabularyWordEditEndpointTests` verifies all required fields and JSON types, unknown fields, preserved values, Cookie/Bearer and custom roles, missing CSRF/401/403, 404/409 without partial writes, and a real external SQLite write lock producing 503 plus `Retry-After: 1`. Run the Release .NET suite and Docker persistence smoke; existing import/public tests must remain green.
 

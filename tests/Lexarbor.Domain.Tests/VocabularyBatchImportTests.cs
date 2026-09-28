@@ -70,7 +70,9 @@ public class VocabularyBatchImportTests : TestBase
 
         Assert.Equal(new VocabularyBatchImportResult(3, 1, 2), result);
         var word = Assert.Single(await _dbContext.Vocabularies.ToListAsync(TestContext.Current.CancellationToken));
-        Assert.Equal("apple", word.Word);
+        // One row for all three spellings, and the first entry's casing is the
+        // stored display spelling.
+        Assert.Equal("Apple", word.Word);
         Assert.Equal(1, await CountMeaningsAsync(book.Id));
     }
 

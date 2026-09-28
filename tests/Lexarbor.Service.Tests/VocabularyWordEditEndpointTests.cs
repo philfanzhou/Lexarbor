@@ -33,7 +33,7 @@ public class VocabularyWordEditEndpointTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         Assert.True(json.RootElement.GetProperty("data").GetProperty("success").GetBoolean());
-        Assert.Equal("replaced||", await StateAsync(factory.Services));
+        Assert.Equal("Replaced||", await StateAsync(factory.Services));
         using var repeat = await PutAsync(client, """{"word":"replaced","phoneticUk":null,"phoneticUs":null}""");
         Assert.Equal(HttpStatusCode.OK, repeat.StatusCode);
         Assert.Equal("replaced||", await StateAsync(factory.Services));

@@ -15,14 +15,16 @@ namespace Lexarbor.Database.Repositories;
 /// </summary>
 /// <remarks>
 /// <c>string.Contains</c> translates to SQLite's <c>instr()</c>, which compares
-/// bytes, so a keyword had to match the stored casing exactly. Words are always
-/// stored lower-cased, which made every mixed-case public search return an empty
-/// page rather than an error. <c>LIKE</c> folds ASCII case by default -- nothing
-/// in this application sets <c>PRAGMA case_sensitive_like</c> -- and that is the
-/// same folding <c>lower()</c> already gives the question and equivalence
-/// queries, so the whole codebase now agrees on what "the same text" means.
-/// Neither operator can use an index for a leading-wildcard match, so this is
-/// not a change in query cost.
+/// bytes, so a keyword had to match the stored casing exactly. When every word
+/// was stored lower-cased that made each mixed-case public search return an
+/// empty page rather than an error; words now keep their imported display
+/// casing, so the byte-wise operator would miss on either side of the case
+/// difference. <c>LIKE</c> folds ASCII case by default -- nothing in this
+/// application sets <c>PRAGMA case_sensitive_like</c> -- and that is the same
+/// folding <c>lower()</c> already gives the question and equivalence queries,
+/// so the whole codebase agrees on what "the same text" means. Neither
+/// operator can use an index for a leading-wildcard match, so this is not a
+/// change in query cost.
 /// </remarks>
 internal static class SqliteSearchPattern
 {

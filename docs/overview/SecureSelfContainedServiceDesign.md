@@ -231,15 +231,16 @@ Startup creates and migrates an absent database file and migrates an existing on
 
 ### 8.1 Word normalization
 
-Every write and every lookup by name uses the same normalization rule:
+Every lookup by name and every equivalence decision uses the same normalization rule:
 
 ```text
 normalizedWord = word.Trim().ToLowerInvariant()
 ```
 
 - A value that normalizes to whitespace answers 400.
-- A new word is stored in its normalized form.
+- The normalized form is the word's identity, not its display value: a newly created word stores its imported spelling trimmed of surrounding whitespace, casing included, so `Nobel Prize` displays as `Nobel Prize`.
 - Lookups use the equivalent database expression, so `Apple`, ` apple `, and `APPLE` cannot be imported as duplicates.
+- A repeated import that resolves to an existing word never rewrites the stored spelling: the first creation's value stays, and only the administrator's explicit word replacement can correct casing while the normalized key is unchanged. Databases written by releases that lower-cased on import keep those values as they are; the original casing is not recoverable and nothing guesses at it.
 - A unique index protects newly written normalized words.
 - The lookup by normalized word compares against the generated `normalized_word` column, which carries `lower(trim(word))` and an index. Writing the expression into the predicate instead puts a function around the column, which SQLite answers by reading every row -- once per imported word, while the process-wide write lock is held.
 - The word DTO uses the two nullable strings `phoneticUk` and `phoneticUs`; the old `phonetic` field is neither accepted nor returned.
@@ -487,7 +488,7 @@ Anonymous/invalid credentials receive 401; authenticated non-administrators rece
 
 ### Replace shared word fields
 
-`PUT /admin/vocabulary/{wordId}` requires `VocabularyAdmin`. Send all three fields: `{word:string,phoneticUk:string|null,phoneticUs:string|null}`. Missing fields, undeclared fields (including IDs or meanings), invalid JSON types, and null/blank word return 400 without writes. Word uses `Trim().ToLowerInvariant()`; phonetics are trimmed and null/blank explicitly clears them. To retain a field, send its current value. This is separate from import's optional-field merge behavior.
+`PUT /admin/vocabulary/{wordId}` requires `VocabularyAdmin`. Send all three fields: `{word:string,phoneticUk:string|null,phoneticUs:string|null}`. Missing fields, undeclared fields (including IDs or meanings), invalid JSON types, and null/blank word return 400 without writes. Word equivalence uses `Trim().ToLowerInvariant()`; phonetics are trimmed and null/blank explicitly clears them. The submitted spelling is stored as the display value, trimmed but with its casing: this endpoint is the one sanctioned way to correct a word's casing, because it is confined to a row whose normalized key is unchanged. Imports never rewrite display spelling. To retain a field, send its current value. This is separate from import's optional-field merge behavior.
 
 The write transaction re-reads the existing target (404 if missing), rejects any other ID with the same normalized spelling (409), and updates only the shared word, phonetics and that word's `updatedAt`. All meanings and book memberships remain unchanged, including disabled-book memberships. Historical unassigned words can be edited. Success uses the existing BoolResponse envelope (`success:true` in both the envelope and data). Cookie writes still require `X-Requested-With: XMLHttpRequest`; Bearer writes retain existing semantics. Anonymous/non-admin requests return 401/403 without writes.
 

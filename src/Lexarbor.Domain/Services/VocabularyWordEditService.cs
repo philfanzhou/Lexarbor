@@ -20,7 +20,11 @@ public sealed class VocabularyWordEditService(IVocabularyRepository words,
                 ?? throw new ResourceNotFoundException("Vocabulary word was not found.");
             if (await edits.HasOtherNormalizedWordAsync(normalized, wordId))
                 throw new ConflictException("A vocabulary word with the same normalized value already exists.");
-            current.Word = normalized;
+            // The submitted spelling is the display value: an explicit edit is
+            // the one path allowed to correct casing, because it is confined to
+            // the row whose normalized key is unchanged. Imports never rewrite
+            // display spelling; equivalence stays keyed on the normalized form.
+            current.Word = word.Trim();
             current.PhoneticUk = Optional(phoneticUk);
             current.PhoneticUs = Optional(phoneticUs);
             current.UpdatedAt = DateTimeOffset.UtcNow;
