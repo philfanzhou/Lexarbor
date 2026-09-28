@@ -12,6 +12,8 @@ public class VocabularyDbContext : DbContext
     public DbSet<VocabularyEntity> Vocabularies { get; set; } = null!;
     public DbSet<VocabularyBookEntity> VocabularyBooks { get; set; } = null!;
     public DbSet<VocabularyMeaningEntity> VocabularyMeanings { get; set; } = null!;
+    public DbSet<VocabularyBookUnitEntity> VocabularyBookUnits { get; set; } = null!;
+    public DbSet<VocabularyMeaningUnitEntity> VocabularyMeaningUnits { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -74,6 +76,57 @@ public class VocabularyDbContext : DbContext
                   .WithMany(e => e.Meanings)
                   .HasForeignKey(e => e.BookId)
                   .OnDelete(DeleteBehavior.Restrict);
+
+            // Referenced by the composite foreign key from vocabulary_meaning_unit
+            // as (id, book_id). SQLite accepts a unique index as a parent key, and
+            // an index can be added to a table that already exists, which a table
+            // constraint cannot on SQLite. Uniqueness of the wider pair is implied
+            // by the primary key on id, so this constrains nothing the rows do not
+            // already satisfy.
+            entity.HasIndex(e => new { e.Id, e.BookId }).IsUnique();
+        });
+
+        modelBuilder.Entity<VocabularyBookUnitEntity>(entity =>
+        {
+            // Unit numbers are unique within one book only; two books may both
+            // have a Unit 2.
+            entity.HasIndex(e => new { e.BookId, e.Number }).IsUnique();
+
+            // The composite foreign key from vocabulary_meaning_unit references
+            // (id, book_id); SQLite requires the referenced columns of a parent
+            // key to carry a unique index, and the primary key on id alone does
+            // not cover the pair. Uniqueness of the wider pair is implied by the
+            // primary key, so this index adds a constraint the rows already
+            // satisfy.
+            entity.HasIndex(e => new { e.Id, e.BookId }).IsUnique();
+
+            entity.HasOne(e => e.Book)
+                  .WithMany()
+                  .HasForeignKey(e => e.BookId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<VocabularyMeaningUnitEntity>(entity =>
+        {
+            entity.HasKey(e => new { e.UnitId, e.MeaningId });
+
+            // Both foreign keys include book_id and point at a (id, book_id)
+            // parent key, so a row can only exist when the unit and the meaning
+            // belong to the same book. This is what makes a cross-book
+            // assignment unrepresentable at the database level; the domain
+            // service rejects one earlier with a clearer message, and this is
+            // the backstop for anything that writes past it.
+            entity.HasOne(e => e.Unit)
+                  .WithMany()
+                  .HasForeignKey(e => new { e.UnitId, e.BookId })
+                  .HasPrincipalKey(unit => new { unit.Id, unit.BookId })
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.Meaning)
+                  .WithMany()
+                  .HasForeignKey(e => new { e.MeaningId, e.BookId })
+                  .HasPrincipalKey(meaning => new { meaning.Id, meaning.BookId })
+                  .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

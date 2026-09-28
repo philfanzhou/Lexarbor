@@ -1,0 +1,357 @@
+using System;
+using System.Linq;
+using System.Threading.Tasks;
+using Lexarbor.Domain.Exceptions;
+using Lexarbor.Domain.Models;
+using Lexarbor.Domain.Services;
+using Microsoft.EntityFrameworkCore;
+using Xunit;
+
+namespace Lexarbor.Domain.Tests;
+
+public class VocabularyBookUnitTests : TestBase
+{
+    private readonly VocabularyBookUnitDomainService _service;
+    private readonly VocabularyDomainService _importService;
+
+    public VocabularyBookUnitTests()
+    {
+        _service = new VocabularyBookUnitDomainService(
+            _bookRepository,
+            _meaningRepository,
+            _bookUnitRepository,
+            _meaningUnitRepository,
+            _unitOfWork);
+        _importService = new VocabularyDomainService(
+            _vocabularyRepository,
+            _bookRepository,
+            _meaningRepository,
+            _unitOfWork);
+    }
+
+    [Fact]
+    public async Task CreateAndRead_StoresEightUnitsInUnitOrder()
+    {
+        var book = await CreateBookAsync();
+
+        for (var number = 1; number <= 8; number++)
+        {
+            var unit = await _service.CreateAsync(book.Id, number, number == 2 ? " Unit 2 " : null);
+            Assert.Equal(book.Id, unit.BookId);
+            Assert.Equal(number, unit.Number);
+            // Whitespace-only titles count as absent; real ones are trimmed to
+            // display text.
+            Assert.Equal(number == 2 ? "Unit 2" : null, unit.Title);
+        }
+
+        var units = await _service.GetByBookAsync(book.Id);
+        Assert.Equal(8, units.Count);
+        Assert.Equal(Enumerable.Range(1, 8), units.Select(unit => unit.Number));
+    }
+
+    [Fact]
+    public async Task Create_DuplicateNumberWithinOneBook_IsRejected()
+    {
+        var book = await CreateBookAsync();
+        await _service.CreateAsync(book.Id, 2, null);
+
+        await Assert.ThrowsAsync<ConflictException>(
+            () => _service.CreateAsync(book.Id, 2, "Second try"));
+        Assert.Single(await _service.GetByBookAsync(book.Id));
+    }
+
+    [Fact]
+    public async Task Create_SameNumberInDifferentBooks_Coexists()
+    {
+        var first = await CreateBookAsync();
+        var second = await CreateBookAsync();
+
+        await _service.CreateAsync(first.Id, 6, null);
+        var otherBookUnit = await _service.CreateAsync(second.Id, 6, null);
+
+        var firstUnits = await _service.GetByBookAsync(first.Id);
+        var secondUnits = await _service.GetByBookAsync(second.Id);
+        Assert.Equal(6, Assert.Single(firstUnits).Number);
+        Assert.Equal(otherBookUnit.Id, Assert.Single(secondUnits).Id);
+        Assert.Equal(2, await _dbContext.VocabularyBookUnits.CountAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task Create_NonPositiveNumberOrMissingBook_IsRejected()
+    {
+        var book = await CreateBookAsync();
+
+        await Assert.ThrowsAsync<DomainValidationException>(
+            () => _service.CreateAsync(book.Id, 0, null));
+        await Assert.ThrowsAsync<DomainValidationException>(
+            () => _service.CreateAsync(book.Id, -3, null));
+        await Assert.ThrowsAsync<ResourceNotFoundException>(
+            () => _service.CreateAsync("no-such-book", 1, null));
+        Assert.Empty(await _service.GetByBookAsync(book.Id));
+    }
+
+    [Fact]
+    public async Task AssignMeaning_TwoUnitsShareOneEquivalentMeaning()
+    {
+        var book = await CreateBookAsync();
+        var unit2 = await _service.CreateAsync(book.Id, 2, null);
+        var unit6 = await _service.CreateAsync(book.Id, 6, null);
+
+        // The same entry imported twice resolves to one meaning row.
+        var (_, firstImport) = await _importService.AddOrUpdateAsync(
+            new VocabularyModel { Word = "come true" },
+            new VocabularyMeaningModel { BookId = book.Id, PartOfSpeech = "phrase", Meaning = "（梦想等）实现" });
+        var (_, secondImport) = await _importService.AddOrUpdateAsync(
+            new VocabularyModel { Word = "come true" },
+            new VocabularyMeaningModel { BookId = book.Id, PartOfSpeech = "phrase", Meaning = "（梦想等）实现" });
+        Assert.Equal(firstImport.Id, secondImport.Id);
+
+        await _service.AssignMeaningAsync(unit2.Id, firstImport.Id);
+        await _service.AssignMeaningAsync(unit6.Id, firstImport.Id);
+
+        Assert.Equal(1, await _dbContext.VocabularyMeanings.CountAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(1, await _dbContext.Vocabularies.CountAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(2, await _dbContext.VocabularyMeaningUnits.CountAsync(TestContext.Current.CancellationToken));
+
+        // Replaying either assignment changes nothing.
+        await _service.AssignMeaningAsync(unit2.Id, firstImport.Id);
+        await _service.AssignMeaningAsync(unit6.Id, firstImport.Id);
+        Assert.Equal(2, await _dbContext.VocabularyMeaningUnits.CountAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task AssignMeaning_CrossBookAssignment_IsRejectedAndLeavesNoRow()
+    {
+        var bookA = await CreateBookAsync();
+        var bookB = await CreateBookAsync();
+        var unitInA = await _service.CreateAsync(bookA.Id, 1, null);
+        var (_, meaningInB) = await _importService.AddOrUpdateAsync(
+            new VocabularyModel { Word = "apple" },
+            new VocabularyMeaningModel { BookId = bookB.Id, PartOfSpeech = "n.", Meaning = "苹果" });
+
+        await Assert.ThrowsAsync<ConflictException>(
+            () => _service.AssignMeaningAsync(unitInA.Id, meaningInB.Id));
+
+        Assert.Equal(0, await _dbContext.VocabularyMeaningUnits.CountAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task AssignMeaning_UnknownUnitOrMeaning_IsRejected()
+    {
+        var book = await CreateBookAsync();
+        var unit = await _service.CreateAsync(book.Id, 1, null);
+        var (_, meaning) = await _importService.AddOrUpdateAsync(
+            new VocabularyModel { Word = "apple" },
+            new VocabularyMeaningModel { BookId = book.Id, PartOfSpeech = "n.", Meaning = "苹果" });
+
+        await Assert.ThrowsAsync<ResourceNotFoundException>(
+            () => _service.AssignMeaningAsync("no-such-unit", meaning.Id));
+        await Assert.ThrowsAsync<ResourceNotFoundException>(
+            () => _service.AssignMeaningAsync(unit.Id, "no-such-meaning"));
+        Assert.Equal(0, await _dbContext.VocabularyMeaningUnits.CountAsync(TestContext.Current.CancellationToken));
+    }
+
+    /// <summary>
+    /// The domain service is the intended path, but the database has to keep a
+    /// cross-book assignment unrepresentable even for a caller that writes past
+    /// it, and a rejected save must not leave the other rows of the same save
+    /// behind.
+    /// </summary>
+    [Fact]
+    public async Task Membership_WrittenAcrossBooksAtTheDatabaseLevel_IsRejectedEntirely()
+    {
+        var bookA = await CreateBookAsync();
+        var bookB = await CreateBookAsync();
+        var unitInA = await _service.CreateAsync(bookA.Id, 1, null);
+        var (_, meaningInB) = await _importService.AddOrUpdateAsync(
+            new VocabularyModel { Word = "apple" },
+            new VocabularyMeaningModel { BookId = bookB.Id, PartOfSpeech = "n.", Meaning = "苹果" });
+        var (_, meaningInA) = await _importService.AddOrUpdateAsync(
+            new VocabularyModel { Word = "banana" },
+            new VocabularyMeaningModel { BookId = bookA.Id, PartOfSpeech = "n.", Meaning = "香蕉" });
+
+        // One legitimate assignment and one that moves book B's meaning into
+        // book A's unit, saved together: the composite foreign keys reject the
+        // pair and the implicit transaction keeps the legitimate half from
+        // surviving on its own.
+        await _meaningUnitRepository.AddAsync(new VocabularyMeaningUnitModel
+        {
+            UnitId = unitInA.Id,
+            MeaningId = meaningInA.Id,
+            BookId = bookA.Id
+        });
+        await _meaningUnitRepository.AddAsync(new VocabularyMeaningUnitModel
+        {
+            UnitId = unitInA.Id,
+            MeaningId = meaningInB.Id,
+            BookId = bookB.Id
+        });
+
+        await Assert.ThrowsAsync<ConflictException>(
+            () => _unitOfWork.SaveChangesAsync());
+        _dbContext.ChangeTracker.Clear();
+
+        Assert.Equal(0, await _dbContext.VocabularyMeaningUnits.CountAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task DeleteUnit_RemovesOnlyItsAssignments()
+    {
+        var book = await CreateBookAsync();
+        var unit2 = await _service.CreateAsync(book.Id, 2, null);
+        var unit6 = await _service.CreateAsync(book.Id, 6, null);
+        var (_, meaning) = await _importService.AddOrUpdateAsync(
+            new VocabularyModel { Word = "come true" },
+            new VocabularyMeaningModel { BookId = book.Id, PartOfSpeech = "phrase", Meaning = "（梦想等）实现" });
+        await _service.AssignMeaningAsync(unit2.Id, meaning.Id);
+        await _service.AssignMeaningAsync(unit6.Id, meaning.Id);
+
+        await _service.DeleteAsync(unit2.Id);
+
+        Assert.Null(await _bookUnitRepository.GetByIdAsync(unit2.Id));
+        // The meaning, its word, and the surviving unit's assignment are all
+        // still there.
+        Assert.NotNull(await _meaningRepository.GetByIdAsync(meaning.Id));
+        Assert.Equal(1, await _dbContext.Vocabularies.CountAsync(TestContext.Current.CancellationToken));
+        var remaining = await _meaningUnitRepository.GetByUnitIdAsync(unit6.Id);
+        Assert.Equal(meaning.Id, Assert.Single(remaining).MeaningId);
+
+        await Assert.ThrowsAsync<ResourceNotFoundException>(
+            () => _service.DeleteAsync(unit2.Id));
+    }
+
+    [Fact]
+    public async Task RemoveMeaning_RemovesOneAssignmentOnly()
+    {
+        var book = await CreateBookAsync();
+        var unit = await _service.CreateAsync(book.Id, 1, null);
+        var (_, meaning) = await _importService.AddOrUpdateAsync(
+            new VocabularyModel { Word = "apple" },
+            new VocabularyMeaningModel { BookId = book.Id, PartOfSpeech = "n.", Meaning = "苹果" });
+        await _service.AssignMeaningAsync(unit.Id, meaning.Id);
+
+        await _service.RemoveMeaningAsync(unit.Id, meaning.Id);
+
+        Assert.Equal(0, await _dbContext.VocabularyMeaningUnits.CountAsync(TestContext.Current.CancellationToken));
+        Assert.NotNull(await _meaningRepository.GetByIdAsync(meaning.Id));
+        Assert.NotNull(await _bookUnitRepository.GetByIdAsync(unit.Id));
+        await Assert.ThrowsAsync<ResourceNotFoundException>(
+            () => _service.RemoveMeaningAsync(unit.Id, meaning.Id));
+    }
+
+    [Fact]
+    public async Task DeleteMeaning_EntityPath_CascadesItsAssignments()
+    {
+        var book = await CreateBookAsync();
+        var unit = await _service.CreateAsync(book.Id, 1, null);
+        var (_, meaning) = await _importService.AddOrUpdateAsync(
+            new VocabularyModel { Word = "apple" },
+            new VocabularyMeaningModel { BookId = book.Id, PartOfSpeech = "n.", Meaning = "苹果" });
+        await _service.AssignMeaningAsync(unit.Id, meaning.Id);
+
+        await _meaningRepository.DeleteAsync(meaning.Id);
+        await _unitOfWork.SaveChangesAsync();
+
+        Assert.Equal(0, await _dbContext.VocabularyMeaningUnits.CountAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(1, await _dbContext.Vocabularies.CountAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task DeleteWord_CascadesMeaningsAndAssignments()
+    {
+        var book = await CreateBookAsync();
+        var unit = await _service.CreateAsync(book.Id, 1, null);
+        var (word, meaning) = await _importService.AddOrUpdateAsync(
+            new VocabularyModel { Word = "apple" },
+            new VocabularyMeaningModel { BookId = book.Id, PartOfSpeech = "n.", Meaning = "苹果" });
+        await _service.AssignMeaningAsync(unit.Id, meaning.Id);
+
+        var wordEntity = await _dbContext.Vocabularies.FindAsync(
+            [word.Id], TestContext.Current.CancellationToken);
+        Assert.NotNull(wordEntity);
+        _dbContext.Vocabularies.Remove(wordEntity);
+        await _unitOfWork.SaveChangesAsync();
+
+        Assert.Equal(0, await _dbContext.Vocabularies.CountAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(0, await _dbContext.VocabularyMeanings.CountAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(0, await _dbContext.VocabularyMeaningUnits.CountAsync(TestContext.Current.CancellationToken));
+        Assert.NotNull(await _bookUnitRepository.GetByIdAsync(unit.Id));
+    }
+
+    /// <summary>
+    /// The cleanup repository deletes meanings with raw SQL, outside EF's
+    /// change tracker. The membership rows have to follow through the database's
+    /// own foreign keys, or that path would leave dangling assignments.
+    /// </summary>
+    [Fact]
+    public async Task DeleteMeaning_RawSqlCleanupPath_CascadesItsAssignments()
+    {
+        var book = await CreateBookAsync();
+        var unit = await _service.CreateAsync(book.Id, 1, null);
+        var (word, meaning) = await _importService.AddOrUpdateAsync(
+            new VocabularyModel { Word = "apple" },
+            new VocabularyMeaningModel { BookId = book.Id, PartOfSpeech = "n.", Meaning = "苹果" });
+        await _service.AssignMeaningAsync(unit.Id, meaning.Id);
+
+        await _dbContext.Database.ExecuteSqlRawAsync(
+            "DELETE FROM vocabulary_meaning WHERE id = {0}", meaning.Id);
+
+        Assert.Equal(0, await _dbContext.VocabularyMeaningUnits.CountAsync(TestContext.Current.CancellationToken));
+        // The raw-SQL cleanup deletes orphan words itself; this path removed
+        // only the meaning, so the shared word remains stored until a cleanup
+        // pass removes it.
+        Assert.Equal(1, await _dbContext.Vocabularies.CountAsync(
+            vocabulary => vocabulary.Id == word.Id,
+            TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task DeleteBook_WithMeanings_StillConflicts()
+    {
+        var bookService = new VocabularyBookDomainService(_bookRepository, _unitOfWork);
+        var book = await CreateBookAsync();
+        var unit = await _service.CreateAsync(book.Id, 1, null);
+        var (_, meaning) = await _importService.AddOrUpdateAsync(
+            new VocabularyModel { Word = "apple" },
+            new VocabularyMeaningModel { BookId = book.Id, PartOfSpeech = "n.", Meaning = "苹果" });
+        await _service.AssignMeaningAsync(unit.Id, meaning.Id);
+
+        await Assert.ThrowsAsync<ConflictException>(
+            () => bookService.DeleteAsync(book.Id));
+        Assert.NotNull(await _bookUnitRepository.GetByIdAsync(unit.Id));
+    }
+
+    [Fact]
+    public async Task DeleteBook_WithUnitsButNoMeanings_CascadesUnitsAndAssignments()
+    {
+        var bookService = new VocabularyBookDomainService(_bookRepository, _unitOfWork);
+        var book = await CreateBookAsync();
+        var unit = await _service.CreateAsync(book.Id, 1, null);
+        var (word, meaning) = await _importService.AddOrUpdateAsync(
+            new VocabularyModel { Word = "apple" },
+            new VocabularyMeaningModel { BookId = book.Id, PartOfSpeech = "n.", Meaning = "苹果" });
+        await _service.AssignMeaningAsync(unit.Id, meaning.Id);
+
+        // The cleanup "clear" path: raw SQL removes the book's meanings and the
+        // word that lost its last reference; the assignments follow through the
+        // database's foreign keys.
+        await _dbContext.Database.ExecuteSqlRawAsync(
+            "DELETE FROM vocabulary_meaning WHERE book_id = {0}", book.Id);
+        await _dbContext.Database.ExecuteSqlRawAsync(
+            """
+            DELETE FROM vocabulary WHERE id = {0}
+              AND NOT EXISTS (SELECT 1 FROM vocabulary_meaning WHERE vocabulary_id = {0})
+            """,
+            word.Id);
+        _dbContext.ChangeTracker.Clear();
+        Assert.Equal(0, await _dbContext.VocabularyMeaningUnits.CountAsync(TestContext.Current.CancellationToken));
+
+        // With no meanings left, the existing book delete rule allows the
+        // delete, and the units follow it away.
+        await bookService.DeleteAsync(book.Id);
+
+        Assert.Null(await _bookRepository.GetByIdAsync(book.Id));
+        Assert.Equal(0, await _dbContext.VocabularyBookUnits.CountAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(0, await _dbContext.VocabularyMeaningUnits.CountAsync(TestContext.Current.CancellationToken));
+    }
+}

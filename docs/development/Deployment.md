@@ -145,7 +145,7 @@ Therefore the persistent file controls normal deployments, while an explicit env
 | `ConnectionStrings:Default` | `Data Source=data/vocabulary.db` | SQLite data source; relative paths use the Host content root |
 | `Database:InitializeOnStartup` | `true` | Create a missing database and apply migrations |
 
-On first startup Lexarbor creates an empty database: it ships no vocabulary data, so administrators create books and add words themselves. Existing databases are migrated only; their rows are neither added to nor removed, so a database created by an earlier release keeps its `Starter English 300` book. Rolling back to such an earlier image does not reload that book into a database this release created, because the earlier release also only migrates an existing file. Stop writes before copying the database, or use a SQLite online-backup tool.
+On first startup Lexarbor creates an empty database: it ships no vocabulary data, so administrators create books and add words themselves. Existing databases are migrated only; their rows are neither added to nor removed, so a database created by an earlier release keeps its `Starter English 300` book. The same holds for the schema migration that adds book units and meaning-to-unit assignments: it creates two empty tables and one index and rewrites no existing row, and words or meanings work exactly as before without any unit. Rolling back to such an earlier image does not reload that book into a database this release created, because the earlier release also only migrates an existing file. Stop writes before copying the database, or use a SQLite online-backup tool.
 
 ### Write-ahead logging
 
