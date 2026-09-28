@@ -43,34 +43,63 @@ public sealed class VocabularyBookUnitMigrationTests : IDisposable
             var now = DateTimeOffset.UtcNow;
             context.VocabularyBooks.Add(new VocabularyBookEntity
             {
-                Id = "book-a", BookName = "Book A", Status = true, CreatedAt = now, UpdatedAt = now
+                Id = "book-a",
+                BookName = "Book A",
+                Status = true,
+                CreatedAt = now,
+                UpdatedAt = now
             });
             context.VocabularyBooks.Add(new VocabularyBookEntity
             {
-                Id = "book-b", BookName = "Book B", Status = true, CreatedAt = now, UpdatedAt = now
+                Id = "book-b",
+                BookName = "Book B",
+                Status = true,
+                CreatedAt = now,
+                UpdatedAt = now
             });
             context.Vocabularies.Add(new VocabularyEntity
             {
-                Id = "word-apple", Word = "apple", CreatedAt = now, UpdatedAt = now
+                Id = "word-apple",
+                Word = "apple",
+                CreatedAt = now,
+                UpdatedAt = now
             });
             context.Vocabularies.Add(new VocabularyEntity
             {
-                Id = "word-come-true", Word = "come true", CreatedAt = now, UpdatedAt = now
+                Id = "word-come-true",
+                Word = "come true",
+                CreatedAt = now,
+                UpdatedAt = now
             });
             context.VocabularyMeanings.Add(new VocabularyMeaningEntity
             {
-                Id = "meaning-1", VocabularyId = "word-apple", BookId = "book-a",
-                PartOfSpeech = "n.", Meaning = "苹果", CreatedAt = now, UpdatedAt = now
+                Id = "meaning-1",
+                VocabularyId = "word-apple",
+                BookId = "book-a",
+                PartOfSpeech = "n.",
+                Meaning = "苹果",
+                CreatedAt = now,
+                UpdatedAt = now
             });
             context.VocabularyMeanings.Add(new VocabularyMeaningEntity
             {
-                Id = "meaning-2", VocabularyId = "word-come-true", BookId = "book-a",
-                PartOfSpeech = "phrase", Meaning = "（梦想等）实现", CreatedAt = now, UpdatedAt = now
+                Id = "meaning-2",
+                VocabularyId = "word-come-true",
+                BookId = "book-a",
+                PartOfSpeech = "phrase",
+                Meaning = "（梦想等）实现",
+                CreatedAt = now,
+                UpdatedAt = now
             });
             context.VocabularyMeanings.Add(new VocabularyMeaningEntity
             {
-                Id = "meaning-3", VocabularyId = "word-apple", BookId = "book-b",
-                PartOfSpeech = "n.", Meaning = "苹果", CreatedAt = now, UpdatedAt = now
+                Id = "meaning-3",
+                VocabularyId = "word-apple",
+                BookId = "book-b",
+                PartOfSpeech = "n.",
+                Meaning = "苹果",
+                CreatedAt = now,
+                UpdatedAt = now
             });
             await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
@@ -146,7 +175,11 @@ public sealed class VocabularyBookUnitMigrationTests : IDisposable
             var now = DateTimeOffset.UtcNow;
             await bookRepository.AddAsync(new VocabularyBookModel
             {
-                Id = "book", BookName = "Book", Status = true, CreatedAt = now, UpdatedAt = now
+                Id = "book",
+                BookName = "Book",
+                Status = true,
+                CreatedAt = now,
+                UpdatedAt = now
             });
             await unitOfWork.SaveChangesAsync();
 
