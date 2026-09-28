@@ -4,9 +4,11 @@ import type { VocabularyBatchEntry } from './vocabularyApi'
  * One data row of the batch import preview, whatever format it was parsed from.
  * `position` is where the row starts in the source, as the format defines it
  * (ADR-006); `columns` holds the trimmed values in the order `word`,
- * `phonetic_uk`, `phonetic_us`, `part_of_speech`, `meaning`, `example`, for
- * display. `entry` is set only when the row is valid, and `error` only when it
- * is not.
+ * `phonetic_uk`, `phonetic_us`, `part_of_speech`, `meaning`, `example`, `unit`,
+ * for display. The unit column is the raw unit number as written; the page,
+ * which knows the selected book's units, resolves it to a `unitId` or a row
+ * error. `entry` is set only when the row is valid, and `error` only when it is
+ * not.
  */
 export interface VocabularyPreviewRow {
   position: number
@@ -18,7 +20,9 @@ export interface VocabularyPreviewRow {
 /**
  * Checks one row whose values are already trimmed and in the canonical order,
  * and builds its entry. Every format ends here, so the same data gives the same
- * entry whichever format it was imported from.
+ * entry whichever format it was imported from. The unit value is carried in
+ * `columns` and resolved by the page, not here, because whether a unit number
+ * is valid depends on the selected book.
  */
 export function toPreviewRow(position: number, columns: string[]): VocabularyPreviewRow {
   const [word, phoneticUk, phoneticUs, partOfSpeech, meaning, example = ''] = columns

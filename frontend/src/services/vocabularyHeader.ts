@@ -1,7 +1,8 @@
 /**
  * The column names a header row may use, in canonical order. They are the TSV
  * column names of ADR-005, so an index here is also an index into
- * `VocabularyPreviewRow.columns`.
+ * `VocabularyPreviewRow.columns`. The last name, `unit`, is the optional unit
+ * number the page resolves against the selected book's units.
  */
 export const VOCABULARY_COLUMNS = [
   'word',
@@ -9,7 +10,8 @@ export const VOCABULARY_COLUMNS = [
   'phonetic_us',
   'part_of_speech',
   'meaning',
-  'example'
+  'example',
+  'unit'
 ] as const
 
 const REQUIRED_COLUMNS = ['word', 'meaning'] as const

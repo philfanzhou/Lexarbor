@@ -45,6 +45,8 @@ async function openBatchPage(page: Page) {
     }))
   await page.route(/\/api\/vocabulary-books\/all$/, (route) =>
     json(route, { success: true, data: { books: [starterBook, otherBook] } }))
+  await page.route(/\/admin\/vocabulary-books\/[^/]+\/units$/, (route) =>
+    json(route, { success: true, data: { units: [] } }))
 
   await page.goto('/#/import/batch')
   await expect(page.locator('.session')).toContainText(admin.username)
@@ -239,12 +241,12 @@ test('imports the first sheet of a workbook with the same payload as the same ba
   await expect(page.locator('.batch-summary')).toContainText('数据行 7 条，有效 7 条，无效 0 条')
   // Sheet row numbers: the header is on row 3 and row 7 is blank.
   await expect(previewRows(page).locator('td:first-child')).toHaveText(['4', '5', '6', '8', '9', '10', '11'])
-  await expect(previewRow(page, 4).locator('td')).toHaveText(['4', 'apple', '', '', 'n.', '苹果', 'I eat an apple.', '有效'])
-  await expect(previewRow(page, 5).locator('td')).toHaveText(['5', 'banana', '', '2', '', '香蕉', '0.1', '有效'])
-  await expect(previewRow(page, 6).locator('td')).toHaveText(['6', 'cherry', '', '', 'FALSE', '樱桃', 'TRUE', '有效'])
-  await expect(previewRow(page, 8).locator('td')).toHaveText(['8', 'date', '', '2', '', '枣', '2023-03-15', '有效'])
-  await expect(previewRow(page, 9).locator('td')).toHaveText(['9', 'egg', '', '', '', '蛋', '2023-03-15T12:00:00', '有效'])
-  await expect(previewRow(page, 11).locator('td')).toHaveText(['11', 'grape', '', '', '', '葡萄', '', '有效'])
+  await expect(previewRow(page, 4).locator('td')).toHaveText(['4', 'apple', '', '', 'n.', '苹果', 'I eat an apple.', '', '有效'])
+  await expect(previewRow(page, 5).locator('td')).toHaveText(['5', 'banana', '', '2', '', '香蕉', '0.1', '', '有效'])
+  await expect(previewRow(page, 6).locator('td')).toHaveText(['6', 'cherry', '', '', 'FALSE', '樱桃', 'TRUE', '', '有效'])
+  await expect(previewRow(page, 8).locator('td')).toHaveText(['8', 'date', '', '2', '', '枣', '2023-03-15', '', '有效'])
+  await expect(previewRow(page, 9).locator('td')).toHaveText(['9', 'egg', '', '', '', '蛋', '2023-03-15T12:00:00', '', '有效'])
+  await expect(previewRow(page, 11).locator('td')).toHaveText(['11', 'grape', '', '', '', '葡萄', '', '', '有效'])
   await expect(previewRow(page, 10)).not.toContainText('not read')
 
   await submitButton(page).click()
@@ -446,6 +448,56 @@ test('shows server entry errors on sheet rows and withdraws them when the file o
   await expect(serverSummary).toBeVisible()
   await selectBook(page, 1)
   await expect(serverSummary).toHaveCount(0)
+})
+
+test('resolves a workbook unit column into unitIds like the other formats', async ({ page }) => {
+  await openBatchPage(page)
+  // Later routes take precedence: this test's books have units, unlike the
+  // empty list openBatchPage serves.
+  await page.route(/\/admin\/vocabulary-books\/[^/]+\/units$/, (route) =>
+    json(route, {
+      success: true,
+      data: {
+        units: [
+          { id: 'unit-2', bookId: starterBook.id, number: 2, title: 'School Life', meaningCount: 0 },
+          { id: 'unit-5', bookId: starterBook.id, number: 5, title: null, meaningCount: 0 }
+        ]
+      }
+    }))
+  const payloads = await acceptBatch(page)
+  await selectBook(page)
+
+  await chooseFile(page, 'words.xlsx', simpleWorkbook(
+    ['word', 'meaning', 'unit'],
+    [
+      ['apple', '苹果', '2'],
+      ['banana', '香蕉', '5'],
+      ['cherry', '樱桃', ''],
+      ['date', '枣', '9']
+    ]))
+
+  await expect(page.locator('.batch-summary')).toContainText('数据行 4 条，有效 3 条，无效 1 条')
+  await expect(previewRow(page, 2).locator('td').nth(7)).toHaveText('2 · School Life')
+  await expect(previewRow(page, 3).locator('td').nth(7)).toHaveText('5')
+  await expect(previewRow(page, 4).locator('td').nth(7)).toHaveText('')
+  await expect(previewRow(page, 5)).toContainText('未知单元：9')
+  await expect(submitButton(page)).toBeDisabled()
+
+  await chooseFile(page, 'words.xlsx', simpleWorkbook(
+    ['unit', 'meaning', 'word'],
+    [['2', '苹果', 'apple'], ['5', '香蕉', 'banana'], ['', '樱桃', 'cherry']]))
+  await expect(page.locator('.batch-summary')).toContainText('数据行 3 条，有效 3 条，无效 0 条')
+  await expect(previewRow(page, 2).locator('td').nth(7)).toHaveText('2 · School Life')
+  await submitButton(page).click()
+  await expect(page.locator('.batch-result')).toBeVisible()
+  expect(payloads).toEqual([{
+    bookId: starterBook.id,
+    entries: [
+      { word: 'apple', meaning: '苹果', unitId: 'unit-2' },
+      { word: 'banana', meaning: '香蕉', unitId: 'unit-5' },
+      { word: 'cherry', meaning: '樱桃' }
+    ]
+  }])
 })
 
 test('loads the Excel reader only once an .xlsx file is chosen', async ({ page }) => {

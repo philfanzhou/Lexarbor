@@ -92,9 +92,11 @@ The server accepts JSON only, never a file, so no upload surface is added. The a
 The TSV format the UI accepts:
 
 - UTF-8 text, one entry per line, columns separated by a tab;
-- columns in order: `word`, `phonetic_uk`, `phonetic_us`, `part_of_speech`, `meaning`, and an optional sixth `example`;
+- columns in order: `word`, `phonetic_uk`, `phonetic_us`, `part_of_speech`, `meaning`, an optional sixth `example`, and an optional seventh `unit`;
 - blank lines and lines starting with `#` are ignored;
-- every other line must have exactly five or six columns.
+- every other line must have exactly five, six, or seven columns.
+
+The `unit` column holds a unit number a human can check against the unit administration page, not a `unitId`: the page resolves it against the selected book's units and refuses the row when it matches none. A blank `unit` column is no assignment. [ADR-006](./ADR-006-batch-import-file-formats.md) defines how the page resolves the unit column and what the other formats call it.
 
 A file must be UTF-8; the page refuses a file that is not, rather than importing replacement characters. The page also accepts CSV, and [ADR-006](./ADR-006-batch-import-file-formats.md) defines the formats other than TSV, how a file is read, and the rules they share.
 

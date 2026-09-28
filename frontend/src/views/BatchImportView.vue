@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getActiveBooks } from '@/services/bookApi'
+import { getActiveBooks, getBookUnits } from '@/services/bookApi'
 import { importVocabularyBatch } from '@/services/vocabularyApi'
 import type { VocabularyBatchImportPayload, VocabularyBatchImportResult } from '@/services/vocabularyApi'
 import { decodeUtf8, formatForFileName, parseVocabularyInput } from '@/services/vocabularyInput'
@@ -10,7 +10,7 @@ import { readVocabularyWorkbook } from '@/services/vocabularyXlsx'
 import type { VocabularyWorkbook } from '@/services/vocabularyXlsx'
 import { getApiError } from '@/services/apiError'
 import PageHeader from '@/components/PageHeader.vue'
-import type { Book } from '@/types'
+import type { Book, BookUnit } from '@/types'
 
 // Both limits are the server's constants (ADR-005). Checking them here only
 // spares a request the server would refuse; the server still checks them.
@@ -20,9 +20,9 @@ const PAGE_SIZE = 100
 
 const formatLabels: Record<VocabularyInputFormat, string> = { tsv: 'TSV', csv: 'CSV', json: 'JSON' }
 const placeholders: Record<VocabularyInputFormat, string> = {
-  tsv: '每行一条，制表符分隔：单词、英式音标、美式音标、词性、释义，可选第 6 列例句；空行和 # 开头的行忽略',
-  csv: '第一行为表头，逗号分隔，例如：word,phonetic_uk,phonetic_us,part_of_speech,meaning,example',
-  json: '[{"word":"apple","meaning":"苹果"}]'
+  tsv: '每行一条，制表符分隔：单词、英式音标、美式音标、词性、释义，可选第 6 列例句、第 7 列单元编号；空行和 # 开头的行忽略',
+  csv: '第一行为表头，逗号分隔，例如：word,phonetic_uk,phonetic_us,part_of_speech,meaning,example,unit',
+  json: '[{"word":"apple","meaning":"苹果","unit":"2"}]'
 }
 /** The help panel's text for each format; what every format shares is in the template. */
 const formatHints: Record<VocabularyFileFormat, { title: string; rules: string[]; example: string }> = {
@@ -30,27 +30,27 @@ const formatHints: Record<VocabularyFileFormat, { title: string; rules: string[]
     title: 'TSV：制表符分隔',
     rules: [
       '没有表头，每行一条，列之间用制表符（Tab）分隔',
-      '列的顺序固定：单词、英式音标、美式音标、词性、释义，可选的第 6 列例句',
+      '列的顺序固定：单词、英式音标、美式音标、词性、释义，可选的第 6 列例句、第 7 列单元编号',
       '空行和 # 开头的行忽略'
     ],
-    example: 'apple\t/ˈæp.əl/\t/ˈæp.əl/\tn.\t苹果\tI eat an apple.'
+    example: 'apple\t/ˈæp.əl/\t/ˈæp.əl/\tn.\t苹果\tI eat an apple.\t2'
   },
   csv: {
     title: 'CSV：逗号分隔',
     rules: [
-      '第一行为表头，可用的列名：word、phonetic_uk、phonetic_us、part_of_speech、meaning、example',
+      '第一行为表头，可用的列名：word、phonetic_uk、phonetic_us、part_of_speech、meaning、example、unit',
       '表头不区分大小写，顺序不限；word 和 meaning 必填',
       '只支持逗号分隔'
     ],
-    example: 'word,phonetic_uk,phonetic_us,part_of_speech,meaning,example\napple,/ˈæp.əl/,/ˈæp.əl/,n.,苹果,I eat an apple.'
+    example: 'word,phonetic_uk,phonetic_us,part_of_speech,meaning,example,unit\napple,/ˈæp.əl/,/ˈæp.əl/,n.,苹果,I eat an apple.,2'
   },
   json: {
     title: 'JSON：对象数组',
     rules: [
       '顶层是一个数组，每项是一个对象',
-      '字段名与 API 相同：word、phoneticUk、phoneticUs、partOfSpeech、meaning、example；word 和 meaning 必填'
+      '字段名与 API 相同：word、phoneticUk、phoneticUs、partOfSpeech、meaning、example、unit；word 和 meaning 必填'
     ],
-    example: '[\n  { "word": "apple", "phoneticUk": "/ˈæp.əl/", "meaning": "苹果" },\n  { "word": "banana", "meaning": "香蕉" }\n]'
+    example: '[\n  { "word": "apple", "phoneticUk": "/ˈæp.əl/", "meaning": "苹果", "unit": "2" },\n  { "word": "banana", "meaning": "香蕉" }\n]'
   },
   xlsx: {
     title: 'Excel：.xlsx 工作簿',
@@ -58,7 +58,7 @@ const formatHints: Record<VocabularyFileFormat, { title: string; rules: string[]
       '只读取第一个工作表',
       '第一条非空行是表头，列名和规则与 CSV 相同'
     ],
-    example: 'word | phonetic_uk | phonetic_us | part_of_speech | meaning | example\napple | /ˈæp.əl/ | /ˈæp.əl/ | n. | 苹果 | I eat an apple.'
+    example: 'word | phonetic_uk | phonetic_us | part_of_speech | meaning | example | unit\napple | /ˈæp.əl/ | /ˈæp.əl/ | n. | 苹果 | I eat an apple. | 2'
   }
 }
 // A JSON row is numbered by its item in the array, not by a line.
@@ -87,6 +87,15 @@ const excelFile = ref<ExcelFile>()
 /** Stops the worker reading the current `.xlsx` file, if it is still reading. */
 let excelReading: AbortController | undefined
 
+// The selected book's units, in unit order, for resolving the `unit` column of
+// every format into the `unitId` the API takes. The page always needs them: a
+// unit number that cannot be resolved must stop the batch, not lose its
+// assignment silently.
+const units = ref<BookUnit[]>([])
+const unitsState = ref<'idle' | 'loading' | 'loaded' | 'error'>('idle')
+/** Counts loads, so that only the book chosen last fills the unit list. */
+let unitLoads = 0
+
 // Excel is chosen only by choosing a file, and left only by removing it.
 const selectedFormat = computed<VocabularyFileFormat>({
   get: () => (excelFile.value ? 'xlsx' : format.value),
@@ -108,11 +117,50 @@ const parsed = computed(() =>
 const rows = computed(() => parsed.value.rows)
 const parseError = computed(() => parsed.value.error)
 
+/** The selected book's units by their number as written, once the list has loaded. */
+const unitByNumber = computed(() => {
+  if (unitsState.value !== 'loaded') {
+    return undefined
+  }
+  return new Map(units.value.map((unit) => [String(unit.number), unit]))
+})
+
+/**
+ * One row's unit column resolved against that list. `undefined` means the list
+ * is not there to resolve with (no book yet, still loading, or failed): the row
+ * keeps its raw value and no verdict, because submitting is blocked until the
+ * list arrives anyway.
+ */
+function resolveUnit(columns: string[]): { unit?: BookUnit; unknownFor?: string } | undefined {
+  const byNumber = unitByNumber.value
+  if (byNumber === undefined) {
+    return undefined
+  }
+
+  const raw = columns[6] ?? ''
+  if (raw === '') {
+    return {}
+  }
+
+  const unit = byNumber.get(raw)
+  return unit === undefined ? { unknownFor: raw } : { unit }
+}
+
 const previewRows = computed(() =>
   rows.value.map((row) => {
     const serverError = serverErrors.value.get(row.position)
-    const reason = row.error ?? (serverError === undefined ? undefined : `服务端：${serverError}`)
-    return { ...row, reason }
+    const resolved = resolveUnit(row.columns)
+    let reason = row.error
+    if (reason === undefined && resolved?.unknownFor !== undefined) {
+      reason = `未知单元：${resolved.unknownFor}`
+    }
+    if (reason === undefined && serverError !== undefined) {
+      reason = `服务端：${serverError}`
+    }
+    const unitText = resolved?.unit === undefined
+      ? row.columns[6] ?? ''
+      : resolved.unit.title ? `${resolved.unit.number} · ${resolved.unit.title}` : String(resolved.unit.number)
+    return { ...row, unit: resolved?.unit, unitUnknown: resolved?.unknownFor, unitText, reason }
   })
 )
 
@@ -134,15 +182,30 @@ const pagedRows = computed(() => {
 })
 
 /**
- * What would be sent now. Built only from a fully valid preview, so the entries
- * are the preview's rows in the same order and `entries[i]` is `rows[i]`.
+ * What would be sent now. Built only from a preview that is fully valid —
+ * including every unit number — so the entries are the preview's rows in the
+ * same order and `entries[i]` is `rows[i]`. It exists only once the unit list
+ * has loaded: without it a `unit` column could not be turned into a `unitId`,
+ * and an entry with its assignment silently dropped must never be sent.
  */
 const payload = computed<VocabularyBatchImportPayload | undefined>(() => {
-  if (rows.value.some((row) => !row.entry)) {
+  if (unitsState.value !== 'loaded') {
+    return undefined
+  }
+  if (previewRows.value.some((row) => !row.entry || row.unitUnknown !== undefined)) {
     return undefined
   }
 
-  return { bookId: bookId.value, entries: rows.value.map((row) => row.entry!) }
+  return {
+    bookId: bookId.value,
+    entries: previewRows.value.map((row) => {
+      const entry = { ...row.entry! }
+      if (row.unit !== undefined) {
+        entry.unitId = row.unit.id
+      }
+      return entry
+    })
+  }
 })
 
 const payloadBytes = computed(() =>
@@ -153,6 +216,10 @@ const blockers = computed(() => {
   const reasons: string[] = []
   if (!bookId.value) {
     reasons.push('请选择教材')
+  } else if (unitsState.value === 'loading') {
+    reasons.push('正在加载当前教材的单元列表')
+  } else if (unitsState.value === 'error') {
+    reasons.push('当前教材的单元列表未加载，无法解析单元归属，请重试')
   }
   if (readingExcel.value) {
     reasons.push('正在读取 Excel 文件')
@@ -208,6 +275,41 @@ async function loadBooks() {
     ElMessage.error(getApiError(error).message)
   }
 }
+
+/**
+ * Reads the selected book's units for the `unit` column. Every book change
+ * starts a new load; an answer for a book no longer chosen is dropped, so the
+ * preview never resolves unit numbers against another book's units.
+ */
+async function loadUnits() {
+  if (!bookId.value) {
+    return
+  }
+
+  const load = ++unitLoads
+  unitsState.value = 'loading'
+  try {
+    const data = await getBookUnits(bookId.value)
+    if (load !== unitLoads) {
+      return
+    }
+    units.value = data.units
+    unitsState.value = 'loaded'
+  } catch (error: unknown) {
+    if (load !== unitLoads) {
+      return
+    }
+    ElMessage.error(getApiError(error).message)
+    unitsState.value = 'error'
+  }
+}
+
+watch(bookId, () => {
+  unitLoads += 1
+  units.value = []
+  unitsState.value = bookId.value ? 'loading' : 'idle'
+  void loadUnits()
+})
 
 function chooseFile() {
   fileInput.value?.click()
@@ -453,6 +555,7 @@ onBeforeUnmount(stopReadingExcel)
             <li>可以选择 .tsv、.txt、.csv、.json 文件（UTF-8 编码）或 .xlsx 文件，单个文件不超过 1 MiB</li>
             <li>单批不超过 {{ MAX_ENTRIES }} 条</li>
             <li>整批在一个事务中写入：任何一条失败，整批都不写入</li>
+            <li>单元编号填写所选教材单元管理中的编号（如 2），去空白后精确匹配；空白计为不归属，写错编号的行无法提交，导入不会创建单元</li>
             <li>文件只在浏览器中解析，不会上传</li>
           </ul>
         </div>
@@ -461,6 +564,17 @@ onBeforeUnmount(stopReadingExcel)
 
     <section class="batch-section" aria-labelledby="batch-step-preview">
       <h2 id="batch-step-preview" class="batch-section__title">3. 预览与校验</h2>
+
+      <el-alert
+        v-if="unitsState === 'error'"
+        class="batch-units-error"
+        type="error"
+        :closable="false"
+        show-icon
+        title="当前教材的单元列表加载失败，无法解析单元归属"
+      >
+        <el-button class="batch-units-retry" size="small" @click="loadUnits">重试</el-button>
+      </el-alert>
 
       <el-alert
         v-if="sheetNotice"
@@ -528,6 +642,9 @@ onBeforeUnmount(stopReadingExcel)
           </el-table-column>
           <el-table-column label="例句" min-width="160">
             <template #default="{ row }">{{ row.columns[5] }}</template>
+          </el-table-column>
+          <el-table-column label="单元" min-width="120">
+            <template #default="{ row }">{{ row.unitText }}</template>
           </el-table-column>
           <el-table-column label="状态" min-width="180">
             <template #default="{ row }">
@@ -686,8 +803,12 @@ onBeforeUnmount(stopReadingExcel)
 
 .batch-sheet-notice,
 .batch-parse-error,
-.batch-server-summary {
+.batch-server-summary,
+.batch-units-error {
   margin-bottom: var(--lx-space-3);
+}
+.batch-units-retry {
+  margin-top: var(--lx-space-2);
 }
 .batch-toolbar {
   display: flex;
