@@ -7,6 +7,7 @@ import { getBooks, addBook, updateBook, deleteBook, getCategories, getEducationL
 import { getApiError } from '@/services/apiError'
 import PageHeader from '@/components/PageHeader.vue'
 import VocabularyCleanupDialog from '@/components/VocabularyCleanupDialog.vue'
+import VocabularyBookUnitDialog from '@/components/VocabularyBookUnitDialog.vue'
 import type { AdminCleanupResult, AdminCleanupSelection } from '@/services/adminVocabularyApi'
 import type { Book } from '@/types'
 
@@ -193,6 +194,16 @@ function handleCleanupUnknown() {
   loadBooks()
 }
 
+// Unit management: the book row's 单元 opens the shared unit dialog. Disabled
+// books are maintained the same way, so the entry is offered on every row.
+const unitOpen = ref(false)
+const unitBook = ref<{ id: string; bookName: string } | null>(null)
+
+function openUnits(book: Book) {
+  unitBook.value = { id: book.id, bookName: book.bookName }
+  unitOpen.value = true
+}
+
 onMounted(() => {
   loadBooks()
   loadFilters()
@@ -244,9 +255,10 @@ onMounted(() => {
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="330" fixed="right">
+        <el-table-column label="操作" width="380" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openBookWords(row)">查看单词</el-button>
+            <el-button link type="primary" @click="openUnits(row)">单元</el-button>
             <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
             <el-button link type="warning" @click="openCleanup(row, 'clear')">清空内容</el-button>
             <el-button link type="danger" @click="openCleanup(row, 'delete')">删除教材及内容</el-button>
@@ -334,6 +346,8 @@ onMounted(() => {
       @committed="handleCleanupCommitted"
       @unknown="handleCleanupUnknown"
     />
+
+    <VocabularyBookUnitDialog v-model="unitOpen" :book="unitBook" />
   </div>
 </template>
 

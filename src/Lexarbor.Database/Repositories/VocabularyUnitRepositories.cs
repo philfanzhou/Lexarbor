@@ -34,10 +34,35 @@ public class VocabularyBookUnitRepository : IVocabularyBookUnitRepository
         return entities.Adapt<List<VocabularyBookUnitModel>>();
     }
 
+    public async Task<Dictionary<string, int>> GetAssignmentCountsByBookIdAsync(string bookId)
+    {
+        // One grouped read over the book's memberships answers every unit at
+        // once; counting per unit instead would turn a list endpoint into one
+        // query per row.
+        var counts = await _context.VocabularyMeaningUnits
+            .AsNoTracking()
+            .Where(membership => membership.BookId == bookId)
+            .GroupBy(membership => membership.UnitId)
+            .Select(group => new { UnitId = group.Key, Count = group.Count() })
+            .ToListAsync();
+        return counts.ToDictionary(item => item.UnitId, item => item.Count);
+    }
+
     public async Task AddAsync(VocabularyBookUnitModel model)
     {
         var entity = model.Adapt<VocabularyBookUnitEntity>();
         await _context.VocabularyBookUnits.AddAsync(entity);
+    }
+
+    public async Task UpdateAsync(VocabularyBookUnitModel model)
+    {
+        var entity = await _context.VocabularyBookUnits.FindAsync(model.Id);
+        if (entity != null)
+        {
+            entity.Number = model.Number;
+            entity.Title = model.Title;
+            entity.UpdatedAt = model.UpdatedAt;
+        }
     }
 
     public async Task DeleteAsync(string id)

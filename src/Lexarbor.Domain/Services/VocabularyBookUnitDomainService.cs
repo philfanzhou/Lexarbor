@@ -92,18 +92,109 @@ public class VocabularyBookUnitDomainService
         return units.OrderBy(unit => unit.Number).ToList();
     }
 
-    public async Task DeleteAsync(string unitId)
+    /// <summary>
+    /// Lists a book's units in unit-number order together with each unit's
+    /// assignment count. The counts come from one grouped read over the book's
+    /// memberships, so listing a book costs two queries regardless of how many
+    /// units it has.
+    /// </summary>
+    public async Task<List<(VocabularyBookUnitModel Unit, int MeaningCount)>> GetByBookWithCountsAsync(
+        string bookId)
     {
+        var normalizedBookId = NormalizeRequired(bookId, "BookId is required.");
+
+        _ = await _bookRepository.GetByIdAsync(normalizedBookId)
+            ?? throw new ResourceNotFoundException("Vocabulary book was not found.");
+
+        var units = await _unitRepository.GetByBookIdAsync(normalizedBookId);
+        var counts = await _unitRepository.GetAssignmentCountsByBookIdAsync(normalizedBookId);
+        return units
+            .OrderBy(unit => unit.Number)
+            .Select(unit => (unit, counts.TryGetValue(unit.Id, out var count) ? count : 0))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Replaces one unit's number and title. Keeping the unit's own number is
+    /// not a conflict; taking a number another unit of the same book holds is.
+    /// Ownership cannot move: a unit found under another book's path is a
+    /// conflict, not a silent edit.
+    /// </summary>
+    public async Task<(VocabularyBookUnitModel Unit, int MeaningCount)> UpdateAsync(
+        string bookId, string unitId, int number, string? title)
+    {
+        var normalizedBookId = NormalizeRequired(bookId, "BookId is required.");
+        var normalizedUnitId = NormalizeRequired(unitId, "Unit ID is required.");
+        if (number < 1)
+        {
+            throw new DomainValidationException("Unit number must be a positive integer.");
+        }
+
+        var normalizedTitle = string.IsNullOrWhiteSpace(title) ? null : title.Trim();
+
+        return await _unitOfWork.ExecuteInTransactionAsync(async () =>
+        {
+            _ = await _bookRepository.GetByIdAsync(normalizedBookId)
+                ?? throw new ResourceNotFoundException("Vocabulary book was not found.");
+
+            var unit = await _unitRepository.GetByIdAsync(normalizedUnitId)
+                ?? throw new ResourceNotFoundException("Vocabulary book unit was not found.");
+
+            if (unit.BookId != normalizedBookId)
+            {
+                throw new ConflictException(
+                    "Vocabulary book unit does not belong to the requested vocabulary book.");
+            }
+
+            // The same rule as create, minus this unit itself: keeping its own
+            // number is a plain replace of the other field. The unique index on
+            // (book_id, number) still backs a concurrent renumber.
+            var existingNumbers = await _unitRepository.GetByBookIdAsync(normalizedBookId);
+            if (existingNumbers.Any(other => other.Number == number && other.Id != unit.Id))
+            {
+                throw new ConflictException(
+                    "A unit with the same number already exists in this vocabulary book.");
+            }
+
+            // Read inside the transaction that updates the unit, so the count a
+            // replace answers with belongs to the same state as the edit.
+            var counts = await _unitRepository.GetAssignmentCountsByBookIdAsync(normalizedBookId);
+
+            unit.Number = number;
+            unit.Title = normalizedTitle;
+            unit.UpdatedAt = DateTimeOffset.UtcNow;
+            await _unitRepository.UpdateAsync(unit);
+            await _unitOfWork.SaveChangesAsync();
+            return (unit, counts.TryGetValue(unit.Id, out var count) ? count : 0);
+        });
+    }
+
+    /// <summary>
+    /// Deletes one unit of the named book. Only the unit and its assignments
+    /// disappear; meanings, shared words, and other units' assignments survive.
+    /// </summary>
+    public async Task DeleteAsync(string bookId, string unitId)
+    {
+        var normalizedBookId = NormalizeRequired(bookId, "BookId is required.");
         var normalizedUnitId = NormalizeRequired(unitId, "Unit ID is required.");
 
         await _unitOfWork.ExecuteInTransactionAsync(async () =>
         {
-            _ = await _unitRepository.GetByIdAsync(normalizedUnitId)
+            _ = await _bookRepository.GetByIdAsync(normalizedBookId)
+                ?? throw new ResourceNotFoundException("Vocabulary book was not found.");
+
+            var unit = await _unitRepository.GetByIdAsync(normalizedUnitId)
                 ?? throw new ResourceNotFoundException("Vocabulary book unit was not found.");
+
+            if (unit.BookId != normalizedBookId)
+            {
+                throw new ConflictException(
+                    "Vocabulary book unit does not belong to the requested vocabulary book.");
+            }
 
             // Assignments of this unit cascade away; meanings and words are
             // untouched, including meanings this unit shared with other units.
-            await _unitRepository.DeleteAsync(normalizedUnitId);
+            await _unitRepository.DeleteAsync(unit.Id);
             await _unitOfWork.SaveChangesAsync();
             return 0;
         });

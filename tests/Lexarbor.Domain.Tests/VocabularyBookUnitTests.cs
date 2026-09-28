@@ -206,7 +206,7 @@ public class VocabularyBookUnitTests : TestBase
         await _service.AssignMeaningAsync(unit2.Id, meaning.Id);
         await _service.AssignMeaningAsync(unit6.Id, meaning.Id);
 
-        await _service.DeleteAsync(unit2.Id);
+        await _service.DeleteAsync(book.Id, unit2.Id);
 
         Assert.Null(await _bookUnitRepository.GetByIdAsync(unit2.Id));
         // The meaning, its word, and the surviving unit's assignment are all
@@ -217,7 +217,123 @@ public class VocabularyBookUnitTests : TestBase
         Assert.Equal(meaning.Id, Assert.Single(remaining).MeaningId);
 
         await Assert.ThrowsAsync<ResourceNotFoundException>(
-            () => _service.DeleteAsync(unit2.Id));
+            () => _service.DeleteAsync(book.Id, unit2.Id));
+    }
+
+    [Fact]
+    public async Task Update_KeepsOwnNumberAndNormalizesTitle()
+    {
+        var book = await CreateBookAsync();
+        var unit = await _service.CreateAsync(book.Id, 2, " Old title ");
+
+        // Keeping the unit's own number is a plain replace of the other field,
+        // and a whitespace-only title normalizes to null like on create.
+        var (updated, meaningCount) = await _service.UpdateAsync(book.Id, unit.Id, 2, "  ");
+        Assert.Equal(2, updated.Number);
+        Assert.Null(updated.Title);
+        Assert.Equal(0, meaningCount);
+
+        var stored = await _bookUnitRepository.GetByIdAsync(unit.Id);
+        Assert.NotNull(stored);
+        Assert.Equal(2, stored.Number);
+        Assert.Null(stored.Title);
+        Assert.True(stored.UpdatedAt >= unit.UpdatedAt);
+
+        // A real renumber onto a free number succeeds and carries the title.
+        var (renumbered, _) = await _service.UpdateAsync(book.Id, unit.Id, 3, "Unit 3");
+        Assert.Equal(3, renumbered.Number);
+        Assert.Equal("Unit 3", renumbered.Title);
+    }
+
+    [Fact]
+    public async Task Update_RenumberOntoAnotherUnit_IsRejectedWithoutRewrites()
+    {
+        var book = await CreateBookAsync();
+        var unit2 = await _service.CreateAsync(book.Id, 2, "Second");
+        var unit6 = await _service.CreateAsync(book.Id, 6, "Sixth");
+
+        await Assert.ThrowsAsync<ConflictException>(
+            () => _service.UpdateAsync(book.Id, unit2.Id, 6, "Moved"));
+
+        var stored = await _bookUnitRepository.GetByIdAsync(unit2.Id);
+        Assert.NotNull(stored);
+        Assert.Equal(2, stored.Number);
+        Assert.Equal("Second", stored.Title);
+        var other = await _bookUnitRepository.GetByIdAsync(unit6.Id);
+        Assert.NotNull(other);
+        Assert.Equal(6, other.Number);
+        Assert.Equal("Sixth", other.Title);
+    }
+
+    [Fact]
+    public async Task Update_MismatchedPathOrInvalidNumber_IsRejected()
+    {
+        var bookA = await CreateBookAsync();
+        var bookB = await CreateBookAsync();
+        var unitInA = await _service.CreateAsync(bookA.Id, 1, null);
+
+        await Assert.ThrowsAsync<ResourceNotFoundException>(
+            () => _service.UpdateAsync("no-such-book", unitInA.Id, 2, null));
+        await Assert.ThrowsAsync<ResourceNotFoundException>(
+            () => _service.UpdateAsync(bookA.Id, "no-such-unit", 2, null));
+        await Assert.ThrowsAsync<ConflictException>(
+            () => _service.UpdateAsync(bookB.Id, unitInA.Id, 2, null));
+        await Assert.ThrowsAsync<DomainValidationException>(
+            () => _service.UpdateAsync(bookA.Id, unitInA.Id, 0, null));
+        await Assert.ThrowsAsync<DomainValidationException>(
+            () => _service.UpdateAsync(bookA.Id, unitInA.Id, -3, null));
+
+        var stored = await _bookUnitRepository.GetByIdAsync(unitInA.Id);
+        Assert.NotNull(stored);
+        Assert.Equal(1, stored.Number);
+        Assert.Null(stored.Title);
+    }
+
+    [Fact]
+    public async Task GetByBookWithCounts_CountsAssignmentsPerUnit()
+    {
+        var book = await CreateBookAsync();
+        var unit2 = await _service.CreateAsync(book.Id, 2, null);
+        var unit3 = await _service.CreateAsync(book.Id, 3, null);
+        var unit6 = await _service.CreateAsync(book.Id, 6, null);
+        var (_, apple) = await _importService.AddOrUpdateAsync(
+            new VocabularyModel { Word = "apple" },
+            new VocabularyMeaningModel { BookId = book.Id, PartOfSpeech = "n.", Meaning = "苹果" });
+        var (_, tree) = await _importService.AddOrUpdateAsync(
+            new VocabularyModel { Word = "apple tree" },
+            new VocabularyMeaningModel { BookId = book.Id, PartOfSpeech = "n.", Meaning = "苹果树" });
+        await _service.AssignMeaningAsync(unit3.Id, apple.Id);
+        await _service.AssignMeaningAsync(unit3.Id, tree.Id);
+        await _service.AssignMeaningAsync(unit6.Id, apple.Id);
+
+        var rows = await _service.GetByBookWithCountsAsync(book.Id);
+        // Unit order by number, counts from the same grouped read, and a unit
+        // with no assignments reads as zero rather than being skipped.
+        Assert.Equal(new[] { 2, 3, 6 }, rows.Select(row => row.Unit.Number));
+        Assert.Equal(new[] { 0, 2, 1 }, rows.Select(row => row.MeaningCount));
+        Assert.Equal(unit3.Id, rows[1].Unit.Id);
+
+        await Assert.ThrowsAsync<ResourceNotFoundException>(
+            () => _service.GetByBookWithCountsAsync("no-such-book"));
+    }
+
+    [Fact]
+    public async Task Delete_MismatchedPath_IsRejectedWithoutRemoval()
+    {
+        var bookA = await CreateBookAsync();
+        var bookB = await CreateBookAsync();
+        var unitInA = await _service.CreateAsync(bookA.Id, 1, null);
+
+        await Assert.ThrowsAsync<ResourceNotFoundException>(
+            () => _service.DeleteAsync("no-such-book", unitInA.Id));
+        await Assert.ThrowsAsync<ResourceNotFoundException>(
+            () => _service.DeleteAsync(bookA.Id, "no-such-unit"));
+        // The unit exists, but it belongs to book A: book B's path is refused
+        // with a conflict instead of deleting it.
+        await Assert.ThrowsAsync<ConflictException>(
+            () => _service.DeleteAsync(bookB.Id, unitInA.Id));
+
+        Assert.NotNull(await _bookUnitRepository.GetByIdAsync(unitInA.Id));
     }
 
     [Fact]
