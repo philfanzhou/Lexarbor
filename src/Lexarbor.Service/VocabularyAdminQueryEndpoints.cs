@@ -35,6 +35,25 @@ public static class VocabularyAdminQueryEndpoints
                 result.Page.TotalPage
             });
         });
+        // Read-only unit content. A disabled book stays readable, matching the
+        // whole-book content route; the meanings listed are only those assigned
+        // to this unit, and the unit-scoped totals ignore the keyword.
+        group.MapGet("/vocabulary-books/{bookId}/units/{unitId}/content", async (string bookId, string unitId,
+            [FromQuery] string? keyword, [FromQuery] int? page, [FromQuery] int? size,
+            VocabularyAdminQueryService service, CancellationToken cancellationToken) =>
+        {
+            var result = await service.GetUnitContentAsync(bookId, unitId, keyword, page, size, cancellationToken);
+            return VocabularyHttpResponse.Ok(new
+            {
+                book = result.Book.ToDto(),
+                unit = new VocabularyAdminUnitRefDto(result.Unit.Id, result.Unit.BookId, result.Unit.Number, result.Unit.Title),
+                result.WordCount,
+                result.MeaningCount,
+                items = result.Page.Items.Select(Detail),
+                result.Page.TotalCount,
+                result.Page.TotalPage
+            });
+        });
     }
 
     private static IReadOnlyList<VocabularyAdminBookDto> Books(VocabularyAdminWord item)
@@ -42,5 +61,12 @@ public static class VocabularyAdminQueryEndpoints
     private static VocabularyAdminWordDto Summary(VocabularyAdminWord item)
         => new(item.Word.Id, item.Word.Word, item.Word.PhoneticUk, item.Word.PhoneticUs, Books(item));
     private static VocabularyAdminDetailDto Detail(VocabularyAdminWord item)
-        => new(item.Word.Id, item.Word.Word, item.Word.PhoneticUk, item.Word.PhoneticUs, Books(item), item.Meanings.Select(m => m.ToDto()).ToList());
+        => new(item.Word.Id, item.Word.Word, item.Word.PhoneticUk, item.Word.PhoneticUs, Books(item),
+            item.Meanings.Select(m => new VocabularyAdminMeaningDetailDto(
+                m.Meaning.Id, m.Meaning.VocabularyId, m.Meaning.BookId, m.Meaning.PartOfSpeech,
+                m.Meaning.Meaning, m.Meaning.Example,
+                m.Units.Select(u => new VocabularyAdminUnitDto(u.UnitId, u.Number, u.Title)).ToList())).ToList());
 }
+
+/// <summary>The unit a unit-content response is scoped to.</summary>
+public record VocabularyAdminUnitRefDto(string Id, string BookId, int Number, string? Title);

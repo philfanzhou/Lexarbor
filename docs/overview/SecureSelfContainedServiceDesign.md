@@ -208,6 +208,7 @@ GET    /admin/vocabulary-books/{id}/words?page&size
 GET    /admin/vocabulary-books/{bookId}/units
 POST   /admin/vocabulary-books/{bookId}/units
 PUT    /admin/vocabulary-books/{bookId}/units/{unitId}
+GET    /admin/vocabulary-books/{bookId}/units/{unitId}/content?keyword&page&size
 DELETE /admin/vocabulary-books/{bookId}/units/{unitId}
 DELETE /admin/vocabulary-books/{id}
 ```
@@ -527,10 +528,13 @@ These GET routes require `VocabularyAdmin`, including the existing Cookie/Bearer
 | `/admin/vocabulary` | `keyword`, `bookId`, `page`, `size` | `{items,totalCount,totalPage}` |
 | `/admin/vocabulary/{wordId}` | none | Word summary plus all `meanings` |
 | `/admin/vocabulary-books/{bookId}/content` | `keyword`, `page`, `size` | `{book,wordCount,meaningCount,items,totalCount,totalPage}` |
+| `/admin/vocabulary-books/{bookId}/units/{unitId}/content` | `keyword`, `page`, `size` | `{book,unit,wordCount,meaningCount,items,totalCount,totalPage}` |
 
 A summary is `{id,word,phoneticUk,phoneticUs,books}`. Its deduplicated `books` contains `{id,bookName,status}`, ordered by book name then ID, including disabled books. The unfiltered library includes words belonging only to disabled books and historical words with no book. A book filter selects words without hiding their other memberships. A supplied missing book, or a missing detail word, returns 404. Orphans have empty `books`/`meanings` arrays.
 
-Detail meanings use the existing meaning fields (`id,vocabularyId,bookId,partOfSpeech,meaning,example`), ordered by book ID, part of speech, meaning, then ID. Content items include only that book's meanings. The `book` uses the existing book DTO; `wordCount` and `meaningCount` count the whole book, while `totalCount` counts keyword-matching distinct words. Disabled and empty books are readable.
+Detail meanings use the existing meaning fields (`id,vocabularyId,bookId,partOfSpeech,meaning,example`) plus `units`, the meaning's assignments as `{unitId,number,title}` in ascending unit-number order, loaded for the page in one batched read. Detail meanings are ordered by book ID, part of speech, meaning, then ID. Content items include only that book's meanings. The `book` uses the existing book DTO; `wordCount` and `meaningCount` count the whole book, while `totalCount` counts keyword-matching distinct words. Disabled and empty books are readable. The public `/api` detail keeps its own DTO and does not grow the `units` field.
+
+The unit-content route reads one unit of one book. A missing book, a missing unit, or a unit belonging to another book returns 404 — a cross-book unit id is indistinguishable from a missing one. The `unit` field is `{id,bookId,number,title}`. Only meanings assigned to the unit are listed, so a word's other senses in the same book do not appear; a meaning assigned to several units appears in each of them, and the whole-book counts above are unaffected. `wordCount` and `meaningCount` count the unit and ignore the keyword, matching the whole-book route's totals; `totalCount` and the items follow the same keyword, paging, and ordering rules as the other reads. Disabled books and empty units are readable; an empty unit answers zero counts and no items.
 
 Blank keywords select all; otherwise trimmed text uses SQLite ASCII case-insensitive substring LIKE with literal `%`, `_`, and backslash. Missing/zero page and size become 1 and 20. Negative values, size above 100, or integer/offset overflow return 400. Words sort by word then ID. No matches gives `totalPage:0`; out-of-range pages have empty items. Each response reads one deferred database snapshot without a write lock or mutation. Cancellation does not write data. Separate page requests can observe concurrent changes; no cross-page snapshot or additional Unicode folding is promised.
 

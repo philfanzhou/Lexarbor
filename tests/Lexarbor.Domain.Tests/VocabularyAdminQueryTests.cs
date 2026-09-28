@@ -29,12 +29,12 @@ public class VocabularyAdminQueryTests : TestBase
         Assert.Equal(new[] { "A", "B" }, filtered.Items[0].Books.Select(b => b.Id));
         Assert.False(filtered.Items[0].Books[1].Status);
         var detail = await Service.GetAsync("shared", TestContext.Current.CancellationToken);
-        Assert.Equal(new[] { "a1", "a2", "b1" }, detail.Meanings.Select(m => m.Id));
+        Assert.Equal(new[] { "a1", "a2", "b1" }, detail.Meanings.Select(m => m.Meaning.Id));
         var content = await Service.GetContentAsync("A", " SHARED ", 1, 20, TestContext.Current.CancellationToken);
         Assert.Equal(1, content.WordCount);
         Assert.Equal(2, content.MeaningCount);
         Assert.Equal(1, content.Page.TotalCount);
-        Assert.All(content.Page.Items.Single().Meanings, m => Assert.Equal("A", m.BookId));
+        Assert.All(content.Page.Items.Single().Meanings, m => Assert.Equal("A", m.Meaning.BookId));
         var noMatch = await Service.GetContentAsync("A", "no-match", 1, 20, TestContext.Current.CancellationToken);
         Assert.Equal(2, noMatch.MeaningCount);
         Assert.Equal(1, noMatch.WordCount);
@@ -78,10 +78,106 @@ public class VocabularyAdminQueryTests : TestBase
         await Assert.ThrowsAsync<ResourceNotFoundException>(() => Service.GetAsync("missing", TestContext.Current.CancellationToken));
         await Assert.ThrowsAsync<ResourceNotFoundException>(() => Service.SearchAsync(null, "missing", null, null, TestContext.Current.CancellationToken));
         await Assert.ThrowsAsync<ResourceNotFoundException>(() => Service.GetContentAsync("missing", null, null, null, TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<DomainValidationException>(() => Service.GetUnitContentAsync("A", "u2", null, -1, 20, TestContext.Current.CancellationToken));
         using var cancelled = new CancellationTokenSource();
         cancelled.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Service.SearchAsync(null, null, null, null, cancelled.Token));
         Assert.Empty(await _dbContext.Vocabularies.ToListAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task UnitContent_ContainsOnlyAssignedMeaningsAndUnitScopedTotals()
+    {
+        await SeedUnitContentAsync(_dbContext);
+
+        // Unit 2 holds a1 (shared with unit 6) and s1. The same meaning in two
+        // units appears in both, and only meanings assigned to the unit are
+        // listed even though the word carries more meanings in the book.
+        var unit2 = await Service.GetUnitContentAsync("A", "u2", null, 1, 20, TestContext.Current.CancellationToken);
+        Assert.Equal("A", unit2.Book.Id);
+        Assert.Equal("u2", unit2.Unit.Id);
+        Assert.Equal(2, unit2.Unit.Number);
+        Assert.Equal(2, unit2.WordCount);
+        Assert.Equal(2, unit2.MeaningCount);
+        Assert.Equal(new[] { "shared", "solo" }, unit2.Page.Items.Select(i => i.Word.Id));
+        var shared = unit2.Page.Items.Single(i => i.Word.Id == "shared");
+        Assert.Equal(new[] { "a1" }, shared.Meanings.Select(m => m.Meaning.Id));
+        Assert.Equal(new[] { 2, 6 }, shared.Meanings.Single(m => m.Meaning.Id == "a1").Units.Select(u => u.Number));
+
+        // Unit 6: a1 and a2 are different meanings of the same word.
+        var unit6 = await Service.GetUnitContentAsync("A", "u6", null, 1, 20, TestContext.Current.CancellationToken);
+        Assert.Equal(1, unit6.WordCount);
+        Assert.Equal(2, unit6.MeaningCount);
+        Assert.Equal(new[] { "a1", "a2" }, unit6.Page.Items.Single().Meanings.Select(m => m.Meaning.Id));
+        Assert.Equal(new[] { 6 }, unit6.Page.Items.Single().Meanings.Single(m => m.Meaning.Id == "a2").Units.Select(u => u.Number));
+
+        // A keyword narrows the page only; the unit totals keep counting the unit.
+        var narrowed = await Service.GetUnitContentAsync("A", "u6", " SOLO ", 1, 20, TestContext.Current.CancellationToken);
+        Assert.Equal(1, narrowed.WordCount);
+        Assert.Equal(2, narrowed.MeaningCount);
+        Assert.Equal(0, narrowed.Page.TotalCount);
+        Assert.Empty(narrowed.Page.Items);
+
+        // Stable order and paging.
+        var secondPage = await Service.GetUnitContentAsync("A", "u2", null, 2, 1, TestContext.Current.CancellationToken);
+        Assert.Equal(new[] { "solo" }, secondPage.Page.Items.Select(i => i.Word.Id));
+        Assert.Equal(2, secondPage.Page.TotalCount);
+        Assert.Equal(2, secondPage.Page.TotalPage);
+
+        // An empty unit reads as zero without 404.
+        var empty = await Service.GetUnitContentAsync("A", "u9", null, 1, 20, TestContext.Current.CancellationToken);
+        Assert.Equal(0, empty.WordCount);
+        Assert.Equal(0, empty.MeaningCount);
+        Assert.Empty(empty.Page.Items);
+
+        // A disabled book is readable, like the whole-book content route.
+        var disabled = await Service.GetUnitContentAsync("B", "ub", null, 1, 20, TestContext.Current.CancellationToken);
+        Assert.False(disabled.Book.Status);
+        Assert.Equal(1, disabled.WordCount);
+        Assert.Equal(new[] { "b1" }, disabled.Page.Items.Single().Meanings.Select(m => m.Meaning.Id));
+
+        // A unit of another book answers the same 404 as a missing one, and a
+        // missing book or unit 404s before anything is read.
+        await Assert.ThrowsAsync<ResourceNotFoundException>(
+            () => Service.GetUnitContentAsync("A", "ub", null, 1, 20, TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ResourceNotFoundException>(
+            () => Service.GetUnitContentAsync("A", "missing", null, 1, 20, TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ResourceNotFoundException>(
+            () => Service.GetUnitContentAsync("missing", "u2", null, 1, 20, TestContext.Current.CancellationToken));
+
+        // Whole-book counts and the word detail are unchanged by assignments:
+        // a meaning in two units is still one meaning.
+        var bookContent = await Service.GetContentAsync("A", null, 1, 20, TestContext.Current.CancellationToken);
+        Assert.Equal(3, bookContent.WordCount);
+        Assert.Equal(4, bookContent.MeaningCount);
+        var detail = await Service.GetAsync("shared", TestContext.Current.CancellationToken);
+        Assert.Equal(new[] { "a1", "a2", "b1" }, detail.Meanings.Select(m => m.Meaning.Id));
+        Assert.Equal(new[] { 2, 6 }, detail.Meanings.Single(m => m.Meaning.Id == "a1").Units.Select(u => u.Number));
+        Assert.Equal("ub", detail.Meanings.Single(m => m.Meaning.Id == "b1").Units.Single().UnitId);
+        Assert.Empty((await Service.GetAsync("orphan", TestContext.Current.CancellationToken)).Meanings.SelectMany(m => m.Units));
+    }
+
+    internal static async Task SeedUnitContentAsync(VocabularyDbContext context)
+    {
+        await SeedAsync(context);
+        context.VocabularyBookUnits.AddRange(
+            new VocabularyBookUnitEntity { Id = "u2", BookId = "A", Number = 2, Title = "Two" },
+            new VocabularyBookUnitEntity { Id = "u6", BookId = "A", Number = 6 },
+            new VocabularyBookUnitEntity { Id = "u9", BookId = "A", Number = 9 },
+            new VocabularyBookUnitEntity { Id = "ub", BookId = "B", Number = 1 });
+        context.Vocabularies.AddRange(
+            new VocabularyEntity { Id = "solo", Word = "solo" },
+            new VocabularyEntity { Id = "unassigned", Word = "unassigned" });
+        context.VocabularyMeanings.AddRange(
+            new VocabularyMeaningEntity { Id = "s1", VocabularyId = "solo", BookId = "A", Meaning = "s" },
+            new VocabularyMeaningEntity { Id = "x1", VocabularyId = "unassigned", BookId = "A", Meaning = "x" });
+        context.VocabularyMeaningUnits.AddRange(
+            new VocabularyMeaningUnitEntity { UnitId = "u2", MeaningId = "a1", BookId = "A" },
+            new VocabularyMeaningUnitEntity { UnitId = "u6", MeaningId = "a1", BookId = "A" },
+            new VocabularyMeaningUnitEntity { UnitId = "u6", MeaningId = "a2", BookId = "A" },
+            new VocabularyMeaningUnitEntity { UnitId = "u2", MeaningId = "s1", BookId = "A" },
+            new VocabularyMeaningUnitEntity { UnitId = "ub", MeaningId = "b1", BookId = "B" });
+        await context.SaveChangesAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -110,9 +206,12 @@ public class VocabularyAdminQueryTests : TestBase
         Assert.Equal(20000, page.Page.TotalCount);
         Assert.Equal(20, page.Page.Items.Count);
         Assert.Equal(41, materialization.Count); // one book + 20 words + 20 meanings
-        Assert.Equal(7, statements.Count);
+        // The eighth statement is the page's unit assignments in one batched
+        // read over the page's meaning ids; the unit projections materialize no
+        // entities, so the count above is unchanged.
+        Assert.Equal(8, statements.Count);
         Assert.Contains(statements, sql => sql.Contains("LIMIT") && sql.Contains("OFFSET"));
-        Assert.Equal(2, statements.Count(sql => sql.Contains("json_each") || sql.Contains(" IN (")));
+        Assert.Equal(3, statements.Count(sql => sql.Contains("json_each") || sql.Contains(" IN (")));
         TestContext.Current.TestOutputHelper!.WriteLine(string.Join("\n\n", statements));
         await using var command = connection.CreateCommand();
         var captured = capture.Commands.Last(c => c.Sql.Contains("LIMIT") && c.Sql.Contains("OFFSET"));
