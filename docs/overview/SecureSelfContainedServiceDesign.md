@@ -209,6 +209,8 @@ GET    /admin/vocabulary-books/{bookId}/units
 POST   /admin/vocabulary-books/{bookId}/units
 PUT    /admin/vocabulary-books/{bookId}/units/{unitId}
 GET    /admin/vocabulary-books/{bookId}/units/{unitId}/content?keyword&section&entryKind&page&size
+PUT    /admin/vocabulary-books/{bookId}/meanings/{meaningId}/positions
+DELETE /admin/vocabulary-books/{bookId}/meanings/{meaningId}/positions/{unitId}?section&entryKind
 DELETE /admin/vocabulary-books/{bookId}/units/{unitId}
 DELETE /admin/vocabulary-books/{id}
 ```
@@ -518,6 +520,12 @@ The four `/admin/vocabulary-books/{bookId}/units` routes require `VocabularyAdmi
 Both writes take the strict body `{number:number,title:string|null}`: both fields must appear, `null` is the explicit absent title, and unknown fields, missing fields, or invalid types return the usual 400 envelope (a body without `number` answers "Unit number is required."). The number must be a positive integer. A whitespace-only title normalizes to `null`; other titles are trimmed. `POST` returns the created unit's DTO with its stable `id` and `meaningCount` 0; `PUT` replaces the editable fields entirely — keeping a value means sending it again — and returns the updated DTO with the current `meaningCount`. `DELETE` returns the BoolResponse envelope.
 
 The serialized write transaction checks the book and unit exist (404), and that the unit belongs to the path's book (409, matching the nested meaning-edit precedent; the read side keeps its own contracts). A number another unit of the same book already holds is a 409 for `POST` and for a renumbering `PUT`; keeping the unit's own number is not a conflict. The `UNIQUE(book_id, number)` index backs concurrent renumbers. Deleting removes only the unit and its assignments; meanings, shared words, and other units' assignments survive, all in one UnitOfWork transaction. Units of disabled books are managed like any other's. Constraint failures return 409, external SQLite locks 503 with `Retry-After: 1`, and the `meaningCount` shown to a confirming administrator is a display snapshot that may differ from commit-time state; the server deletes unconditionally and the committed result is authoritative.
+
+### Exact meaning-position writes
+
+The two exact-position routes require `VocabularyAdmin`. `PUT /admin/vocabulary-books/{bookId}/meanings/{meaningId}/positions` accepts `{"from":{"unitId":"...","section":"A"|"B"|null,"entryKind":"word"|"phrase"|null},"to":{...}}`; every field is required and unknown fields or invalid values return 400. It moves the source assignment to the target in one serialized SQLite transaction. Replaying `from=to` succeeds only when that source exists. A missing book, meaning, source/target unit in the book, or source assignment returns 404; a distinct existing target returns 409 without modifying either assignment. Disabled books may be edited.
+
+`DELETE /admin/vocabulary-books/{bookId}/meanings/{meaningId}/positions/{unitId}?section=...&entryKind=...` removes only the named quadruple. Both query keys are mandatory; `A`/`B` or `none` select a section and `word`/`phrase` or `none` select an entry kind. `none` denotes the unsectioned or unclassified stored position. A missing position returns 404, including a repeated delete. The meaning, shared word, other unit and section positions, and another entry kind at the same unit and section survive. Both routes return `{success:true}` inside the management success envelope. Cookie writes still require `X-Requested-With: XMLHttpRequest`; Bearer writes do not. Authentication, rate limits, public `/api`, and the existing meaning-delete scope are unchanged. A disconnected caller must query the current state before retrying an uncertain write result.
 
 ### Administrator vocabulary reads
 

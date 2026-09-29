@@ -371,6 +371,7 @@ app.MapSystemVersionEndpoints();
 app.MapVocabularyWordEditEndpoints();
 app.MapVocabularyMeaningEditEndpoints();
 app.MapVocabularyBookUnitEndpoints();
+app.MapVocabularyMeaningPositionEndpoints();
 app.MapVocabularyAdminQueryEndpoints();
 app.MapVocabularyCleanupEndpoints();
 app.MapVocabularyHttpEndpoints(RateLimitingExtensions.PublicApiPolicy);
