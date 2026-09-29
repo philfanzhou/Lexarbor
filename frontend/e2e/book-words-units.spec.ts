@@ -544,9 +544,9 @@ test('narrows the unit view to one section and reports the whole unit\'s section
   const drawer = page.locator('.el-drawer')
   await expect(drawer).toBeVisible()
   await expect(drawer.locator('.word-detail__unit-tag')).toHaveCount(3)
-  await expect(drawer.locator('.word-detail__unit-tag').first()).toHaveText('单元 2 · School Life · A')
-  await expect(drawer.locator('.word-detail__unit-tag').nth(1)).toHaveText('单元 2 · School Life · B')
-  await expect(drawer.locator('.word-detail__unit-tag').nth(2)).toHaveText('单元 6')
+  await expect(drawer.locator('.word-detail__unit-tag').first()).toHaveText('单元 2 · School Life · Section A · 未分类')
+  await expect(drawer.locator('.word-detail__unit-tag').nth(1)).toHaveText('单元 2 · School Life · Section B · 未分类')
+  await expect(drawer.locator('.word-detail__unit-tag').nth(2)).toHaveText('单元 6 · 未分节 · 未分类')
 })
 
 // Apple's one meaning sits in unit 2 under both kinds of its unsectioned
@@ -671,9 +671,9 @@ test('narrows the unit view to one entry kind and reports the whole unit\'s kind
   const drawer = page.locator('.el-drawer')
   await expect(drawer).toBeVisible()
   await expect(drawer.locator('.word-detail__unit-tag')).toHaveCount(3)
-  await expect(drawer.locator('.word-detail__unit-tag').first()).toHaveText('单元 2 · School Life · 单词')
-  await expect(drawer.locator('.word-detail__unit-tag').nth(1)).toHaveText('单元 2 · School Life · 短语')
-  await expect(drawer.locator('.word-detail__unit-tag').nth(2)).toHaveText('单元 6')
+  await expect(drawer.locator('.word-detail__unit-tag').first()).toHaveText('单元 2 · School Life · 未分节 · 词条')
+  await expect(drawer.locator('.word-detail__unit-tag').nth(1)).toHaveText('单元 2 · School Life · 未分节 · 短语')
+  await expect(drawer.locator('.word-detail__unit-tag').nth(2)).toHaveText('单元 6 · 未分节 · 未分类')
 })
 
 for (const width of [1440, 768]) {

@@ -6,6 +6,8 @@ import type { AdminPhrasePosition, AdminUnitSectionFilter } from '@/services/adm
 import type { Book, BookUnit } from '@/types'
 import { getApiError } from '@/services/apiError'
 import VocabularyDetailDrawer from '@/components/VocabularyDetailDrawer.vue'
+import MeaningPositionDialog from '@/components/MeaningPositionDialog.vue'
+import type { PositionTarget } from '@/components/MeaningPositionDialog.vue'
 
 const books = ref<Book[]>([])
 const booksLoading = ref(false)
@@ -25,6 +27,8 @@ const totalCount = ref(0)
 const loading = ref(false)
 const error = ref('')
 const detailWordId = ref<string | null>(null)
+const detailGeneration = ref(0)
+const positionTarget = ref<PositionTarget | null>(null)
 let requestId = 0
 let unitRequestId = 0
 let controller: AbortController | null = null
@@ -88,6 +92,8 @@ async function load() {
     if (current === requestId) {
       items.value = response.items
       totalCount.value = response.totalCount
+      const lastPage = Math.max(1, Math.ceil(response.totalCount / size))
+      if (page.value > lastPage) page.value = lastPage
     }
   } catch (cause: unknown) {
     if (current === requestId) error.value = getApiError(cause).message
@@ -97,6 +103,7 @@ async function load() {
 }
 
 watch(bookId, (selectedBook) => {
+  positionTarget.value = null
   unitId.value = ''
   section.value = ''
   page.value = 1
@@ -110,6 +117,25 @@ function search() {
   submittedKeyword.value = keyword.value.trim()
   page.value = 1
   void load()
+}
+
+function editPosition(row: AdminPhrasePosition, action: 'move' | 'remove') {
+  positionTarget.value = {
+    action, bookId: row.bookId, bookName: books.value.find(book => book.id === row.bookId)?.bookName ?? '未知教材',
+    meaningId: row.meaningId, word: row.word, meaning: row.meaning,
+    from: { unitId: row.unitId, section: row.section, entryKind: row.entryKind },
+    sourceNumber: row.number, sourceTitle: row.title
+  }
+}
+
+function positionUnknown() {
+  void load()
+  detailGeneration.value++
+}
+
+function positionChanged() {
+  void load()
+  detailGeneration.value++
 }
 
 onMounted(() => { void loadBooks() })
@@ -149,12 +175,19 @@ onBeforeUnmount(() => { requestId += 1; unitRequestId += 1; controller?.abort() 
         <el-table-column prop="word" label="短语" min-width="160" />
         <el-table-column prop="partOfSpeech" label="词性" min-width="100" />
         <el-table-column prop="meaning" label="释义" min-width="180" />
-        <el-table-column label="操作" width="90"><template #default="{ row }"><el-button link @click="detailWordId = row.wordId">详情</el-button></template></el-table-column>
+        <el-table-column label="操作" min-width="230">
+          <template #default="{ row }">
+            <el-button link @click="detailWordId = row.wordId">详情</el-button>
+            <el-button link @click="editPosition(row, 'move')">调整位置</el-button>
+            <el-button link type="danger" @click="editPosition(row, 'remove')">从本单元移除</el-button>
+          </template>
+        </el-table-column>
       </el-table>
       <p v-if="!loading && items.length === 0">没有匹配的短语位置。</p>
       <el-pagination v-if="totalCount > size" :current-page="page" :page-size="size" :total="totalCount" layout="prev, pager, next" @current-change="page = $event" />
     </template>
-    <VocabularyDetailDrawer v-model="detailWordId" @changed="load" />
+    <VocabularyDetailDrawer :key="detailGeneration" v-model="detailWordId" @changed="load" />
+    <MeaningPositionDialog v-model="positionTarget" @changed="positionChanged" @unknown="positionUnknown" />
   </section>
 </template>
 

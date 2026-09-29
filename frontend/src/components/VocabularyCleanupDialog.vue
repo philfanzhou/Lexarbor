@@ -201,6 +201,7 @@ async function commit() {
           目标教材：<span class="cleanup-dialog__book">{{ preview.bookName }}</span>
         </p>
         <p class="cleanup-dialog__line">清理操作：{{ actionLabel }}</p>
+        <p v-if="selection?.action === 'removeMeaning'" class="cleanup-dialog__line">这会删除整条释义及其在本教材的全部单元、分节和类别位置，而非只移除一个位置。</p>
         <ul class="cleanup-dialog__counts">
           <li>涉及去重单词 {{ preview.affectedWordCount }} 个</li>
           <li>涉及释义 {{ preview.meaningCount }} 条</li>
