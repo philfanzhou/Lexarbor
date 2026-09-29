@@ -24,6 +24,14 @@ public sealed class VocabularyAdminQueryService(IVocabularyAdminQueryRepository 
         return repository.GetContentAsync(bookId, keyword?.Trim(), paging.Page, paging.Size, cancellationToken);
     }
 
+    public Task<VocabularyAdminPhrasePositionPage> GetPhrasePositionsAsync(string bookId, string? unitId,
+        string? section, string? keyword, int? page, int? size, CancellationToken cancellationToken = default)
+    {
+        var paging = Paging(page, size);
+        return repository.GetPhrasePositionsAsync(bookId.Trim(), string.IsNullOrWhiteSpace(unitId) ? null : unitId.Trim(),
+            ResolveSection(section), keyword?.Trim(), paging.Page, paging.Size, cancellationToken);
+    }
+
     public Task<VocabularyAdminUnitContent> GetUnitContentAsync(
         string bookId,
         string unitId,

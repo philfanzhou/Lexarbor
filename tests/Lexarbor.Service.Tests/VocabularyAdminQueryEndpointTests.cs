@@ -57,6 +57,7 @@ public class VocabularyAdminQueryEndpointTests
     [InlineData("/admin/vocabulary/w")]
     [InlineData("/admin/vocabulary-books/A/content")]
     [InlineData("/admin/vocabulary-books/A/units/u/content")]
+    [InlineData("/admin/vocabulary-books/A/phrase-positions")]
     public async Task AnonymousAndNonAdmin_ReadsAreRejectedBeforeResourceAccess(string path)
     {
         await using var factory = new VocabularyWebApplicationFactory();
@@ -98,6 +99,12 @@ public class VocabularyAdminQueryEndpointTests
     [InlineData("/admin/vocabulary-books/A/units/u2/content?entryKind=none", 200)]
     [InlineData("/admin/vocabulary-books/A/units/u2/content?section=A&entryKind=word", 200)]
     [InlineData("/admin/vocabulary-books/A/units/u2/content?page=0&size=0", 200)]
+    [InlineData("/admin/vocabulary-books/missing/phrase-positions", 404)]
+    [InlineData("/admin/vocabulary-books/A/phrase-positions?unitId=ub", 404)]
+    [InlineData("/admin/vocabulary-books/A/phrase-positions?section=C", 400)]
+    [InlineData("/admin/vocabulary-books/A/phrase-positions?page=-1", 400)]
+    [InlineData("/admin/vocabulary-books/A/phrase-positions?size=101", 400)]
+    [InlineData("/admin/vocabulary-books/B/phrase-positions", 200)]
     [InlineData("/admin/vocabulary?size=100", 200)]
     [InlineData("/admin/vocabulary?page=0&size=0", 200)]
     public async Task ValidationAndMissingResources_KeepFailureEnvelope(string path, int status)
@@ -190,6 +197,41 @@ public class VocabularyAdminQueryEndpointTests
         using var bookContent = await GetAsync(client, "/admin/vocabulary-books/A/content");
         Assert.Equal(4, bookContent.RootElement.GetProperty("meaningCount").GetInt32());
         Assert.Equal(3, bookContent.RootElement.GetProperty("wordCount").GetInt32());
+    }
+
+    [Fact]
+    public async Task PhrasePositions_HttpContractCountsPositionsAndKeepsDisabledBooksReadable()
+    {
+        await using var factory = new VocabularyWebApplicationFactory();
+        await SeedUnitContentAsync(factory);
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+            db.VocabularyMeaningUnits.RemoveRange(db.VocabularyMeaningUnits);
+            db.VocabularyMeaningUnits.AddRange(
+                new VocabularyMeaningUnitEntity { UnitId = "u2", MeaningId = "a1", BookId = "A", EntryKind = "phrase" },
+                new VocabularyMeaningUnitEntity { UnitId = "u2", MeaningId = "a1", BookId = "A", EntryKind = "word" },
+                new VocabularyMeaningUnitEntity { UnitId = "u2", MeaningId = "a1", BookId = "A", Section = "A", EntryKind = "phrase" },
+                new VocabularyMeaningUnitEntity { UnitId = "u6", MeaningId = "a1", BookId = "A", EntryKind = "phrase" },
+                new VocabularyMeaningUnitEntity { UnitId = "ub", MeaningId = "b1", BookId = "B", EntryKind = "phrase" });
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", factory.CreateToken("admin"));
+        using var first = await GetAsync(client, "/admin/vocabulary-books/A/phrase-positions?page=1&size=1");
+        Assert.Equal(3, first.RootElement.GetProperty("totalCount").GetInt32());
+        Assert.Equal(3, first.RootElement.GetProperty("totalPage").GetInt32());
+        var item = first.RootElement.GetProperty("items")[0];
+        Assert.Equal(new[] { "bookId", "entryKind", "example", "meaning", "meaningId", "number", "partOfSpeech", "phoneticUk", "phoneticUs", "section", "title", "unitId", "word", "wordId" },
+            item.EnumerateObject().Select(property => property.Name).Order());
+        Assert.Equal("phrase", item.GetProperty("entryKind").GetString());
+        Assert.Null(item.GetProperty("section").GetString());
+        using var second = await GetAsync(client, "/admin/vocabulary-books/A/phrase-positions?page=2&size=1");
+        Assert.Equal("A", second.RootElement.GetProperty("items")[0].GetProperty("section").GetString());
+        using var narrowed = await GetAsync(client, "/admin/vocabulary-books/A/phrase-positions?unitId=u2&section=A&keyword=shared");
+        Assert.Equal(1, narrowed.RootElement.GetProperty("totalCount").GetInt32());
+        using var disabled = await GetAsync(client, "/admin/vocabulary-books/B/phrase-positions");
+        Assert.Equal(1, disabled.RootElement.GetProperty("totalCount").GetInt32());
     }
 
     // The section slice of the unit-content route: the `section` query

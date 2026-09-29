@@ -17,6 +17,39 @@ public class VocabularyAdminQueryTests : TestBase
     private VocabularyAdminQueryService Service => new(new VocabularyAdminQueryRepository(_dbContext));
 
     [Fact]
+    public async Task PhrasePositions_CountAndPageExactAssignments()
+    {
+        await SeedUnitContentAsync(_dbContext);
+        _dbContext.VocabularyMeaningUnits.RemoveRange(_dbContext.VocabularyMeaningUnits);
+        _dbContext.VocabularyMeaningUnits.AddRange(
+            new VocabularyMeaningUnitEntity { UnitId = "u2", MeaningId = "a1", BookId = "A", EntryKind = "phrase" },
+            new VocabularyMeaningUnitEntity { UnitId = "u2", MeaningId = "a1", BookId = "A", EntryKind = "word" },
+            new VocabularyMeaningUnitEntity { UnitId = "u2", MeaningId = "a1", BookId = "A", Section = "A", EntryKind = "phrase" },
+            new VocabularyMeaningUnitEntity { UnitId = "u2", MeaningId = "a1", BookId = "A", Section = "B", EntryKind = "phrase" },
+            new VocabularyMeaningUnitEntity { UnitId = "u6", MeaningId = "a1", BookId = "A", EntryKind = "phrase" },
+            new VocabularyMeaningUnitEntity { UnitId = "ub", MeaningId = "b1", BookId = "B", EntryKind = "phrase" });
+        await _dbContext.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var pages = new List<VocabularyAdminPhrasePosition>();
+        for (var page = 1; page <= 4; page++)
+        {
+            var result = await Service.GetPhrasePositionsAsync("A", null, null, "shared", page, 1, TestContext.Current.CancellationToken);
+            Assert.Equal(4, result.TotalCount);
+            Assert.Equal(4, result.TotalPage);
+            pages.Add(Assert.Single(result.Items));
+        }
+        Assert.Equal([("u2", (string?)null), ("u2", "A"), ("u2", "B"), ("u6", (string?)null)],
+            pages.Select(item => (item.UnitId, item.Section)));
+        Assert.All(pages, item => Assert.Equal("phrase", item.EntryKind));
+        Assert.Equal(1, (await Service.GetPhrasePositionsAsync("A", "u2", "A", null, 1, 20, TestContext.Current.CancellationToken)).TotalCount);
+        Assert.Equal(1, (await Service.GetPhrasePositionsAsync("A", "u2", "none", null, 1, 20, TestContext.Current.CancellationToken)).TotalCount);
+        Assert.Equal(0, (await Service.GetPhrasePositionsAsync("A", null, null, "other", 1, 20, TestContext.Current.CancellationToken)).TotalCount);
+        Assert.Equal(1, (await Service.GetPhrasePositionsAsync("B", null, null, null, 1, 20, TestContext.Current.CancellationToken)).TotalCount);
+        await Assert.ThrowsAsync<ResourceNotFoundException>(() => Service.GetPhrasePositionsAsync("A", "ub", null, null, 1, 20, TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<DomainValidationException>(() => Service.GetPhrasePositionsAsync("A", null, "C", null, 1, 20, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task AllLibrary_ContentAndDetail_PreserveDisabledSharedAndOrphanData()
     {
         await SeedAsync(_dbContext);

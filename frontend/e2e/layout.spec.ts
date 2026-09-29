@@ -25,6 +25,7 @@ const widths = [1440, 768]
 const navLinks = [
   { name: '教材管理', path: '/books' },
   { name: '单词管理', path: '/vocabulary' },
+  { name: '短语管理', path: '/phrases' },
   { name: '单条导入', path: '/import' },
   { name: '批量导入', path: '/import/batch' }
 ]
@@ -56,6 +57,8 @@ async function mockAdministrator(page: Page) {
     json(route, { success: true, data: { books: [starterBook] } }))
   // The whole-library word list and its book filter read these on arrival.
   await page.route(/\/admin\/vocabulary(?:\?.*)?$/, (route) =>
+    json(route, { success: true, data: { items: [], totalCount: 0, totalPage: 0 } }))
+  await page.route(/\/admin\/vocabulary-books\/[^/]+\/phrase-positions(?:\?.*)?$/, (route) =>
     json(route, { success: true, data: { items: [], totalCount: 0, totalPage: 0 } }))
 }
 

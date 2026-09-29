@@ -19,6 +19,12 @@ public sealed record VocabularyAdminMeaningDetail(
 public sealed record VocabularyAdminWord(VocabularyModel Word, IReadOnlyList<VocabularyAdminBook> Books,
     IReadOnlyList<VocabularyAdminMeaningDetail> Meanings);
 public sealed record VocabularyAdminPage(IReadOnlyList<VocabularyAdminWord> Items, int TotalCount, int TotalPage);
+public sealed record VocabularyAdminPhrasePosition(
+    string BookId, string UnitId, string MeaningId, string? Section, string EntryKind,
+    int Number, string? Title, string WordId, string Word, string? PhoneticUk,
+    string? PhoneticUs, string? PartOfSpeech, string Meaning, string? Example);
+public sealed record VocabularyAdminPhrasePositionPage(
+    IReadOnlyList<VocabularyAdminPhrasePosition> Items, int TotalCount, int TotalPage);
 public sealed record VocabularyAdminContent(VocabularyBookModel Book, int WordCount, int MeaningCount,
     VocabularyAdminPage Page);
 

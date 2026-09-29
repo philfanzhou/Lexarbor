@@ -35,6 +35,14 @@ public static class VocabularyAdminQueryEndpoints
                 result.Page.TotalPage
             });
         });
+        group.MapGet("/vocabulary-books/{bookId}/phrase-positions", async (string bookId,
+            [FromQuery] string? unitId, [FromQuery] string? section, [FromQuery] string? keyword,
+            [FromQuery] int? page, [FromQuery] int? size, VocabularyAdminQueryService service,
+            CancellationToken cancellationToken) =>
+        {
+            var result = await service.GetPhrasePositionsAsync(bookId, unitId, section, keyword, page, size, cancellationToken);
+            return VocabularyHttpResponse.Ok(new { result.Items, result.TotalCount, result.TotalPage });
+        });
         // Read-only unit content. A disabled book stays readable, matching the
         // whole-book content route; the meanings listed are only those assigned
         // to this unit, and the unit-scoped totals ignore the keyword. A

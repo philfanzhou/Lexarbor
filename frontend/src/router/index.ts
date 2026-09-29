@@ -8,6 +8,7 @@ import BooksView from '@/views/BooksView.vue'
 import ForbiddenView from '@/views/ForbiddenView.vue'
 import ImportView from '@/views/ImportView.vue'
 import LoginView from '@/views/LoginView.vue'
+import PhrasePositionsView from '@/views/PhrasePositionsView.vue'
 import VocabularyView from '@/views/VocabularyView.vue'
 
 const routes: RouteRecordRaw[] = [
@@ -17,6 +18,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/books', name: 'books', component: BooksView },
   { path: '/books/:bookId/words', name: 'book-words', component: BookWordsView },
   { path: '/vocabulary', name: 'vocabulary', component: VocabularyView },
+  { path: '/phrases', name: 'phrase-positions', component: PhrasePositionsView },
   { path: '/import', name: 'import', component: ImportView },
   { path: '/import/batch', name: 'batch-import', component: BatchImportView }
 ]

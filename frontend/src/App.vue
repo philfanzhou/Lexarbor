@@ -19,7 +19,8 @@ const navigation = [
     title: '教材',
     links: [
       { to: '/books', label: '教材管理', icon: Notebook },
-      { to: '/vocabulary', label: '单词管理', icon: Reading }
+      { to: '/vocabulary', label: '单词管理', icon: Reading },
+      { to: '/phrases', label: '短语管理', icon: Reading }
     ]
   },
   {
