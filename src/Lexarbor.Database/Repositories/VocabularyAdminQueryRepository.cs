@@ -86,6 +86,56 @@ public sealed class VocabularyAdminQueryRepository(VocabularyDbContext context) 
                 book, unit.Adapt<VocabularyBookUnitModel>(), wordCount, meaningCount, sectionCounts, entryKindCounts, result);
         }, cancellationToken);
 
+    public Task<VocabularyAdminPhrasePositionPage> GetPhrasePositionsAsync(string bookId, string? unitId,
+        string? section, string? keyword, int page, int size, CancellationToken cancellationToken)
+        => SnapshotAsync(async () =>
+        {
+            await GetBookAsync(bookId, cancellationToken);
+            if (unitId != null && !await context.VocabularyBookUnits.AsNoTracking()
+                    .AnyAsync(u => u.Id == unitId && u.BookId == bookId, cancellationToken))
+                throw new ResourceNotFoundException("Vocabulary book unit was not found.");
+
+            var query = from position in context.VocabularyMeaningUnits.AsNoTracking()
+                        join unit in context.VocabularyBookUnits.AsNoTracking() on position.UnitId equals unit.Id
+                        join meaning in context.VocabularyMeanings.AsNoTracking() on position.MeaningId equals meaning.Id
+                        join word in context.Vocabularies.AsNoTracking() on meaning.VocabularyId equals word.Id
+                        where position.BookId == bookId && position.EntryKind == "phrase"
+                              && (unitId == null || position.UnitId == unitId)
+                              && (section == null || position.Section == section)
+                        select new { position, unit, meaning, word };
+            if (!string.IsNullOrWhiteSpace(keyword))
+            {
+                var pattern = SqliteSearchPattern.Contains(keyword);
+                query = query.Where(row => EF.Functions.Like(row.word.Word, pattern,
+                    SqliteSearchPattern.EscapeCharacter.ToString()));
+            }
+            var count = await query.CountAsync(cancellationToken);
+            var rows = await query.OrderBy(row => row.unit.Number).ThenBy(row => row.position.Section)
+                .ThenBy(row => row.word.Word).ThenBy(row => row.unit.Id).ThenBy(row => row.meaning.Id)
+                .Select(row => new
+                {
+                    row.position.BookId,
+                    row.position.UnitId,
+                    row.position.MeaningId,
+                    row.position.Section,
+                    row.unit.Number,
+                    row.unit.Title,
+                    WordId = row.word.Id,
+                    row.word.Word,
+                    row.word.PhoneticUk,
+                    row.word.PhoneticUs,
+                    row.meaning.PartOfSpeech,
+                    row.meaning.Meaning,
+                    row.meaning.Example
+                })
+                .Skip((page - 1) * size).Take(size).ToListAsync(cancellationToken);
+            return new VocabularyAdminPhrasePositionPage(rows.Select(row => new VocabularyAdminPhrasePosition(
+                row.BookId, row.UnitId, row.MeaningId, row.Section == "" ? null : row.Section,
+                "phrase", row.Number, row.Title, row.WordId, row.Word, row.PhoneticUk, row.PhoneticUs,
+                row.PartOfSpeech, row.Meaning, row.Example)).ToList(), count,
+                (int)Math.Ceiling(count / (double)size));
+        }, cancellationToken);
+
     private async Task<VocabularyBookModel> GetBookAsync(string bookId, CancellationToken cancellationToken)
     {
         var book = await context.VocabularyBooks.AsNoTracking().SingleOrDefaultAsync(b => b.Id == bookId, cancellationToken)

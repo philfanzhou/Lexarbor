@@ -209,6 +209,7 @@ GET    /admin/vocabulary-books/{bookId}/units
 POST   /admin/vocabulary-books/{bookId}/units
 PUT    /admin/vocabulary-books/{bookId}/units/{unitId}
 GET    /admin/vocabulary-books/{bookId}/units/{unitId}/content?keyword&section&entryKind&page&size
+GET    /admin/vocabulary-books/{bookId}/phrase-positions?unitId&section&keyword&page&size
 PUT    /admin/vocabulary-books/{bookId}/meanings/{meaningId}/positions
 DELETE /admin/vocabulary-books/{bookId}/meanings/{meaningId}/positions/{unitId}?section&entryKind
 DELETE /admin/vocabulary-books/{bookId}/units/{unitId}
@@ -536,7 +537,10 @@ These GET routes require `VocabularyAdmin`, including the existing Cookie/Bearer
 | `/admin/vocabulary` | `keyword`, `bookId`, `page`, `size` | `{items,totalCount,totalPage}` |
 | `/admin/vocabulary/{wordId}` | none | Word summary plus all `meanings` |
 | `/admin/vocabulary-books/{bookId}/content` | `keyword`, `page`, `size` | `{book,wordCount,meaningCount,items,totalCount,totalPage}` |
-| `/admin/vocabulary-books/{bookId}/units/{unitId}/content` | `keyword`, `section`, `page`, `size` | `{book,unit,wordCount,meaningCount,sectionCounts,items,totalCount,totalPage}` |
+| `/admin/vocabulary-books/{bookId}/units/{unitId}/content` | `keyword`, `section`, `entryKind`, `page`, `size` | `{book,unit,wordCount,meaningCount,sectionCounts,entryKindCounts,items,totalCount,totalPage}` |
+| `/admin/vocabulary-books/{bookId}/phrase-positions` | `unitId`, `section`, `keyword`, `page`, `size` | `{items,totalCount,totalPage}` |
+
+The phrase-position route requires a book ID and returns one row for each stored `entryKind=phrase` assignment. Each row contains `bookId`, `unitId`, `meaningId`, `section` (`null` for unsectioned), `entryKind`, `number`, `title`, `wordId`, `word`, `phoneticUk`, `phoneticUs`, `partOfSpeech`, `meaning`, and `example`. It counts and pages positions rather than distinct words or meanings. Rows sort by unit number, stored section, spelling, unit ID, and meaning ID. `unitId` must belong to the requested book or returns 404; `section` accepts `A`, `B`, or `none`, with any other value returning 400. The keyword follows the administrative spelling search, including literal wildcard escaping. Invalid paging returns 400. Disabled books remain readable, and an empty result has `totalCount=0` and `totalPage=0`. The response is read-only; no public `/api` contract changes.
 
 A summary is `{id,word,phoneticUk,phoneticUs,books}`. Its deduplicated `books` contains `{id,bookName,status}`, ordered by book name then ID, including disabled books. The unfiltered library includes words belonging only to disabled books and historical words with no book. A book filter selects words without hiding their other memberships. A supplied missing book, or a missing detail word, returns 404. Orphans have empty `books`/`meanings` arrays.
 

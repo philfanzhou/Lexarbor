@@ -130,6 +130,42 @@ export type AdminUnitSectionFilter = 'A' | 'B' | 'none'
 /** The unit-content page's entry-kind filter: one kind's places, or the unclassified ones. */
 export type AdminUnitEntryKindFilter = 'word' | 'phrase' | 'none'
 
+/** One classified assignment, with an exact book/unit/meaning/section identity. */
+export interface AdminPhrasePosition {
+  bookId: string
+  unitId: string
+  meaningId: string
+  section: 'A' | 'B' | null
+  entryKind: 'phrase'
+  number: number
+  title: string | null
+  wordId: string
+  word: string
+  phoneticUk: string | null
+  phoneticUs: string | null
+  partOfSpeech: string | null
+  meaning: string
+  example: string | null
+}
+
+export interface AdminPhrasePositionPage {
+  items: AdminPhrasePosition[]
+  totalCount: number
+  totalPage: number
+}
+
+/** Counts and pages phrase positions, including those in disabled books. */
+export function getAdminPhrasePositions(
+  bookId: string,
+  params: AdminWordListQuery & { unitId?: string; section?: AdminUnitSectionFilter },
+  config?: AxiosRequestConfig
+) {
+  return api.get<AdminPhrasePositionPage>(`/admin/vocabulary-books/${bookId}/phrase-positions`, {
+    params,
+    ...config
+  })
+}
+
 /** The whole library, deduplicated; `bookId` selects memberships, it does not trim them. */
 export function searchAdminVocabulary(
   params: AdminWordListQuery & { bookId?: string },
