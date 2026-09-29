@@ -279,6 +279,86 @@ public class VocabularyBookUnitDomainService
         });
     }
 
+    /// <summary>Moves exactly one classified or unclassified assignment inside one book.</summary>
+    public async Task MovePositionAsync(string bookId, string meaningId,
+        string fromUnitId, string? fromSection, string? fromEntryKind,
+        string toUnitId, string? toSection, string? toEntryKind, CancellationToken cancellationToken = default)
+    {
+        var book = NormalizeRequired(bookId, "BookId is required.");
+        var meaning = NormalizeRequired(meaningId, "Meaning ID is required.");
+        var sourceUnit = NormalizeRequired(fromUnitId, "Source unit ID is required.");
+        var targetUnit = NormalizeRequired(toUnitId, "Target unit ID is required.");
+        var sourceSection = NormalizeSection(fromSection);
+        var targetSection = NormalizeSection(toSection);
+        var sourceKind = NormalizeEntryKind(fromEntryKind);
+        var targetKind = NormalizeEntryKind(toEntryKind);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        await _unitOfWork.ExecuteInTransactionAsync(async () =>
+        {
+            await VerifyPositionOwnershipAsync(book, meaning, sourceUnit, targetUnit);
+            if (!await _membershipRepository.ExistsAsync(sourceUnit, meaning, sourceSection, sourceKind))
+                throw new ResourceNotFoundException("Vocabulary meaning position was not found.");
+            if (sourceUnit == targetUnit && sourceSection == targetSection && sourceKind == targetKind)
+                return 0;
+            if (await _membershipRepository.ExistsAsync(targetUnit, meaning, targetSection, targetKind))
+                throw new ConflictException("Target vocabulary meaning position already exists.");
+
+            await _membershipRepository.DeleteAsync(sourceUnit, meaning, sourceSection, sourceKind);
+            await _membershipRepository.AddAsync(new VocabularyMeaningUnitModel
+            {
+                UnitId = targetUnit,
+                MeaningId = meaning,
+                BookId = book,
+                Section = targetSection,
+                EntryKind = targetKind
+            });
+            await _unitOfWork.SaveChangesAsync();
+            return 0;
+        });
+    }
+
+    /// <summary>Removes one exact assignment without cleaning its meaning or word.</summary>
+    public async Task RemovePositionAsync(string bookId, string meaningId,
+        string unitId, string? section, string? entryKind, CancellationToken cancellationToken = default)
+    {
+        var book = NormalizeRequired(bookId, "BookId is required.");
+        var meaning = NormalizeRequired(meaningId, "Meaning ID is required.");
+        var unit = NormalizeRequired(unitId, "Unit ID is required.");
+        var normalizedSection = NormalizeSection(section);
+        var normalizedKind = NormalizeEntryKind(entryKind);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        await _unitOfWork.ExecuteInTransactionAsync(async () =>
+        {
+            await VerifyPositionOwnershipAsync(book, meaning, unit, unit);
+            if (!await _membershipRepository.ExistsAsync(unit, meaning, normalizedSection, normalizedKind))
+                throw new ResourceNotFoundException("Vocabulary meaning position was not found.");
+            await _membershipRepository.DeleteAsync(unit, meaning, normalizedSection, normalizedKind);
+            await _unitOfWork.SaveChangesAsync();
+            return 0;
+        });
+    }
+
+    private async Task VerifyPositionOwnershipAsync(string bookId, string meaningId,
+        string sourceUnitId, string targetUnitId)
+    {
+        _ = await _bookRepository.GetByIdAsync(bookId)
+            ?? throw new ResourceNotFoundException("Vocabulary book was not found.");
+        var meaning = await _meaningRepository.GetByIdAsync(meaningId);
+        if (meaning?.BookId != bookId)
+            throw new ResourceNotFoundException("Vocabulary meaning was not found.");
+        var source = await _unitRepository.GetByIdAsync(sourceUnitId);
+        if (source?.BookId != bookId)
+            throw new ResourceNotFoundException("Vocabulary book unit was not found.");
+        if (sourceUnitId != targetUnitId)
+        {
+            var target = await _unitRepository.GetByIdAsync(targetUnitId);
+            if (target?.BookId != bookId)
+                throw new ResourceNotFoundException("Vocabulary book unit was not found.");
+        }
+    }
+
     /// <summary>
     /// Null or blank is no section; anything else must be exactly <c>A</c> or
     /// <c>B</c> after trimming, with case significant.
