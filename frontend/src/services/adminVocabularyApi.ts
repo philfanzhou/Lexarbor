@@ -154,6 +154,29 @@ export interface AdminPhrasePositionPage {
   totalPage: number
 }
 
+/** The complete identity of one assignment; null is sent explicitly. */
+export interface AdminMeaningPositionKey {
+  unitId: string
+  section: 'A' | 'B' | null
+  entryKind: 'word' | 'phrase' | null
+}
+
+export interface AdminMeaningPositionMove {
+  from: AdminMeaningPositionKey
+  to: AdminMeaningPositionKey
+}
+
+export function moveAdminMeaningPosition(bookId: string, meaningId: string, data: AdminMeaningPositionMove) {
+  return api.put<{ success: boolean }>(`/admin/vocabulary-books/${bookId}/meanings/${meaningId}/positions`, data)
+}
+
+export function removeAdminMeaningPosition(bookId: string, meaningId: string, position: AdminMeaningPositionKey) {
+  return api.delete<{ success: boolean }>(
+    `/admin/vocabulary-books/${bookId}/meanings/${meaningId}/positions/${position.unitId}`,
+    { params: { section: position.section ?? 'none', entryKind: position.entryKind ?? 'none' } }
+  )
+}
+
 /** Counts and pages phrase positions, including those in disabled books. */
 export function getAdminPhrasePositions(
   bookId: string,

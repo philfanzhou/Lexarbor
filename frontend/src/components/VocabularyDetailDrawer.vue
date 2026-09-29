@@ -17,6 +17,8 @@ import type {
 } from '@/services/adminVocabularyApi'
 import { getApiError } from '@/services/apiError'
 import VocabularyCleanupDialog from '@/components/VocabularyCleanupDialog.vue'
+import MeaningPositionDialog from '@/components/MeaningPositionDialog.vue'
+import type { PositionTarget } from '@/components/MeaningPositionDialog.vue'
 
 /**
  * The word detail shared by both administration lists. One target generation:
@@ -66,6 +68,7 @@ const cleanupSelection = ref<AdminCleanupSelection | null>(null)
 const cleanupBookId = ref<string | null>(null)
 /** After our own cleanup, a 404 re-read means the word itself was deleted. */
 const closeOnMissing = ref(false)
+const positionTarget = ref<PositionTarget | null>(null)
 
 /** The shared-fields draft; initialized from the server values when editing starts. */
 const sharedForm = reactive({ word: '', phoneticUk: '', phoneticUs: '' })
@@ -95,6 +98,7 @@ function blankToNull(value: string): string | null {
 
 /** Drafts belong to one target: a new read starts from the server values again. */
 function resetEditState() {
+  positionTarget.value = null
   sharedEditing.value = false
   sharedSaving.value = false
   sharedError.value = ''
@@ -163,6 +167,34 @@ function removeMeaning(meaning: AdminMeaning) {
     meaningId: meaning.id
   }
   cleanupOpen.value = true
+}
+
+function editPosition(meaning: AdminMeaning, unit: NonNullable<AdminMeaning['units']>[number], bookName: string, action: 'move' | 'remove') {
+  positionTarget.value = {
+    action,
+    bookId: meaning.bookId,
+    bookName,
+    meaningId: meaning.id,
+    word: detail.value?.word ?? '',
+    meaning: meaning.meaning,
+    sourceNumber: unit.number,
+    sourceTitle: unit.title,
+    from: {
+      unitId: unit.unitId,
+      section: unit.section === 'A' || unit.section === 'B' ? unit.section : null,
+      entryKind: unit.entryKind === 'word' || unit.entryKind === 'phrase' ? unit.entryKind : null
+    }
+  }
+}
+
+function handlePositionChanged() {
+  emit('changed')
+  load()
+}
+
+function handlePositionUnknown() {
+  emit('changed')
+  load()
 }
 
 function handleCleanupCommitted(result: AdminCleanupResult) {
@@ -507,7 +539,7 @@ async function saveMeaning(meaning: AdminMeaning) {
         </section>
 
         <p class="word-detail__hint">
-          拼写与音标为全库共享字段；以下释义按教材分组，每条释义仅属于对应教材，可单独编辑。
+          拼写与音标为全库共享字段；以下释义按教材分组，每条释义仅属于对应教材，可单独编辑。词条/短语类别属于每个单元位置。
         </p>
 
         <section
@@ -538,15 +570,13 @@ async function saveMeaning(meaning: AdminMeaning) {
                     {{ meaning.partOfSpeech }}
                   </el-tag>
                   <span>{{ meaning.meaning }}</span>
-                  <el-tag
-                    v-for="unit in meaning.units ?? []"
-                    :key="`${unit.unitId}:${unit.section ?? ''}:${unit.entryKind ?? ''}`"
-                    class="word-detail__unit-tag"
-                    size="small"
-                    type="info"
-                  >
-                    单元 {{ unit.number }}{{ unit.title ? ` · ${unit.title}` : '' }}{{ unit.section ? ` · ${unit.section}` : '' }}{{ unit.entryKind ? ` · ${unit.entryKind === 'word' ? '单词' : '短语'}` : '' }}
-                  </el-tag>
+                  <span v-for="unit in meaning.units ?? []" :key="`${unit.unitId}:${unit.section ?? ''}:${unit.entryKind ?? ''}`" class="word-detail__position">
+                    <el-tag class="word-detail__unit-tag" size="small" type="info">
+                      单元 {{ unit.number }}{{ unit.title ? ` · ${unit.title}` : '' }} · {{ unit.section ? `Section ${unit.section}` : '未分节' }} · {{ unit.entryKind === 'word' ? '词条' : unit.entryKind === 'phrase' ? '短语' : '未分类' }}
+                    </el-tag>
+                    <el-button link :aria-label="`调整位置：单元 ${unit.number} ${unit.section ?? '未分节'} ${unit.entryKind ?? '未分类'}`" @click="editPosition(meaning, unit, group.book?.bookName ?? '未知教材', 'move')">调整位置</el-button>
+                    <el-button link type="danger" :aria-label="`从本单元移除：单元 ${unit.number} ${unit.section ?? '未分节'} ${unit.entryKind ?? '未分类'}`" @click="editPosition(meaning, unit, group.book?.bookName ?? '未知教材', 'remove')">从本单元移除</el-button>
+                  </span>
                 </p>
                 <p v-if="meaning.example" class="word-detail__example">{{ meaning.example }}</p>
                 <div class="word-detail__meaning-actions">
@@ -554,10 +584,10 @@ async function saveMeaning(meaning: AdminMeaning) {
                   <el-button
                     link
                     type="danger"
-                    :aria-label="`删除教材 ${group.book?.bookName ?? '未知'} 的这条释义`"
+                    :aria-label="`删除整条释义及其全部位置：教材 ${group.book?.bookName ?? '未知'}`"
                     @click="removeMeaning(meaning)"
                   >
-                    删除
+                    删除整条释义及其全部位置
                   </el-button>
                 </div>
               </div>
@@ -629,6 +659,7 @@ async function saveMeaning(meaning: AdminMeaning) {
     @committed="handleCleanupCommitted"
     @unknown="handleCleanupUnknown"
   />
+  <MeaningPositionDialog v-model="positionTarget" @changed="handlePositionChanged" @unknown="handlePositionUnknown" />
 </template>
 
 <style scoped>
@@ -755,6 +786,7 @@ async function saveMeaning(meaning: AdminMeaning) {
 .word-detail__unit-tag {
   flex-shrink: 0;
 }
+.word-detail__position { display: inline-flex; align-items: center; flex-wrap: wrap; gap: var(--lx-space-1); }
 .word-detail__meaning-edit {
   width: 100%;
 }
