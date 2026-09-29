@@ -561,6 +561,50 @@ public class VocabularyBatchImportEndpointTests :
         Assert.Equal(["", "phrase", "word"], positions.Order(StringComparer.Ordinal));
     }
 
+    [Fact]
+    public async Task SinglePhrase_WithUnit_IsIdempotentAndRejectsInvalidOwnership()
+    {
+        var bookId = await CreateBookAsync();
+        var otherBookId = await CreateBookAsync();
+        var disabledBookId = await CreateBookAsync(status: false);
+        var unitId = await CreateUnitAsync(bookId, 2);
+        var foreignUnitId = await CreateUnitAsync(otherBookId, 2);
+        var disabledUnitId = await CreateUnitAsync(disabledBookId, 2);
+        using var client = CreateAdminClient();
+        var word = $"come-true-{bookId[^8..]}";
+        var one = Batch(bookId, Entry(word, "happen", unitId: unitId, section: "A", entryKind: "phrase"));
+        Assert.Equal((1, 1, 0), Counts(await PostForDataAsync(client, one)));
+        Assert.Equal((1, 0, 1), Counts(await PostForDataAsync(client, one)));
+
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+            Assert.Equal(1, await db.VocabularyMeanings.CountAsync(m => m.BookId == bookId, TestContext.Current.CancellationToken));
+            var position = await db.VocabularyMeaningUnits.SingleAsync(m => m.BookId == bookId, TestContext.Current.CancellationToken);
+            Assert.Equal((unitId, "A", "phrase"), (position.UnitId, position.Section, position.EntryKind));
+        }
+
+        foreach (var invalid in new[]
+        {
+            Batch(bookId, Entry($"missing-{bookId[^8..]}", "no unit", entryKind: "phrase")),
+            Batch(bookId, Entry($"foreign-{bookId[^8..]}", "cross book", unitId: foreignUnitId, entryKind: "phrase")),
+            Batch(disabledBookId, Entry($"disabled-{bookId[^8..]}", "disabled", unitId: disabledUnitId, entryKind: "phrase"))
+        })
+        {
+            using var response = await client.PostAsJsonAsync(BatchPath, invalid, TestContext.Current.CancellationToken);
+            Assert.NotEqual(HttpStatusCode.OK, response.StatusCode);
+        }
+        Assert.Equal(1, (await CountPositionsAsync(bookId)));
+        await AssertBookIsEmptyAsync(disabledBookId);
+    }
+
+    private async Task<int> CountPositionsAsync(string bookId)
+    {
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+        return await db.VocabularyMeaningUnits.CountAsync(m => m.BookId == bookId, TestContext.Current.CancellationToken);
+    }
+
     // A failure while writing rolls the assignments back with the entries they
     // belong to; nothing of the batch survives.
     [Theory]
