@@ -32,6 +32,66 @@ public class VocabularyBookUnitTests : TestBase
     }
 
     [Fact]
+    public async Task ExactPositionMoveAndRemove_PreserveEverySibling()
+    {
+        var book = await CreateBookAsync();
+        var first = await _service.CreateAsync(book.Id, 2, null);
+        var second = await _service.CreateAsync(book.Id, 6, null);
+        var (_, meaning) = await _importService.AddOrUpdateAsync(
+            new VocabularyModel { Word = "come true" },
+            new VocabularyMeaningModel { BookId = book.Id, Meaning = "happen" });
+        await _service.AssignMeaningAsync(first.Id, meaning.Id, "A", "phrase");
+        await _service.AssignMeaningAsync(first.Id, meaning.Id, "A", "word");
+        await _service.AssignMeaningAsync(first.Id, meaning.Id, "B", "phrase");
+        await _service.AssignMeaningAsync(second.Id, meaning.Id, null, "phrase");
+
+        await _service.MovePositionAsync(book.Id, meaning.Id, first.Id, "A", "phrase",
+            second.Id, "A", "word", TestContext.Current.CancellationToken);
+        await _service.MovePositionAsync(book.Id, meaning.Id, second.Id, "A", "word",
+            second.Id, "A", "word", TestContext.Current.CancellationToken);
+        Assert.Equal(4, await _dbContext.VocabularyMeaningUnits.CountAsync(TestContext.Current.CancellationToken));
+        Assert.False(await _meaningUnitRepository.ExistsAsync(first.Id, meaning.Id, "A", "phrase"));
+        Assert.True(await _meaningUnitRepository.ExistsAsync(first.Id, meaning.Id, "A", "word"));
+        Assert.True(await _meaningUnitRepository.ExistsAsync(second.Id, meaning.Id, "A", "word"));
+
+        await Assert.ThrowsAsync<ConflictException>(() => _service.MovePositionAsync(book.Id, meaning.Id,
+            first.Id, "B", "phrase", second.Id, "A", "word", TestContext.Current.CancellationToken));
+        Assert.True(await _meaningUnitRepository.ExistsAsync(first.Id, meaning.Id, "B", "phrase"));
+        await _service.RemovePositionAsync(book.Id, meaning.Id, first.Id, "A", "word", TestContext.Current.CancellationToken);
+        Assert.False(await _meaningUnitRepository.ExistsAsync(first.Id, meaning.Id, "A", "word"));
+        Assert.True(await _meaningUnitRepository.ExistsAsync(first.Id, meaning.Id, "B", "phrase"));
+        Assert.True(await _meaningUnitRepository.ExistsAsync(second.Id, meaning.Id, null, "phrase"));
+        Assert.NotNull(await _meaningRepository.GetByIdAsync(meaning.Id));
+        Assert.Equal(1, await _dbContext.Vocabularies.CountAsync(TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ResourceNotFoundException>(() => _service.RemovePositionAsync(book.Id,
+            meaning.Id, first.Id, "A", "word", TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task ExactPositionOwnershipValidationAndCancellation_LeaveSourceUntouched()
+    {
+        var book = await CreateBookAsync();
+        var other = await CreateBookAsync();
+        var unit = await _service.CreateAsync(book.Id, 1, null);
+        var foreignUnit = await _service.CreateAsync(other.Id, 1, null);
+        var (_, meaning) = await _importService.AddOrUpdateAsync(
+            new VocabularyModel { Word = "run into" },
+            new VocabularyMeaningModel { BookId = book.Id, Meaning = "meet" });
+        await _service.AssignMeaningAsync(unit.Id, meaning.Id, null, "phrase");
+        await Assert.ThrowsAsync<ResourceNotFoundException>(() => _service.MovePositionAsync(book.Id,
+            meaning.Id, unit.Id, null, "phrase", foreignUnit.Id, null, "word", TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ResourceNotFoundException>(() => _service.RemovePositionAsync(other.Id,
+            meaning.Id, unit.Id, null, "phrase", TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<DomainValidationException>(() => _service.MovePositionAsync(book.Id,
+            meaning.Id, unit.Id, "C", "phrase", unit.Id, "A", "word", TestContext.Current.CancellationToken));
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => _service.RemovePositionAsync(book.Id,
+            meaning.Id, unit.Id, null, "phrase", cancelled.Token));
+        Assert.True(await _meaningUnitRepository.ExistsAsync(unit.Id, meaning.Id, null, "phrase"));
+    }
+
+    [Fact]
     public async Task CreateAndRead_StoresEightUnitsInUnitOrder()
     {
         var book = await CreateBookAsync();
