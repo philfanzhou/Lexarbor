@@ -120,7 +120,7 @@ onBeforeUnmount(() => { requestId += 1; unitRequestId += 1; controller?.abort() 
   <section class="phrase-positions">
     <header class="phrase-positions__header page-header">
       <div><h1>短语管理</h1><p>每行是一条短语位置；总数与分页均按短语位置计算。</p></div>
-      <RouterLink to="/import">新增短语：单条导入</RouterLink>
+      <RouterLink to="/import/phrase">新增短语</RouterLink>
     </header>
     <div class="phrase-positions__filters">
       <el-select v-model="bookId" class="phrase-positions__book" aria-label="选择教材" placeholder="选择教材" filterable :loading="booksLoading">

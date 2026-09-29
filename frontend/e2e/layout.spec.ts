@@ -27,6 +27,7 @@ const navLinks = [
   { name: '单词管理', path: '/vocabulary' },
   { name: '短语管理', path: '/phrases' },
   { name: '单条导入', path: '/import' },
+  { name: '新增短语', path: '/import/phrase' },
   { name: '批量导入', path: '/import/batch' }
 ]
 

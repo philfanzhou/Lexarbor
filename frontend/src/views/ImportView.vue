@@ -109,6 +109,7 @@ onMounted(loadBooks)
 <template>
   <div class="import-view">
     <PageHeader title="单条导入" description="向一本教材添加一个单词和它的一条释义" />
+    <p class="import-phrase-link"><RouterLink to="/import/phrase">要指定单元新增短语？前往新增短语</RouterLink></p>
 
     <el-alert
       v-if="booksError"
@@ -193,6 +194,7 @@ onMounted(loadBooks)
 </template>
 
 <style scoped>
+.import-phrase-link { margin: 0 0 var(--lx-space-4); }
 .import-alert {
   max-width: 720px;
   margin-bottom: var(--lx-space-4);

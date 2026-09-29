@@ -18,6 +18,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using ServiceMantle;
 
 // Before anything is built. The container HEALTHCHECK runs this same assembly,
 // and a health probe that first composed configuration, opened the database and
@@ -220,7 +221,18 @@ builder.Services.AddAuthorization(options =>
     });
 });
 
-builder.Services.AddLexarborForwardedHeaders(builder.Configuration);
+var networkOptions = builder.Configuration.GetSection(NetworkOptions.SectionName).Get<NetworkOptions>() ?? new NetworkOptions();
+var useTrustedForwarding = networkOptions.IsConfigured || networkOptions.ForwardLimit != 1;
+if (useTrustedForwarding)
+{
+    builder.Services.AddServiceMantle(ServiceId.Parse("lexarbor"), InstanceId.Parse($"lexarbor-{Guid.NewGuid():N}"))
+        .AddForwardedHeaders(options =>
+        {
+            options.KnownProxies = networkOptions.TrustedProxies;
+            options.KnownIPNetworks = networkOptions.TrustedNetworks;
+            options.ForwardLimit = networkOptions.ForwardLimit;
+        });
+}
 builder.Services.AddLexarborRateLimiting(builder.Configuration);
 
 var app = builder.Build();
@@ -243,10 +255,9 @@ var sqliteConnection = new SqliteConnectionStringBuilder(connectionString);
 app.Logger.LogInformation("Database: SQLite {DatabasePath}", sqliteConnection.DataSource);
 
 var rateLimitOptions = app.Services.GetRequiredService<IOptions<RateLimitOptions>>().Value;
-var networkOptions = app.Services.GetRequiredService<IOptions<NetworkOptions>>().Value;
 LogRateLimit("admin login", rateLimitOptions.AdminLogin);
 LogRateLimit("public API", rateLimitOptions.PublicApi);
-if (networkOptions.IsConfigured)
+if (useTrustedForwarding)
 {
     app.Logger.LogInformation(
         "Trusting forwarded client addresses from {ProxyCount} proxy address(es) and {NetworkCount} network(s), {ForwardLimit} hop(s) deep",
@@ -342,17 +353,13 @@ if (builder.Configuration.GetValue("Database:InitializeOnStartup", true))
 }
 
 // Configure the HTTP request pipeline.
-if (networkOptions.IsConfigured)
+if (useTrustedForwarding)
 {
     // First, so that everything downstream — the rate limiter above all — sees
     // the client's address rather than the proxy's.
     //
-    // Added only when a hop is trusted. ForwardedHeadersMiddleware skips its
-    // origin check entirely when both KnownProxies and KnownIPNetworks are empty
-    // and then applies X-Forwarded-For from anyone, so an always-on middleware
-    // with empty trust lists trusts every caller rather than none — which would
-    // let a caller choose its own rate limit partition.
-    app.UseForwardedHeaders();
+    // ServiceMantle validates the immutable trust boundary at startup.
+    app.UseServiceMantleForwardedHeaders();
 }
 
 app.UseSystemVersionNoStore();
@@ -371,6 +378,7 @@ app.MapSystemVersionEndpoints();
 app.MapVocabularyWordEditEndpoints();
 app.MapVocabularyMeaningEditEndpoints();
 app.MapVocabularyBookUnitEndpoints();
+app.MapVocabularyMeaningPositionEndpoints();
 app.MapVocabularyAdminQueryEndpoints();
 app.MapVocabularyCleanupEndpoints();
 app.MapVocabularyHttpEndpoints(RateLimitingExtensions.PublicApiPolicy);

@@ -18,6 +18,7 @@
 | `/books` | Administrator | Vocabulary book management |
 | `/books/:bookId/words` | Administrator | One book's word list |
 | `/vocabulary` | Administrator | Whole-library word list |
+| `/phrases` | Administrator | Phrase positions by book, unit, section, and keyword |
 | `/import` | Administrator | Word import |
 | `/import/batch` | Administrator | Batch word import |
 
@@ -89,7 +90,7 @@ The data comes from the authorized `GET /admin/system/version` through the same 
 
 ## Vocabulary list pages
 
-`/phrases` (短语管理) reads `GET /admin/vocabulary-books/{bookId}/phrase-positions` after an administrator selects a book. The book picker includes disabled books, and optional unit, section (`A`, `B`, `none`), and spelling keyword filters reset the page. The table counts phrase positions, so one meaning in two units or sections appears twice; unclassified and word-only assignments never appear. A row opens the existing word detail drawer. Empty, failed, and loading reads have distinct states and failed book or unit loads can be retried. Switching books clears the unit and section, and late results for the previous book are discarded. The page links to the existing single-entry import route until the dedicated phrase form is available.
+`/phrases` (短语管理) reads `GET /admin/vocabulary-books/{bookId}/phrase-positions` after an administrator selects a book. The book picker includes disabled books, and optional unit, section (`A`, `B`, `none`), and spelling keyword filters reset the page. The table counts phrase positions, so one meaning in two units or sections appears twice; unclassified and word-only assignments never appear. A row opens the existing word detail drawer. Empty, failed, and loading reads have distinct states and failed book or unit loads can be retried. Switching books clears the unit and section, and late results for the previous book are discarded. The Add phrase link opens the dedicated `/import/phrase` form.
 
 Two list pages consume the administration vocabulary queries (`GET /admin/vocabulary`, `GET /admin/vocabulary/{wordId}`, `GET /admin/vocabulary-books/{bookId}/content`, and `GET /admin/vocabulary-books/{bookId}/units/{unitId}/content`), which unlike the public endpoints include disabled books and historical words with no book at all.
 
@@ -120,6 +121,12 @@ A refused preview or commit keeps a distinct message: 404 reports the target gon
 教材管理's per-row 单元 opens one shared dialog (`VocabularyBookUnitDialog`) against the unit API (`GET`/`POST`/`PUT`/`DELETE` on `/admin/vocabulary-books/{bookId}/units`). It lists the book's units in unit order with each unit's 关联词义数 — distinct meanings, so a meaning assigned to both Section A and Section B of the unit counts once — and maintains them: the form below the table adds a unit, a row's 编辑 fills the same form for a full replacement (改号 and 改名 together, both fields sent every time with an empty title as `null`), and a row's 删除 first confirms in plain text what it removes — the unit and its assignment count, with meanings, shared words, and other units' assignments retained. Creating a unit is the administrator's explicit act; the import pages never create or rename units. Disabled books are managed the same way, and a book deleted elsewhere is reported with its way back to 教材管理 instead of an empty unit list.
 
 A refused write keeps the entered values: 400 shows the server's reason (a duplicate unit number answers 409 and explains the conflict with a 刷新列表 that re-reads current state), and 404 reports the target gone. A write whose answer never arrived is an unknown outcome: the dialog says so and offers the same re-read, never replaying itself. Success refreshes the unit list. The 关联词义数 shown next to a delete confirmation is a display snapshot the server may have moved past by commit time; the committed result is authoritative. `e2e/book-units.spec.ts` covers the dialog: listing with counts, adding and editing through the strict replace body, the duplicate-number refusal keeping the draft, the delete confirmation and refresh, a failed list load with a working retry, the disabled-book entry, the gone-book notice, and axe plus sideways-scroll checks at 1440 px and 768 px.
+
+## Add one phrase
+
+`/import/phrase` (新增短语) is a single-entry form for an enabled book and one of that book's existing units. The unit is required, Section A or B is optional, and the classification is always `phrase`; spelling and meaning are required, while phonetics, part of speech, and example are optional. The form sends exactly one entry to `POST /admin/vocabulary/batch` with `entryKind:"phrase"` and the selected `unitId`. The service applies its existing normalization, equivalent-meaning reuse, position idempotency, authorization, and atomic write rules. The older `/import` word form is unchanged. Choosing another book clears the previous unit and section, and a late unit response cannot restore a choice from the old book. A failed unit load can be retried; a refused submission preserves the draft. A successful response distinguishes `created` from `reused` and clears the entry fields so the browser does not accidentally send it twice. If no response arrives, the result is unknown; check the current phrase position before retrying. Disabled books cannot be selected for creation.
+
+The existing `/import` page and the phrase position list both link directly to `/import/phrase`; the old word submission remains unchanged.
 
 ## Batch import page
 
@@ -215,8 +222,8 @@ Once signed in, every page sits in one shell:
 
 - A 56 px header across the page holds `.brand` (`Lexarbor`) on the left, the low-key build-version button beside it, and `.session` (the username and the **退出登录** button) on the right.
 - Below it, a side navigation `<nav aria-label="主导航">` is grouped by task. Each group is a `role="group"` labelled by its title, and each entry is a real link (`RouterLink`), not a menu item:
-  - **教材**: 教材管理 (`/books`) and 单词管理 (`/vocabulary`).
-  - **词汇导入**: 单条导入 (`/import`) and 批量导入 (`/import/batch`).
+  - **教材**: 教材管理 (`/books`), 单词管理 (`/vocabulary`), and 短语管理 (`/phrases`).
+  - **词汇导入**: 单条导入 (`/import`), 新增短语 (`/import/phrase`), and 批量导入 (`/import/batch`).
 - A side navigation rather than header links, because the groups need to be visible and later pages need vertical room; three links in the header can show neither.
 - The current page's link is highlighted and carries `aria-current="page"`, for an exact route match only.
 - At 1024 px and wider the navigation is 220 px wide with icons and text. From 768 px to 1023 px it collapses to a 64 px icon bar: each link keeps its name through `aria-label` and a `title` tooltip, and the group titles are hidden visually but not from assistive technology. At 768 px no page scrolls sideways.

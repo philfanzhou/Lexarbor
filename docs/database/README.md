@@ -68,6 +68,10 @@ The administrator word PUT uses `VocabularyWordEditService` within the existing 
 
 `VocabularyMeaningEditService` uses the existing repositories and serialized UnitOfWork to validate all three resources and ownership before changing a meaning. ID reads fetch current database values without returning earlier tracked snapshots. The existing equivalent-meaning key rejects any other matching meaning ID; book/word foreign keys never move, including in disabled books. Only that meaning's content fields and updated timestamp change. This API does not create definitions or alter import merge semantics, constraints, or schema. SQLite constraint/busy exceptions retain the existing rollback and status mappings.
 
+## Exact meaning-position writes
+
+Exact-position management writes use the existing four-part key `(unit_id, meaning_id, section, entry_kind)` through one serialized `UnitOfWork` transaction. A move validates the source and target units and meaning belong to the path book, rejects an existing distinct target, then deletes the exact source and adds the target atomically. A delete removes only the specified assignment; neither operation cleans orphan meanings or shared words. SQLite's primary key and paired book foreign keys remain the final uniqueness and ownership checks. No migration or new table is required.
+
 ## Administrator read snapshots
 
 The phrase-position administration read filters `entry_kind='phrase'` in SQL and counts assignment rows directly. Its `totalCount` and pages include separate rows for the same meaning in different units or sections while ignoring a sibling `word` assignment at the same unit and section. The query pages by unit number, stored section, spelling, unit ID and meaning ID, and projects only the requested page within one deferred SQLite snapshot. Disabled books are readable; missing or cross-book units return 404. No schema change is required.
