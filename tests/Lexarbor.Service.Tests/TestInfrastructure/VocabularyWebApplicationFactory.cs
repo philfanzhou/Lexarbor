@@ -12,6 +12,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Tokens;
 
 namespace Lexarbor.Service.Tests.TestInfrastructure;
@@ -36,6 +37,7 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
     private readonly string _provider;
     private readonly IReadOnlyDictionary<string, string?> _extraConfiguration;
     private readonly SqliteConnection _databaseConnection;
+    private static readonly object NetworkConfigurationLock = new();
 
     public VocabularyWebApplicationFactory()
         : this("Testing", includeAppCredentials: true)
@@ -59,6 +61,40 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
     }
 
     public FakeIdentityState Identity { get; }
+
+    protected override IHost CreateHost(IHostBuilder builder)
+    {
+        // Minimal hosting reads configuration before ConfigureWebHost can add the
+        // in-memory test overrides. Forwarded-header trust is registered at that
+        // point, so expose these values during host construction only. Serialize
+        // factory startup to keep process environment changes isolated.
+        lock (NetworkConfigurationLock)
+        {
+            var networkSettings = _extraConfiguration
+                .Where(entry => entry.Key.StartsWith("Network:", StringComparison.Ordinal))
+                .Select(entry => (Name: entry.Key.Replace(":", "__", StringComparison.Ordinal), entry.Value))
+                .ToArray();
+            var previous = networkSettings
+                .Select(entry => (entry.Name, Value: Environment.GetEnvironmentVariable(entry.Name)))
+                .ToArray();
+            try
+            {
+                foreach (var entry in networkSettings)
+                {
+                    Environment.SetEnvironmentVariable(entry.Name, entry.Value);
+                }
+
+                return base.CreateHost(builder);
+            }
+            finally
+            {
+                foreach (var entry in previous)
+                {
+                    Environment.SetEnvironmentVariable(entry.Name, entry.Value);
+                }
+            }
+        }
+    }
 
     /// <summary>
     /// Mints a token with the standard short OIDC claim names "sub", "name" and "role".
