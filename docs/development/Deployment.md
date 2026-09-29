@@ -271,7 +271,7 @@ shared login limit is itself a way to lock the administrator out. Name the hops 
 |---|---|---|
 | `Network:TrustedProxies` | empty | Proxy addresses allowed to set `X-Forwarded-For`, for example `172.18.0.2` |
 | `Network:TrustedNetworks` | empty | Proxy ranges in CIDR form, for example `172.18.0.0/16` |
-| `Network:ForwardLimit` | `1` | Trusted hops in front of Lexarbor |
+| `Network:ForwardLimit` | `1` | Trusted hops in front of Lexarbor; must be 1–10 |
 
 Nothing is trusted until one of these is set, and forwarded headers are ignored entirely
 until then. That default is deliberate: `X-Forwarded-For` is client-supplied, and honouring
@@ -280,6 +280,14 @@ pass the ceiling without ever reaching it. A degraded shared limit is a visible 
 problem; a bypassable limit is an invisible security one. Set `ForwardLimit` to the real
 number of trusted hops — raising it further hands the extra steps back to the client, whose
 own header content occupies the left of the list.
+
+Trusted forwarding is provided by `ServiceMantle.Web` v0.2.0. Configure the proxy to
+send matching `X-Forwarded-For` and `X-Forwarded-Proto` lists, one entry per hop;
+asymmetric headers are ignored. Invalid addresses, CIDR ranges, or hop limits fail
+startup. Forwarding remains disabled with the default empty trust lists. This
+integration enables only forwarded headers: it does not add ServiceMantle setup,
+management, phase, health, or rate-limit endpoints. The existing Lexarbor login
+and public API ceilings and their 429 responses remain in effect.
 
 Startup logs both ceilings and whether any hop is trusted, so a misconfigured proxy is
 visible in the first lines of the container log.

@@ -16,6 +16,7 @@
     </PackageReference>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
     <PackageReference Include="Mapster" />
+    <PackageReference Include="ServiceMantle.Web" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Lexarbor.Service\Lexarbor.Service.csproj" />
