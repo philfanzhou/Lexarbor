@@ -114,10 +114,19 @@ public sealed class VocabularyAdminQueryRepository(VocabularyDbContext context) 
                 .ThenBy(row => row.word.Word).ThenBy(row => row.unit.Id).ThenBy(row => row.meaning.Id)
                 .Select(row => new
                 {
-                    row.position.BookId, row.position.UnitId, row.position.MeaningId, row.position.Section,
-                    row.unit.Number, row.unit.Title, WordId = row.word.Id, row.word.Word,
-                    row.word.PhoneticUk, row.word.PhoneticUs, row.meaning.PartOfSpeech,
-                    row.meaning.Meaning, row.meaning.Example
+                    row.position.BookId,
+                    row.position.UnitId,
+                    row.position.MeaningId,
+                    row.position.Section,
+                    row.unit.Number,
+                    row.unit.Title,
+                    WordId = row.word.Id,
+                    row.word.Word,
+                    row.word.PhoneticUk,
+                    row.word.PhoneticUs,
+                    row.meaning.PartOfSpeech,
+                    row.meaning.Meaning,
+                    row.meaning.Example
                 })
                 .Skip((page - 1) * size).Take(size).ToListAsync(cancellationToken);
             return new VocabularyAdminPhrasePositionPage(rows.Select(row => new VocabularyAdminPhrasePosition(
