@@ -168,6 +168,96 @@ public class RateLimitingTests
     }
 
     [Fact]
+    public async Task ForwardedHeader_WithoutMatchingProto_DoesNotChangeClientPartition()
+    {
+        using var factory = CreateFactory(
+            loginPermits: 1,
+            extraConfiguration: new Dictionary<string, string?>
+            {
+                ["Network:TrustedProxies:0"] = ClientA
+            });
+        using var client = CreateClient(factory);
+
+        await LoginAsync(client, ClientA, forwardedFor: "198.51.100.1", includeForwardedProto: false);
+        var refused = await LoginAsync(client, ClientA, forwardedFor: "198.51.100.2", includeForwardedProto: false);
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, refused.StatusCode);
+    }
+
+    [Fact]
+    public async Task ForwardedHeader_UsesOnlyConfiguredTrustedHops()
+    {
+        using var factory = CreateFactory(
+            loginPermits: 1,
+            extraConfiguration: new Dictionary<string, string?>
+            {
+                ["Network:TrustedProxies:0"] = ClientA,
+                ["Network:TrustedProxies:1"] = "198.51.100.2",
+                ["Network:ForwardLimit"] = "2"
+            });
+        using var client = CreateClient(factory);
+
+        await LoginAsync(client, ClientA, forwardedFor: "198.51.100.1, 198.51.100.2", forwardedProto: "https, http");
+        var refused = await LoginAsync(client, ClientA, forwardedFor: "198.51.100.1, 198.51.100.2", forwardedProto: "https, http");
+        var otherClient = await LoginAsync(client, ClientA, forwardedFor: "198.51.100.3, 198.51.100.2", forwardedProto: "https, http");
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, refused.StatusCode);
+        Assert.NotEqual(HttpStatusCode.TooManyRequests, otherClient.StatusCode);
+    }
+
+    [Fact]
+    public async Task ForwardedHeader_TrustsConfiguredNetworkAndMappedIpv4Proxy()
+    {
+        using var factory = CreateFactory(
+            loginPermits: 1,
+            extraConfiguration: new Dictionary<string, string?>
+            {
+                ["Network:TrustedNetworks:0"] = "203.0.113.0/24"
+            });
+        using var client = CreateClient(factory);
+
+        await LoginAsync(client, $"::ffff:{ClientA}", forwardedFor: "198.51.100.1");
+        var refused = await LoginAsync(client, $"::ffff:{ClientA}", forwardedFor: "198.51.100.1");
+        var otherClient = await LoginAsync(client, $"::ffff:{ClientA}", forwardedFor: "198.51.100.2");
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, refused.StatusCode);
+        Assert.NotEqual(HttpStatusCode.TooManyRequests, otherClient.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("Network:TrustedProxies:0", "not-an-address")]
+    [InlineData("Network:TrustedNetworks:0", "203.0.113.0/not-a-mask")]
+    [InlineData("Network:ForwardLimit", "0")]
+    [InlineData("Network:ForwardLimit", "11")]
+    public void InvalidForwardingConfiguration_FailsStartup(string key, string value)
+    {
+        var configuration = new Dictionary<string, string?>
+        {
+            ["Network:TrustedProxies:0"] = ClientA
+        };
+        configuration[key] = value;
+        using var factory = CreateFactory(
+            extraConfiguration: configuration);
+
+        Assert.ThrowsAny<Exception>(() => CreateClient(factory));
+    }
+
+    [Fact]
+    public async Task ForwardingCapability_DoesNotExposeManagementRoutes()
+    {
+        using var factory = CreateFactory(
+            extraConfiguration: new Dictionary<string, string?>
+            {
+                ["Network:TrustedProxies:0"] = ClientA
+            });
+        using var client = CreateClient(factory);
+
+        var response = await GetAsync(client, "/management/v1/status", ClientA);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
     public async Task DisabledPolicy_AdmitsEveryRequest()
     {
         using var factory = CreateFactory(
@@ -240,7 +330,9 @@ public class RateLimitingTests
     private static Task<HttpResponseMessage> LoginAsync(
         HttpClient client,
         string clientAddress,
-        string? forwardedFor = null)
+        string? forwardedFor = null,
+        string? forwardedProto = null,
+        bool includeForwardedProto = true)
     {
         var request = new HttpRequestMessage(HttpMethod.Post, "/admin/auth/login")
         {
@@ -252,6 +344,10 @@ public class RateLimitingTests
         if (forwardedFor != null)
         {
             request.Headers.Add("X-Forwarded-For", forwardedFor);
+            if (includeForwardedProto)
+            {
+                request.Headers.Add("X-Forwarded-Proto", forwardedProto ?? "http");
+            }
         }
 
         return client.SendAsync(request, TestContext.Current.CancellationToken);

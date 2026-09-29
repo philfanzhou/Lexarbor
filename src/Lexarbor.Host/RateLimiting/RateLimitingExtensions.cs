@@ -1,11 +1,7 @@
 using System.Globalization;
-using System.Net;
 using System.Threading.RateLimiting;
 using Lexarbor.Service;
-using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Options;
-// Microsoft.AspNetCore.HttpOverrides carries a deprecated IPNetwork of its own.
-using IPNetwork = System.Net.IPNetwork;
 
 namespace Lexarbor.Host.RateLimiting;
 
@@ -64,54 +60,6 @@ public static class RateLimitingExtensions
                     RejectionMessage);
             };
         });
-    }
-
-    /// <summary>
-    /// Configures forwarded-header handling for the case where an operator has
-    /// named the hops to trust. Program.cs adds the middleware only then, because
-    /// ForwardedHeadersMiddleware treats empty trust lists as "skip the origin
-    /// check" rather than "trust nobody" and would otherwise apply the header
-    /// from any caller.
-    ///
-    /// That default is the conservative one in both directions. Behind an
-    /// unconfigured proxy the limiter sees only the proxy and degrades to a
-    /// shared ceiling, which is a visible operational problem. Trusting
-    /// <c>X-Forwarded-For</c> from anyone instead would let a caller mint a fresh
-    /// partition key per request and pass the ceiling without reaching it, which
-    /// is an invisible security one.
-    /// </summary>
-    public static void AddLexarborForwardedHeaders(
-        this IServiceCollection services,
-        IConfiguration configuration)
-    {
-        services.AddOptions<NetworkOptions>()
-            .Bind(configuration.GetSection(NetworkOptions.SectionName))
-            .ValidateOnStart();
-        services.AddSingleton<IValidateOptions<NetworkOptions>, NetworkOptionsValidator>();
-
-        services.AddOptions<ForwardedHeadersOptions>()
-            .Configure<IOptions<NetworkOptions>>((options, network) =>
-            {
-                var value = network.Value;
-                options.ForwardedHeaders =
-                    ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-                options.ForwardLimit = value.ForwardLimit;
-
-                // The defaults trust loopback, which inside a container means
-                // anything sharing the network namespace could rewrite its own
-                // address. Only what the operator listed is trusted.
-                options.KnownProxies.Clear();
-                options.KnownIPNetworks.Clear();
-                foreach (var proxy in value.TrustedProxies)
-                {
-                    options.KnownProxies.Add(IPAddress.Parse(proxy));
-                }
-
-                foreach (var range in value.TrustedNetworks)
-                {
-                    options.KnownIPNetworks.Add(IPNetwork.Parse(range));
-                }
-            });
     }
 
     private static RateLimitOptions Current(HttpContext context)
@@ -203,42 +151,4 @@ public static class RateLimitingExtensions
         }
     }
 
-    private sealed class NetworkOptionsValidator : IValidateOptions<NetworkOptions>
-    {
-        public ValidateOptionsResult Validate(string? name, NetworkOptions options)
-        {
-            var failures = new List<string>();
-            foreach (var proxy in options.TrustedProxies)
-            {
-                if (!IPAddress.TryParse(proxy, out _))
-                {
-                    failures.Add(
-                        $"Network:TrustedProxies contains '{proxy}', which is not an IP address.");
-                }
-            }
-
-            foreach (var range in options.TrustedNetworks)
-            {
-                // Rejects a range whose address carries bits below the prefix, so
-                // 172.18.0.1/16 does not silently become 172.18.0.0/16 and leave
-                // the configuration reading as though one host were trusted.
-                if (!IPNetwork.TryParse(range, out _))
-                {
-                    failures.Add(
-                        $"Network:TrustedNetworks contains '{range}', which is not a CIDR " +
-                        "range whose address is the start of the range, such as 172.18.0.0/16.");
-                }
-            }
-
-            if (options.ForwardLimit < 1)
-            {
-                failures.Add(
-                    $"Network:ForwardLimit must be at least 1. Found {options.ForwardLimit}.");
-            }
-
-            return failures.Count == 0
-                ? ValidateOptionsResult.Success
-                : ValidateOptionsResult.Fail(failures);
-        }
-    }
 }
