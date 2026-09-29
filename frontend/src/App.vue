@@ -27,6 +27,7 @@ const navigation = [
     title: '词汇导入',
     links: [
       { to: '/import', label: '单条导入', icon: EditPen },
+      { to: '/import/phrase', label: '新增短语', icon: EditPen },
       { to: '/import/batch', label: '批量导入', icon: Upload }
     ]
   }

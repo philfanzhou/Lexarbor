@@ -20,6 +20,7 @@
 | `/vocabulary` | Administrator | Whole-library word list |
 | `/import` | Administrator | Word import |
 | `/import/batch` | Administrator | Batch word import |
+| `/import/phrase` | Administrator | Add one phrase to an existing book unit |
 
 The application uses hash history. On first entry to a protected page it calls `GET /admin/auth/session` to restore the cookie session; an unauthenticated response redirects to `/login` and a 403 redirects to `/forbidden`. While unauthenticated, neither the administration navigation nor any actionable page is rendered.
 
@@ -119,6 +120,12 @@ A refused preview or commit keeps a distinct message: 404 reports the target gon
 
 A refused write keeps the entered values: 400 shows the server's reason (a duplicate unit number answers 409 and explains the conflict with a 刷新列表 that re-reads current state), and 404 reports the target gone. A write whose answer never arrived is an unknown outcome: the dialog says so and offers the same re-read, never replaying itself. Success refreshes the unit list. The 关联词义数 shown next to a delete confirmation is a display snapshot the server may have moved past by commit time; the committed result is authoritative. `e2e/book-units.spec.ts` covers the dialog: listing with counts, adding and editing through the strict replace body, the duplicate-number refusal keeping the draft, the delete confirmation and refresh, a failed list load with a working retry, the disabled-book entry, the gone-book notice, and axe plus sideways-scroll checks at 1440 px and 768 px.
 
+## Add one phrase
+
+`/import/phrase` (新增短语) is a single-entry form for an enabled book and one of that book's existing units. The unit is required, Section A or B is optional, and the classification is always `phrase`; spelling and meaning are required, while phonetics, part of speech, and example are optional. The form sends exactly one entry to `POST /admin/vocabulary/batch` with `entryKind:"phrase"` and the selected `unitId`. The service applies its existing normalization, equivalent-meaning reuse, position idempotency, authorization, and atomic write rules. The older `/import` word form is unchanged. Choosing another book clears the previous unit and section, and a late unit response cannot restore a choice from the old book. A failed unit load can be retried; a refused submission preserves the draft. A successful response distinguishes `created` from `reused` and clears the entry fields so the browser does not accidentally send it twice. If no response arrives, the result is unknown; check the current phrase position before retrying. Disabled books cannot be selected for creation.
+
+The existing `/import` page links to `/import/phrase`, so administrators coming from a phrase list's single-entry import link can reach the dedicated form without changing the old word submission.
+
 ## Batch import page
 
 `/import/batch` imports many entries into one book through `POST /admin/vocabulary/batch`. [ADR-005](../adr/ADR-005-bulk-vocabulary-import.md) is the single source for the payload, the limits, the check order, the failure envelope, and the TSV format, and [ADR-006](../adr/ADR-006-batch-import-file-formats.md) for the other formats, file reading, and the header rules; this section describes only how the page applies them.
@@ -214,7 +221,7 @@ Once signed in, every page sits in one shell:
 - A 56 px header across the page holds `.brand` (`Lexarbor`) on the left, the low-key build-version button beside it, and `.session` (the username and the **退出登录** button) on the right.
 - Below it, a side navigation `<nav aria-label="主导航">` is grouped by task. Each group is a `role="group"` labelled by its title, and each entry is a real link (`RouterLink`), not a menu item:
   - **教材**: 教材管理 (`/books`) and 单词管理 (`/vocabulary`).
-  - **词汇导入**: 单条导入 (`/import`) and 批量导入 (`/import/batch`).
+  - **词汇导入**: 单条导入 (`/import`), 新增短语 (`/import/phrase`), and 批量导入 (`/import/batch`).
 - A side navigation rather than header links, because the groups need to be visible and later pages need vertical room; three links in the header can show neither.
 - The current page's link is highlighted and carries `aria-current="page"`, for an exact route match only.
 - At 1024 px and wider the navigation is 220 px wide with icons and text. From 768 px to 1023 px it collapses to a 64 px icon bar: each link keeps its name through `aria-label` and a `title` tooltip, and the group titles are hidden visually but not from assistive technology. At 768 px no page scrolls sideways.
