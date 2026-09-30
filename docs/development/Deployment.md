@@ -520,12 +520,15 @@ immediately removed from outgoing navigation and never copied into response bodi
 application logs or analytics. Host filters suppress framework request URL and HTTP
 body logging even at Trace; the Code HTTP client has no loggers or redirect following.
 Configure **every reverse proxy** to omit callback query strings, and do not enable
-request/body analytics for these routes. For example, in nginx's `http` context:
+request/body analytics for these routes. Routing matches the callback route
+case-insensitively and with one optional trailing slash, so the masking must cover
+every accepted form. For example, in nginx's `http` context (`~*` is a
+case-insensitive regular expression):
 
 ```nginx
 map $uri $lexarbor_log_target {
     default $request_uri;
-    /admin/auth/callback $uri;
+    ~*^/admin/auth/callback/?$ $uri;
 }
 log_format lexarbor_safe '$remote_addr $request_method $lexarbor_log_target $status';
 access_log /var/log/nginx/lexarbor.access.log lexarbor_safe;

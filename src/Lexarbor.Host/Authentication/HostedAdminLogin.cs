@@ -111,24 +111,39 @@ public sealed class AdminHostedLoginSafety(RequestDelegate next, IOptions<AdminA
     public static bool SuppressLogCategory(string? category) => category is "Microsoft.AspNetCore.Hosting.Diagnostics"
         or "Microsoft.AspNetCore.Http.Result.RedirectResult"
         || category?.StartsWith("Microsoft.AspNetCore.HttpLogging", StringComparison.Ordinal) == true;
+
+    /// <summary>
+    /// Routing matches a literal route pattern case-insensitively and with one optional
+    /// trailing slash, and PathString equality is itself case-insensitive, so these two
+    /// comparisons cover exactly the request forms routing delivers to the mapped
+    /// endpoint. Other forms (a double trailing slash, an encoded separator) never reach
+    /// these endpoints and must keep their admin catch-all behavior.
+    /// </summary>
+    internal static bool MatchesRoute(PathString path, string route) => path == route || path == route + "/";
+
     public Task InvokeAsync(HttpContext context)
     {
         // JSON content-type routing can select a fallback before rate limiting. In Code
         // mode only, restore the real login metadata so even malformed/non-JSON
-        // submissions share the quota and reach the pre-binding rejection. Old
-        // modes retain their original routing and JSON/error contracts unchanged.
+        // submissions share the quota and reach the pre-binding rejection, on every
+        // route form routing accepts. Old modes retain their original routing and
+        // JSON/error contracts unchanged.
         if (options.Value.Provider == AdminAuthenticationProvider.OidcCode
-            && HttpMethods.IsPost(context.Request.Method) && context.Request.Path == "/admin/auth/login")
+            && HttpMethods.IsPost(context.Request.Method) && MatchesRoute(context.Request.Path, "/admin/auth/login"))
         {
             var login = endpoints.Endpoints.OfType<RouteEndpoint>().First(endpoint =>
                 endpoint.RoutePattern.RawText == "/admin/auth/login"
                 && endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains("POST") == true);
             context.SetEndpoint(login);
         }
-        if (context.Request.Path is var path && (path == "/admin/auth/start" || path == "/admin/auth/callback" || path == "/admin/auth/method"))
+        // Key the safety headers off the endpoint routing selected rather than the raw
+        // path: case and trailing-slash variants of these routes run the same endpoint
+        // and must carry the same response guarantees.
+        var route = (context.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText;
+        if (route is "/admin/auth/start" or "/admin/auth/callback" or "/admin/auth/method")
         {
             context.Response.Headers.CacheControl = "no-store";
-            if (path == "/admin/auth/callback") context.Response.Headers["Referrer-Policy"] = "no-referrer";
+            if (route == "/admin/auth/callback") context.Response.Headers["Referrer-Policy"] = "no-referrer";
         }
         return next(context);
     }
@@ -137,7 +152,8 @@ public sealed class AdminHostedLoginSafety(RequestDelegate next, IOptions<AdminA
 public sealed class HostedPasswordLoginMiddleware(RequestDelegate next, IOptions<AdminAuthenticationOptions> options)
 {
     public Task InvokeAsync(HttpContext context) => options.Value.Provider == AdminAuthenticationProvider.OidcCode
-        && HttpMethods.IsPost(context.Request.Method) && context.Request.Path == "/admin/auth/login"
+        && HttpMethods.IsPost(context.Request.Method)
+        && AdminHostedLoginSafety.MatchesRoute(context.Request.Path, "/admin/auth/login")
         ? VocabularyHttpResponse.WriteFailureAsync(context.Response, StatusCodes.Status400BadRequest,
             "Password login is disabled for hosted authentication.")
         : next(context);

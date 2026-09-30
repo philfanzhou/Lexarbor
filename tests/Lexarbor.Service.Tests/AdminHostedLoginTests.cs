@@ -297,6 +297,117 @@ public class AdminHostedLoginTests
         using var other = await f.Client.GetAsync("/admin/auth/start", Ct); Assert.Equal(HttpStatusCode.Redirect, other.StatusCode);
     }
 
+    // ASP.NET Core routing matches a literal route case-insensitively and with one
+    // optional trailing slash, so every form below runs the same endpoint and must
+    // carry the same guarantees as the canonical path.
+    [Theory]
+    [InlineData("/admin/auth/method")]
+    [InlineData("/admin/auth/method/")]
+    [InlineData("/ADMIN/AUTH/METHOD")]
+    [InlineData("/Admin/Auth/Method/")]
+    public async Task MethodRouteForms_CarryNoStoreOnEveryAcceptedForm(string path)
+    {
+        using var f = new Fixture();
+        using var response = await f.Client.GetAsync(path, Ct);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("\"method\":\"hosted\"", await response.Content.ReadAsStringAsync(Ct));
+        Assert.Equal("no-store", response.Headers.CacheControl!.ToString());
+    }
+
+    [Theory]
+    [InlineData("/admin/auth/start")]
+    [InlineData("/admin/auth/start/")]
+    [InlineData("/ADMIN/AUTH/START")]
+    [InlineData("/Admin/Auth/Start/")]
+    public async Task StartRouteForms_CarryNoStoreAndCreateTransaction(string path)
+    {
+        using var f = new Fixture();
+        using var response = await f.Client.GetAsync(path, Ct);
+        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+        Assert.Equal("no-store", response.Headers.CacheControl!.ToString());
+        Assert.Single(response.Headers.GetValues("Set-Cookie"));
+        Assert.Equal(0, f.Posts);
+    }
+
+    [Theory]
+    [InlineData("/admin/auth/callback")]
+    [InlineData("/admin/auth/callback/")]
+    [InlineData("/ADMIN/AUTH/CALLBACK")]
+    [InlineData("/Admin/Auth/Callback/")]
+    public async Task CallbackRouteForms_CarrySafetyHeadersOnSuccessAndFailure(string path)
+    {
+        using var f = new Fixture();
+        using var invalid = await f.Client.GetAsync(path + "?code=sensitive-code-marker", Ct);
+        Failure(invalid, "sign_in_failed"); Assert.Equal(0, f.Posts); SafetyHeaders(invalid);
+        var canceled = await f.Start();
+        using var cancel = await f.Send(f.Query(canceled, "access_denied", path), canceled.Cookie);
+        Failure(cancel, "canceled"); SafetyHeaders(cancel);
+        var success = await f.Start();
+        using var signedIn = await f.Send(f.Query(success, path: path), success.Cookie);
+        Assert.Equal("/#/books", signedIn.Headers.Location!.OriginalString);
+        SafetyHeaders(signedIn);
+        Assert.Equal(1, f.Posts);
+        Assert.Contains(signedIn.Headers.GetValues("Set-Cookie"), s => s.StartsWith(success.Cookie.Split('=')[0] + "=;", StringComparison.Ordinal));
+        f.AssertSafeLogs(success);
+    }
+
+    [Theory]
+    [InlineData("/admin/auth/login", "application/json", "{broken")]
+    [InlineData("/admin/auth/login/", "application/json", "{broken")]
+    [InlineData("/ADMIN/AUTH/LOGIN", "application/json", "{broken")]
+    [InlineData("/Admin/Auth/Login/", "application/json", "{broken")]
+    [InlineData("/admin/auth/login", "text/plain", "{broken")]
+    [InlineData("/admin/auth/login/", "text/plain", "{broken")]
+    [InlineData("/ADMIN/AUTH/LOGIN/", "text/plain", "{broken")]
+    [InlineData("/admin/auth/login/", "application/json", "")]
+    [InlineData("/Admin/Auth/Login/", "application/json", "")]
+    [InlineData("/admin/auth/login/", "application/json", "{\"username\":\"sensitive-password-marker\",\"password\":\"sensitive-password-marker\"}")]
+    [InlineData("/ADMIN/AUTH/LOGIN/", "application/json", "{\"username\":\"sensitive-password-marker\",\"password\":\"sensitive-password-marker\"}")]
+    [InlineData("/Admin/Auth/Login/", "text/plain", "{\"username\":\"sensitive-password-marker\",\"password\":\"sensitive-password-marker\"}")]
+    public async Task CodePasswordEntry_RejectsEveryAcceptedRouteFormBeforeBinding(string path, string contentType, string body)
+    {
+        using var f = new Fixture();
+        using var response = await f.Client.PostAsync(path, new StringContent(body, Encoding.UTF8, contentType), Ct);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("{\"success\":false,\"message\":\"Password login is disabled for hosted authentication.\"}", await response.Content.ReadAsStringAsync(Ct));
+        Assert.Equal(0, f.Posts);
+        Assert.DoesNotContain(f.Logs.Messages, l => l.Contains("sensitive-password-marker", StringComparison.Ordinal));
+        var handle = await f.Seed();
+        using var csrf = await f.Send(path, AdminSessionCookie.Name + "=" + handle, "POST", new StringContent(body));
+        Assert.Equal(HttpStatusCode.Forbidden, csrf.StatusCode);
+    }
+
+    // Restricted normalization must not claim paths routing itself rejects: a double
+    // trailing slash or an extra segment stays on the authenticated admin catchall.
+    [Theory]
+    [InlineData("/admin/auth/login//")]
+    [InlineData("/admin/auth/login/extra")]
+    public async Task NonRouteForms_KeepAdminCatchallBehavior(string path)
+    {
+        using var f = new Fixture();
+        using var response = await f.Client.PostAsync(path, new StringContent("{broken", Encoding.UTF8, "application/json"), Ct);
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Contains("Authentication is required.", await response.Content.ReadAsStringAsync(Ct));
+        using var method = await f.Client.GetAsync("/admin/auth/method//", Ct);
+        Assert.Equal(HttpStatusCode.Unauthorized, method.StatusCode);
+        Assert.False(method.Headers.Contains("Cache-Control"));
+        Assert.Equal(0, f.Posts);
+    }
+
+    [Fact]
+    public async Task StartAndLoginRouteForms_ShareIpQuotaAndRetryAfter()
+    {
+        using var f = new Fixture(new Dictionary<string, string?> { ["RateLimits:AdminLogin:Enabled"] = "true", ["RateLimits:AdminLogin:PermitLimit"] = "2", ["RateLimits:AdminLogin:WindowSeconds"] = "300" });
+        f.Client.DefaultRequestHeaders.Add(VocabularyWebApplicationFactory.ClientAddressHeader, "203.0.113.10");
+        using var start = await f.Client.GetAsync("/admin/auth/start/", Ct); Assert.Equal(HttpStatusCode.Redirect, start.StatusCode);
+        using var password = await f.Client.PostAsync("/Admin/Auth/Login/", new StringContent(""), Ct); Assert.Equal(HttpStatusCode.BadRequest, password.StatusCode);
+        using var limited = await f.Client.GetAsync("/ADMIN/AUTH/START", Ct); Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
+        Assert.NotNull(limited.Headers.RetryAfter); Assert.Equal("no-store", limited.Headers.CacheControl!.ToString());
+        f.Client.DefaultRequestHeaders.Remove(VocabularyWebApplicationFactory.ClientAddressHeader);
+        f.Client.DefaultRequestHeaders.Add(VocabularyWebApplicationFactory.ClientAddressHeader, "203.0.113.11");
+        using var other = await f.Client.GetAsync("/admin/auth/start/", Ct); Assert.Equal(HttpStatusCode.Redirect, other.StatusCode);
+    }
+
     [Theory]
     [InlineData("Oidc")]
     [InlineData("Gateway")]
@@ -306,6 +417,27 @@ public class AdminHostedLoginTests
         using var method = await f.Client.GetAsync("/admin/auth/method", Ct); Assert.Contains("password", await method.Content.ReadAsStringAsync(Ct));
         using var start = await f.Client.GetAsync("/admin/auth/start", Ct); Assert.Equal(HttpStatusCode.BadRequest, start.StatusCode); Assert.False(start.Headers.Contains("Set-Cookie"));
         using var callback = await f.Client.GetAsync("/admin/auth/callback?code=sensitive-code-marker", Ct); Failure(callback, "sign_in_failed"); Assert.False(callback.Headers.Contains("Set-Cookie"));
+        Assert.Equal(0, f.Posts);
+    }
+
+    [Theory]
+    [InlineData("Oidc")]
+    [InlineData("Gateway")]
+    public async Task OldModes_RouteFormsKeepOriginalContract(string provider)
+    {
+        using var f = new Fixture(provider: provider);
+        foreach (var form in new[] { "/admin/auth/login/", "/ADMIN/AUTH/LOGIN", "/Admin/Auth/Login/" })
+        {
+            using var json = await f.Client.PostAsync(form, new StringContent("{broken", Encoding.UTF8, "application/json"), Ct);
+            Assert.Equal(HttpStatusCode.BadRequest, json.StatusCode);
+            Assert.Contains("The request is invalid.", await json.Content.ReadAsStringAsync(Ct));
+            using var text = await f.Client.PostAsync(form, new StringContent("{broken", Encoding.UTF8, "text/plain"), Ct);
+            Assert.Equal(HttpStatusCode.Unauthorized, text.StatusCode);
+            Assert.Contains("Authentication is required.", await text.Content.ReadAsStringAsync(Ct));
+        }
+        using var method = await f.Client.GetAsync("/admin/auth/method/", Ct); Assert.Contains("password", await method.Content.ReadAsStringAsync(Ct));
+        using var start = await f.Client.GetAsync("/admin/auth/start/", Ct); Assert.Equal(HttpStatusCode.BadRequest, start.StatusCode); Assert.False(start.Headers.Contains("Set-Cookie"));
+        using var callback = await f.Client.GetAsync("/admin/auth/callback/?code=sensitive-code-marker", Ct); Failure(callback, "sign_in_failed"); Assert.False(callback.Headers.Contains("Set-Cookie"));
         Assert.Equal(0, f.Posts);
     }
 
@@ -437,6 +569,12 @@ public class AdminHostedLoginTests
     private static void Failure(HttpResponseMessage response, string reason)
     { Assert.Equal(HttpStatusCode.Redirect, response.StatusCode); Assert.Equal("/#/login?reason=" + reason, response.Headers.Location!.OriginalString); }
 
+    private static void SafetyHeaders(HttpResponseMessage response)
+    {
+        Assert.Equal("no-store", response.Headers.CacheControl!.ToString());
+        Assert.Equal("no-referrer", response.Headers.GetValues("Referrer-Policy").Single());
+    }
+
     private sealed record Transaction(string State, string Nonce, string Cookie, string SetCookie, Dictionary<string, Microsoft.Extensions.Primitives.StringValues> Parameters);
     private sealed class Fixture : IDisposable
     {
@@ -504,7 +642,7 @@ public class AdminHostedLoginTests
             var cookie = response.Headers.GetValues("Set-Cookie").Single();
             return new(state, nonce, cookie.Split(';')[0], cookie, parameters);
         }
-        public string Query(Transaction t, string? error = null) => "/admin/auth/callback?registered=1&state=" + t.State + "&iss=" + Uri.EscapeDataString(Issuer)
+        public string Query(Transaction t, string? error = null, string path = "/admin/auth/callback") => path + "?registered=1&state=" + t.State + "&iss=" + Uri.EscapeDataString(Issuer)
             + (error is null ? "&code=" + Code : "&error=" + error);
         public Task<HttpResponseMessage> Callback(Transaction t, string extraCookie = "") => Send(Query(t), t.Cookie + (extraCookie.Length == 0 ? "" : "; " + extraCookie));
         public Task<HttpResponseMessage> Send(string path, string cookie = "", string method = "GET", HttpContent? body = null, bool csrf = false)
