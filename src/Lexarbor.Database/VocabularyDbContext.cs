@@ -15,9 +15,15 @@ public class VocabularyDbContext : DbContext
     public DbSet<VocabularyBookUnitEntity> VocabularyBookUnits { get; set; } = null!;
     public DbSet<VocabularyMeaningUnitEntity> VocabularyMeaningUnits { get; set; } = null!;
 
+    public DbSet<AdminSessionEntity> AdminSessions { get; set; } = null!;
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        modelBuilder.Entity<AdminSessionEntity>(entity =>
+        {
+            entity.HasIndex(e => new { e.ExpiresAtUnixMs, e.HandleHash });
+        });
 
         modelBuilder.Entity<VocabularyEntity>(entity =>
         {

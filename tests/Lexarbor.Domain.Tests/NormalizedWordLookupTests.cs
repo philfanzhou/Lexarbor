@@ -107,7 +107,7 @@ public sealed class NormalizedWordLookupTests : IDisposable
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow
         });
-        await unitOfWork.SaveChangesAsync();
+        await unitOfWork.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var (correct, _) = await service.AddOrUpdateAsync(
             new VocabularyModel { Word = "apple" },

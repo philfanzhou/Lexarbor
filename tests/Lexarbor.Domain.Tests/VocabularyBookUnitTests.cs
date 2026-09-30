@@ -401,7 +401,7 @@ public class VocabularyBookUnitTests : TestBase
         });
 
         await Assert.ThrowsAsync<ConflictException>(
-            () => _unitOfWork.SaveChangesAsync());
+            () => _unitOfWork.SaveChangesAsync(TestContext.Current.CancellationToken));
         _dbContext.ChangeTracker.Clear();
 
         Assert.Equal(0, await _dbContext.VocabularyMeaningUnits.CountAsync(TestContext.Current.CancellationToken));
@@ -583,7 +583,7 @@ public class VocabularyBookUnitTests : TestBase
         await _service.AssignMeaningAsync(unit.Id, meaning.Id, null, null);
 
         await _meaningRepository.DeleteAsync(meaning.Id);
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(0, await _dbContext.VocabularyMeaningUnits.CountAsync(TestContext.Current.CancellationToken));
         Assert.Equal(1, await _dbContext.Vocabularies.CountAsync(TestContext.Current.CancellationToken));
@@ -603,7 +603,7 @@ public class VocabularyBookUnitTests : TestBase
             [word.Id], TestContext.Current.CancellationToken);
         Assert.NotNull(wordEntity);
         _dbContext.Vocabularies.Remove(wordEntity);
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(0, await _dbContext.Vocabularies.CountAsync(TestContext.Current.CancellationToken));
         Assert.Equal(0, await _dbContext.VocabularyMeanings.CountAsync(TestContext.Current.CancellationToken));

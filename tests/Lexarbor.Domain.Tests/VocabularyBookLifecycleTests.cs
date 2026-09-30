@@ -53,7 +53,7 @@ public class VocabularyBookLifecycleTests : TestBase
             BookId = book.Id,
             Meaning = "fruit"
         });
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var exception = await Assert.ThrowsAsync<ConflictException>(
             () => _service.DeleteAsync(book.Id));

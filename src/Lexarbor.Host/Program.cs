@@ -78,6 +78,26 @@ builder.Services.AddScoped<IVocabularyMeaningRepository, VocabularyMeaningReposi
 builder.Services.AddScoped<IVocabularyBookUnitRepository, VocabularyBookUnitRepository>();
 builder.Services.AddScoped<IVocabularyMeaningUnitRepository, VocabularyMeaningUnitRepository>();
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
+builder.Services.AddSingleton(TimeProvider.System);
+// A session database failure must not emit SQL, parameters, or provider exception details.
+builder.Services.PostConfigure<LoggerFilterOptions>(options =>
+{
+    // Preserve all configured category/provider thresholds, including more-specific
+    // Database.Command rules, while preventing sensitive diagnostics during session IO.
+    options.Rules.Insert(0, new LoggerFilterRule(null, null, options.MinLevel, null));
+    for (var index = 0; index < options.Rules.Count; index++)
+    {
+        var rule = options.Rules[index];
+        options.Rules[index] = new LoggerFilterRule(rule.ProviderName, rule.CategoryName, rule.LogLevel,
+            (provider, category, level) =>
+                !(AdminSessionRepository.IsSessionOperation
+                    && category?.StartsWith("Microsoft.EntityFrameworkCore", StringComparison.Ordinal) == true)
+                && (rule.Filter?.Invoke(provider, category, level) ?? true));
+    }
+});
+builder.Services.AddScoped<AdminSessionRepository>();
+builder.Services.AddScoped<AdminSessionStore>();
+builder.Services.AddHostedService<AdminSessionCleanupService>();
 builder.Services.AddScoped<IVocabularyWordEditRepository, VocabularyWordEditRepository>();
 builder.Services.AddScoped<VocabularyWordEditService>();
 builder.Services.AddScoped<VocabularyMeaningEditService>();

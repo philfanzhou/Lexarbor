@@ -267,6 +267,57 @@ check_catalog_is_empty "$FRESH_CONTAINER"
 cmp --silent src/Lexarbor.Host/appsettings.json "$fresh_data/appsettings.json"
 docker rm -f "$FRESH_CONTAINER" >/dev/null
 
+# Python sqlite3 inspects only schema and synthetic vocabulary rows, never session payloads.
+# It runs on the CI/smoke host; the production image stays free of database utilities.
+echo "Checking session schema and upgrading a pre-session database without rewriting vocabulary"
+upgrade_data="$TEST_ROOT/upgrade"
+mkdir -p "$upgrade_data"
+cp "$fresh_data/appsettings.json" "$upgrade_data/appsettings.json"
+# Use SQLite backup so the stopped container's retained WAL is included consistently.
+python3 - "$fresh_data/vocabulary.db" "$upgrade_data/vocabulary.db" <<'PYSQL'
+import sqlite3
+import sys
+with sqlite3.connect(sys.argv[1]) as source, sqlite3.connect(sys.argv[2]) as target:
+    source.backup(target)
+PYSQL
+python3 - "$upgrade_data/vocabulary.db" "$TEST_ROOT/vocabulary-before.json" <<'PYSQL'
+import json
+import sqlite3
+import sys
+
+with sqlite3.connect(sys.argv[1]) as connection:
+    columns = {row[1]: row[2] for row in connection.execute("PRAGMA table_info(admin_session)")}
+    assert columns == {"handle_hash": "TEXT", "expires_at_unix_ms": "INTEGER", "protected_payload": "TEXT"}
+    assert connection.execute("SELECT COUNT(*) FROM admin_session").fetchone()[0] == 0
+    assert any(row[1] == "IX_admin_session_expires_at_unix_ms_handle_hash" for row in connection.execute("PRAGMA index_list(admin_session)"))
+    connection.execute("DROP TABLE admin_session")
+    connection.execute("DELETE FROM __EFMigrationsHistory WHERE MigrationId LIKE '%_AddAdminSessions'")
+    connection.execute("INSERT INTO vocabulary_book (id, book_name, display_order, status, created_at, updated_at) VALUES ('retained-book', 'Retained book', 0, 1, '2026-01-01', '2026-01-01')")
+    connection.execute("INSERT INTO vocabulary (id, word, created_at, updated_at) VALUES ('retained-word', 'Retained Word', '2026-01-01', '2026-01-01')")
+    snapshot = {table: connection.execute(f"SELECT * FROM {table}").fetchall() for table in ("vocabulary_book", "vocabulary")}
+    with open(sys.argv[2], "w", encoding="utf-8") as output:
+        json.dump(snapshot, output)
+PYSQL
+start_bind_mounted_container "$EXISTING_CONTAINER" "$upgrade_data"
+check_key_ring "$EXISTING_CONTAINER"
+docker rm -f "$EXISTING_CONTAINER" >/dev/null
+python3 - "$upgrade_data/vocabulary.db" "$TEST_ROOT/vocabulary-before.json" <<'PYSQL'
+import json
+import sqlite3
+import sys
+
+with sqlite3.connect(sys.argv[1]) as connection:
+    with open(sys.argv[2], encoding="utf-8") as source:
+        before = json.load(source)
+    for table, rows in before.items():
+        assert [list(row) for row in connection.execute(f"SELECT * FROM {table}")] == rows
+    assert connection.execute("SELECT COUNT(*) FROM admin_session").fetchone()[0] == 0
+    assert any(row[1] == "IX_admin_session_expires_at_unix_ms_handle_hash" for row in connection.execute("PRAGMA index_list(admin_session)"))
+PYSQL
+start_bind_mounted_container "$EXISTING_CONTAINER" "$upgrade_data"
+check_key_ring "$EXISTING_CONTAINER"
+docker rm -f "$EXISTING_CONTAINER" >/dev/null
+
 echo "Checking read-only key storage prevents startup"
 check_key_startup_rejected "$fresh_data" ro
 

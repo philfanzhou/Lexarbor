@@ -149,7 +149,7 @@ public class VocabularyQuestionTests : TestBase
         _ = await SeedWordAsync(book.Id, "banana", "yellow fruit");
         _ = await SeedWordAsync(book.Id, "cherry", "red fruit");
         _ = await SeedWordAsync(book.Id, "date", "sweet fruit");
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var question = await _service.CreateQuestionAsync(
             correct.Id,
@@ -456,7 +456,7 @@ public class VocabularyQuestionTests : TestBase
         var data = await SeedCompleteBookAsync();
         data.Book.Status = false;
         await _bookRepository.UpdateAsync(data.Book);
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         await Assert.ThrowsAsync<BusinessRuleException>(() =>
             _service.CreateQuestionAsync(data.CorrectWord.Id, data.Book.Id, chineseToEnglish: true));

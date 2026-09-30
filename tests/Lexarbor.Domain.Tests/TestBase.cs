@@ -5,6 +5,7 @@ using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Xunit;
 
 namespace Lexarbor.Domain.Tests;
 
@@ -51,7 +52,7 @@ public class TestBase : IDisposable
         };
 
         await _bookRepository.AddAsync(book);
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.SaveChangesAsync(TestContext.Current.CancellationToken);
         return book;
     }
 

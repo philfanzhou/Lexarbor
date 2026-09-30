@@ -218,7 +218,7 @@ public class VocabularyImportIntegrityTests : TestBase
         });
         disabledBook.Status = false;
         await _bookRepository.UpdateAsync(disabledBook);
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var (items, totalCount) = await _service.SearchAsync("word", 1, 20);
 
@@ -346,7 +346,7 @@ public class VocabularyImportIntegrityTests : TestBase
 
         book.Status = false;
         await _bookRepository.UpdateAsync(book);
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         await Assert.ThrowsAsync<BusinessRuleException>(
             () => _service.GetDetailAsync(word.Id, book.Id));
