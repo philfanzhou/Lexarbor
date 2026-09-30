@@ -82,6 +82,8 @@ builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 builder.Services.AddSingleton(TimeProvider.System);
 // One-time, browser-bound hosted login transactions.
 builder.Services.AddSingleton<PendingAdminLoginStore>();
+// One-time, browser-bound prepared-logout return transactions.
+builder.Services.AddSingleton<PendingAdminLogoutStore>();
 // A session database failure must not emit SQL, parameters, or provider exception details.
 builder.Services.PostConfigure<LoggerFilterOptions>(options =>
 {
@@ -171,6 +173,12 @@ builder.Services.AddScoped<AdminAccessTokenValidator>();
 builder.Services.Configure<OidcCodeOptions>(builder.Configuration.GetSection(OidcCodeOptions.SectionName));
 builder.Services.AddScoped<AdminCodeExchange>();
 builder.Services.AddHttpClient(AdminCodeExchange.BackchannelName, client => client.Timeout = TimeSpan.FromSeconds(30))
+    .RemoveAllLoggers()
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false });
+// The prepared-logout backchannel mirrors the code exchange one: no loggers that
+// could see the ID token or secret, no redirects, no cookies, and a bounded deadline.
+builder.Services.AddScoped<AdminPreparedLogout>();
+builder.Services.AddHttpClient(AdminPreparedLogout.BackchannelName, client => client.Timeout = TimeSpan.FromSeconds(30))
     .RemoveAllLoggers()
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false });
 

@@ -19,6 +19,7 @@ LEXARBOR_DATA_DIR="$probe_root/data" LEXARBOR_ADMIN_AUTH_PROVIDER=OidcCode \
 LEXARBOR_OIDC_CODE_CLIENT_ID=synthetic-client \
 LEXARBOR_OIDC_CODE_CLIENT_SECRET=synthetic-code-secret \
 LEXARBOR_OIDC_CODE_REDIRECT_URI='https://lexarbor.test/admin/auth/callback?registered=1' \
+LEXARBOR_OIDC_CODE_POST_LOGOUT_REDIRECT_URI='https://lexarbor.test/admin/auth/logout/return' \
 LEXARBOR_OIDC_CODE_SCOPE='openid profile' \
 bash scripts/start.sh >/dev/null
 python3 - "$probe_root/arguments" "$probe_root/data/appsettings.json" <<'PY'
@@ -29,6 +30,7 @@ expected = {
     'AdminAuthentication__OidcCode__ClientId': 'synthetic-client',
     'AdminAuthentication__OidcCode__ClientSecret': 'synthetic-code-secret',
     'AdminAuthentication__OidcCode__RedirectUri': 'https://lexarbor.test/admin/auth/callback?registered=1',
+    'AdminAuthentication__OidcCode__PostLogoutRedirectUri': 'https://lexarbor.test/admin/auth/logout/return',
     'AdminAuthentication__OidcCode__Scope': 'openid profile',
 }
 for key, value in expected.items():

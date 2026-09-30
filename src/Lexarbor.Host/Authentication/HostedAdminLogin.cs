@@ -145,6 +145,21 @@ public sealed class AdminHostedLoginSafety(RequestDelegate next, IOptions<AdminA
             context.Response.Headers.CacheControl = "no-store";
             if (route == "/admin/auth/callback") context.Response.Headers["Referrer-Policy"] = "no-referrer";
         }
+        // The Code-mode logout response can carry the one-time upstream logout URI,
+        // and the fixed return route always redirects with a one-time state, so
+        // neither may be stored; the return route also hides its target from
+        // referrers like the login callback. Old-mode logout responses keep their
+        // original headers, and with them their unchanged contract.
+        if (route == "/admin/auth/logout/return")
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            context.Response.Headers["Referrer-Policy"] = "no-referrer";
+        }
+        else if (route == "/admin/auth/logout"
+            && options.Value.Provider == AdminAuthenticationProvider.OidcCode)
+        {
+            context.Response.Headers.CacheControl = "no-store";
+        }
         return next(context);
     }
 }

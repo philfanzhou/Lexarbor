@@ -260,6 +260,17 @@ grep -qi '^Cache-Control: no-store' "$TEST_ROOT/code-headers"
 password_status="$(curl --silent --show-error --output "$TEST_ROOT/code-password" --write-out '%{http_code}' --request POST --header 'Content-Type: application/json' --data '{broken' "http://127.0.0.1:${code_port}/admin/auth/login")"
 test "$password_status" = 400
 jq --exit-status '. == {success:false,message:"Password login is disabled for hosted authentication."}' "$TEST_ROOT/code-password" >/dev/null
+echo "Checking Code-mode logout smoke: sessionless local-only logout and failed-return redirect"
+logout_status="$(curl --silent --show-error --dump-header "$TEST_ROOT/code-logout-headers" --output "$TEST_ROOT/code-logout" --write-out '%{http_code}' --request POST "http://127.0.0.1:${code_port}/admin/auth/logout")"
+test "$logout_status" = 200
+jq --exit-status '. == {success:true}' "$TEST_ROOT/code-logout" >/dev/null
+grep -qi '^Cache-Control: no-store' "$TEST_ROOT/code-logout-headers"
+return_status="$(curl --silent --show-error --dump-header "$TEST_ROOT/code-return-headers" --output /dev/null --write-out '%{http_code}' "http://127.0.0.1:${code_port}/admin/auth/logout/return?state=sensitive-state-marker")"
+test "$return_status" = 302
+grep -qi '^Location: /#/login?reason=logout_failed' "$TEST_ROOT/code-return-headers"
+grep -qi '^Cache-Control: no-store' "$TEST_ROOT/code-return-headers"
+grep -qi '^Referrer-Policy: no-referrer' "$TEST_ROOT/code-return-headers"
+! grep -q 'sensitive-state-marker' "$TEST_ROOT/code-return-headers"
 docker rm -f -v "$CODE_CONTAINER" >/dev/null
 
 echo "Checking named-volume key storage as the image user"
