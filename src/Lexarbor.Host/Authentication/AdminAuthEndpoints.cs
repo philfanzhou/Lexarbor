@@ -17,6 +17,7 @@ public static class AdminAuthEndpoints
         app.MapPost("/admin/auth/login", LoginAsync)
             .AllowAnonymous()
             .RequireRateLimiting(RateLimitingExtensions.AdminLoginPolicy);
+        app.MapHostedAdminLogin();
         app.MapGet("/admin/auth/session", GetSession)
             .RequireAuthorization("VocabularyAdmin");
         // Deliberately unlimited. Logout revokes a local session, and an administrator

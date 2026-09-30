@@ -218,7 +218,7 @@ code is not a reason to remove the ring or discard its backup.
 The additive `AddAdminSessions` migration creates an empty `admin_session` table
 and an expiry/hash index without changing vocabulary data. This release registers
 storage, bounded cleanup and an internal session authentication/sign-in service.
-It does not enable OIDC Code flow, refresh, or change the production password
+This storage layer does not enable refresh or change the production password
 login and frontend flow.
 The table contains SHA-256 handle digests, UTC Unix millisecond deadlines and Data
 Protection ciphertext. Token/identity data is bound to each row's digest and deadline.
@@ -261,7 +261,7 @@ subject and a future `exp`; structural and role checks do not replace token vali
 Only the encrypted server-side payload contains access/ID tokens. Responses and the
 new cookie contain no token. Password/OIDC password-grant/Gateway login continues
 issuing the configured legacy HttpOnly JWT cookie with its existing Strict/secure
-settings and response envelope; OIDC Code login is not enabled by this change.
+settings and response envelope; optional OIDC Code login uses the server-side session described below.
 
 Each request selects exactly one authentication source:
 
@@ -354,7 +354,7 @@ bash scripts/start.sh
 
 ### Connecting to SignaCore
 
-[SignaCore](https://github.com/philfanzhou/SignaCore) works with the default `Oidc` provider through its RFC 6749 token endpoint, `/oauth2/token`. SignaCore also provides hosted authorization-code login, but Lexarbor has not enabled that public flow yet. Administrators currently sign in through the Lexarbor login form and Lexarbor performs the password grant server-side; the browser never receives the client secret or the access token.
+[SignaCore](https://github.com/philfanzhou/SignaCore) works with the default `Oidc` provider through its RFC 6749 token endpoint, `/oauth2/token`. SignaCore also provides hosted authorization-code login, available with the optional `OidcCode` mode below. Administrators currently sign in through the Lexarbor login form and Lexarbor performs the password grant server-side; the browser never receives the client secret or the access token.
 
 In SignaCore:
 
@@ -384,10 +384,9 @@ When login answers 502, the Lexarbor log names the cause. `rejected with invalid
 
 The `Gateway` adapter also speaks SignaCore's older `/api/auth/token` contract, but new deployments should use `/oauth2/token` through the `Oidc` provider.
 
-## Internal pending hosted-login transactions (not enabled)
+## Pending hosted-login transactions
 
-`PendingAdminLoginStore` is an internal singleton for one Host instance. It does
-not enable public hosted-login routes, Code mode, token exchange or session sign-in.
+`PendingAdminLoginStore` is the singleton used by hosted login for one Host instance.
 It holds at most 4096 active transactions for five minutes. At capacity it reclaims
 expired entries and rejects creation without evicting active entries. Restarting
 the Host loses pending logins, so users must start login again; existing persisted
@@ -401,10 +400,9 @@ nonce/verifier and validated return target. Creation exposes no verifier; only a
 successful internal consume returns it. There are no code/token/secret/identity
 fields, and correlation material must never be logged.
 
-Future HTTP callers must use a separate `__Host-Lexarbor.Login.<state>` cookie for
+HTTP routes use a separate `__Host-Lexarbor.Login.<state>` cookie for
 each transaction, with HttpOnly, Secure, SameSite=Lax, Path=/, no Domain and a
-five-minute lifetime; the service provides naming/start/deletion attributes but
-writes no HTTP cookies. Parallel starts cannot overwrite a shared binding cookie.
+five-minute lifetime. Parallel starts cannot overwrite a shared binding cookie.
 Callbacks validate unique fields and exact issuer before consuming state/browser
 binding; only one concurrent consumer succeeds, and the exact deadline is expired.
 A wrong browser cannot consume the valid transaction. Clear only that transaction's
@@ -419,16 +417,14 @@ Return targets default to `/#/books` when omitted and accept only `/books`,
 digits, `-` or `_`; inputs are at most 256 characters. The store saves the normalized
 `/#/...` target. Queries, extra fragments, percent encoding (including double or
 invalid encoding), absolute URLs, double slashes, backslashes, controls, login,
-forbidden and unknown routes fail closed. Future navigation uses this stored target,
+forbidden and unknown routes fail closed. Navigation uses this stored target,
 never a new callback-supplied target. Rollback discards only in-memory pending state;
-no database, migration, persistence-directory, container-script or frontend change
-is required for this internal foundation.
+no database, migration or persistence-directory change is needed.
 
-## Internal authorization-code foundation (not enabled)
+## Authorization-code validation
 
-The Host contains an internal `AdminCodeExchange` service for future Confidential
-SignaCore hosted login. It does not add a selectable provider, HTTP start/callback
-routes, session sign-in, or change the default password/Gateway/Bearer behavior.
+The Host uses `AdminCodeExchange` for Confidential SignaCore hosted login.
+The default password/Gateway/Bearer behavior remains available.
 Incomplete unused Code settings do not prevent the existing service from starting.
 
 Its settings are `AdminAuthentication:OidcCode:ClientId`, `ClientSecret`, `RedirectUri`
@@ -436,10 +432,9 @@ and `Scope` (default `openid profile`), alongside the existing `IdentityService`
 trust settings. The resource audience must exactly equal the client ID
 (PerApplication). Scope must contain `openid` and may contain only `profile` in
 addition; `offline_access` and refresh are not enabled. Keep the secret in a
-protected server configuration source. No container-script aliases are introduced
-for this internal foundation.
+protected server configuration source. Container aliases are listed below.
 
-Before future activation, register a Confidential SignaCore application, change its
+Before activation, register a Confidential SignaCore application, change its
 audience to PerApplication, register the exact callback, then enable Code with
 `openid`/`profile` and refresh disabled. The callback must be an ASCII HTTPS URI of
 at most 500 characters with path `/admin/auth/callback`, no userinfo or fragment.
@@ -465,9 +460,86 @@ SMS and password `amr` are both accepted. Only the validated access token can gr
 the configured administrator role; ID profile/roles cannot authorize. The internal
 result carries tokens only for trusted Host callers and never creates a session.
 Failures expose fixed classifications without upstream bodies or raw exceptions;
-caller cancellation propagates. A future HTTP caller must first validate and consume
+caller cancellation propagates. The callback first validates and consumes
 its browser-bound transaction and must keep all tokens/verifiers/secrets server-side.
 No database, migration, persistence directory or public JSON contract changes here.
+
+## Hosted authorization-code login (optional)
+
+Register a Confidential SignaCore application first, select PerApplication audience,
+register the exact external HTTPS `/admin/auth/callback` URI, enable authorization
+code with PKCE S256 and `openid profile`, and supply the administrator role through
+the access token. Only then select `AdminAuthentication:Provider=OidcCode`. The
+client ID and `IdentityService:Audience` must both be the application ID; issuer
+must exactly match Discovery. Set `IdentityService:Authority` to the trusted HTTPS
+provider. SignaCore Code access tokens last 15 minutes; the session ends at exact
+access-token `exp`, with no refresh. Code scope defaults to `openid profile`;
+SignaCore's older password grant instead requires the **empty** scope documented
+above. Do not copy password-grant settings into the Code section.
+
+| Container script variable | Configuration key |
+|---|---|
+| `LEXARBOR_OIDC_CODE_CLIENT_ID` | `AdminAuthentication:OidcCode:ClientId` |
+| `LEXARBOR_OIDC_CODE_CLIENT_SECRET` | `AdminAuthentication:OidcCode:ClientSecret` |
+| `LEXARBOR_OIDC_CODE_REDIRECT_URI` | `AdminAuthentication:OidcCode:RedirectUri` |
+| `LEXARBOR_OIDC_CODE_SCOPE` | `AdminAuthentication:OidcCode:Scope` |
+
+These independent overrides never rewrite a pre-existing `/app/data/appsettings.json`.
+Use `LEXARBOR_ADMIN_AUTH_PROVIDER=OidcCode` and the existing identity variables.
+Protect the secret as server configuration; never put it in frontend settings.
+A registered static callback query is kept byte-for-byte, but duplicate fields or
+reserved `state`, `iss`, `code`, `error`, `error_description` fields are refused.
+Behind a proxy use the registered external HTTPS URI and trusted client-address
+forwarding; the callback is never inferred from untrusted request headers.
+
+`GET /admin/auth/method` returns only `{success:true,data:{method:"hosted"}}` in
+Code mode (`password` otherwise). Navigate to `GET /admin/auth/start`, optionally
+with one `returnUrl` from the route allowlist above. It shares the password login's
+per-IP quota and 429/Retry-After contract. Invalid return targets give 400; missing
+Code configuration or full pending capacity gives 503, and failed/untrusted
+Discovery gives 502, without creating a login cookie or changing existing sessions.
+Old modes safely refuse hosted routes. Code mode rejects every
+`POST /admin/auth/login` with 400 before parsing a password body; existing cookie
+CSRF protection still applies. Configuration is selected at startup.
+
+Start uses Discovery's authorization endpoint with unique supported fields, no
+`response_mode`. Callback requires unique state/issuer and exactly one code or
+allowlisted error, validates browser binding, then atomically consumes the transaction
+and clears only its cookie. Success validates both tokens and the access role,
+commits the encrypted session, and redirects to the stored local hash target.
+Failures immediately redirect to `/#/login?reason=canceled|denied|sign_in_failed|provider_unavailable`
+with a fixed classification, never upstream error descriptions. Method/start/callback
+send `Cache-Control: no-store`, and callback sends `Referrer-Policy: no-referrer`.
+Precommit failure or cancellation preserves the existing new/legacy session;
+after commit begins an interrupted/lost result is unknown. Never replay the callback:
+read `/admin/auth/session` to establish the current state or begin a new login.
+Different transactions remain independent; no global single-session guarantee.
+
+The incoming callback necessarily contains a one-time authorization code. It is
+immediately removed from outgoing navigation and never copied into response bodies,
+application logs or analytics. Host filters suppress framework request URL and HTTP
+body logging even at Trace; the Code HTTP client has no loggers or redirect following.
+Configure **every reverse proxy** to omit callback query strings, and do not enable
+request/body analytics for these routes. Routing matches the callback route
+case-insensitively and with one optional trailing slash, so the masking must cover
+every accepted form. For example, in nginx's `http` context (`~*` is a
+case-insensitive regular expression):
+
+```nginx
+map $uri $lexarbor_log_target {
+    default $request_uri;
+    ~*^/admin/auth/callback/?$ $uri;
+}
+log_format lexarbor_safe '$remote_addr $request_method $lexarbor_log_target $status';
+access_log /var/log/nginx/lexarbor.access.log lexarbor_safe;
+```
+
+The frontend password form is not switched in this backend release (#155); Code
+users navigate directly to `/admin/auth/start`. Logout remains local until the
+separate prepared-logout work (#154). To roll back, stop new Code logins, restore
+`Oidc`/`Gateway` configuration, clear the opaque cookie and sign in through the
+password flow. Keep the database and key ring; never convert handles to JWTs.
+Restart discards pending transactions and requires a fresh start.
 
 ## Gateway adapter (optional)
 

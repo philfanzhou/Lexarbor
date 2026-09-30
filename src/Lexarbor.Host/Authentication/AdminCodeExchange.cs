@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
@@ -37,9 +38,10 @@ public sealed class AdminCodeMetadata
 {
     public AdminCodeStatus Status { get; }
     public string? AuthorizationEndpoint { get; }
+    public bool InvalidConfiguration { get; }
     internal OpenIdConnectConfiguration? Configuration { get; }
-    internal AdminCodeMetadata(AdminCodeStatus status, OpenIdConnectConfiguration? configuration = null)
-        => (Status, AuthorizationEndpoint, Configuration) = (status, configuration?.AuthorizationEndpoint, configuration);
+    internal AdminCodeMetadata(AdminCodeStatus status, OpenIdConnectConfiguration? configuration = null, bool invalidConfiguration = false)
+        => (Status, AuthorizationEndpoint, Configuration, InvalidConfiguration) = (status, configuration?.AuthorizationEndpoint, configuration, invalidConfiguration);
 }
 
 /// <summary>
@@ -58,7 +60,7 @@ public sealed class AdminCodeExchange(
     public async Task<AdminCodeMetadata> GetMetadataAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (!ValidConfiguration()) return new(AdminCodeStatus.Unavailable);
+        if (!IsConfigured) return new(AdminCodeStatus.Unavailable, invalidConfiguration: true);
         try
         {
             var manager = bearerOptions.Get(JwtBearerDefaults.AuthenticationScheme).ConfigurationManager;
@@ -193,6 +195,8 @@ public sealed class AdminCodeExchange(
         return await new JsonWebTokenHandler { MapInboundClaims = false, MaximumTokenSizeInBytes = 8192 }.ValidateTokenAsync(token, parameters);
     }
 
+    public bool IsConfigured => ValidConfiguration();
+
     private bool ValidConfiguration()
     {
         var settings = codeOptions.Value;
@@ -200,9 +204,16 @@ public sealed class AdminCodeExchange(
             && Ascii(settings.ClientSecret, 1, 500) && !string.IsNullOrWhiteSpace(settings.ClientSecret)
             && settings.ClientId == identityOptions.Value.Audience && ValidScope(settings.Scope)
             && Ascii(settings.RedirectUri, 1, 500) && SafeUri(settings.RedirectUri, out var redirect)
-            && redirect.AbsolutePath == "/admin/auth/callback"
+            && redirect.AbsolutePath == "/admin/auth/callback" && ValidRedirectQuery(redirect)
             && (redirect.Scheme == "https" || IsLocalEnvironment() && redirect.Scheme == "http"
                 && redirect.Host is "127.0.0.1" or "[::1]");
+    }
+
+    private static bool ValidRedirectQuery(Uri redirect)
+    {
+        var reserved = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "state", "iss", "code", "error", "error_description" };
+        var query = QueryHelpers.ParseQuery(redirect.Query);
+        return query.All(pair => !reserved.Contains(pair.Key) && pair.Value.Count == 1);
     }
 
     private bool TrustedMetadata(OpenIdConnectConfiguration configuration)
