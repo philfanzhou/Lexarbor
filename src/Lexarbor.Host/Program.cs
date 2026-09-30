@@ -8,6 +8,7 @@ using Lexarbor.Host.Authentication;
 using Lexarbor.Host.Authentication.Providers;
 using Lexarbor.Host.RateLimiting;
 using Lexarbor.Service;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
@@ -97,6 +98,7 @@ builder.Services.PostConfigure<LoggerFilterOptions>(options =>
 });
 builder.Services.AddScoped<AdminSessionRepository>();
 builder.Services.AddScoped<AdminSessionStore>();
+builder.Services.AddScoped<IAdminSessionSignIn, AdminSessionSignIn>();
 builder.Services.AddHostedService<AdminSessionCleanupService>();
 builder.Services.AddScoped<IVocabularyWordEditRepository, VocabularyWordEditRepository>();
 builder.Services.AddScoped<VocabularyWordEditService>();
@@ -160,7 +162,10 @@ builder.Services.AddScoped<IAdminCredentialAuthenticator>(serviceProvider =>
 builder.Services.AddScoped<AdminAccessTokenValidator>();
 
 builder.Services
-    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddAuthentication(AdminAuthenticationSource.PolicyScheme)
+    .AddPolicyScheme(AdminAuthenticationSource.PolicyScheme, null, options =>
+        options.ForwardDefaultSelector = context => AdminAuthenticationSource.Select(context.Request))
+    .AddScheme<AuthenticationSchemeOptions, AdminSessionAuthenticationHandler>(AdminAuthenticationSource.SessionScheme, null)
     .AddJwtBearer();
 
 // Configured from the resolved options rather than from the configuration read
@@ -196,10 +201,7 @@ builder.Services
             {
                 OnMessageReceived = context =>
                 {
-                    var authorization = context.Request.Headers.Authorization.ToString();
-                    if (!authorization.StartsWith(
-                            "Bearer ",
-                            StringComparison.OrdinalIgnoreCase) &&
+                    if (AdminAuthenticationSource.IsCookie(context.Request) &&
                         context.Request.Cookies.TryGetValue(
                             adminAuthentication.Value.CookieName,
                             out var cookieToken))
@@ -402,6 +404,7 @@ app.UseStaticFiles();
 // than a JWT validation, which for a cookie-bearing request can reach out to the
 // identity provider for signing keys.
 app.UseRateLimiter();
+app.UseMiddleware<AdminSessionFailureMiddleware>();
 app.UseAuthentication();
 app.UseMiddleware<CookieCsrfMiddleware>();
 app.UseAuthorization();

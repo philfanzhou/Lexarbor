@@ -19,10 +19,12 @@ public static class AdminAuthEndpoints
             .RequireRateLimiting(RateLimitingExtensions.AdminLoginPolicy);
         app.MapGet("/admin/auth/session", GetSession)
             .RequireAuthorization("VocabularyAdmin");
-        // Deliberately unlimited. Logout only clears a cookie, and an administrator
+        // Deliberately unlimited. Logout revokes a local session, and an administrator
         // who cannot end a session because someone else exhausted a shared ceiling
         // is a worse outcome than the requests this would have refused.
-        app.MapPost("/admin/auth/logout", Logout).AllowAnonymous();
+        app.MapPost("/admin/auth/logout", LogoutAsync)
+            .WithMetadata(new AdminSessionLogoutMetadata())
+            .AllowAnonymous();
         return app;
     }
 
@@ -103,18 +105,19 @@ public static class AdminAuthEndpoints
         return VocabularyHttpResponse.Ok(new { username, roles });
     }
 
-    private static IResult Logout(
+    private static async Task<IResult> LogoutAsync(
         HttpContext context,
-        IOptions<AdminAuthenticationOptions> authenticationOptions)
+        IOptions<AdminAuthenticationOptions> authenticationOptions,
+        AdminSessionStore store,
+        CancellationToken cancellationToken)
     {
-        var options = authenticationOptions.Value;
-        context.Response.Cookies.Delete(
-            options.CookieName,
-            CreateCookieOptions(options, maxAge: null));
+        context.Request.Cookies.TryGetValue(AdminSessionCookie.Name, out var handle);
+        await store.RevokeAndReadAsync(handle, cancellationToken);
+        AdminSessionCookie.Clear(context, authenticationOptions.Value);
         return VocabularyHttpResponse.Ok();
     }
 
-    private static CookieOptions CreateCookieOptions(
+    internal static CookieOptions CreateCookieOptions(
         AdminAuthenticationOptions options,
         TimeSpan? maxAge)
     {

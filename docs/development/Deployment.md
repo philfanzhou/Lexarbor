@@ -163,10 +163,10 @@ Two consequences for operators:
 
 The Host uses `data/admin-keys` relative to its content root (`/app/data/admin-keys`
 in the container), with the fixed application name `Lexarbor`. No extra volume or
-configuration setting is needed. The ring is infrastructure for future administrator
-sessions, whose independent versioned purpose is `Lexarbor.AdminSession.v1`; this
-change does not enable a session scheme or alter existing login, JWT cookies, Bearer
-authentication, CSRF checks, anonymous APIs, or health responses.
+configuration setting is needed. The ring protects administrator
+sessions under the independent versioned purpose `Lexarbor.AdminSession.v1`.
+Password login still issues the legacy JWT cookie; the internal session scheme
+described below also uses this ring. Anonymous APIs and health responses are unchanged.
 
 On Linux and macOS, startup creates or restricts the ring directory to 0700 and its
 key XML files to 0600. Only the runtime user can read, write, and traverse the directory.
@@ -217,8 +217,9 @@ code is not a reason to remove the ring or discard its backup.
 
 The additive `AddAdminSessions` migration creates an empty `admin_session` table
 and an expiry/hash index without changing vocabulary data. This release registers
-internal storage and bounded cleanup only; it does not enable a session Cookie,
-OIDC Code flow, refresh, or change current authentication and frontend behavior.
+storage, bounded cleanup and an internal session authentication/sign-in service.
+It does not enable OIDC Code flow, refresh, or change the production password
+login and frontend flow.
 The table contains SHA-256 handle digests, UTC Unix millisecond deadlines and Data
 Protection ciphertext. Token/identity data is bound to each row's digest and deadline.
 Only trusted Host callers with independently verified tokens may create sessions.
@@ -249,6 +250,72 @@ user/root access, can decrypt the payloads.
 and ring when rolling code back so a later upgrade can read unexpired sessions.
 Running the migration Down drops only the session table and forces fresh login;
 all vocabulary rows survive. See the [database contract](../database/README.md#encrypted-administrator-session-storage).
+
+## Administrator session authentication
+
+Trusted Host code can use `IAdminSessionSignIn` after independently validating the
+access token's signature, issuer, audience, token-to-principal association and exact
+`exp`, and any applicable OIDC ID-token checks. This internal interface is not an
+HTTP endpoint. It requires an authenticated administrator principal with issuer,
+subject and a future `exp`; structural and role checks do not replace token validation.
+Only the encrypted server-side payload contains access/ID tokens. Responses and the
+new cookie contain no token. Password/OIDC password-grant/Gateway login continues
+issuing the configured legacy HttpOnly JWT cookie with its existing Strict/secure
+settings and response envelope; OIDC Code login is not enabled by this change.
+
+Each request selects exactly one authentication source:
+
+1. An `Authorization` value starting with `Bearer ` (case insensitive) selects
+   Bearer, including empty or invalid values.
+2. Otherwise the presence of `__Host-Lexarbor.AdminSession`, including an empty
+   value, selects the encrypted server-side session.
+3. Otherwise the configured legacy JWT cookie uses the existing JWT validation.
+
+Invalid, expired or unreadable selected credentials return 401 without falling back
+or mixing roles from another source. Authenticated users without the configured role
+receive 403. Challenges remain JSON, with no HTML redirect. `/admin/auth/session`
+retains `{success:true,data:{username,roles}}`; public API and health stay anonymous.
+For authenticated cookie requests, all non-safe `/admin` methods require exactly
+`X-Requested-With: XMLHttpRequest`; Bearer requests are exempt even when carrying
+both cookies. Unauthenticated protected writes return 401. An invalid new cookie
+therefore also suppresses a valid legacy cookie. To switch from an internal session
+to a password/Gateway login, log out first; legacy login does not replace the selected
+new session cookie.
+
+The new cookie name is fixed, with HttpOnly, Secure, SameSite=Lax, Path=/ and no
+Domain. HTTPS is required even if `AdminAuthentication:CookieSecure` is false for the
+legacy cookie. Its Expires/Max-Age never exceeds the independently verified access
+`exp`; there is no sliding renewal. The handler rechecks exact expiry and protected
+payload integrity on every request and reconstructs only identity/roles, never token
+claims. Restart with the same database and key ring preserves unexpired sessions.
+
+Internal sign-in atomically creates the new row and revokes the presented old new
+handle, then writes the cookie and deletes the legacy cookie only after confirmed
+commit. Precommit failure/cancellation leaves the previous session and browser cookie
+intact. A lost result after commit has started is unknown; never automatically retry
+or claim that the old row survived. A cookie arriving after its handle was revoked
+cannot revive it. Concurrent replacements can create independent new rows: this is
+not a global single-session guarantee for a browser. Requests already authenticated
+before revocation may finish; future reads of the revoked handle fail.
+
+`POST /admin/auth/logout` atomically revokes any presented new handle (also when
+Bearer is selected), deletes both cookies and returns the existing 200 envelope.
+A copied handle then fails authentication. Missing/invalid/expired/damaged handles
+and repeated logout safely return 200; a cookie-authenticated logout missing the
+CSRF header returns 403 without deleting cookies or revoking the row. Bearer tokens
+remain valid: browser logout does not revoke upstream tokens or log out SignaCore.
+
+If session reading during authentication or revocation during logout cannot complete,
+logout clears both browser cookies and returns a fixed safe 500, or 503 with
+`Retry-After: 1` for busy storage. This does **not** confirm that a copied handle was
+revoked; it may remain usable after storage recovers. Losing the commit result is
+also unknown. No handle, token, ciphertext, SQL or provider exception is logged.
+
+**Authentication rollback:** stop new internal sign-ins, clear the new cookie in the
+browser using its exact Path=/ and Secure attributes, and require legacy login again.
+Keep the additive table and key ring; do not run migration Down or convert handles to
+JWT cookies. The two cookie formats are not interchangeable. A historical database
+restore still requires clearing `admin_session` before startup as described above.
 
 ## OIDC authentication (default)
 
