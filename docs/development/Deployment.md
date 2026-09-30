@@ -354,7 +354,7 @@ bash scripts/start.sh
 
 ### Connecting to SignaCore
 
-[SignaCore](https://github.com/philfanzhou/SignaCore) works with the default `Oidc` provider through its RFC 6749 token endpoint, `/oauth2/token`. SignaCore has no authorization endpoint, so administrators still sign in through the Lexarbor login form and Lexarbor performs the password grant server-side; the browser never receives the client secret or the access token.
+[SignaCore](https://github.com/philfanzhou/SignaCore) works with the default `Oidc` provider through its RFC 6749 token endpoint, `/oauth2/token`. SignaCore also provides hosted authorization-code login, but Lexarbor has not enabled that public flow yet. Administrators currently sign in through the Lexarbor login form and Lexarbor performs the password grant server-side; the browser never receives the client secret or the access token.
 
 In SignaCore:
 
@@ -383,6 +383,51 @@ bash scripts/start.sh
 When login answers 502, the Lexarbor log names the cause. `rejected with invalid_scope` means the scope is still being sent, `rejected with invalid_client` means the client ID or secret is wrong, and `Identity access token validation failed` usually means the issuer or audience does not match the token.
 
 The `Gateway` adapter also speaks SignaCore's older `/api/auth/token` contract, but new deployments should use `/oauth2/token` through the `Oidc` provider.
+
+## Internal authorization-code foundation (not enabled)
+
+The Host contains an internal `AdminCodeExchange` service for future Confidential
+SignaCore hosted login. It does not add a selectable provider, HTTP start/callback
+routes, session sign-in, or change the default password/Gateway/Bearer behavior.
+Incomplete unused Code settings do not prevent the existing service from starting.
+
+Its settings are `AdminAuthentication:OidcCode:ClientId`, `ClientSecret`, `RedirectUri`
+and `Scope` (default `openid profile`), alongside the existing `IdentityService`
+trust settings. The resource audience must exactly equal the client ID
+(PerApplication). Scope must contain `openid` and may contain only `profile` in
+addition; `offline_access` and refresh are not enabled. Keep the secret in a
+protected server configuration source. No container-script aliases are introduced
+for this internal foundation.
+
+Before future activation, register a Confidential SignaCore application, change its
+audience to PerApplication, register the exact callback, then enable Code with
+`openid`/`profile` and refresh disabled. The callback must be an ASCII HTTPS URI of
+at most 500 characters with path `/admin/auth/callback`, no userinfo or fragment.
+Only Development/Testing may use HTTP callbacks on numeric `127.0.0.1` or `[::1]`;
+`localhost` is not an HTTP callback. Use the exact registered URI, including any
+query, without rewriting it. Behind a proxy, register the external HTTPS URL and
+configure the existing trusted-forwarding boundary.
+
+The service shares the Bearer Discovery/JWKS cache but checks exact issuer and
+same scheme/host/port authorization, token and JWKS endpoints independently.
+Production endpoints require HTTPS; authorization/token endpoints cannot have
+existing query parameters. Exchange is one `client_secret_post` form POST with
+PKCE and no scope or Basic credentials, without redirect following or automatic
+retry. The backchannel disables HTTP client loggers and cookies, applies a
+30-second deadline including response reading, and accepts at most 64 KiB.
+Never retry an authorization code: SignaCore can revoke the upstream session on
+replay. Only already received tokens may be revalidated after a key refresh.
+
+Both tokens must independently pass RS256/JWKS `kid`, exact issuer, single audience,
+separate `JWT`/`at+jwt` type, issue/expiry time, and matching single subject checks;
+the ID token must match the pending nonce. Expired tokens fail at exact `exp`.
+SMS and password `amr` are both accepted. Only the validated access token can grant
+the configured administrator role; ID profile/roles cannot authorize. The internal
+result carries tokens only for trusted Host callers and never creates a session.
+Failures expose fixed classifications without upstream bodies or raw exceptions;
+caller cancellation propagates. A future HTTP caller must first validate and consume
+its browser-bound transaction and must keep all tokens/verifiers/secrets server-side.
+No database, migration, persistence directory or public JSON contract changes here.
 
 ## Gateway adapter (optional)
 

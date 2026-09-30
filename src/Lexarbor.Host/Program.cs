@@ -160,6 +160,12 @@ builder.Services.AddScoped<IAdminCredentialAuthenticator>(serviceProvider =>
 });
 
 builder.Services.AddScoped<AdminAccessTokenValidator>();
+// Internal foundations only; credentials are checked when invoked, not at startup.
+builder.Services.Configure<OidcCodeOptions>(builder.Configuration.GetSection(OidcCodeOptions.SectionName));
+builder.Services.AddScoped<AdminCodeExchange>();
+builder.Services.AddHttpClient(AdminCodeExchange.BackchannelName, client => client.Timeout = TimeSpan.FromSeconds(30))
+    .RemoveAllLoggers()
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false });
 
 builder.Services
     .AddAuthentication(AdminAuthenticationSource.PolicyScheme)
