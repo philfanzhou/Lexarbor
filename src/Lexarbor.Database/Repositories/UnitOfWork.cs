@@ -31,6 +31,7 @@ public class UnitOfWork : IUnitOfWork
     /// the caller that has to clear it again.
     /// </summary>
     private static readonly AsyncLocal<bool> HoldsWriteLock = new();
+    internal static bool IsWriteInProgress => HoldsWriteLock.Value;
 
     private readonly VocabularyDbContext _dbContext;
 
@@ -39,8 +40,12 @@ public class UnitOfWork : IUnitOfWork
         _dbContext = dbContext;
     }
 
-    public async Task<T> ExecuteInTransactionAsync<T>(Func<Task<T>> action)
+    public Task<T> ExecuteInTransactionAsync<T>(Func<Task<T>> action) =>
+        ExecuteInTransactionAsync(action, CancellationToken.None);
+
+    public async Task<T> ExecuteInTransactionAsync<T>(Func<Task<T>> action, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (HoldsWriteLock.Value)
         {
             // Already inside a serialized write on this context. Join it: a
@@ -49,16 +54,18 @@ public class UnitOfWork : IUnitOfWork
             return await action();
         }
 
-        await WriteLock.WaitAsync();
+        await WriteLock.WaitAsync(cancellationToken);
         HoldsWriteLock.Value = true;
         try
         {
             return await TranslateStorageErrorsAsync(async () =>
             {
                 await using var transaction =
-                    await _dbContext.Database.BeginTransactionAsync();
+                    await _dbContext.Database.BeginTransactionAsync(cancellationToken);
                 var result = await action();
-                await transaction.CommitAsync();
+                cancellationToken.ThrowIfCancellationRequested();
+                // Once commit starts its outcome may be unknown to a disconnected caller.
+                await transaction.CommitAsync(cancellationToken);
                 return result;
             });
         }
@@ -69,21 +76,24 @@ public class UnitOfWork : IUnitOfWork
         }
     }
 
-    public async Task<int> SaveChangesAsync()
+    public Task<int> SaveChangesAsync() => SaveChangesAsync(CancellationToken.None);
+
+    public async Task<int> SaveChangesAsync(CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         // Taking the lock here as well as in ExecuteInTransactionAsync is the
         // point: the book write paths call this directly, so they used to reach
         // SQLite unserialized while the import path was being protected.
         if (HoldsWriteLock.Value)
         {
-            return await TranslateStorageErrorsAsync(() => _dbContext.SaveChangesAsync());
+            return await TranslateStorageErrorsAsync(() => _dbContext.SaveChangesAsync(cancellationToken));
         }
 
-        await WriteLock.WaitAsync();
+        await WriteLock.WaitAsync(cancellationToken);
         HoldsWriteLock.Value = true;
         try
         {
-            return await TranslateStorageErrorsAsync(() => _dbContext.SaveChangesAsync());
+            return await TranslateStorageErrorsAsync(() => _dbContext.SaveChangesAsync(cancellationToken));
         }
         finally
         {

@@ -181,7 +181,7 @@ public sealed class VocabularyBookUnitMigrationTests : IDisposable
                 CreatedAt = now,
                 UpdatedAt = now
             });
-            await unitOfWork.SaveChangesAsync();
+            await unitOfWork.SaveChangesAsync(TestContext.Current.CancellationToken);
 
             for (var number = 1; number <= 8; number++)
             {

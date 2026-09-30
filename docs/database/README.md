@@ -87,3 +87,54 @@ The new cleanup commands are separate from the legacy book DELETE, which still r
 Let R be the meanings selected by book and action, and A the distinct word IDs in R. One shared parameterized predicate defines R in preview counts and commit. Commit records A in a connection-local temporary table, deletes R, deletes only words in A with `NOT EXISTS` any remaining meaning, then optionally deletes the book. Other/disabled books' references and unrelated historical orphan words remain untouched. No cascade is used to widen the scope, no whole book of meaning entities is loaded, and there is no new business table or migration. The temporary table is dropped in `finally`; tracked entries are cleared after bulk SQL so later operations cannot reuse deleted entities. Failure at any stage rolls back all business rows.
 
 A single instance remains the supported deployment. SQLite serializes external writers; busy/constraint failures keep existing 503/409 mappings. Preview counts can become stale between requests. These destructive commands offer no undo, replay safety or automatic orphan sweep.
+
+## Encrypted administrator session storage
+
+`AddAdminSessions` adds only the independent `admin_session` table and the
+`(expires_at_unix_ms, handle_hash)` expiry index. It does not change any vocabulary
+row, relationship, seed or existing migration. The primary key is the lowercase
+hex SHA-256 digest of a canonical 32-random-byte base64url handle; the original
+handle is never persisted. `expires_at_unix_ms` is an INTEGER UTC Unix millisecond
+value. `protected_payload` is Data Protection ciphertext under `Lexarbor` /
+`Lexarbor.AdminSession.v1`, containing versioned, independently validated token and
+identity data bound to that exact hash and expiry. Database code never handles
+plaintext tokens or identity. This is an internal Host storage facility; current
+login, Cookie/Bearer schemes, HTTP contracts and frontend behavior are unchanged.
+
+Trusted Host callers must validate token signatures, issuer, audience, access-token
+`exp` and administrator role before creating or replacing a session. The store
+checks structure and uses that verified expiration; it does not authenticate an
+arbitrary JWT, trust `expires_in`, refresh tokens or slide the expiry. Each read
+queries current SQLite values and rejects `now >= expiry`, missing records,
+corrupt ciphertext or model, mismatched metadata and unavailable keys. Database
+failures remain distinct safe storage errors (busy retains the 503 direction).
+They are not treated as a missing identity or a fallback authentication result.
+
+Create, replace, revoke-and-read and cleanup use the existing UnitOfWork write lock
+and transaction shared with vocabulary writes. Handles/snapshots are returned only
+after confirmed commit. Nested session writes inside another transaction are refused
+before writing, so they cannot return an uncommitted handle or snapshot. Replace inserts a fresh independently verified session and
+deletes the old handle atomically; failure/cancellation before commit retains the
+old row. A missing or expired old handle does not prevent independent creation.
+Concurrent replacements can create distinct new sessions. Revoke deletes even
+expired/corrupt records; at most one concurrent revoke returns a valid snapshot.
+New reads after confirmed revoke fail; already-started requests retain their earlier
+snapshot. Cancellation before commit begins rolls back; after commit begins a lost
+result has an unknown outcome and Create/Replace must not be automatically retried.
+
+Cleanup runs every minute in a fresh scope, deleting at most 100 expired records in
+expiry/hash order per batch. Cleanup failure emits a fixed safe diagnostic and
+retries the next minute; it is neither a readiness prerequisite nor the mechanism
+that enforces expiry. `Database:InitializeOnStartup=false` remains supported without
+cleanup failure stopping the host. No session payload or SQL/provider error detail
+is logged by the Host session operations.
+
+Back up the database and complete key ring together confidentially. Possession of
+both, or runtime-user/root access, can decrypt sessions; this does not provide
+multi-instance or upstream/global token revocation. **After restoring any historical
+database backup, before starting the application, run `DELETE FROM admin_session;`
+on the restored database if the table exists and require fresh login.** This avoids
+reviving sessions revoked after that backup. Code rollback can ignore the additive
+table; retain it and the ring for a later upgrade, which can read still-valid rows.
+Migration Down drops only `admin_session`, discards all sessions and requires fresh
+login, leaving vocabulary data unchanged. See [deployment and recovery](../development/Deployment.md#encrypted-administrator-session-storage).

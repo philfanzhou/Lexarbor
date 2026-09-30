@@ -203,14 +203,52 @@ documentation](https://learn.microsoft.com/en-us/aspnet/core/security/data-prote
 confidentially, following the SQLite consistency procedure above; include the whole
 `admin-keys` ring, including expired keys, and configuration. Restore it to the same
 data mount before startup, preserving/reapplying runtime ownership and private
-permissions. Future session storage must be backed up together with this ring.
-Losing an original key makes its protected payloads unreadable; future affected
-sessions will require a fresh login and cannot be recovered from token plaintext.
+permissions. The encrypted `admin_session` table must be backed up together with this ring.
+Before starting after a historical database restore, clear `admin_session` as described below.
+Losing an original key makes its protected payloads unreadable; affected sessions
+require a fresh login and cannot be recovered from token plaintext.
 The current external-token login does not consume these keys.
 
 **Rollback.** Rolling back this infrastructure change leaves current login behavior
 unchanged. Keep `admin-keys` in the data mount for a subsequent upgrade; rolling back
 code is not a reason to remove the ring or discard its backup.
+
+## Encrypted administrator session storage
+
+The additive `AddAdminSessions` migration creates an empty `admin_session` table
+and an expiry/hash index without changing vocabulary data. This release registers
+internal storage and bounded cleanup only; it does not enable a session Cookie,
+OIDC Code flow, refresh, or change current authentication and frontend behavior.
+The table contains SHA-256 handle digests, UTC Unix millisecond deadlines and Data
+Protection ciphertext. Token/identity data is bound to each row's digest and deadline.
+Only trusted Host callers with independently verified tokens may create sessions.
+The access token's verified `exp` determines TTL, with no sliding expiry.
+
+Reads reject exact expiry, explicit revocation, damaged payloads and missing keys.
+Store failures are separate safe errors; expiry enforcement works even if the
+minute-based cleanup cannot run. Cleanup uses at most 100 rows per batch, logs only
+a fixed safe diagnostic on failure and retries next minute. It does not stop an
+otherwise healthy host when database initialization is disabled.
+
+Create/replace/revoke share the vocabulary write transaction lock. Replace commits
+new creation and old deletion together; two revocations return at most one valid
+snapshot. A snapshot already read by a started request is not retroactively revoked.
+Precommit cancellation or failure rolls back; after commit begins, losing the result
+is an unknown outcome and callers must not automatically replay creation/replacement.
+This remains a single-instance guarantee, without upstream/global token revocation.
+
+**Restore procedure:** stop the application, restore SQLite consistently and the
+complete key ring together, then use a SQLite tool to run `DELETE FROM admin_session;`
+against the restored database if the table exists, before restarting. Require all
+administrator sessions to sign in again. A historical backup can contain sessions
+revoked since the backup; clearing the table prevents their resurrection. Protect
+both backup and runtime files: an attacker with the database and keys, or runtime
+user/root access, can decrypt the payloads.
+
+**Rollback:** an older application ignores this additive table; retain the table
+and ring when rolling code back so a later upgrade can read unexpired sessions.
+Running the migration Down drops only the session table and forces fresh login;
+all vocabulary rows survive. See the [database contract](../database/README.md#encrypted-administrator-session-storage).
 
 ## OIDC authentication (default)
 

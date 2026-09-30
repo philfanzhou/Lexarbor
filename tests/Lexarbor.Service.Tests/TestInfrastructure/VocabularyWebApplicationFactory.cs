@@ -52,7 +52,8 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
         bool includeAppCredentials,
         string provider = "Gateway",
         IReadOnlyDictionary<string, string?>? extraConfiguration = null,
-        string? keyContentRoot = null)
+        string? keyContentRoot = null,
+        string? databasePath = null)
     {
         _ownsKeyContentRoot = keyContentRoot is null;
         _keyContentRoot = keyContentRoot ?? Path.Combine(
@@ -61,7 +62,7 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
         _includeAppCredentials = includeAppCredentials;
         _provider = provider;
         _extraConfiguration = extraConfiguration ?? new Dictionary<string, string?>();
-        _databaseConnection = new SqliteConnection("Data Source=:memory:");
+        _databaseConnection = new SqliteConnection(databasePath is null ? "Data Source=:memory:" : $"Data Source={databasePath};Pooling=False");
         _databaseConnection.Open();
         Identity = new FakeIdentityState();
         Identity.AccessToken = CreateToken("admin");

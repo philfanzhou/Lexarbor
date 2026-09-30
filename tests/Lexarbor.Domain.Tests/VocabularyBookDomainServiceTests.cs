@@ -29,7 +29,7 @@ public class VocabularyBookDomainServiceTests : TestBase
         await _vocabularyRepository.AddAsync(v1);
         await _vocabularyRepository.AddAsync(v2);
         await _vocabularyRepository.AddAsync(v3);
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         await _meaningRepository.AddAsync(new VocabularyMeaningModel
         {
@@ -59,7 +59,7 @@ public class VocabularyBookDomainServiceTests : TestBase
             VocabularyId = v3.Id,
             Meaning = "香蕉"
         });
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var (words, totalCount) = await _service.GetWordsAsync(createdBook.Id, 1, 20);
 
@@ -94,7 +94,7 @@ public class VocabularyBookDomainServiceTests : TestBase
             });
         }
 
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var (firstPage, firstTotal) = await _service.GetWordsAsync(createdBook.Id, 1, 2);
         var (secondPage, _) = await _service.GetWordsAsync(createdBook.Id, 2, 2);
@@ -120,7 +120,7 @@ public class VocabularyBookDomainServiceTests : TestBase
             VocabularyId = word.Id,
             Meaning = "苹果"
         });
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var (words, totalCount) = await _service.GetWordsAsync(createdBook.Id, 5, 20);
 
