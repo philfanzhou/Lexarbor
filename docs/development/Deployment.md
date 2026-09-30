@@ -12,6 +12,7 @@ The multi-stage build compiles the Vue frontend, publishes the .NET backend, and
 
 - `/app/data/vocabulary.db` contains the SQLite database.
 - `/app/data/appsettings.json` contains the operator-managed application configuration.
+- `/app/data/admin-keys/` contains the persistent ASP.NET Core Data Protection key ring.
 
 Tagged releases publish SBOM-enabled images with build provenance for AMD64 and ARM64 to `ghcr.io/philfanzhou/lexarbor`. For example:
 
@@ -157,6 +158,59 @@ Two consequences for operators:
 - **The database is three files, not one.** `vocabulary.db` is accompanied by `vocabulary.db-wal` and `vocabulary.db-shm` while the application runs. A file copy that takes only `vocabulary.db` can miss recently committed data. Copy all three with the application stopped, or use a SQLite online-backup tool, which handles this correctly on its own.
 
 `Default Timeout` in the connection string bounds how long a write waits for a database another connection is holding. Lexarbor lowers the driver's 30-second default to 5 seconds, so contention answers `503` with a `Retry-After` header instead of occupying a request thread for longer than the caller is prepared to wait. Set `Default Timeout=` explicitly in `ConnectionStrings:Default` to choose a different value.
+
+## Data Protection key storage
+
+The Host uses `data/admin-keys` relative to its content root (`/app/data/admin-keys`
+in the container), with the fixed application name `Lexarbor`. No extra volume or
+configuration setting is needed. The ring is infrastructure for future administrator
+sessions, whose independent versioned purpose is `Lexarbor.AdminSession.v1`; this
+change does not enable a session scheme or alter existing login, JWT cookies, Bearer
+authentication, CSRF checks, anonymous APIs, or health responses.
+
+On Linux and macOS, startup creates or restricts the ring directory to 0700 and its
+key XML files to 0600. Only the runtime user can read, write, and traverse the directory.
+Permission changes stay inside this ring; other `data` files and directories are
+not recursively changed. The framework also creates new keys with no group/other
+permissions. A symbolic link for the ring or a ring file is rejected. On Windows,
+operators must protect the directory with an ACL granting access only to the runtime
+user; Lexarbor does not automatically configure an equivalent Windows ACL. Protect
+the parent `data` directory's ownership and ACL as well.
+
+Before serving requests, startup verifies read/write access, loads every retained
+key, and performs a non-sensitive Protect/Unprotect probe using a separate purpose.
+An inaccessible or read-only filesystem, invalid key XML, or unusable retained key
+stops startup with a safe diagnostic. Lexarbor does not fall back to an in-memory
+ring, delete damaged keys, or log XML/protected payloads. Correct ownership and
+permissions or restore a complete valid ring before restarting.
+
+ASP.NET Core retains automatic key rotation (the default lifetime is 90 days).
+Expired keys must remain available to decrypt older payloads. Application upgrades
+and container recreation reuse the mounted ring without replacing keys. Do not
+remove old keys to force rotation. An anonymous Docker volume must be explicitly
+reused if recreating a container; a fresh volume cannot decrypt old payloads.
+
+**Security boundary.** File persistence stores unencrypted key XML: filesystem
+permissions provide access control, not disk-theft protection. Anyone with runtime
+user/root privileges or a complete data backup can use these keys. This contract
+covers one instance on a trusted local filesystem; it does not protect against an
+attacker controlling parent directories or replacing files at runtime, and does not
+support network mounts or multiple instances. No external KMS or certificate-based
+key encryption is configured. See the [official Data Protection configuration
+documentation](https://learn.microsoft.com/en-us/aspnet/core/security/data-protection/configuration/overview?view=aspnetcore-10.0).
+
+**Backup and restore.** Stop the application and back up the entire `data` directory
+confidentially, following the SQLite consistency procedure above; include the whole
+`admin-keys` ring, including expired keys, and configuration. Restore it to the same
+data mount before startup, preserving/reapplying runtime ownership and private
+permissions. Future session storage must be backed up together with this ring.
+Losing an original key makes its protected payloads unreadable; future affected
+sessions will require a fresh login and cannot be recovered from token plaintext.
+The current external-token login does not consume these keys.
+
+**Rollback.** Rolling back this infrastructure change leaves current login behavior
+unchanged. Keep `admin-keys` in the data mount for a subsequent upgrade; rolling back
+code is not a reason to remove the ring or discard its backup.
 
 ## OIDC authentication (default)
 

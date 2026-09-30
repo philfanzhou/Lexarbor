@@ -3,6 +3,7 @@ using System.Net;
 using System.Security.Claims;
 using System.Text;
 using Lexarbor.Database;
+using Lexarbor.Host;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -32,6 +33,8 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
     /// </summary>
     public const string ClientAddressHeader = "X-Test-Client-Address";
 
+    private readonly string _keyContentRoot;
+    private readonly bool _ownsKeyContentRoot;
     private readonly string _environment;
     private readonly bool _includeAppCredentials;
     private readonly string _provider;
@@ -48,8 +51,12 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
         string environment,
         bool includeAppCredentials,
         string provider = "Gateway",
-        IReadOnlyDictionary<string, string?>? extraConfiguration = null)
+        IReadOnlyDictionary<string, string?>? extraConfiguration = null,
+        string? keyContentRoot = null)
     {
+        _ownsKeyContentRoot = keyContentRoot is null;
+        _keyContentRoot = keyContentRoot ?? Path.Combine(
+            Path.GetTempPath(), $"lexarbor-host-keys-{Guid.NewGuid():N}");
         _environment = environment;
         _includeAppCredentials = includeAppCredentials;
         _provider = provider;
@@ -168,6 +175,8 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
 
         builder.ConfigureServices(services =>
         {
+            services.RemoveAll<PersistentAdminKeyRing>();
+            services.AddSingleton(new PersistentAdminKeyRing(_keyContentRoot));
             services.AddSingleton<IStartupFilter, ClientAddressStartupFilter>();
             services.RemoveAll<DbContextOptions<VocabularyDbContext>>();
             services.RemoveAll<VocabularyDbContext>();
@@ -232,6 +241,10 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
         if (disposing)
         {
             _databaseConnection.Dispose();
+            if (_ownsKeyContentRoot && Directory.Exists(_keyContentRoot))
+            {
+                Directory.Delete(_keyContentRoot, recursive: true);
+            }
         }
     }
 }
