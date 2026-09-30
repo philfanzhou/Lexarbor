@@ -303,7 +303,10 @@ Bearer is selected), deletes both cookies and returns the existing 200 envelope.
 A copied handle then fails authentication. Missing/invalid/expired/damaged handles
 and repeated logout safely return 200; a cookie-authenticated logout missing the
 CSRF header returns 403 without deleting cookies or revoking the row. Bearer tokens
-remain valid: browser logout does not revoke upstream tokens or log out SignaCore.
+remain valid: browser logout never revokes already issued upstream tokens. In
+`OidcCode` mode the envelope can additionally carry an optional `data.logoutUrl`
+when a prepared upstream SignaCore logout succeeded; see
+[prepared upstream logout](#prepared-upstream-logout).
 
 If session reading during authentication or revocation during logout cannot complete,
 logout clears both browser cookies and returns a fixed safe 500, or 503 with
@@ -482,6 +485,7 @@ above. Do not copy password-grant settings into the Code section.
 | `LEXARBOR_OIDC_CODE_CLIENT_ID` | `AdminAuthentication:OidcCode:ClientId` |
 | `LEXARBOR_OIDC_CODE_CLIENT_SECRET` | `AdminAuthentication:OidcCode:ClientSecret` |
 | `LEXARBOR_OIDC_CODE_REDIRECT_URI` | `AdminAuthentication:OidcCode:RedirectUri` |
+| `LEXARBOR_OIDC_CODE_POST_LOGOUT_REDIRECT_URI` | `AdminAuthentication:OidcCode:PostLogoutRedirectUri` |
 | `LEXARBOR_OIDC_CODE_SCOPE` | `AdminAuthentication:OidcCode:Scope` |
 
 These independent overrides never rewrite a pre-existing `/app/data/appsettings.json`.
@@ -515,31 +519,108 @@ after commit begins an interrupted/lost result is unknown. Never replay the call
 read `/admin/auth/session` to establish the current state or begin a new login.
 Different transactions remain independent; no global single-session guarantee.
 
-The incoming callback necessarily contains a one-time authorization code. It is
-immediately removed from outgoing navigation and never copied into response bodies,
-application logs or analytics. Host filters suppress framework request URL and HTTP
-body logging even at Trace; the Code HTTP client has no loggers or redirect following.
-Configure **every reverse proxy** to omit callback query strings, and do not enable
-request/body analytics for these routes. Routing matches the callback route
-case-insensitively and with one optional trailing slash, so the masking must cover
-every accepted form. For example, in nginx's `http` context (`~*` is a
-case-insensitive regular expression):
+The incoming callback necessarily contains a one-time authorization code, and the
+prepared-logout return route receives a one-time logout state in its query. Neither
+may be copied into response bodies, application logs or analytics. Host filters
+suppress framework request URL and HTTP body logging even at Trace; the Code HTTP
+clients have no loggers and no redirect following. Configure **every reverse proxy**
+to omit the callback and logout-return query strings, and do not enable request/body
+analytics for these routes. Routing matches these routes case-insensitively and with
+one optional trailing slash, so the masking must cover every accepted form. For
+example, in nginx's `http` context (`~*` is a case-insensitive regular expression):
 
 ```nginx
 map $uri $lexarbor_log_target {
     default $request_uri;
     ~*^/admin/auth/callback/?$ $uri;
+    ~*^/admin/auth/logout/return/?$ $uri;
 }
 log_format lexarbor_safe '$remote_addr $request_method $lexarbor_log_target $status';
 access_log /var/log/nginx/lexarbor.access.log lexarbor_safe;
 ```
 
 The frontend password form is not switched in this backend release (#155); Code
-users navigate directly to `/admin/auth/start`. Logout remains local until the
-separate prepared-logout work (#154). To roll back, stop new Code logins, restore
-`Oidc`/`Gateway` configuration, clear the opaque cookie and sign in through the
-password flow. Keep the database and key ring; never convert handles to JWTs.
-Restart discards pending transactions and requires a fresh start.
+users navigate directly to `/admin/auth/start`, and the frontend consumption of the
+prepared-logout `data.logoutUrl` and its `reason` values belongs to the same UI
+rollout. To roll back, stop new Code logins, restore `Oidc`/`Gateway` configuration,
+clear the opaque cookie and sign in through the password flow. Keep the database and
+key ring; never convert handles to JWTs. Restart discards pending login and
+logout-return transactions and requires a fresh start.
+
+### Prepared upstream logout
+
+In Code mode, `POST /admin/auth/logout` can also end the browser's SignaCore
+session through SignaCore's prepared logout. The local session always ends first:
+the endpoint atomically revokes the presented handle and clears both cookies, and
+only when the revoked session really held an ID token does the server then send the
+preparation request — `POST /oauth2/logout/requests` on the same trusted issuer
+(Discovery deliberately publishes no end-session endpoint) — with the same
+confidential client form authentication as the token endpoint. The ID token and the
+client secret stay server-side and never reach the browser, logs or URLs. The
+dedicated backchannel has no loggers, no redirect following, no cookies and a
+30-second deadline, accepts at most 4 KiB, and sends at most one POST per revoked
+session, never retried. Callers without a live session snapshot — no session, a
+legacy JWT cookie, an expired, damaged or repeated logout — never trigger an
+upstream call and never fabricate a hint; at most one concurrent logout obtains the
+snapshot.
+
+On success the 200 envelope adds an optional `data.logoutUrl`: the verified,
+one-time SignaCore logout URI the browser may be navigated to. Only a URI whose
+scheme, host and port exactly match the trusted issuer, whose path is
+`/oauth2/logout`, and whose sole query field is a canonical 43-character base64url
+`logout_handle` is ever exposed; the handle is the only upstream value a browser
+sees. Any other outcome — upstream unreachable, timeout, non-2xx, malformed or
+oversized body, untrusted URI shape — leaves the plain `{"success":true}` envelope.
+In hosted mode a missing `logoutUrl` means local-only logout: the UI must say that
+the identity provider may still hold a session and must never claim SignaCore
+signed out. No upstream error text is echoed. Code-mode logout responses carry
+`Cache-Control: no-store` because they can contain the one-time URI; old
+password/Gateway modes and Bearer semantics keep their previous responses, and the
+cookie CSRF rule still answers 403 before anything is revoked.
+
+SignaCore completes the browser navigation to `logoutUrl` with a handle that is
+valid for five minutes and works exactly once; a missing, malformed, expired or
+consumed handle is answered locally by SignaCore with a fixed 400 and no redirect.
+The completion answer looks the same whether or not the browser still had an
+upstream session, so nothing may be inferred from it.
+
+To receive the browser back, set
+`AdminAuthentication:OidcCode:PostLogoutRedirectUri`
+(`LEXARBOR_OIDC_CODE_POST_LOGOUT_REDIRECT_URI`) to this deployment's exact
+`https://<external-host>/admin/auth/logout/return` URI and register the identical
+URI as the application's post-logout URI in SignaCore; the provider matches it
+byte-for-byte with no normalization. Only an ASCII HTTPS URI of at most 500
+characters is accepted (HTTP only on numeric `127.0.0.1`/`[::1]` in
+Development/Testing), its path must be `/admin/auth/logout/return`, and an optional
+registered static query must not repeat fields or contain `state`, which SignaCore
+appends. When the setting is absent or invalid, preparation proceeds without the
+return pair: SignaCore shows its own signed-out page and the browser does not come
+back to Lexarbor.
+
+`GET /admin/auth/logout/return` is the fixed anonymous return route. It accepts
+exactly one canonical `state`, matches it against a one-time browser-binding cookie
+(`__Host-Lexarbor.Logout.<state>`, HttpOnly/Secure/SameSite=Lax, Path=/, no Domain,
+five minutes) issued with the successful logout response, consumes the pair exactly
+once, deletes only its own cookie and answers with fixed in-site redirects:
+`/#/login?reason=logged_out` on success and `/#/login?reason=logout_failed` for a
+missing, malformed, unknown, expired, duplicate or unbound state — one shape for
+every failure, never echoing input, never targeting an external site, never
+establishing a session. Both answers carry `Cache-Control: no-store` and
+`Referrer-Policy: no-referrer`. States live only in this Host instance's memory
+(hashes only, no database or persistence change), so a restart discards them and
+the return then reports `logout_failed` — the same accepted single-instance
+boundary as pending login transactions. The `reason` values extend the existing
+bounded enum; the current frontend ignores unknown reasons harmlessly until the UI
+rollout consumes them.
+
+Guarantees and limits: a normal flow ends both the Lexarbor session and the current
+browser's SignaCore session; every failure path still ends the Lexarbor session.
+Already issued access tokens are **not** revoked by logout — they stay valid
+downstream until their exact `exp` (15 minutes in Code mode). Other applications'
+local sessions are untouched, refresh-token revocation is not part of this flow,
+and when preparation fails the upstream session may survive until SignaCore's own
+idle/absolute limits end it. A lost local revocation commit remains unknown and is
+never retried or compensated.
 
 ## Gateway adapter (optional)
 
