@@ -80,7 +80,7 @@ builder.Services.AddScoped<IVocabularyBookUnitRepository, VocabularyBookUnitRepo
 builder.Services.AddScoped<IVocabularyMeaningUnitRepository, VocabularyMeaningUnitRepository>();
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 builder.Services.AddSingleton(TimeProvider.System);
-// Internal pending protocol state only; public hosted-login routes are not enabled.
+// One-time, browser-bound hosted login transactions.
 builder.Services.AddSingleton<PendingAdminLoginStore>();
 // A session database failure must not emit SQL, parameters, or provider exception details.
 builder.Services.PostConfigure<LoggerFilterOptions>(options =>
@@ -93,7 +93,8 @@ builder.Services.PostConfigure<LoggerFilterOptions>(options =>
         var rule = options.Rules[index];
         options.Rules[index] = new LoggerFilterRule(rule.ProviderName, rule.CategoryName, rule.LogLevel,
             (provider, category, level) =>
-                !(AdminSessionRepository.IsSessionOperation
+                !AdminHostedLoginSafety.SuppressLogCategory(category)
+                && !(AdminSessionRepository.IsSessionOperation
                     && category?.StartsWith("Microsoft.EntityFrameworkCore", StringComparison.Ordinal) == true)
                 && (rule.Filter?.Invoke(provider, category, level) ?? true));
     }
@@ -156,9 +157,13 @@ builder.Services.AddScoped<IAdminCredentialAuthenticator>(serviceProvider =>
 {
     var options = serviceProvider
         .GetRequiredService<IOptions<AdminAuthenticationOptions>>().Value;
-    return options.Provider == AdminAuthenticationProvider.Oidc
-        ? serviceProvider.GetRequiredService<OidcPasswordAuthenticator>()
-        : serviceProvider.GetRequiredService<GatewayCredentialAuthenticator>();
+    return options.Provider switch
+    {
+        AdminAuthenticationProvider.Oidc => serviceProvider.GetRequiredService<OidcPasswordAuthenticator>(),
+        AdminAuthenticationProvider.Gateway => serviceProvider.GetRequiredService<GatewayCredentialAuthenticator>(),
+        AdminAuthenticationProvider.OidcCode => new HostedCredentialAuthenticator(serviceProvider.GetRequiredService<AdminCodeExchange>()),
+        _ => serviceProvider.GetRequiredService<GatewayCredentialAuthenticator>()
+    };
 });
 
 builder.Services.AddScoped<AdminAccessTokenValidator>();
@@ -405,6 +410,7 @@ if (useTrustedForwarding)
 }
 
 app.UseSystemVersionNoStore();
+app.UseMiddleware<AdminHostedLoginSafety>();
 app.UseMiddleware<VocabularyExceptionMiddleware>();
 app.UseDefaultFiles();
 app.UseStaticFiles();
@@ -415,6 +421,7 @@ app.UseRateLimiter();
 app.UseMiddleware<AdminSessionFailureMiddleware>();
 app.UseAuthentication();
 app.UseMiddleware<CookieCsrfMiddleware>();
+app.UseMiddleware<HostedPasswordLoginMiddleware>();
 app.UseAuthorization();
 app.MapAdminAuthEndpoints();
 app.MapSystemVersionEndpoints();

@@ -14,7 +14,10 @@ public enum AdminAuthenticationProvider
     /// <summary>
     /// Optional gateway-style JSON token contract with application credentials in headers.
     /// </summary>
-    Gateway = 1
+    Gateway = 1,
+
+    /// <summary>Confidential authorization code with PKCE and a hosted login page.</summary>
+    OidcCode = 2
 }
 
 public static class AdminAuthenticationHttpClient

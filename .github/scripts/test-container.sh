@@ -14,6 +14,7 @@ FRESH_CONTAINER="lexarbor-fresh-${RUN_SUFFIX}"
 EXISTING_CONTAINER="lexarbor-existing-${RUN_SUFFIX}"
 NAMED_CONTAINER="lexarbor-named-${RUN_SUFFIX}"
 FAILURE_CONTAINER="lexarbor-failure-${RUN_SUFFIX}"
+CODE_CONTAINER="lexarbor-code-${RUN_SUFFIX}"
 NAMED_VOLUME="lexarbor-data-${RUN_SUFFIX}"
 TEST_ROOT="$(mktemp -d)"
 
@@ -23,7 +24,8 @@ cleanup() {
     "$FRESH_CONTAINER" \
     "$EXISTING_CONTAINER" \
     "$NAMED_CONTAINER" \
-    "$FAILURE_CONTAINER" >/dev/null 2>&1 || true
+    "$FAILURE_CONTAINER" \
+    "$CODE_CONTAINER" >/dev/null 2>&1 || true
   docker volume rm "$NAMED_VOLUME" >/dev/null 2>&1 || true
   case "$TEST_ROOT" in
     /tmp/*) rm -rf -- "$TEST_ROOT" ;;
@@ -228,13 +230,37 @@ check_key_startup_rejected() {
   docker rm -f "$FAILURE_CONTAINER" >/dev/null
 }
 
+check_auth_method() {
+  local container_name="$1" expected="$2" mapped_port
+  mapped_port="$(docker port "$container_name" 5008/tcp | head -n 1 | awk -F: '{print $NF}')"
+  curl --fail --silent --show-error "http://127.0.0.1:${mapped_port}/admin/auth/method" |
+    jq --exit-status --arg expected "$expected" '. == {success:true,data:{method:$expected}}' >/dev/null
+}
+
+bash .github/scripts/test-start-configuration.sh
+
 echo "Checking startup without an explicit host mount"
 start_container "$UNMOUNTED_CONTAINER"
 check_reported_version "$UNMOUNTED_CONTAINER"
 check_runs_unprivileged "$UNMOUNTED_CONTAINER"
 check_key_ring "$UNMOUNTED_CONTAINER"
+check_auth_method "$UNMOUNTED_CONTAINER" password
 check_healthcheck_reports_healthy "$UNMOUNTED_CONTAINER"
 docker rm -f -v "$UNMOUNTED_CONTAINER" >/dev/null
+
+echo "Checking explicit Code mode with missing configuration fails safely"
+start_container "$CODE_CONTAINER" --env AdminAuthentication__Provider=OidcCode
+check_auth_method "$CODE_CONTAINER" hosted
+code_port="$(docker port "$CODE_CONTAINER" 5008/tcp | head -n 1 | awk -F: '{print $NF}')"
+code_status="$(curl --silent --show-error --dump-header "$TEST_ROOT/code-headers" --output "$TEST_ROOT/code-body" --write-out '%{http_code}' "http://127.0.0.1:${code_port}/admin/auth/start")"
+test "$code_status" = 503
+jq --exit-status '. == {success:false,message:"Hosted authentication is not configured."}' "$TEST_ROOT/code-body" >/dev/null
+grep -qi '^Cache-Control: no-store' "$TEST_ROOT/code-headers"
+! grep -qi '^Set-Cookie:' "$TEST_ROOT/code-headers"
+password_status="$(curl --silent --show-error --output "$TEST_ROOT/code-password" --write-out '%{http_code}' --request POST --header 'Content-Type: application/json' --data '{broken' "http://127.0.0.1:${code_port}/admin/auth/login")"
+test "$password_status" = 400
+jq --exit-status '. == {success:false,message:"Password login is disabled for hosted authentication."}' "$TEST_ROOT/code-password" >/dev/null
+docker rm -f -v "$CODE_CONTAINER" >/dev/null
 
 echo "Checking named-volume key storage as the image user"
 docker volume create "$NAMED_VOLUME" >/dev/null
