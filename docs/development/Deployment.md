@@ -384,6 +384,46 @@ When login answers 502, the Lexarbor log names the cause. `rejected with invalid
 
 The `Gateway` adapter also speaks SignaCore's older `/api/auth/token` contract, but new deployments should use `/oauth2/token` through the `Oidc` provider.
 
+## Internal pending hosted-login transactions (not enabled)
+
+`PendingAdminLoginStore` is an internal singleton for one Host instance. It does
+not enable public hosted-login routes, Code mode, token exchange or session sign-in.
+It holds at most 4096 active transactions for five minutes. At capacity it reclaims
+expired entries and rejects creation without evicting active entries. Restarting
+the Host loses pending logins, so users must start login again; existing persisted
+administrator sessions are unaffected. Pending state is not stored in SQLite or
+the Data Protection key ring and cannot be recovered across instances/restarts.
+
+Each transaction uses fresh 32-byte random state, nonce, PKCE verifier and browser
+binding (canonical 43-character unpadded base64url), with an S256 challenge. The
+store indexes only the SHA-256 state hash and stores a browser-binding hash, expiry,
+nonce/verifier and validated return target. Creation exposes no verifier; only a
+successful internal consume returns it. There are no code/token/secret/identity
+fields, and correlation material must never be logged.
+
+Future HTTP callers must use a separate `__Host-Lexarbor.Login.<state>` cookie for
+each transaction, with HttpOnly, Secure, SameSite=Lax, Path=/, no Domain and a
+five-minute lifetime; the service provides naming/start/deletion attributes but
+writes no HTTP cookies. Parallel starts cannot overwrite a shared binding cookie.
+Callbacks validate unique fields and exact issuer before consuming state/browser
+binding; only one concurrent consumer succeeds, and the exact deadline is expired.
+A wrong browser cannot consume the valid transaction. Clear only that transaction's
+cookie with its original attributes. Cancellation/denial also consumes; failures
+after consumption never revive the transaction. Cancellation before admission to
+mutation leaves the valid pending transaction intact. Creating or rejecting a
+pending transaction never changes an existing administrator session.
+
+Return targets default to `/#/books` when omitted and accept only `/books`,
+`/books/<id>/words`, `/vocabulary`, `/phrases`, `/import`, `/import/phrase` and
+`/import/batch`, optionally with the `/#` prefix. IDs are 1–128 ASCII letters,
+digits, `-` or `_`; inputs are at most 256 characters. The store saves the normalized
+`/#/...` target. Queries, extra fragments, percent encoding (including double or
+invalid encoding), absolute URLs, double slashes, backslashes, controls, login,
+forbidden and unknown routes fail closed. Future navigation uses this stored target,
+never a new callback-supplied target. Rollback discards only in-memory pending state;
+no database, migration, persistence-directory, container-script or frontend change
+is required for this internal foundation.
+
 ## Internal authorization-code foundation (not enabled)
 
 The Host contains an internal `AdminCodeExchange` service for future Confidential

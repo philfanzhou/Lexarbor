@@ -80,6 +80,8 @@ builder.Services.AddScoped<IVocabularyBookUnitRepository, VocabularyBookUnitRepo
 builder.Services.AddScoped<IVocabularyMeaningUnitRepository, VocabularyMeaningUnitRepository>();
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 builder.Services.AddSingleton(TimeProvider.System);
+// Internal pending protocol state only; public hosted-login routes are not enabled.
+builder.Services.AddSingleton<PendingAdminLoginStore>();
 // A session database failure must not emit SQL, parameters, or provider exception details.
 builder.Services.PostConfigure<LoggerFilterOptions>(options =>
 {
