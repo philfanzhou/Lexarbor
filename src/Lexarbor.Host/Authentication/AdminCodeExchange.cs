@@ -91,9 +91,12 @@ public sealed class AdminCodeExchange(
             {
                 Content = new FormUrlEncodedContent(new Dictionary<string, string>
                 {
-                    ["grant_type"] = "authorization_code", ["code"] = code,
-                    ["redirect_uri"] = settings.RedirectUri, ["code_verifier"] = verifier,
-                    ["client_id"] = settings.ClientId, ["client_secret"] = settings.ClientSecret
+                    ["grant_type"] = "authorization_code",
+                    ["code"] = code,
+                    ["redirect_uri"] = settings.RedirectUri,
+                    ["code_verifier"] = verifier,
+                    ["client_id"] = settings.ClientId,
+                    ["client_secret"] = settings.ClientSecret
                 })
             };
             using var response = await clients.CreateClient(BackchannelName).SendAsync(
@@ -168,15 +171,24 @@ public sealed class AdminCodeExchange(
         if (keys.Length == 0) return new TokenValidationResult { Exception = new SecurityTokenSignatureKeyNotFoundException() };
         var parameters = new TokenValidationParameters
         {
-            ValidateIssuerSigningKey = true, RequireSignedTokens = true, IssuerSigningKeys = keys,
-            TryAllIssuerSigningKeys = false, ValidAlgorithms = [SecurityAlgorithms.RsaSha256],
-            ValidateIssuer = true, ValidIssuer = identityOptions.Value.Issuer,
-            ValidateAudience = true, ValidAudience = audience, ValidTypes = [type],
-            ValidateLifetime = true, RequireExpirationTime = true, ClockSkew = TimeSpan.Zero,
+            ValidateIssuerSigningKey = true,
+            RequireSignedTokens = true,
+            IssuerSigningKeys = keys,
+            TryAllIssuerSigningKeys = false,
+            ValidAlgorithms = [SecurityAlgorithms.RsaSha256],
+            ValidateIssuer = true,
+            ValidIssuer = identityOptions.Value.Issuer,
+            ValidateAudience = true,
+            ValidAudience = audience,
+            ValidTypes = [type],
+            ValidateLifetime = true,
+            RequireExpirationTime = true,
+            ClockSkew = TimeSpan.Zero,
             LifetimeValidator = (notBefore, expiration, _, _) => expiration.HasValue
                 && new DateTimeOffset(expiration.Value, TimeSpan.Zero) > clock.GetUtcNow()
                 && (!notBefore.HasValue || new DateTimeOffset(notBefore.Value, TimeSpan.Zero) <= clock.GetUtcNow().AddSeconds(nonce is null ? 0 : 30)),
-            NameClaimType = "name", RoleClaimType = "role"
+            NameClaimType = "name",
+            RoleClaimType = "role"
         };
         return await new JsonWebTokenHandler { MapInboundClaims = false, MaximumTokenSizeInBytes = 8192 }.ValidateTokenAsync(token, parameters);
     }

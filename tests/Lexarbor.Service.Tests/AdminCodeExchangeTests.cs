@@ -41,35 +41,58 @@ public class AdminCodeExchangeTests
         Assert.Equal("application/x-www-form-urlencoded", f.ContentType);
         Assert.Equivalent(new Dictionary<string, string>
         {
-            ["grant_type"] = "authorization_code", ["code"] = Fixture.Code,
-            ["code_verifier"] = Fixture.Verifier, ["redirect_uri"] = f.CodeOptions.RedirectUri,
-            ["client_id"] = "client-id", ["client_secret"] = "synthetic-secret-marker"
+            ["grant_type"] = "authorization_code",
+            ["code"] = Fixture.Code,
+            ["code_verifier"] = Fixture.Verifier,
+            ["redirect_uri"] = f.CodeOptions.RedirectUri,
+            ["client_id"] = "client-id",
+            ["client_secret"] = "synthetic-secret-marker"
         }, f.Form, strict: true);
         Assert.DoesNotContain(Fixture.Code, result.ToString()!);
         Assert.Equal(1, f.Posts);
     }
 
     [Theory]
-    [InlineData("id", "typ")][InlineData("access", "typ")]
-    [InlineData("id", "alg")][InlineData("access", "alg")]
-    [InlineData("id", "signature")][InlineData("access", "signature")]
-    [InlineData("id", "kid")][InlineData("access", "kid")]
-    [InlineData("id", "issuer")][InlineData("access", "issuer")]
-    [InlineData("id", "audience")][InlineData("access", "audience")]
-    [InlineData("id", "extra-audience")][InlineData("access", "extra-audience")]
-    [InlineData("id", "missing-sub")][InlineData("access", "missing-sub")]
-    [InlineData("id", "duplicate-sub")][InlineData("access", "duplicate-sub")]
-    [InlineData("id", "empty-sub")][InlineData("access", "empty-sub")]
-    [InlineData("id", "missing-iat")][InlineData("access", "missing-iat")]
-    [InlineData("id", "missing-exp")][InlineData("access", "missing-exp")]
-    [InlineData("id", "future-iat")][InlineData("access", "future-iat")]
-    [InlineData("id", "exp-before-iat")][InlineData("access", "exp-before-iat")]
-    [InlineData("id", "exact-expiry")][InlineData("access", "exact-expiry")]
-    [InlineData("id", "expired-within-skew")][InlineData("access", "expired-within-skew")]
-    [InlineData("id", "duplicate-iat")][InlineData("access", "duplicate-iat")]
-    [InlineData("id", "duplicate-exp")][InlineData("access", "duplicate-exp")]
-    [InlineData("id", "missing-nonce")][InlineData("id", "wrong-nonce")]
-    [InlineData("id", "duplicate-nonce")][InlineData("id", "sub-mismatch")]
+    [InlineData("id", "typ")]
+    [InlineData("access", "typ")]
+    [InlineData("id", "alg")]
+    [InlineData("access", "alg")]
+    [InlineData("id", "signature")]
+    [InlineData("access", "signature")]
+    [InlineData("id", "kid")]
+    [InlineData("access", "kid")]
+    [InlineData("id", "issuer")]
+    [InlineData("access", "issuer")]
+    [InlineData("id", "audience")]
+    [InlineData("access", "audience")]
+    [InlineData("id", "extra-audience")]
+    [InlineData("access", "extra-audience")]
+    [InlineData("id", "missing-sub")]
+    [InlineData("access", "missing-sub")]
+    [InlineData("id", "duplicate-sub")]
+    [InlineData("access", "duplicate-sub")]
+    [InlineData("id", "empty-sub")]
+    [InlineData("access", "empty-sub")]
+    [InlineData("id", "missing-iat")]
+    [InlineData("access", "missing-iat")]
+    [InlineData("id", "missing-exp")]
+    [InlineData("access", "missing-exp")]
+    [InlineData("id", "future-iat")]
+    [InlineData("access", "future-iat")]
+    [InlineData("id", "exp-before-iat")]
+    [InlineData("access", "exp-before-iat")]
+    [InlineData("id", "exact-expiry")]
+    [InlineData("access", "exact-expiry")]
+    [InlineData("id", "expired-within-skew")]
+    [InlineData("access", "expired-within-skew")]
+    [InlineData("id", "duplicate-iat")]
+    [InlineData("access", "duplicate-iat")]
+    [InlineData("id", "duplicate-exp")]
+    [InlineData("access", "duplicate-exp")]
+    [InlineData("id", "missing-nonce")]
+    [InlineData("id", "wrong-nonce")]
+    [InlineData("id", "duplicate-nonce")]
+    [InlineData("id", "sub-mismatch")]
     public async Task StrictTrust_RejectsEveryIndependentTokenDefect(string kind, string defect)
     {
         using var f = new Fixture();
@@ -131,10 +154,17 @@ public class AdminCodeExchangeTests
     }
 
     [Theory]
-    [InlineData("issuer")][InlineData("authorization-host")][InlineData("token-host")]
-    [InlineData("jwks-host")][InlineData("http")][InlineData("authorization-query")]
-    [InlineData("token-query")][InlineData("userinfo")][InlineData("fragment")]
-    [InlineData("relative")][InlineData("different-port")]
+    [InlineData("issuer")]
+    [InlineData("authorization-host")]
+    [InlineData("token-host")]
+    [InlineData("jwks-host")]
+    [InlineData("http")]
+    [InlineData("authorization-query")]
+    [InlineData("token-query")]
+    [InlineData("userinfo")]
+    [InlineData("fragment")]
+    [InlineData("relative")]
+    [InlineData("different-port")]
     public async Task UntrustedMetadata_NeverPosts(string defect)
     {
         using var f = new Fixture();
@@ -158,10 +188,19 @@ public class AdminCodeExchangeTests
     }
 
     [Theory]
-    [InlineData("client")][InlineData("secret")][InlineData("audience")][InlineData("scope-empty")]
-    [InlineData("scope-offline")][InlineData("scope-missing-openid")][InlineData("scope-duplicate")]
-    [InlineData("redirect-http")][InlineData("redirect-userinfo")][InlineData("redirect-fragment")]
-    [InlineData("redirect-path")][InlineData("redirect-long")][InlineData("redirect-nonascii")]
+    [InlineData("client")]
+    [InlineData("secret")]
+    [InlineData("audience")]
+    [InlineData("scope-empty")]
+    [InlineData("scope-offline")]
+    [InlineData("scope-missing-openid")]
+    [InlineData("scope-duplicate")]
+    [InlineData("redirect-http")]
+    [InlineData("redirect-userinfo")]
+    [InlineData("redirect-fragment")]
+    [InlineData("redirect-path")]
+    [InlineData("redirect-long")]
+    [InlineData("redirect-nonascii")]
     public async Task InvalidConfiguration_IsSafeAndDoesNotPost(string defect)
     {
         using var f = new Fixture();
@@ -200,11 +239,21 @@ public class AdminCodeExchangeTests
     }
 
     [Theory]
-    [InlineData("missing-access")][InlineData("missing-id")][InlineData("type")]
-    [InlineData("expires")][InlineData("scope")][InlineData("oversize-token")]
-    [InlineData("nonascii-token")][InlineData("malformed-token")]
-    [InlineData("malformed-body")][InlineData("oversize-body")][InlineData("invalid-grant")]
-    [InlineData("redirect307")][InlineData("redirect308")][InlineData("network")][InlineData("timeout")]
+    [InlineData("missing-access")]
+    [InlineData("missing-id")]
+    [InlineData("type")]
+    [InlineData("expires")]
+    [InlineData("scope")]
+    [InlineData("oversize-token")]
+    [InlineData("nonascii-token")]
+    [InlineData("malformed-token")]
+    [InlineData("malformed-body")]
+    [InlineData("oversize-body")]
+    [InlineData("invalid-grant")]
+    [InlineData("redirect307")]
+    [InlineData("redirect308")]
+    [InlineData("network")]
+    [InlineData("timeout")]
     public async Task ResponseAndTransportFailures_AreBoundedSinglePostAndSafe(string failure)
     {
         using var f = new Fixture();
@@ -253,7 +302,8 @@ public class AdminCodeExchangeTests
     }
 
     [Theory]
-    [InlineData(307)][InlineData(308)]
+    [InlineData(307)]
+    [InlineData(308)]
     public async Task RegisteredRealBackchannel_DoesNotFollowRedirectOrLeakViaLoggers(int status)
     {
         using var factory = new VocabularyWebApplicationFactory(extraConfiguration: new Dictionary<string, string?>
