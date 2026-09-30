@@ -714,9 +714,13 @@ public class AdminHostedLoginTests
                 if (f.Defect == "id-role") id["role"] = "admin";
                 if (f.Defect == "sub") id["sub"] = "other";
                 var parts = f.Defect?.Split(':');
-                f.LastAccess = f.Token("at+jwt", access, parts is { Length: 2 } && parts[0] == "access" ? parts[1] : null);
-                f.LastId = f.Token("JWT", id, parts is { Length: 2 } && parts[0] == "id" ? parts[1] : null);
-                var body = new Dictionary<string, object> { ["access_token"] = f.LastAccess, ["id_token"] = f.LastId, ["token_type"] = "Bearer", ["expires_in"] = 900, ["scope"] = "openid profile" };
+                // Build the response from locals: concurrent transactions must each receive
+                // their own tokens even while the shared Last* fields race for assertions.
+                var accessToken = f.Token("at+jwt", access, parts is { Length: 2 } && parts[0] == "access" ? parts[1] : null);
+                var idToken = f.Token("JWT", id, parts is { Length: 2 } && parts[0] == "id" ? parts[1] : null);
+                f.LastAccess = accessToken;
+                f.LastId = idToken;
+                var body = new Dictionary<string, object> { ["access_token"] = accessToken, ["id_token"] = idToken, ["token_type"] = "Bearer", ["expires_in"] = 900, ["scope"] = "openid profile" };
                 if (f.Defect == "token-type") body["token_type"] = "Basic";
                 if (f.Defect == "expires") body["expires_in"] = 0;
                 if (f.Defect == "scope") body["scope"] = "openid offline_access";
@@ -733,9 +737,19 @@ public class AdminHostedLoginTests
     {
         public SecurityKey Key { get; } = key;
         public bool Fail { get; set; }
-        public OpenIdConnectConfiguration Configuration { get; } = new() { Issuer = Fixture.Issuer, AuthorizationEndpoint = Fixture.Issuer + "/authorize", TokenEndpoint = Fixture.Issuer + "/token", JwksUri = Fixture.Issuer + "/jwks" };
+        public OpenIdConnectConfiguration Configuration { get; } = Published(key);
+        // The production configuration manager publishes a fully populated instance under
+        // its own lock. Populate the signing key here for the same reason: concurrent
+        // starts call GetConfigurationAsync in parallel, and a lazy unsynchronized Add
+        // corrupts the non-thread-safe collection while redemptions enumerate it.
+        private static OpenIdConnectConfiguration Published(SecurityKey key)
+        {
+            var configuration = new OpenIdConnectConfiguration { Issuer = Fixture.Issuer, AuthorizationEndpoint = Fixture.Issuer + "/authorize", TokenEndpoint = Fixture.Issuer + "/token", JwksUri = Fixture.Issuer + "/jwks" };
+            configuration.SigningKeys.Add(key);
+            return configuration;
+        }
         public Task<OpenIdConnectConfiguration> GetConfigurationAsync(CancellationToken cancel)
-        { cancel.ThrowIfCancellationRequested(); if (Fail) throw new HttpRequestException(Fixture.Code); if (Configuration.SigningKeys.Count == 0) Configuration.SigningKeys.Add(Key); return Task.FromResult(Configuration); }
+        { cancel.ThrowIfCancellationRequested(); if (Fail) throw new HttpRequestException(Fixture.Code); return Task.FromResult(Configuration); }
         public void RequestRefresh() { }
     }
     private sealed class Logs : ILoggerProvider
