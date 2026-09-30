@@ -165,7 +165,9 @@ public class AdminAuthenticationTests :
             TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, logout.StatusCode);
-        var setCookie = logout.Headers.GetValues("Set-Cookie").Single();
+        var cookies = logout.Headers.GetValues("Set-Cookie").ToArray();
+        Assert.Equal(2, cookies.Length);
+        var setCookie = cookies.Single(value => value.StartsWith(VocabularyWebApplicationFactory.CookieName + "=", StringComparison.Ordinal));
         Assert.Contains(VocabularyWebApplicationFactory.CookieName, setCookie);
         Assert.Contains("expires=", setCookie.ToLowerInvariant());
         await AssertFailureAsync(afterLogout, HttpStatusCode.Unauthorized);

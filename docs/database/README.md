@@ -98,8 +98,10 @@ handle is never persisted. `expires_at_unix_ms` is an INTEGER UTC Unix milliseco
 value. `protected_payload` is Data Protection ciphertext under `Lexarbor` /
 `Lexarbor.AdminSession.v1`, containing versioned, independently validated token and
 identity data bound to that exact hash and expiry. Database code never handles
-plaintext tokens or identity. This is an internal Host storage facility; current
-login, Cookie/Bearer schemes, HTTP contracts and frontend behavior are unchanged.
+plaintext tokens or identity. This is an internal Host storage facility, also used by the opaque session
+authentication scheme. Password login still issues the legacy JWT cookie; public
+HTTP contracts and frontend behavior are unchanged. See [session authentication](../development/Deployment.md#administrator-session-authentication)
+for cookie precedence, CSRF, local logout and authentication rollback.
 
 Trusted Host callers must validate token signatures, issuer, audience, access-token
 `exp` and administrator role before creating or replacing a session. The store

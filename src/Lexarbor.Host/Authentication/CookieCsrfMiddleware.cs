@@ -1,5 +1,4 @@
 using Lexarbor.Service;
-using Microsoft.Extensions.Options;
 
 namespace Lexarbor.Host.Authentication;
 
@@ -15,14 +14,11 @@ public sealed class CookieCsrfMiddleware
         };
 
     private readonly RequestDelegate _next;
-    private readonly AdminAuthenticationOptions _options;
 
     public CookieCsrfMiddleware(
-        RequestDelegate next,
-        IOptions<AdminAuthenticationOptions> options)
+        RequestDelegate next)
     {
         _next = next;
-        _options = options.Value;
     }
 
     public async Task InvokeAsync(HttpContext context)
@@ -30,9 +26,8 @@ public sealed class CookieCsrfMiddleware
         var path = context.Request.Path;
         if (!path.StartsWithSegments("/admin") ||
             SafeMethods.Contains(context.Request.Method) ||
-            HasBearerAuthorization(context.Request) ||
-            context.User.Identity?.IsAuthenticated != true ||
-            !context.Request.Cookies.ContainsKey(_options.CookieName))
+            !AdminAuthenticationSource.IsCookie(context.Request) ||
+            context.User.Identity?.IsAuthenticated != true)
         {
             await _next(context);
             return;
@@ -51,11 +46,5 @@ public sealed class CookieCsrfMiddleware
         }
 
         await _next(context);
-    }
-
-    private static bool HasBearerAuthorization(HttpRequest request)
-    {
-        return request.Headers.Authorization.ToString()
-            .StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase);
     }
 }
