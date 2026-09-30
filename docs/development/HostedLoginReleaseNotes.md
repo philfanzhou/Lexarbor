@@ -14,7 +14,8 @@ cookie only after confirmed commit. Failures before commit preserve existing
 sessions; lost commit/response results remain unknown and are never retried.
 
 New public `method`, `start`, and `callback` routes support backend hosted login.
-The frontend still uses its password form; UI rollout is a separate change.
+The administration UI rollout (#155) switched the frontend to them; see
+[Administration UI rollout](#administration-ui-rollout).
 Deployment registration, independent Code configuration, proxy query log
 suppression and rollback are documented in
 [Deployment](Deployment.md#hosted-authorization-code-login-optional).
@@ -37,6 +38,34 @@ return from SignaCore with fixed redirects `/#/login?reason=logged_out` or
 as the application's post-logout URI. Logout never revokes already issued access
 tokens; they remain valid until their exact `exp`. Full semantics, guarantees and
 proxy masking live in
-[Deployment](Deployment.md#prepared-upstream-logout). The frontend does not
-navigate to `logoutUrl` or render the new reasons until the separate UI rollout
-(#155).
+[Deployment](Deployment.md#prepared-upstream-logout).
+
+## Administration UI rollout
+
+Issue #155 switched the administration frontend to the hosted flow; the change is
+deliberate and mode-scoped, and no backend contract above changed.
+
+- The login page reads `GET /admin/auth/method` before offering any action. In
+  `hosted` mode it renders only a SignaCore navigation and no password field; in
+  `password` mode it keeps the existing credential form unchanged. A failed or
+  malformed method read offers no sign-in action at all and can be retried, so a
+  password form can never flash or submit before the mode is known.
+- The SignaCore button performs a top-level browser navigation to
+  `GET /admin/auth/start`, forwarding only a `returnUrl` from the documented route
+  allowlist. One activation starts exactly one navigation. The callback round trip
+  is backend-driven; the browser stores no code, state, access token, ID token or
+  client secret, and the version request and global 401/403 handling are unchanged.
+- The login page consumes the six fixed `reason` values — `canceled`, `denied`,
+  `sign_in_failed`, `provider_unavailable`, `logged_out`, `logout_failed` — each
+  with one message; an unknown value stays harmless.
+- Logout consumes the envelope's optional `data.logoutUrl`: when present it hands
+  the browser to that one-time URI as a top-level navigation and no local
+  navigation overrides it. When absent, the local session has still ended; in
+  hosted mode the UI then says the provider may still hold a session and never
+  claims SignaCore signed out. Old-mode logout keeps its previous silent
+  behaviour.
+
+The default `Oidc` and `Gateway` deployments see no change: the method reads
+`password` and the existing form, logout, and session restore behave exactly as
+before. Deployment switching, legacy-cookie expiry, and rollback are documented in
+[Deployment](Deployment.md#hosted-authorization-code-login-optional).

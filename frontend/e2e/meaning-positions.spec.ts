@@ -21,6 +21,7 @@ async function setup(page: Page) {
   let unitsStatus = 200
   let releaseMove: (() => void) | null = null
   await page.route('**/admin/auth/session', route => json(route, { success: true, data: { username: 'admin', roles: ['admin'] } }))
+  await page.route('**/admin/auth/method', route => json(route, { success: true, data: { method: 'password' } }))
   await page.route('**/admin/system/version', route => json(route, { success: true, data: { version: '1', revision: null, channel: 'test' } }))
   await page.route(/\/admin\/vocabulary-books\?/, route => json(route, { success: true, data: { items: [book], totalPage: 1, totalCount: 1 } }))
   await page.route('**/admin/vocabulary-books/book-a/units', route => unitsStatus === 200

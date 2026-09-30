@@ -539,12 +539,24 @@ log_format lexarbor_safe '$remote_addr $request_method $lexarbor_log_target $sta
 access_log /var/log/nginx/lexarbor.access.log lexarbor_safe;
 ```
 
-The frontend password form is not switched in this backend release (#155); Code
-users navigate directly to `/admin/auth/start`, and the frontend consumption of the
-prepared-logout `data.logoutUrl` and its `reason` values belongs to the same UI
-rollout. To roll back, stop new Code logins, restore `Oidc`/`Gateway` configuration,
-clear the opaque cookie and sign in through the password flow. Keep the database and
-key ring; never convert handles to JWTs. Restart discards pending login and
+The administration UI follows this mode automatically: it reads
+`GET /admin/auth/method`, replaces the password form with the SignaCore
+navigation in Code mode, consumes the prepared-logout `data.logoutUrl` as a
+top-level navigation, and renders the callback and logout-return `reason`
+values. To switch an existing password-grant deployment, register the
+application as described above, set the `OidcCode` section and
+`LEXARBOR_ADMIN_AUTH_PROVIDER=OidcCode`, and restart; from then on every new
+sign-in goes through the hosted flow, and the login page no longer accepts a
+password. Legacy JWT-cookie sessions from the old mode are not force-logged
+out: they keep validating per request like any other selected credential and
+end at their access token's natural `exp` (at most SignaCore's password-grant
+token lifetime), and the administrator signs in again through the hosted
+flow; no forced logout or data migration is involved. To roll back, stop new Code logins, restore the
+`Oidc`/`Gateway` configuration, and restart: the login page shows the password
+form again on its next method read, and the opaque-cookie sessions of the
+Code mode keep working until their own exact access-token expiry (15 minutes)
+while their logout degrades to local-only. Keep the database and key ring;
+never convert handles to JWTs. Restart discards pending login and
 logout-return transactions and requires a fresh start.
 
 ### Prepared upstream logout
@@ -565,12 +577,15 @@ upstream call and never fabricate a hint; at most one concurrent logout obtains 
 snapshot.
 
 On success the 200 envelope adds an optional `data.logoutUrl`: the verified,
-one-time SignaCore logout URI the browser may be navigated to. Only a URI whose
-scheme, host and port exactly match the trusted issuer, whose path is
-`/oauth2/logout`, and whose sole query field is a canonical 43-character base64url
-`logout_handle` is ever exposed; the handle is the only upstream value a browser
-sees. Any other outcome — upstream unreachable, timeout, non-2xx, malformed or
-oversized body, untrusted URI shape — leaves the plain `{"success":true}` envelope.
+one-time SignaCore logout URI the browser may be navigated to. SignaCore answers
+with a relative reference to its own completion endpoint; Lexarbor resolves it
+against the trusted issuer and exposes the resolved absolute URI. An absolute
+answer is exposed only when its scheme, host and port exactly match the trusted
+issuer. Either way the path must be `/oauth2/logout` and the sole query field a
+canonical 43-character base64url `logout_handle`; the handle is the only
+upstream value a browser sees. Any other outcome — upstream unreachable,
+timeout, non-2xx, malformed or oversized body, untrusted URI shape — leaves the
+plain `{"success":true}` envelope.
 In hosted mode a missing `logoutUrl` means local-only logout: the UI must say that
 the identity provider may still hold a session and must never claim SignaCore
 signed out. No upstream error text is echoed. Code-mode logout responses carry

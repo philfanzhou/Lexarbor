@@ -51,6 +51,8 @@ async function mockCatalog(page: Page, books = [starterBook]) {
 test('restores an administrator session and displays the catalog', async ({ page }) => {
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: true, data: admin }))
+  await page.route('**/admin/auth/method', (route) =>
+    json(route, { success: true, data: { method: 'password' } }))
   await mockCatalog(page)
 
   await page.goto('/#/books')
@@ -65,6 +67,8 @@ test('logs in without exposing credentials in the browser URL', async ({ page })
 
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: false, message: 'Unauthorized' }, 401))
+  await page.route('**/admin/auth/method', (route) =>
+    json(route, { success: true, data: { method: 'password' } }))
   await page.route('**/admin/auth/login', async (route) => {
     loginPayload = route.request().postDataJSON()
     return json(route, { success: true, data: admin })
@@ -87,6 +91,8 @@ test('submits a new catalog book through the administration UI', async ({ page }
 
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: true, data: admin }))
+  await page.route('**/admin/auth/method', (route) =>
+    json(route, { success: true, data: { method: 'password' } }))
   await mockCatalog(page)
   await page.route(/\/admin\/vocabulary-books$/, async (route) => {
     if (route.request().method() !== 'POST') {
@@ -110,6 +116,8 @@ test('shows an empty catalog without errors and creates the first book', async (
 
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: true, data: admin }))
+  await page.route('**/admin/auth/method', (route) =>
+    json(route, { success: true, data: { method: 'password' } }))
   await mockCatalog(page, [])
   await page.route(/\/admin\/vocabulary-books$/, async (route) => {
     if (route.request().method() !== 'POST') {
@@ -142,6 +150,8 @@ async function openCatalog(page: Page, respond: (route: Route) => Promise<void>)
   const requests: URL[] = []
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: true, data: admin }))
+  await page.route('**/admin/auth/method', (route) =>
+    json(route, { success: true, data: { method: 'password' } }))
   await mockCatalog(page)
   await page.route(/\/admin\/vocabulary-books(?:\?.*)?$/, (route) => {
     if (route.request().method() !== 'GET') {

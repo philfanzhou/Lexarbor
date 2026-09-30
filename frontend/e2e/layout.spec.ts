@@ -43,6 +43,8 @@ function json(route: Route, data: unknown, status = 200) {
 async function mockAdministrator(page: Page) {
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: true, data: admin }))
+  await page.route('**/admin/auth/method', (route) =>
+    json(route, { success: true, data: { method: 'password' } }))
   await page.route('**/admin/system/version', (route) =>
     json(route, {
       success: true,
@@ -75,6 +77,8 @@ async function openAdministration(page: Page, path: string, setUp?: (page: Page)
 async function openPublicPage(page: Page, path: '/login' | '/forbidden') {
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: false, message: 'Unauthorized' }, 401))
+  await page.route('**/admin/auth/method', (route) =>
+    json(route, { success: true, data: { method: 'password' } }))
   await page.goto(`/#${path}`)
   await expect(page.locator('.auth-card')).toBeVisible()
 }

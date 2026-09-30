@@ -109,21 +109,52 @@ public sealed class AdminPreparedLogout(
     }
 
     /// <summary>
-    /// Only the trusted issuer's own completion endpoint may reach a browser: exact
-    /// scheme/host/port, the fixed logout path, and a single canonical 43-character
-    /// base64url <c>logout_handle</c> query — the one-time opaque handle is the sole
-    /// value the browser is allowed to see. Anything else is discarded as local-only.
+    /// Only the trusted issuer's own completion endpoint may reach a browser.
+    /// SignaCore documents its preparation answer as a relative reference to
+    /// that endpoint, so a relative form is resolved against the trusted
+    /// issuer and the resolved absolute URI is exposed; an answer carrying an
+    /// explicit scheme is taken as-is. Either way the guarantee is the same:
+    /// exact issuer scheme/host/port, the fixed logout path, and a single
+    /// canonical 43-character base64url <c>logout_handle</c> query — the
+    /// one-time opaque handle is the sole value the browser is allowed to see.
+    /// Anything else is discarded as local-only.
     /// </summary>
     private static string? ValidLogoutUri(string? value, Uri issuer)
     {
-        if (value is null || !Ascii(value, 1, 500) || !SafeUri(value, out var uri)) return null;
+        if (value is null || !Ascii(value, 1, 500) || value.Contains('\\')) return null;
+        Uri uri;
+        var absolute = HasUriScheme(value);
+        if (absolute)
+        {
+            if (!SafeUri(value, out uri!)) return null;
+        }
+        else if (!Uri.TryCreate(value, UriKind.Relative, out var relative)
+            || !Uri.TryCreate(issuer, relative, out uri!)) return null;
+        if (uri!.UserInfo.Length != 0 || uri.Fragment.Length != 0 || uri.Host.Length == 0) return null;
         if (uri.Scheme != issuer.Scheme || !string.Equals(uri.Host, issuer.Host, StringComparison.Ordinal)
             || uri.Port != issuer.Port
             || !string.Equals(uri.AbsolutePath, LogoutPath, StringComparison.Ordinal)) return null;
         var query = QueryHelpers.ParseQuery(uri.Query);
         if (query.Count != 1 || !query.TryGetValue("logout_handle", out var handles)
             || handles.Count != 1 || !PendingAdminLogoutStore.Canonical(handles[0])) return null;
-        return value;
+        return absolute ? value : uri.GetLeftPart(UriPartial.Path) + uri.Query;
+    }
+
+    /// <summary>
+    /// Whether the value opens with an explicit RFC 3986 scheme. The decision
+    /// cannot be left to <c>Uri.TryCreate(…, UriKind.Absolute)</c>: on Unix a
+    /// scheme-less leading-slash path misparses as an absolute <c>file:</c>
+    /// URI, which would turn the provider's documented relative answer into a
+    /// rejection — or worse, let a <c>file:</c> shape toward the browser had
+    /// the later issuer checks not caught it.
+    /// </summary>
+    private static bool HasUriScheme(string value)
+    {
+        if (!char.IsAsciiLetter(value[0])) return false;
+        var index = 1;
+        while (index < value.Length
+            && (char.IsAsciiLetterOrDigit(value[index]) || value[index] is '+' or '-' or '.')) index++;
+        return index < value.Length && value[index] == ':';
     }
 
     private bool TryGetRequestEndpoint(out Uri endpoint, out Uri issuer)
