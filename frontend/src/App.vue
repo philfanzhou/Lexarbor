@@ -4,7 +4,7 @@ import { RouterLink, RouterView } from 'vue-router'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { EditPen, Notebook, Reading, Upload } from '@element-plus/icons-vue'
-import { currentUser, isAuthenticated, logout } from '@/services/authState'
+import { currentUser, isAuthenticated, isHostedAuthMethod, logout } from '@/services/authState'
 import { versionInfo, versionLabel, versionStatus } from '@/services/systemVersion'
 import { getApiError } from '@/services/apiError'
 
@@ -91,14 +91,30 @@ async function handleLogout() {
   }
 
   loggingOut.value = true
+  let localOnlyHosted = false
   try {
-    await logout()
+    const { logoutUrl } = await logout()
+    if (logoutUrl) {
+      // Hand the browser to the verified one-time provider logout URI as a
+      // top-level navigation. The page is about to unload, so the button
+      // stays busy and no local navigation may race or override it.
+      window.location.assign(logoutUrl)
+      return
+    }
+
+    // No logoutUrl: the local session is revoked either way. In hosted mode
+    // this is a local-only logout — say that the provider may still hold a
+    // session, never claim SignaCore signed out, and echo no upstream text.
+    localOnlyHosted = await isHostedAuthMethod()
   } catch (error: unknown) {
     ElMessage.error(getApiError(error).message)
-  } finally {
-    loggingOut.value = false
-    await router.replace({ name: 'login' })
   }
+
+  loggingOut.value = false
+  if (localOnlyHosted) {
+    ElMessage.warning('已退出 Lexarbor，但身份提供方的登出未确认完成，它可能仍保留您的会话。')
+  }
+  await router.replace({ name: 'login' })
 }
 </script>
 

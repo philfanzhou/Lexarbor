@@ -13,7 +13,7 @@
 
 | Path | Access | Page |
 |------|----------|------|
-| `/login` | Anonymous | Identity administrator username and password login |
+| `/login` | Anonymous | Password form or SignaCore hosted navigation, per the deployment's login mode |
 | `/forbidden` | Anonymous | Non-administrator notice |
 | `/books` | Administrator | Vocabulary book management |
 | `/books/:bookId/words` | Administrator | One book's word list |
@@ -22,15 +22,17 @@
 | `/import` | Administrator | Word import |
 | `/import/batch` | Administrator | Batch word import |
 
-The application uses hash history. On first entry to a protected page it calls `GET /admin/auth/session` to restore the cookie session; an unauthenticated response redirects to `/login` and a 403 redirects to `/forbidden`. While unauthenticated, neither the administration navigation nor any actionable page is rendered.
+The application uses hash history. On first entry to a protected page it calls `GET /admin/auth/session` to restore the cookie session; an unauthenticated response redirects to `/login` and a 403 redirects to `/forbidden`. While unauthenticated, neither the administration navigation nor any actionable page is rendered. The hosted-login callback and logout-return routes re-enter the application at these hash routes: a successful callback lands on the stored return page, where the ordinary restore establishes the session, and their fixed failures land on `/login?reason=…`, which the login page renders as one notice.
 
 ## Authentication API
 
 | Method and path | Request and response |
 |------------|-----------|
-| `POST /admin/auth/login` | `{ username, password }`; on success returns non-sensitive session information only |
+| `GET /admin/auth/method` | `{ method: 'hosted' \| 'password' }`; chooses the single sign-in action the login page offers |
+| `POST /admin/auth/login` | `{ username, password }`, password mode only; on success returns non-sensitive session information only |
+| `GET /admin/auth/start` | Reached only as a hosted-mode top-level browser navigation, never XHR, with an optional allowlisted `returnUrl`; the backend orchestrates the whole provider round trip |
 | `GET /admin/auth/session` | Returns the current administrator session |
-| `POST /admin/auth/logout` | Deletes the server-side cookie; the frontend always clears its local state |
+| `POST /admin/auth/logout` | Deletes the server-side cookie; the frontend always clears its local state. Hosted mode may answer `{ logoutUrl }`, which the browser is then navigated to; without it the logout was local-only |
 
 Axios uses `withCredentials=true`. Administration write requests send:
 
@@ -47,9 +49,11 @@ Authentication state lives in a small in-project TypeScript module or composable
 ```text
 isAuthenticated
 currentUser
+authMethod              // 'hosted' | 'password' | null (unknown)
 login(username, password)
 restoreSession()
-logout()
+logout()                // resolves with { logoutUrl? }
+loadAuthMethod()
 clearSession()
 ```
 
@@ -69,6 +73,36 @@ A shared `ApiError` carries the public message, an optional HTTP status, and, on
 Components use `catch (error: unknown)` with the shared conversion function, never `any`.
 
 The Axios response interceptor runs the global 401/403 handling before any component's `catch`. A request may carry an optional "still current" guard (`lxIsCurrent`); when it returns false — the request belonged to a session that has since ended — the interceptor skips that handling for this request only, so a late 401/403 cannot clear or redirect the session that replaced it. Every request without the guard keeps the default behaviour.
+
+## Hosted login mode
+
+A deployment whose backend selected the optional `OidcCode` provider signs its administrators in through SignaCore's hosted pages. The frontend orchestrates navigations only; every protocol value — state, nonce, PKCE verifier, code, access token, ID token, client secret — stays server-side and never enters a browser request, the URL the app controls, or web storage.
+
+The login page reads `GET /admin/auth/method` first and offers exactly one sign-in action:
+
+| Mode read | The login page renders |
+|------|----------|
+| `hosted` | Only the **使用 SignaCore 登录** navigation; it renders no password field and submits none |
+| `password` | The existing username-and-password form with its unchanged 401/403 feedback |
+| Still loading | Neither action, only a pending notice |
+| Failed, malformed, or an unknown value | A retryable failure and no submittable action; it never guesses password mode |
+
+The hosted button runs a top-level navigation to this site's `GET /admin/auth/start`, forwarding the current `redirect` query as `returnUrl` only when it exactly matches the backend's route allowlist (the six fixed routes, or `/books/<id>/words` with a safe id); otherwise the parameter is omitted and the backend default applies. One activation begins exactly one navigation: the button turns busy and a second activation is a no-op. The provider round trip and the callback are backend-driven; on success the browser lands on the stored return page, where the ordinary route guard's `GET /admin/auth/session` restore establishes the username, roles, and the one version request.
+
+The login page consumes the six fixed `reason` values of the callback and logout-return routes as exactly one notice each, and ignores an unknown value harmlessly:
+
+| `reason` | Notice |
+|------|----------|
+| `canceled` | The provider sign-in was canceled and can be started again |
+| `denied` | The account does not carry the administrator role |
+| `sign_in_failed` | The sign-in failed and can be retried |
+| `provider_unavailable` | The provider is temporarily unavailable |
+| `logged_out` | Signed out |
+| `logout_failed` | Lexarbor signed out, but the provider sign-out was not confirmed complete; it may still hold a session |
+
+Logout navigates in hosted mode. When the answer carries `logoutUrl`, the browser is handed to that one-time provider URI as a top-level navigation and no local navigation may race or override it; the provider then returns the browser to the fixed return route. When `logoutUrl` is absent, the local session has still ended, and the UI says that the identity provider may still hold a session — it never claims SignaCore signed out and never echoes upstream error text. Password-mode logout keeps its previous silent return to the login page, and a failed logout still shows the error and returns to the login page in every mode.
+
+The mode is deployment state cached in `authState` (`authMethod`): it is prefetched best-effort when a session is applied so the logout classification does not race, it survives a logout so the login page renders immediately, and a late answer writes only this value, so it can never restore a signed-out session. Nothing is written to localStorage or sessionStorage in any mode.
 
 ## Build version display
 

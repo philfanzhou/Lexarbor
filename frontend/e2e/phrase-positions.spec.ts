@@ -15,6 +15,7 @@ const json = (route: Route, data: unknown, status = 200) => route.fulfill({
 test('navigates, filters phrase positions, pages and opens detail', async ({ page }) => {
   const queries: URL[] = []
   await page.route('**/admin/auth/session', route => json(route, { success: true, data: { username: 'admin', roles: ['admin'] } }))
+  await page.route('**/admin/auth/method', route => json(route, { success: true, data: { method: 'password' } }))
   await page.route('**/admin/system/version', route => json(route, { success: true, data: { version: '1', revision: null, channel: 'test' } }))
   await page.route(/\/admin\/vocabulary-books\?/, route => json(route, { success: true, data: { items: [book, other], totalPage: 1, totalCount: 2 } }))
   await page.route(/\/admin\/vocabulary-books\/[^/]+\/units$/, route => json(route, { success: true, data: { units } }))
@@ -56,6 +57,7 @@ test('navigates, filters phrase positions, pages and opens detail', async ({ pag
 test('empty and failed reads can be retried', async ({ page }) => {
   let attempts = 0
   await page.route('**/admin/auth/session', route => json(route, { success: true, data: { username: 'admin', roles: ['admin'] } }))
+  await page.route('**/admin/auth/method', route => json(route, { success: true, data: { method: 'password' } }))
   await page.route('**/admin/system/version', route => json(route, { success: true, data: { version: '1', revision: null, channel: 'test' } }))
   await page.route(/\/admin\/vocabulary-books\?/, route => json(route, { success: true, data: { items: [book], totalPage: 1, totalCount: 1 } }))
   await page.route(/\/admin\/vocabulary-books\/[^/]+\/units$/, route => json(route, { success: true, data: { units } }))

@@ -52,6 +52,8 @@ async function mockAdministrator(page: Page, username = admin.username) {
   const session = { username, roles: admin.roles }
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: true, data: session }))
+  await page.route('**/admin/auth/method', (route) =>
+    json(route, { success: true, data: { method: 'password' } }))
   await page.route('**/admin/auth/login', (route) =>
     json(route, { success: true, data: session }))
   await page.route('**/admin/auth/logout', (route) =>
@@ -242,6 +244,8 @@ test('the guest pages never ask for the version', async ({ page }) => {
   const version = useDeferredVersion(page)
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: false, message: 'Unauthorized' }, 401))
+  await page.route('**/admin/auth/method', (route) =>
+    json(route, { success: true, data: { method: 'password' } }))
 
   await page.goto('/#/login')
   await expect(page.locator('.auth-card')).toBeVisible()

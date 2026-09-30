@@ -105,6 +105,30 @@ public class AdminHostedLogoutTests
     }
 
     [Fact]
+    public async Task DocumentedRelativeLogoutUri_ResolvesAgainstTheTrustedIssuer()
+    {
+        using var f = new Fixture();
+        var cookie = await f.SignIn();
+        // SignaCore's preparation answer is a relative reference to its own
+        // completion endpoint (IN-34). The envelope exposes the issuer-absolute
+        // URI resolved from it, and the return trip is unchanged.
+        f.LogoutDefect = "relative";
+        using var response = await f.Logout(cookie);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("{\"success\":true,\"data\":{\"logoutUrl\":\"" + ExpectedLogoutUrl + "\"}}",
+            await response.Content.ReadAsStringAsync(Ct));
+        Assert.Equal("no-store", response.Headers.CacheControl!.ToString());
+        Assert.Equal(1, f.LogoutPosts);
+        var (relativeName, relativeBinding, _) = LogoutTransactionCookie(response);
+        using var relativeReturn = await f.Return(
+            "?state=" + f.LogoutForm["state"], relativeName + "=" + relativeBinding);
+        Assert.Equal("/#/login?reason=logged_out", relativeReturn.Headers.Location!.OriginalString);
+        ReturnSafety(relativeReturn);
+        f.AssertNotLogged(f.LogoutForm["state"], relativeBinding, Fixture.Handle);
+        f.AssertSafeLogs();
+    }
+
+    [Fact]
     public async Task WithoutConfiguredReturnRedirect_PreparationSendsHintOnly()
     {
         using var f = new Fixture(new Dictionary<string, string?> { ["AdminAuthentication:OidcCode:PostLogoutRedirectUri"] = "" });
@@ -174,7 +198,11 @@ public class AdminHostedLogoutTests
     [InlineData("duplicate-handle")]
     [InlineData("fragment")]
     [InlineData("userinfo")]
-    [InlineData("relative")]
+    [InlineData("relative-evil-host")]
+    [InlineData("relative-wrong-path")]
+    [InlineData("relative-extra-query")]
+    [InlineData("relative-bad-handle")]
+    [InlineData("relative-fragment")]
     [InlineData("http-scheme")]
     public async Task UpstreamFailures_KeepLocalLogoutAndOmitLogoutUrl(string defect)
     {
@@ -780,7 +808,16 @@ public class AdminHostedLogoutTests
                     "duplicate-handle" => Issuer + "/oauth2/logout?logout_handle=" + Handle + "&logout_handle=" + Handle,
                     "fragment" => Issuer + "/oauth2/logout?logout_handle=" + Handle + "#f",
                     "userinfo" => "https://user:pass@issuer.test/oauth2/logout?logout_handle=" + Handle,
+                    // SignaCore's documented success shape (IN-34): a relative
+                    // reference to its own completion endpoint, resolved against
+                    // the trusted issuer. The entries below it are the relative
+                    // attacks that must not survive resolution.
                     "relative" => "/oauth2/logout?logout_handle=" + Handle,
+                    "relative-evil-host" => "//evil.test/oauth2/logout?logout_handle=" + Handle,
+                    "relative-wrong-path" => "/oauth2/evil?logout_handle=" + Handle,
+                    "relative-extra-query" => "/oauth2/logout?logout_handle=" + Handle + "&x=1",
+                    "relative-bad-handle" => "/oauth2/logout?logout_handle=sensitive-handle-marker!!!!",
+                    "relative-fragment" => "/oauth2/logout?logout_handle=" + Handle + "#f",
                     "http-scheme" => "http://issuer.test/oauth2/logout?logout_handle=" + Handle,
                     _ => GoodUri()
                 }) + "}");

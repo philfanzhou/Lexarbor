@@ -37,6 +37,8 @@ const booksRoute = /\/api\/vocabulary-books\/all$/
 async function openImportPage(page: Page, books = [starterBook]) {
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: true, data: admin }))
+  await page.route('**/admin/auth/method', (route) =>
+    json(route, { success: true, data: { method: 'password' } }))
   await page.route('**/admin/system/version', (route) =>
     json(route, {
       success: true,
@@ -225,6 +227,8 @@ test('reports a failure envelope returned with a 200', async ({ page }) => {
 test('surfaces a failure to load the book list', async ({ page }) => {
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: true, data: admin }))
+  await page.route('**/admin/auth/method', (route) =>
+    json(route, { success: true, data: { method: 'password' } }))
   await page.route('**/admin/system/version', (route) =>
     json(route, {
       success: true,
@@ -334,6 +338,8 @@ test('offers a retry when the book list fails to load', async ({ page }) => {
   let fail = true
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: true, data: admin }))
+  await page.route('**/admin/auth/method', (route) =>
+    json(route, { success: true, data: { method: 'password' } }))
   await page.route('**/admin/system/version', (route) =>
     json(route, {
       success: true,
