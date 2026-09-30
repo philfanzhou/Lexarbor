@@ -63,6 +63,7 @@ builder.WebHost.ConfigureKestrel(options =>
 });
 
 // Add services to the container.
+PersistentAdminKeyRing.Register(builder.Services);
 var connectionString = BuildSqliteConnectionString(
     builder.Configuration.GetConnectionString("Default"),
     builder.Environment.ContentRootPath);
@@ -236,6 +237,17 @@ if (useTrustedForwarding)
 builder.Services.AddLexarborRateLimiting(builder.Configuration);
 
 var app = builder.Build();
+
+try
+{
+    PersistentAdminKeyRing.Validate(app.Services);
+}
+catch (InvalidOperationException exception)
+{
+    app.Logger.LogCritical("{Diagnostic}", exception.Message);
+    await app.DisposeAsync();
+    return 1;
+}
 
 app.Logger.LogInformation("Lexarbor starting, version {Version}", ApplicationVersion.Current);
 app.Logger.LogInformation(

@@ -40,7 +40,9 @@ docker build -t lexarbor:latest .
 bash scripts/start.sh
 ```
 
-The container publishes port 5008 and stores both `vocabulary.db` and a persistent `appsettings.json` under `./data` by default. The configuration file is copied from the image defaults on first startup and is never overwritten afterward. `scripts/start.sh` accepts `LEXARBOR_PORT`, `LEXARBOR_DATA_DIR`, `LEXARBOR_IMAGE`, and the authentication variables documented in [Deployment](docs/development/Deployment.md). The container runs as a non-root user, and the script runs it as the user who owns the data directory, so an existing deployment whose files were written by an earlier root container needs `sudo chown -R "$(id -u):$(id -g)" ./data` once — see [Deployment](docs/development/Deployment.md).
+The container publishes port 5008 and stores `vocabulary.db`, a persistent `appsettings.json`, and the Data Protection key ring `admin-keys/` under `./data` by default. The configuration file is copied from the image defaults on first startup and is never overwritten afterward. `scripts/start.sh` accepts `LEXARBOR_PORT`, `LEXARBOR_DATA_DIR`, `LEXARBOR_IMAGE`, and the authentication variables documented in [Deployment](docs/development/Deployment.md). The container runs as a non-root user, and the script runs it as the user who owns the data directory, so an existing deployment whose files were written by an earlier root container needs `sudo chown -R "$(id -u):$(id -g)" ./data` once — see [Deployment](docs/development/Deployment.md).
+
+The key ring is also created under the Host content root’s `data/admin-keys` for local runs. Startup requires valid, writable key storage. On Linux/macOS, the ring directory is restricted to 0700 and its files to 0600. Preserve and confidentially back up the entire ring, including old keys; key XML is not encrypted at rest. See [key storage and recovery](docs/development/Deployment.md#data-protection-key-storage) for permissions, rotation, restore, and rollback. This prepares keys for future administrator sessions; current login and Cookie/Bearer behavior stays the same.
 
 ## Authentication
 
