@@ -52,10 +52,6 @@ async function mockAdministrator(page: Page, username = admin.username) {
   const session = { username, roles: admin.roles }
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: true, data: session }))
-  await page.route('**/admin/auth/method', (route) =>
-    json(route, { success: true, data: { method: 'password' } }))
-  await page.route('**/admin/auth/login', (route) =>
-    json(route, { success: true, data: session }))
   await page.route('**/admin/auth/logout', (route) =>
     json(route, { success: true }))
   await mockCatalog(page)
@@ -103,10 +99,27 @@ async function openBooks(page: Page, username = admin.username) {
   await expect(page.locator('.session')).toContainText(username)
 }
 
-async function loginAgain(page: Page, username = admin.username) {
-  await page.locator('input[autocomplete="username"]').fill(username)
-  await page.locator('input[autocomplete="current-password"]').fill('correct-horse')
-  await page.locator('.auth-card__action').click()
+/** Fulfills a navigation with a document that replaces itself with `target`. */
+function hopTo(route: Route, target: string) {
+  const href = new URL(target, route.request().url()).href
+  return route.fulfill({
+    status: 200,
+    contentType: 'text/html',
+    body: `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>hop</title></head><body><script>location.replace(${JSON.stringify(href)})</script></body></html>`
+  })
+}
+
+/**
+ * Models the hosted round trip as the browser sees it after a logout: the
+ * SignaCore button leaves the SPA, the start and callback routes hop back, and
+ * the fresh page load restores the session like a real provider return.
+ */
+async function signInAgain(page: Page, username = admin.username) {
+  await page.route(/\/admin\/auth\/start(?:\?.*)?$/, (route) =>
+    hopTo(route, '/admin/auth/callback?code=c&state=s&iss=http%3A%2F%2Fidp.test'))
+  await page.route(/\/admin\/auth\/callback(?:\?.*)?$/, (route) => hopTo(route, '/#/books'))
+  await page.getByRole('button', { name: '使用 SignaCore 登录' }).click()
+  await expect(page).toHaveURL(/#\/books$/)
   await expect(page.locator('.session')).toContainText(username)
 }
 
@@ -232,7 +245,7 @@ test('a first login sends one version request even though the guard restores the
   // navigation after logging in restores the session once more; that is the
   // same administrator session and must not fetch the version twice.
   await page.goto('/#/login')
-  await loginAgain(page)
+  await signInAgain(page)
   await expect(page).toHaveURL(/#\/books$/)
 
   expect(version.requests).toHaveLength(1)
@@ -244,9 +257,6 @@ test('the guest pages never ask for the version', async ({ page }) => {
   const version = useDeferredVersion(page)
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: false, message: 'Unauthorized' }, 401))
-  await page.route('**/admin/auth/method', (route) =>
-    json(route, { success: true, data: { method: 'password' } }))
-
   await page.goto('/#/login')
   await expect(page.locator('.auth-card')).toBeVisible()
   await page.goto('/#/forbidden')
@@ -307,7 +317,7 @@ test('a late success from a signed-out session cannot paint the new one', async 
   await expect(page).toHaveURL(/#\/login$/)
 
   // Signing in again as the very same username is a new session generation.
-  await loginAgain(page)
+  await signInAgain(page)
   expect(version.requests).toHaveLength(2)
   const button = page.locator('.app-header__version-button')
   await expect(button).toHaveText('版本获取中')
@@ -327,7 +337,7 @@ test('a late 401 from a signed-out session does not clear the new session', asyn
   await page.locator('.session').getByRole('button', { name: '退出登录' }).click()
   await expect(page).toHaveURL(/#\/login$/)
 
-  await loginAgain(page)
+  await signInAgain(page)
   await expect(page).toHaveURL(/#\/books$/)
 
   // The stale request's 401 is dropped before the global auth handling, so

@@ -139,8 +139,6 @@ async function mockBooksList(page: Page, books = [bookA, legacyBook]) {
 async function openBooks(page: Page, books = [bookA, legacyBook]) {
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: true, data: admin }))
-  await page.route('**/admin/auth/method', (route) =>
-    json(route, { success: true, data: { method: 'password' } }))
   await mockBooksList(page, books)
   await page.goto('/#/books')
   await expect(page.locator('.session')).toContainText(admin.username)

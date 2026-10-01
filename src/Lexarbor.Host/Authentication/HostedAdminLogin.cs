@@ -11,9 +11,6 @@ public static class HostedAdminLogin
 {
     public static void MapHostedAdminLogin(this IEndpointRouteBuilder app)
     {
-        // Hosted login is the only administrator sign-in, so the method is a fixed
-        // answer rather than a probe of provider configuration.
-        app.MapGet("/admin/auth/method", () => VocabularyHttpResponse.Ok(new { method = "hosted" })).AllowAnonymous();
         app.MapGet("/admin/auth/start", StartAsync).AllowAnonymous().RequireRateLimiting(RateLimitingExtensions.AdminLoginPolicy);
         app.MapGet("/admin/auth/callback", CallbackAsync).AllowAnonymous();
     }
@@ -116,7 +113,7 @@ public sealed class AdminHostedLoginSafety(RequestDelegate next)
         // path: case and trailing-slash variants of these routes run the same endpoint
         // and must carry the same response guarantees.
         var route = (context.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText;
-        if (route is "/admin/auth/start" or "/admin/auth/callback" or "/admin/auth/method")
+        if (route is "/admin/auth/start" or "/admin/auth/callback")
         {
             context.Response.Headers.CacheControl = "no-store";
             if (route == "/admin/auth/callback") context.Response.Headers["Referrer-Policy"] = "no-referrer";
