@@ -324,12 +324,16 @@ serviceMantle.AddConditionalExceptionMapping<BadHttpRequestException>(
 ]);
 // Kestrel rejects oversized bodies with its own derived BadHttpRequestException
 // whose exact type the registry matches separately from the public base class.
+// The type is marked obsolete in favor of the public base class, but Kestrel
+// still throws it, so the mapping targets it deliberately.
+#pragma warning disable CS0618 // Type or member is obsolete
 serviceMantle.AddConditionalExceptionMapping<KestrelBadHttpRequestException>(
 [
     new(413, "vocabulary.request_too_large", "The request body is too large.",
         exception => exception.StatusCode == StatusCodes.Status413PayloadTooLarge),
     new(400, "vocabulary.bad_request", "The request is invalid.")
 ]);
+#pragma warning restore CS0618 // Type or member is obsolete
 serviceMantle.AddExceptionMapping<ResourceNotFoundException>(
     StatusCodes.Status404NotFound, "vocabulary.not_found", "The requested resource was not found.");
 serviceMantle.AddExceptionMapping<ConflictException>(
