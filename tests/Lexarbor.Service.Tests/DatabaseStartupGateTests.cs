@@ -193,10 +193,13 @@ public class DatabaseStartupGateTests
 
             // Rewind to a pending state: the newest migration's table is gone
             // and its history row with it, so the re-run has real work to do.
+            var lastMigrationTable = lastMigration.EndsWith("AddServiceAuditLogs", StringComparison.Ordinal)
+                ? "service_audit_logs"
+                : "service_data_protection_keys";
             await using (var raw = new SqliteConnection($"Data Source={database};Pooling=False"))
             {
                 await raw.OpenAsync(Ct);
-                await ExecuteAsync(raw, $"DROP TABLE \"service_data_protection_keys\";", Ct);
+                await ExecuteAsync(raw, $"DROP TABLE \"{lastMigrationTable}\";", Ct);
                 await ExecuteAsync(
                     raw,
                     $"DELETE FROM \"__EFMigrationsHistory\" WHERE \"MigrationId\" = '{lastMigration}';",

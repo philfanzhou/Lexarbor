@@ -32,10 +32,25 @@ public sealed class AdminSessionStore(AdminSessionRepository repository,
     public Task<string> CreateAsync(ValidatedAdminSession session, CancellationToken cancellationToken = default) =>
         ReplaceAsync(null, session, cancellationToken);
 
-    public async Task<string> ReplaceAsync(string? oldHandle, ValidatedAdminSession session,
+    public Task<string> ReplaceAsync(string? oldHandle, ValidatedAdminSession session,
+        CancellationToken cancellationToken = default) =>
+        ReplaceAsync(oldHandle, session, null, cancellationToken);
+
+    /// <summary>
+    /// Replaces the session, optionally running <paramref name="participatingWrite"/> inside the
+    /// same serialized transaction (the sign-in's management audit row), so the companion write
+    /// commits with the session or rolls back with it.
+    /// </summary>
+    public Task<string> ReplaceAsync(string? oldHandle, ValidatedAdminSession session, Func<Task>? participatingWrite,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        return ReplaceCoreAsync(oldHandle, session, participatingWrite, cancellationToken);
+    }
+
+    private async Task<string> ReplaceCoreAsync(string? oldHandle, ValidatedAdminSession session,
+        Func<Task>? participatingWrite, CancellationToken cancellationToken)
+    {
         if (!IsValid(session) || session.AccessTokenExpiresAt.ToUnixTimeMilliseconds() <= Now())
             throw new ArgumentException("A structurally valid, unexpired, independently verified administrator session is required.", nameof(session));
         var handle = WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
@@ -64,7 +79,7 @@ public sealed class AdminSessionStore(AdminSessionRepository repository,
             ProtectedPayload = _protector.Protect(JsonSerializer.Serialize(payload))
         };
         // No retry: if commit has begun and its response is lost, the outcome is unknown.
-        await repository.CreateOrReplaceAsync(row, Hash(oldHandle), cancellationToken);
+        await repository.CreateOrReplaceAsync(row, Hash(oldHandle), participatingWrite, cancellationToken);
         return handle;
     }
 
@@ -75,12 +90,31 @@ public sealed class AdminSessionStore(AdminSessionRepository repository,
         return Recover(await repository.ReadAsync(hash, cancellationToken), hash);
     }
 
-    public async Task<ValidatedAdminSession?> RevokeAndReadAsync(string? handle, CancellationToken cancellationToken = default)
+    public Task<ValidatedAdminSession?> RevokeAndReadAsync(string? handle, CancellationToken cancellationToken = default) =>
+        RevokeAndReadAsync(handle, null, cancellationToken);
+
+    /// <summary>
+    /// Revokes the session, optionally handing every live session it revoked to
+    /// <paramref name="onLiveRevocation"/> inside the same serialized transaction (the logout's
+    /// management audit row), so the companion write commits with the revocation or rolls back
+    /// with it. The snapshot is still only returned to the caller after the commit is confirmed.
+    /// </summary>
+    public async Task<ValidatedAdminSession?> RevokeAndReadAsync(string? handle,
+        Func<ValidatedAdminSession, Task>? onLiveRevocation, CancellationToken cancellationToken = default)
     {
         var hash = Hash(handle);
         if (hash is null) return null;
-        // Delete and confirm commit before decrypting. Corrupt/expired records still get removed.
-        return Recover(await repository.RevokeAndReadAsync(hash, cancellationToken), hash);
+        ValidatedAdminSession? snapshot = null;
+        // Delete and confirm commit before returning anything; corrupt/expired records still
+        // get removed. The payload is decrypted inside the transaction only to decide whether
+        // a live session is being revoked — the audit companion write and the revocation then
+        // commit together, and a rollback releases both with no snapshot delivered.
+        await repository.RevokeAndReadAsync(hash, async row =>
+        {
+            snapshot = Recover(row, hash);
+            if (snapshot is not null && onLiveRevocation is not null) await onLiveRevocation(snapshot);
+        }, cancellationToken);
+        return snapshot;
     }
 
     public Task<int> CleanupAsync(CancellationToken cancellationToken = default) =>

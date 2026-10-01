@@ -339,6 +339,46 @@ Keep the additive table and key ring; do not run migration Down or convert handl
 JWT cookies. The two cookie formats are not interchangeable. A historical database
 restore still requires clearing `admin_session` before startup as described above.
 
+## Management audit log
+
+Administrator authentication boundary events are persisted into the
+`service_audit_logs` table (created by the additive `AddServiceAuditLogs`
+migration) through the ServiceMantle management audit. This is an addition: no
+existing table, route or response changes. Lexarbor records exactly three events:
+
+| Action | When | Operator (`operator_source` / `operator_id`) | Outcome |
+|---|---|---|---|
+| `admin_login.succeeded` | A hosted-login callback completed sign-in | `interactive_admin` / the verified token `sub` | `success` |
+| `admin_login.failed` | A login callback failed (bad request, replay, provider error, refused role, exchange failure) | `anonymous` / none | `failure`, or `denied` for the fixed reasons `denied` and `canceled` |
+| `admin_login.logout` | Logout revoked a **live** session | `interactive_admin` / the revoked session's `sub` (display name from the session) | `success` |
+
+Every row stores the action, the operator, the target (`admin_session` plus the
+subject as target id, or `unknown` for failed logins), the outcome, the UTC
+timestamp, and — when available — the trusted client IP and the request's
+correlation id. Failed logins carry the fixed failure reason (`denied`,
+`sign_in_failed`, `provider_unavailable`, `canceled`) as `reason` metadata; it is
+the same fixed value the browser redirect uses. Rows never contain authorization
+codes, `state` values, tokens, ID tokens, the client secret, session handles or
+provider error descriptions, and sign-in/logout rows are written inside the same
+database transaction as their session write — they commit together or not at all.
+
+Operational behavior to rely on:
+
+- **No silent loss.** If the audit write fails, the login or logout fails with the
+  existing fixed session-storage 500/503 instead of succeeding without its record;
+  a failed login whose audit row cannot be saved answers the same way instead of
+  the failure redirect. A request cancelled before commit writes no audit row
+  (a cancelled request is not a completed security event).
+- **Idempotent logout stays silent.** A logout without a live session (no cookie,
+  expired, or repeated) writes no row and keeps its unchanged 200.
+- **The table grows and is your responsibility.** Lexarbor ships no retention,
+  cleanup or query API for audit rows (the ServiceMantle keyset-pagination query
+  surface is not exposed). Every failed callback writes one row, so the table grows
+  with traffic; back it up with the database and prune old rows with your own
+  SQLite tooling when needed. The table's length CHECK constraints use
+  `octet_length`, which the bundled SQLite (3.45+) provides; querying with an
+  external SQLite older than 3.45 fails on those constraints only when writing.
+
 ## Administration response headers
 
 Every routed `/admin/*` response — the authentication routes, the system version

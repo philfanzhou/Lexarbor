@@ -166,3 +166,29 @@ reviving sessions revoked after that backup. Code rollback can ignore the additi
 table; retain it and the ring for a later upgrade, which can read still-valid rows.
 Migration Down drops only `admin_session`, discards all sessions and requires fresh
 login, leaving vocabulary data unchanged. See [deployment and recovery](../development/Deployment.md#encrypted-administrator-session-storage).
+
+## Management audit log
+
+`AddServiceAuditLogs` adds only the independent `service_audit_logs` table — the
+ServiceMantle management audit model with SQLite-dialect byte-length CHECK
+constraints (built on `octet_length`, provided by SQLite 3.45 and newer; the image
+bundles 3.53) and six keyset-pagination indexes over `(occurred_at_utc, id)`
+combinations. No vocabulary row, session row or existing migration is touched, and
+existing databases take the migration through the ordinary startup pending-migration
+path.
+
+Rows are written only through the ServiceMantle audit event model, whose
+sensitive-content policy is an enforced boundary: values that look like secrets are
+redacted or rejected before reaching SQL. Lexarbor writes exactly the three
+administrator authentication events (`admin_login.succeeded`,
+`admin_login.failed`, `admin_login.logout`); sign-in and logout rows join the same
+serialized transaction as their session write, and the failed-login row is saved
+standalone under the same storage failure semantics. No authorization code, state
+value, token, client secret, session handle or provider error text is ever stored.
+
+The table has no automatic retention, cleanup or query endpoint in Lexarbor: it
+grows with login traffic, and backup plus pruning are the operator's
+responsibility. Migration Down drops only this table, losing the audit history and
+nothing else. See
+[Deployment](../development/Deployment.md#management-audit-log) for the event,
+field and retention contract.

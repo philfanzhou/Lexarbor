@@ -155,3 +155,30 @@ deliberate and mode-scoped, and no backend contract above changed.
   the UI says the provider may still hold a session and never claims SignaCore
   signed out. Legacy-cookie expiry and rollback are documented in
   [Deployment](Deployment.md#hosted-authorization-code-login).
+
+## Administrator authentication audit
+
+Administrator sign-in, failed sign-in and logout are now persisted as management
+audit events (#183) in the new `service_audit_logs` table (additive
+`AddServiceAuditLogs` migration; existing databases upgrade through the startup
+pending-migration path). This is a new capability, not a contract change: every
+API route, response shape, cookie and rate limit stays exactly as it was.
+
+- `admin_login.succeeded` — a completed hosted sign-in; the row commits in the
+  same database transaction as the session it created.
+- `admin_login.failed` — exactly one row per failed login callback, with the same
+  fixed `reason` value the browser redirect carries; the operator is anonymous.
+- `admin_login.logout` — a logout that revoked a live session; the row commits
+  with the revocation. Idempotent logout without a live session still writes
+  nothing and keeps its unchanged 200.
+
+Audit saves never fail silently: a login or logout whose audit row cannot be
+written answers the existing fixed session-storage 500/503 instead of succeeding
+unaudited, and a failed login whose audit row cannot be saved answers the same
+way instead of the failure redirect. Rows never contain codes, state values,
+tokens, the client secret, session handles or provider error descriptions; the
+trusted client IP and the request correlation id are recorded when available.
+The table has no built-in retention or query API — backup and pruning are the
+operator's responsibility. Events, fields and the retention contract are
+documented in [Deployment](Deployment.md#management-audit-log) and
+[the database contract](../database/README.md#management-audit-log).

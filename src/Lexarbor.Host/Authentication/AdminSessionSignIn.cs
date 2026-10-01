@@ -15,7 +15,7 @@ public interface IAdminSessionSignIn
         string? idToken = null, CancellationToken cancellationToken = default);
 }
 
-public sealed class AdminSessionSignIn(AdminSessionStore store, TimeProvider clock,
+public sealed class AdminSessionSignIn(AdminSessionStore store, AdminAuthenticationAudit audit, TimeProvider clock,
     IOptionsMonitor<AdminAuthenticationOptions> options) : IAdminSessionSignIn
 {
     public async Task SignInAsync(HttpContext context, ClaimsPrincipal validatedPrincipal, string accessToken,
@@ -45,7 +45,11 @@ public sealed class AdminSessionSignIn(AdminSessionStore store, TimeProvider clo
             AccessTokenExpiresAt = expiry
         };
         context.Request.Cookies.TryGetValue(AdminSessionCookie.Name, out var oldHandle);
-        var handle = await store.ReplaceAsync(oldHandle, session, cancellationToken);
+        // Built before any session write: an operator identity the audit model rejects fails
+        // the sign-in closed (the callback's generic failure path) rather than issuing a
+        // session whose security event cannot be recorded.
+        var auditWrite = audit.StageLoginSucceeded(context, validatedPrincipal);
+        var handle = await store.ReplaceAsync(oldHandle, session, auditWrite, cancellationToken);
         // Only a confirmed commit reaches here. A lost commit/response is unknown:
         // no compensation, automatic retry, or promise that the old row survived.
         var cookie = AdminSessionCookie.Options();
