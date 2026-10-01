@@ -331,6 +331,10 @@ with sqlite3.connect(sys.argv[1]) as connection:
     assert any(row[1] == "IX_admin_session_expires_at_unix_ms_handle_hash" for row in connection.execute("PRAGMA index_list(admin_session)"))
     connection.execute("DROP TABLE admin_session")
     connection.execute("DELETE FROM __EFMigrationsHistory WHERE MigrationId LIKE '%_AddAdminSessions'")
+    # A pre-key-repository database also predates the ServiceMantle key rows;
+    # dropping them simulates the real upgrade starting point.
+    connection.execute("DELETE FROM service_data_protection_keys")
+    connection.execute("DELETE FROM __EFMigrationsHistory WHERE MigrationId LIKE '%_AddServiceDataProtectionKeys'")
     connection.execute("INSERT INTO vocabulary_book (id, book_name, display_order, status, created_at, updated_at) VALUES ('retained-book', 'Retained book', 0, 1, '2026-01-01', '2026-01-01')")
     connection.execute("INSERT INTO vocabulary (id, word, created_at, updated_at) VALUES ('retained-word', 'Retained Word', '2026-01-01', '2026-01-01')")
     snapshot = {table: connection.execute(f"SELECT * FROM {table}").fetchall() for table in ("vocabulary_book", "vocabulary")}

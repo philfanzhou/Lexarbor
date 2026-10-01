@@ -11,7 +11,6 @@ using Lexarbor.Host;
 using Lexarbor.Host.Authentication;
 using Lexarbor.Service.Tests.TestInfrastructure;
 using Microsoft.AspNetCore.DataProtection;
-using ServiceMantle.Persistence.Relational.DataProtection;
 using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Data.Sqlite;
@@ -20,6 +19,7 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
+using ServiceMantle.Persistence.Relational.DataProtection;
 
 namespace Lexarbor.Service.Tests;
 
