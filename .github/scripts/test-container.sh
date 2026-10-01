@@ -400,7 +400,8 @@ for _ in $(seq 1 30); do
   fi
   sleep 1
 done
-curl --fail --silent --show-error "http://127.0.0.1:${existing_port}/health/ready" >"$TEST_ROOT/existing-health.json"
+# The ready answer is an expected 503, so fetch it without --fail.
+curl --silent --show-error "http://127.0.0.1:${existing_port}/health/ready" >"$TEST_ROOT/existing-health.json"
 jq --exit-status '.status == "not_ready" and .migrationStatus == "notStarted"' "$TEST_ROOT/existing-health.json" >/dev/null
 check_key_ring "$EXISTING_CONTAINER"
 config_hash_after="$(sha256sum "$existing_data/appsettings.json" | cut -d ' ' -f 1)"
