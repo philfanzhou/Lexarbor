@@ -62,13 +62,13 @@ public sealed class AdminSessionAuthenticationTests
 
     [Theory]
     [InlineData("new-admin", 200, 200)]
-    [InlineData("old-admin", 200, 200)]
+    [InlineData("old-admin", 401, 401)]
     [InlineData("bearer-admin", 200, 200)]
     [InlineData("dual-admin", 200, 200)]
     [InlineData("all-admin", 200, 200)]
     [InlineData("none", 401, 401)]
     [InlineData("new-student", 403, 403)]
-    [InlineData("old-student", 403, 403)]
+    [InlineData("old-student", 401, 401)]
     [InlineData("bearer-student", 403, 403)]
     [InlineData("dual-student", 403, 403)]
     [InlineData("bad-bearer", 401, 401)]
@@ -79,6 +79,9 @@ public sealed class AdminSessionAuthenticationTests
         using var host = new VocabularyWebApplicationFactory();
         using var client = Client(host);
         var handle = await Seed(host, source is "new-student" or "dual-student" ? "student" : "admin");
+        // The legacy password-login cookie ("old-*", "dual-*") is retained in the
+        // matrix to prove it authenticates nothing on its own and changes nothing
+        // when presented alongside a live session.
         string? legacy = source.StartsWith("old", StringComparison.Ordinal) || source.StartsWith("dual", StringComparison.Ordinal)
             || source is "all-admin" or "bad-bearer" or "empty-bearer" or "bad-new" or "empty-new"
             ? host.CreateToken(source == "old-student" ? "student" : "admin") : null;
@@ -419,11 +422,15 @@ public sealed class AdminSessionAuthenticationTests
             using (var second = new VocabularyWebApplicationFactory("Testing", true, keyContentRoot: root, databasePath: database))
             using (var client = Client(second))
                 Assert.Equal(HttpStatusCode.OK, (await Send(client, "GET", "/admin/auth/session", Cookies(handle))).StatusCode);
-            using var lost = new VocabularyWebApplicationFactory("Testing", true, keyContentRoot: Path.Combine(root, "new-ring"), databasePath: database);
-            using var lostClient = Client(lost);
-            var cookie = Cookies(handle, lost.CreateToken("admin"));
-            Assert.Equal(HttpStatusCode.Unauthorized, (await Send(lostClient, "GET", "/admin/auth/session", cookie)).StatusCode);
-            Assert.Equal(HttpStatusCode.OK, (await Send(lostClient, "POST", "/admin/auth/logout", cookie)).StatusCode);
+            // A different root key against the existing key rows is refused at
+            // startup by the protect/unprotect probe: the host never serves.
+            Assert.ThrowsAny<Exception>(() =>
+            {
+                using var lost = new VocabularyWebApplicationFactory("Testing", true,
+                    keyContentRoot: Path.Combine(root, "new-ring"), databasePath: database);
+                using var lostClient = Client(lost);
+                return lostClient;
+            });
         }
         finally { Directory.Delete(root, recursive: true); }
     }

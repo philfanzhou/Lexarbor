@@ -1,7 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
-using System.Text.Json;
 using Lexarbor.Host.Authentication;
 using Lexarbor.Service.Tests.TestInfrastructure;
 using Microsoft.AspNetCore.Http;
@@ -17,6 +16,8 @@ namespace Lexarbor.Service.Tests;
 /// A consumer-only prototype for issue 145. It is never registered by Program.
 /// The request adapter owns credentials; the ServiceMantle provider SPI sees only
 /// a scoped accessor, and identity is derived solely from Lexarbor's validated JWT.
+/// Password proxy login is gone, so the prototype consumes the same Bearer token
+/// the HTTP surface would.
 /// </summary>
 public class ServiceMantleManagementDecisionTests
 {
@@ -24,9 +25,8 @@ public class ServiceMantleManagementDecisionTests
     public async Task ValidAdmin_MapsValidatedJwtToManagementPermission()
     {
         using var factory = new VocabularyWebApplicationFactory();
-        factory.Identity.AccessToken = factory.CreateToken("admin");
 
-        var result = await InvokePrototypeAsync(factory);
+        var result = await InvokePrototypeAsync(factory, factory.CreateToken("admin"));
 
         Assert.Equal(ManagementIdentityStatus.Authenticated, result.Status);
         Assert.Equal(ManagementPermission.Admin, Assert.Single(result.Identity!.Permissions));
@@ -36,110 +36,79 @@ public class ServiceMantleManagementDecisionTests
 
     [Theory]
     [InlineData("regular-user", ManagementIdentityStatus.Unauthenticated)]
-    [InlineData("invalid-credentials", ManagementIdentityStatus.Unauthenticated)]
+    [InlineData("missing-credentials", ManagementIdentityStatus.Unauthenticated)]
     [InlineData("wrong-signature", ManagementIdentityStatus.Failed)]
     [InlineData("expired", ManagementIdentityStatus.Failed)]
-    [InlineData("identity-unavailable", ManagementIdentityStatus.Failed)]
+    [InlineData("malformed", ManagementIdentityStatus.Failed)]
     public async Task RejectedOrUnavailableIdentity_NeverProducesManagementPermission(
         string scenario,
         ManagementIdentityStatus expected)
     {
         using var factory = new VocabularyWebApplicationFactory();
-        factory.Identity.AccessToken = factory.CreateToken("admin");
-        switch (scenario)
+        string? token = scenario switch
         {
-            case "regular-user":
-                factory.Identity.AccessToken = factory.CreateToken("student");
-                break;
-            case "invalid-credentials":
-                factory.Identity.Mode = FakeIdentityMode.InvalidCredentials;
-                break;
-            case "wrong-signature":
-                factory.Identity.AccessToken = CreateToken(
-                    "different-signing-key-for-prototype-tests",
-                    DateTime.UtcNow.AddMinutes(30));
-                break;
-            case "expired":
-                factory.Identity.AccessToken = CreateToken(
-                    VocabularyWebApplicationFactory.SigningSecret,
-                    DateTime.UtcNow.AddMinutes(-5));
-                break;
-            case "identity-unavailable":
-                factory.Identity.Mode = FakeIdentityMode.Unavailable;
-                break;
-        }
+            "regular-user" => factory.CreateToken("student"),
+            "missing-credentials" => null,
+            "wrong-signature" => CreateToken(
+                "different-signing-key-for-prototype-tests",
+                DateTime.UtcNow.AddMinutes(30)),
+            "expired" => CreateToken(
+                VocabularyWebApplicationFactory.SigningSecret,
+                DateTime.UtcNow.AddMinutes(-5)),
+            "malformed" => "not-a-jwt",
+            _ => null
+        };
 
-        var result = await InvokePrototypeAsync(factory);
+        var result = await InvokePrototypeAsync(factory, token);
 
         Assert.Equal(expected, result.Status);
         Assert.Null(result.Identity);
     }
 
     private static async Task<ManagementIdentityResult> InvokePrototypeAsync(
-        VocabularyWebApplicationFactory factory)
+        VocabularyWebApplicationFactory factory,
+        string? accessToken)
     {
-        using var client = factory.CreateClient();
         using var scope = factory.Services.CreateScope();
         var context = new DefaultHttpContext();
-        context.Request.Body = new MemoryStream(
-            Encoding.UTF8.GetBytes("{\"username\":\"admin\",\"password\":\"test-password\"}"));
-        return await PrototypeLoginAdapterAsync(
+        if (accessToken is not null)
+        {
+            context.Request.Headers.Authorization = "Bearer " + accessToken;
+        }
+        return await PrototypeBearerAdapterAsync(
             context,
             scope.ServiceProvider,
             TestContext.Current.CancellationToken);
     }
 
-    private static async ValueTask<ManagementIdentityResult> PrototypeLoginAdapterAsync(
+    private static async ValueTask<ManagementIdentityResult> PrototypeBearerAdapterAsync(
         HttpContext context,
         IServiceProvider services,
         CancellationToken cancellationToken)
     {
-        var request = await JsonSerializer.DeserializeAsync<AdminAuthEndpoints.AdminLoginRequest>(
-            context.Request.Body,
-            new JsonSerializerOptions(JsonSerializerDefaults.Web),
-            cancellationToken);
-        if (request is null || string.IsNullOrWhiteSpace(request.Username) ||
-            string.IsNullOrWhiteSpace(request.Password))
+        var authorization = context.Request.Headers.Authorization.ToString();
+        if (!authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) ||
+            string.IsNullOrWhiteSpace(authorization["Bearer ".Length..]))
         {
             return ManagementIdentityResult.Unauthenticated();
         }
 
-        var credentials = new PrototypeCredentials(request.Username, request.Password);
         var provider = new PrototypeIdentityProvider(
-            credentials,
-            services.GetRequiredService<IAdminCredentialAuthenticator>(),
+            authorization["Bearer ".Length..],
             services.GetRequiredService<AdminAccessTokenValidator>(),
             services.GetRequiredService<IOptions<AdminAuthenticationOptions>>());
         return await ManagementIdentityProviderInvoker.InvokeAsync(provider, cancellationToken);
     }
 
-    private sealed record PrototypeCredentials(string Username, string Password);
-
     private sealed class PrototypeIdentityProvider(
-        PrototypeCredentials credentials,
-        IAdminCredentialAuthenticator authenticator,
+        string accessToken,
         AdminAccessTokenValidator validator,
         IOptions<AdminAuthenticationOptions> options) : IManagementIdentityProvider
     {
         public async ValueTask<ManagementIdentityResult> GetIdentityAsync(
             CancellationToken cancellationToken = default)
         {
-            var exchange = await authenticator.AuthenticateAsync(
-                credentials.Username,
-                credentials.Password,
-                cancellationToken);
-            if (exchange.Status == AdminCredentialStatus.InvalidCredentials)
-            {
-                return ManagementIdentityResult.Unauthenticated();
-            }
-
-            if (exchange.Status != AdminCredentialStatus.Success ||
-                string.IsNullOrWhiteSpace(exchange.AccessToken))
-            {
-                return ManagementIdentityResult.Failed("identity.unavailable");
-            }
-
-            var principal = await validator.ValidateAsync(exchange.AccessToken, cancellationToken);
+            var principal = await validator.ValidateAsync(accessToken, cancellationToken);
             if (principal is null)
             {
                 return ManagementIdentityResult.Failed("identity.token_invalid");

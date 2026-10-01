@@ -1,25 +1,29 @@
 using System.Security.Claims;
+using System.Security.Cryptography;
 using Lexarbor.Database;
 using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Repositories;
 using Lexarbor.Domain.Services;
 using Lexarbor.Host;
 using Lexarbor.Host.Authentication;
-using Lexarbor.Host.Authentication.Providers;
 using Lexarbor.Host.RateLimiting;
 using Lexarbor.Service;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using OpenTelemetry.Trace;
 using ServiceMantle;
+using ServiceMantle.Persistence.Relational.DataProtection;
 using ServiceMantle.Web;
 
 // Before anything is built. The container HEALTHCHECK runs this same assembly,
@@ -65,14 +69,33 @@ builder.WebHost.ConfigureKestrel(options =>
 });
 
 // Add services to the container.
-PersistentAdminKeyRing.Register(builder.Services);
 var connectionString = BuildSqliteConnectionString(
     builder.Configuration.GetConnectionString("Default"),
     builder.Environment.ContentRootPath);
-builder.Services.AddDbContext<VocabularyDbContext>(options =>
+// One registration path serves both the application and the ServiceMantle
+// Data Protection key repository: the factory creates the repository's own
+// contexts, and the scoped wrapper gives each request exactly one context.
+builder.Services.AddDbContextFactory<VocabularyDbContext>(options =>
 {
     options.UseSqlite(connectionString);
 });
+builder.Services.AddScoped(serviceProvider =>
+    serviceProvider.GetRequiredService<IDbContextFactory<VocabularyDbContext>>().CreateDbContext());
+// Data Protection keys live in the SQLite database as `sm:v1:` authenticated
+// envelopes scoped to the lexarbor service id, protected by the deployment's
+// root key (injected or created under data/); see DataProtectionRootKey.
+builder.Services
+    .AddDataProtection()
+    .SetApplicationName("Lexarbor")
+    .PersistKeysToServiceMantleEfCore<VocabularyDbContext>(
+        ServiceId.Parse("lexarbor"),
+        serviceProvider => DataProtectionRootKey.Resolve(
+            serviceProvider.GetRequiredService<IConfiguration>(),
+            serviceProvider.GetRequiredService<IHostEnvironment>().ContentRootPath));
+// Framework error diagnostics can include the XML element being processed.
+// Emit only our safe startup diagnostic; never send key material to host logs.
+builder.Services.AddLogging(logging =>
+    logging.AddFilter("Microsoft.AspNetCore.DataProtection", LogLevel.None));
 
 builder.Services.AddScoped<IVocabularyRepository, VocabularyRepository>();
 builder.Services.AddScoped<IVocabularyBookRepository, VocabularyBookRepository>();
@@ -123,51 +146,23 @@ builder.Services.Configure<RouteHandlerOptions>(options =>
 
 builder.Services.Configure<IdentityServiceOptions>(
     builder.Configuration.GetSection(IdentityServiceOptions.SectionName));
-builder.Services.Configure<AdminAuthenticationOptions>(
-    builder.Configuration.GetSection(AdminAuthenticationOptions.SectionName));
-builder.Services.Configure<GatewayProviderOptions>(
-    builder.Configuration.GetSection(GatewayProviderOptions.SectionName));
-builder.Services.Configure<OidcProviderOptions>(
-    builder.Configuration.GetSection(OidcProviderOptions.SectionName));
-
-// Login and JWKS need not share a host, so the provider may override the base address.
-// Providers that resolve an absolute token endpoint ignore it.
-builder.Services.AddHttpClient(
-    AdminAuthenticationHttpClient.Name,
-    (serviceProvider, client) =>
-    {
-        var providerOptions = serviceProvider
-            .GetRequiredService<IOptions<GatewayProviderOptions>>().Value;
-        var identity = serviceProvider
-            .GetRequiredService<IOptions<IdentityServiceOptions>>().Value;
-        var authority = string.IsNullOrWhiteSpace(providerOptions.Authority)
-            ? identity.Authority
-            : providerOptions.Authority;
-        if (!string.IsNullOrWhiteSpace(authority))
-        {
-            client.BaseAddress = new Uri($"{authority.TrimEnd('/')}/");
-        }
-
-        client.Timeout = TimeSpan.FromSeconds(30);
-    });
-
-// Selection is resolved from options rather than from the configuration read above:
-// values injected by a test host are not visible until builder.Build() runs, and a
-// provider switch that cannot be exercised in tests is a provider switch nobody checks.
-builder.Services.AddScoped<GatewayCredentialAuthenticator>();
-builder.Services.AddScoped<OidcPasswordAuthenticator>();
-builder.Services.AddScoped<IAdminCredentialAuthenticator>(serviceProvider =>
-{
-    var options = serviceProvider
-        .GetRequiredService<IOptions<AdminAuthenticationOptions>>().Value;
-    return options.Provider switch
-    {
-        AdminAuthenticationProvider.Oidc => serviceProvider.GetRequiredService<OidcPasswordAuthenticator>(),
-        AdminAuthenticationProvider.Gateway => serviceProvider.GetRequiredService<GatewayCredentialAuthenticator>(),
-        AdminAuthenticationProvider.OidcCode => new HostedCredentialAuthenticator(serviceProvider.GetRequiredService<AdminCodeExchange>()),
-        _ => serviceProvider.GetRequiredService<GatewayCredentialAuthenticator>()
-    };
-});
+// The retired password proxy left one live setting behind: AdminAuthentication:Provider.
+// It must be unset (or exactly OidcCode); anything else fails startup rather than
+// letting an operator believe password login still exists. Validated on start so a
+// test host's configuration overrides are seen exactly like a deployment's.
+builder.Services.AddOptions<AdminAuthenticationOptions>()
+    .Configure(builder.Configuration.GetSection(AdminAuthenticationOptions.SectionName).Bind)
+    .Validate(options =>
+        string.IsNullOrWhiteSpace(options.Provider) ||
+        string.Equals(options.Provider, "OidcCode", StringComparison.OrdinalIgnoreCase),
+        "AdminAuthentication:Provider no longer selects a login provider. Password proxy login " +
+        "(Oidc password grant and Gateway) has been removed; the hosted SignaCore login page is " +
+        "the only administrator sign-in. Remove AdminAuthentication:Provider (or set it to " +
+        "\"OidcCode\"), register a Confidential application with your identity provider, configure " +
+        "AdminAuthentication:OidcCode, and see docs/development/HostedLoginReleaseNotes.md for the " +
+        "upgrade steps. The LEXARBOR_OIDC_*, LEXARBOR_GATEWAY_* and LEXARBOR_COOKIE_SECURE " +
+        "environment variables no longer exist.")
+    .ValidateOnStart();
 
 builder.Services.AddScoped<AdminAccessTokenValidator>();
 // Internal foundations only; credentials are checked when invoked, not at startup.
@@ -199,8 +194,8 @@ builder.Services
 // settings are now the ones that actually took effect.
 builder.Services
     .AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
-    .Configure<IOptions<IdentityServiceOptions>, IOptions<AdminAuthenticationOptions>, IHostEnvironment>(
-        (options, identity, adminAuthentication, environment) =>
+    .Configure<IOptions<IdentityServiceOptions>, IHostEnvironment>(
+        (options, identity, environment) =>
         {
             var identityService = identity.Value;
             options.Authority = identityService.Authority;
@@ -221,18 +216,8 @@ builder.Services
             };
             options.Events = new JwtBearerEvents
             {
-                OnMessageReceived = context =>
-                {
-                    if (AdminAuthenticationSource.IsCookie(context.Request) &&
-                        context.Request.Cookies.TryGetValue(
-                            adminAuthentication.Value.CookieName,
-                            out var cookieToken))
-                    {
-                        context.Token = cookieToken;
-                    }
-
-                    return Task.CompletedTask;
-                },
+                // Bearer tokens come only from the Authorization header: the retired
+                // password-login cookie is never read here again.
                 OnChallenge = async context =>
                 {
                     context.HandleResponse();
@@ -315,6 +300,32 @@ builder.Services.AddSingleton<ServiceMantle.Health.IServiceHealthSnapshotSource>
     serviceProvider => new LexarborHealthSnapshotSource(
         healthState,
         serviceProvider.GetRequiredService<IServiceScopeFactory>()));
+
+// Console logging runs through the ServiceMantle Serilog pipeline: every
+// structured property is sanitized before it reaches the console, and the
+// service identity travels with each event. The `Logging:LogLevel` section is
+// mapped onto the pipeline: `Default` becomes the minimum level, every other
+// category becomes a minimum-level override, and `None` — which an override
+// cannot express — keeps its LoggerFilterOptions rule below.
+var mappedLogLevels = LexarborLoggingSetup.Map(builder.Configuration.GetSection("Logging:LogLevel"));
+builder.AddServiceMantleSerilog(options =>
+{
+    options.MinimumLevel = mappedLogLevels.MinimumLevel;
+    options.MinimumLevelOverrides = mappedLogLevels.Overrides.Count > 0
+        ? new Dictionary<string, LogLevel>(mappedLogLevels.Overrides, StringComparer.Ordinal)
+        : null;
+});
+foreach (var category in mappedLogLevels.NoneLevelCategories)
+{
+    builder.Logging.AddFilter(category, LogLevel.None);
+}
+
+// The built-in denied list (Authorization, Proxy-Authorization, Cookie,
+// Set-Cookie, X-Api-Key, X-Auth-Token) already covers every header Lexarbor
+// handles: its own additions — X-Requested-With as a CSRF marker and the
+// test-only client-address header — carry no secret material, so there is
+// nothing to register beyond wiring the sanitizer itself.
+serviceMantle.AddSensitiveHeaders();
 if (useTrustedForwarding)
 {
     serviceMantle.AddForwardedHeaders(options =>
@@ -324,20 +335,65 @@ if (useTrustedForwarding)
         options.ForwardLimit = networkOptions.ForwardLimit;
     });
 }
+// Optional OpenTelemetry, default off: with neither signal enabled nothing
+// is registered — no provider, no exporter, no outbound connection — and the
+// process behaves exactly as before. The resource carries only the ServiceMantle
+// identity (service.name, service.version, service.instance.id).
+var telemetryTracesEnabled = builder.Configuration.GetValue("Telemetry:Otlp:Traces:Enabled", false);
+var telemetryMetricsEnabled = builder.Configuration.GetValue("Telemetry:Otlp:Metrics:Enabled", false);
+if (telemetryTracesEnabled || telemetryMetricsEnabled)
+{
+    serviceMantle.AddOpenTelemetryInstrumentation(options =>
+    {
+        options.EnableAspNetCoreTracing = telemetryTracesEnabled;
+        options.EnableHttpClientTracing = telemetryTracesEnabled;
+        options.EnableRuntimeMetrics = telemetryMetricsEnabled;
+    });
+    serviceMantle.AddOpenTelemetryOtlpExporter(options =>
+    {
+        MapOtlpSignal(builder.Configuration.GetSection("Telemetry:Otlp:Traces"), options.Traces);
+        MapOtlpSignal(builder.Configuration.GetSection("Telemetry:Otlp:Metrics"), options.Metrics);
+        options.Traces.Enabled = telemetryTracesEnabled;
+        options.Metrics.Enabled = telemetryMetricsEnabled;
+    });
+    if (telemetryTracesEnabled)
+    {
+        // The callback and logout-return URLs carry one-time code/state values;
+        // no span attribute may export them.
+        builder.Services.ConfigureOpenTelemetryTracerProvider((_, tracing) =>
+            tracing.AddProcessor(new AdminCallbackQueryRedactionProcessor()));
+    }
+
+    // The header name is configuration; the value comes from the environment
+    // only, through this resolver, and never reaches logs or exceptions.
+    builder.Services.AddSingleton<ServiceMantle.Diagnostics.IRemoteTelemetryAuthenticationResolver>(
+        new LexarborOtlpAuthenticationResolver());
+}
+
+static void MapOtlpSignal(IConfiguration section, ServiceMantle.Diagnostics.Export.Otlp.OtlpSignalOptions signal)
+{
+    if (Uri.TryCreate(section["Endpoint"], UriKind.Absolute, out var endpoint))
+    {
+        signal.Endpoint = endpoint;
+    }
+
+    if (bool.TryParse(section["AllowInsecureLoopbackForTesting"], out var loopback))
+    {
+        signal.AllowInsecureLoopbackForTesting = loopback;
+    }
+
+    signal.AuthenticationHeaderName = section["AuthenticationHeaderName"];
+    if (Enum.TryParse<ServiceMantle.Diagnostics.Export.Otlp.OtlpProtocol>(section["Protocol"], ignoreCase: true, out var protocol))
+    {
+        signal.Protocol = protocol;
+    }
+}
+
 builder.Services.AddLexarborRateLimiting(builder.Configuration);
 
 var app = builder.Build();
 
-try
-{
-    PersistentAdminKeyRing.Validate(app.Services);
-}
-catch (InvalidOperationException exception)
-{
-    app.Logger.LogCritical("{Diagnostic}", exception.Message);
-    await app.DisposeAsync();
-    return 1;
-}
+
 
 app.Logger.LogInformation("Lexarbor starting, version {Version}", ApplicationVersion.Current);
 app.Logger.LogInformation(
@@ -434,21 +490,23 @@ if (!app.Environment.IsDevelopment() &&
     !app.Environment.IsEnvironment("Testing"))
 {
     using var credentialScope = app.Services.CreateScope();
-    var authenticator = credentialScope.ServiceProvider
-        .GetRequiredService<IAdminCredentialAuthenticator>();
-    if (!authenticator.IsConfigured)
+    // Hosted login is optional at startup exactly like the password proxy was: the
+    // public API keeps serving, /admin/auth/start answers its existing 503, and the
+    // error states the one thing an operator can fix.
+    if (!credentialScope.ServiceProvider.GetRequiredService<AdminCodeExchange>().IsConfigured)
     {
         app.Logger.LogError(
-            "Administrator login is not configured because the {Provider} provider is missing credentials. The service will continue running.",
-            credentialScope.ServiceProvider
-                .GetRequiredService<IOptions<AdminAuthenticationOptions>>().Value.Provider);
+            "Administrator login is not configured because AdminAuthentication:OidcCode is missing or invalid. The service will continue running.");
     }
 }
 
 // Configure database initialization. The outcome feeds the readiness snapshot:
 // a failed migration stops startup (and records the failure for any future
 // non-fatal handling), while a disabled initialization only checks once whether
-// migrations are pending so readiness still reflects the real schema state.
+// migrations are pending so readiness still reflects the real schema state. The
+// key repository needs the service_data_protection_keys table, so the startup
+// probe follows the migration (or, with initialization disabled, the schema
+// must already exist).
 if (builder.Configuration.GetValue("Database:InitializeOnStartup", true))
 {
     using var scope = app.Services.CreateScope();
@@ -487,6 +545,30 @@ else
     }
 }
 
+// The key repository fails closed: a wrong root key, damaged ciphertext, an
+// unreadable root-key file or an unusable database stops startup here with a
+// fixed safe diagnostic — never key material or provider detail — instead of
+// surfacing as a 500 on the first administrator login.
+try
+{
+    var protector = app.Services.GetRequiredService<IDataProtectionProvider>()
+        .CreateProtector("Lexarbor.AdminKeys.StartupProbe.v1");
+    const string probe = "lexarbor-key-storage-probe";
+    if (protector.Unprotect(protector.Protect(probe)) != probe)
+    {
+        throw new CryptographicException();
+    }
+}
+catch (Exception exception) when (
+    exception is DataProtectionKeyRepositoryException
+        or InvalidOperationException
+        or CryptographicException)
+{
+    app.Logger.LogCritical("{Diagnostic}", DataProtectionRootKey.StartupFailureMessage);
+    await app.DisposeAsync();
+    return 1;
+}
+
 // Configure the HTTP request pipeline.
 if (useTrustedForwarding)
 {
@@ -509,7 +591,6 @@ app.UseRateLimiter();
 app.UseMiddleware<AdminSessionFailureMiddleware>();
 app.UseAuthentication();
 app.UseMiddleware<CookieCsrfMiddleware>();
-app.UseMiddleware<HostedPasswordLoginMiddleware>();
 app.UseAuthorization();
 app.MapAdminAuthEndpoints();
 app.MapSystemVersionEndpoints();
@@ -547,7 +628,28 @@ app.MapMethods(
     .RequireAuthorization("VocabularyAdmin");
 app.MapFallbackToFile("index.html").AllowAnonymous();
 
-app.Run();
+// The service identity (ServiceName, ServiceVersion, InstanceId) rides a
+// factory-wide logging scope around the whole run, so startup logs and every
+// request log carry the same identity fields. Per-request correlation ids are
+// layered on top when the correlation middleware runs.
+using (app.Services.GetRequiredService<ServiceMantle.Web.Logging.ServiceLogContext>()
+    .BeginScope(app.Logger))
+{
+    try
+    {
+        app.Run();
+    }
+    catch (OptionsValidationException exception)
+    {
+        // Startup validation (the AdminAuthentication:Provider tripwire above) reports
+        // through this path: a critical log naming the setting and a non-zero exit —
+        // the same shape the key-ring validation uses. Disposing here is deliberately
+        // skipped: process exit reclaims everything, and tearing the partially started
+        // host down inside this handler can hang a container indefinitely.
+        app.Logger.LogCritical("{Diagnostic}", exception.Message);
+        return 1;
+    }
+}
 
 // Reached when the host shuts down. Present because the health check path above
 // returns a status, which makes this an int-returning entry point.
