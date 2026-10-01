@@ -175,6 +175,9 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
             configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["Database:InitializeOnStartup"] = "true",
+                // Each test factory instance owns its root-key file, isolating
+                // the ServiceMantle key repository per test.
+                ["DataProtection:RootKeyFile"] = Path.Combine(_keyContentRoot, "root-key"),
                 ["IdentityService:Authority"] = "http://identity.test",
                 ["IdentityService:Issuer"] = Issuer,
                 ["IdentityService:Audience"] = Audience,
@@ -196,13 +199,14 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
 
         builder.ConfigureServices(services =>
         {
-            services.RemoveAll<PersistentAdminKeyRing>();
-            services.AddSingleton(new PersistentAdminKeyRing(_keyContentRoot));
             services.AddSingleton<IStartupFilter, ClientAddressStartupFilter>();
             services.RemoveAll<DbContextOptions<VocabularyDbContext>>();
+            services.RemoveAll<IDbContextFactory<VocabularyDbContext>>();
             services.RemoveAll<VocabularyDbContext>();
-            services.AddDbContext<VocabularyDbContext>(options =>
+            services.AddDbContextFactory<VocabularyDbContext>(options =>
                 options.UseSqlite(_databaseConnection));
+            services.AddScoped(serviceProvider =>
+                serviceProvider.GetRequiredService<IDbContextFactory<VocabularyDbContext>>().CreateDbContext());
 
             services.PostConfigure<JwtBearerOptions>(
                 JwtBearerDefaults.AuthenticationScheme,

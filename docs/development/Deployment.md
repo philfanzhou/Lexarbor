@@ -12,7 +12,7 @@ The multi-stage build compiles the Vue frontend, publishes the .NET backend, and
 
 - `/app/data/vocabulary.db` contains the SQLite database.
 - `/app/data/appsettings.json` contains the operator-managed application configuration.
-- `/app/data/admin-keys/` contains the persistent ASP.NET Core Data Protection key ring.
+- `/app/data/data-protection-root-key` holds the Data Protection root key (unless `LEXARBOR_DATA_PROTECTION_ROOT_KEY` injects one).
 
 Tagged releases publish SBOM-enabled images with build provenance for AMD64 and ARM64 to `ghcr.io/philfanzhou/lexarbor`. For example:
 
@@ -171,58 +171,55 @@ Two consequences for operators:
 
 ## Data Protection key storage
 
-The Host uses `data/admin-keys` relative to its content root (`/app/data/admin-keys`
-in the container), with the fixed application name `Lexarbor`. No extra volume or
-configuration setting is needed. The ring protects administrator
-sessions under the independent versioned purpose `Lexarbor.AdminSession.v1`.
+Data Protection keys live in the SQLite database itself, in the
+`service_data_protection_keys` table, as ServiceMantle `sm:v1:` authenticated
+envelopes scoped to the `lexarbor` service id. The application name stays
+`Lexarbor` and the session purpose stays `Lexarbor.AdminSession.v1`; opaque
+administrator sessions keep their meaning. The `AddServiceDataProtectionKeys`
+migration creates the table; nothing else in the database changes.
 Hosted sign-in is the only login and establishes only the internal session scheme
 described below; the retired password-login JWT cookie is not authenticated by
 anything. Anonymous APIs and health responses are unchanged.
 
-On Linux and macOS, startup creates or restricts the ring directory to 0700 and its
-key XML files to 0600. Only the runtime user can read, write, and traverse the directory.
-Permission changes stay inside this ring; other `data` files and directories are
-not recursively changed. The framework also creates new keys with no group/other
-permissions. A symbolic link for the ring or a ring file is rejected. On Windows,
-operators must protect the directory with an ACL granting access only to the runtime
-user; Lexarbor does not automatically configure an equivalent Windows ACL. Protect
-the parent `data` directory's ownership and ACL as well.
+The envelopes are protected by a **root key** with two sources, in this order:
 
-Before serving requests, startup verifies read/write access, loads every retained
-key, and performs a non-sensitive Protect/Unprotect probe using a separate purpose.
-An inaccessible or read-only filesystem, invalid key XML, or unusable retained key
-stops startup with a safe diagnostic. Lexarbor does not fall back to an in-memory
-ring, delete damaged keys, or log XML/protected payloads. Correct ownership and
-permissions or restore a complete valid ring before restarting.
+1. `DataProtection:RootKey` (container variable `LEXARBOR_DATA_PROTECTION_ROOT_KEY`),
+   for deployments that inject secrets.
+2. Otherwise, a random root-key file created atomically on first start at
+   `data/data-protection-root-key` (directory 0700, file 0600, symbolic links
+   refused) and reused ever after — a single-container deployment stays
+   zero-configuration. `DataProtection:RootKeyFile` can point the file
+   elsewhere; the default is the `data/` path above.
 
-ASP.NET Core retains automatic key rotation (the default lifetime is 90 days).
-Expired keys must remain available to decrypt older payloads. Application upgrades
-and container recreation reuse the mounted ring without replacing keys. Do not
-remove old keys to force rotation. An anonymous Docker volume must be explicitly
-reused if recreating a container; a fresh volume cannot decrypt old payloads.
+Startup probes the repository with a non-sensitive Protect/Unprotect round-trip
+after the database is initialized. A wrong root key, damaged ciphertext, an
+unreadable or group/other-accessible root-key file, or a cross-service key row
+stops startup with a fixed safe diagnostic — no key material, paths or provider
+detail. Losing the root key invalidates administrator sessions only: vocabulary
+data is unaffected and administrators sign in again.
 
-**Security boundary.** File persistence stores unencrypted key XML: filesystem
-permissions provide access control, not disk-theft protection. Anyone with runtime
-user/root privileges or a complete data backup can use these keys. This contract
-covers one instance on a trusted local filesystem; it does not protect against an
-attacker controlling parent directories or replacing files at runtime, and does not
-support network mounts or multiple instances. No external KMS or certificate-based
-key encryption is configured. See the [official Data Protection configuration
-documentation](https://learn.microsoft.com/en-us/aspnet/core/security/data-protection/configuration/overview?view=aspnetcore-10.0).
+**Upgrade.** The upgrade adds the table and switches the ring; existing
+administrator sessions end once (they cannot outlive their access tokens
+anyway), so administrators sign in again after the first start. The retired
+`data/admin-keys` directory is never read and can be deleted manually once the
+upgrade is confirmed. Roll back by deploying the previous image: it ignores the
+new table and keeps using its own `admin-keys` directory, which is why that
+directory should only be deleted after the deployment is confirmed to stay.
 
-**Backup and restore.** Stop the application and back up the entire `data` directory
-confidentially, following the SQLite consistency procedure above; include the whole
-`admin-keys` ring, including expired keys, and configuration. Restore it to the same
-data mount before startup, preserving/reapplying runtime ownership and private
-permissions. The encrypted `admin_session` table must be backed up together with this ring.
-Before starting after a historical database restore, clear `admin_session` as described below.
-Losing an original key makes its protected payloads unreadable; affected sessions
-require a fresh login and cannot be recovered from token plaintext.
-The current external-token login does not consume these keys.
+**Security boundary.** A database file that leaks alone no longer exposes the
+session encryption keys: the envelopes need the root key as well. The root key
+file is protected by filesystem permissions; keep injected root keys in a
+secret store. This does not protect against an attacker who obtains both the
+database and the root key — for example, an entire copied volume — and it does
+not provide root-key rotation tooling. Multi-instance deployments sharing one
+database share the key rows; single-instance remains the deployment contract.
 
-**Rollback.** Rolling back this infrastructure change leaves current login behavior
-unchanged. Keep `admin-keys` in the data mount for a subsequent upgrade; rolling back
-code is not a reason to remove the ring or discard its backup.
+**Backup and restore.** Back up the SQLite database and the root key (the
+injected value or the root-key file) together, and store them separately from
+each other. Follow the SQLite consistency procedure above; include the
+persistent configuration. Before starting after a historical database restore,
+clear `admin_session` as described below. Restoring the database without its
+matching root key refuses startup with the diagnostic above.
 
 ## Encrypted administrator session storage
 
