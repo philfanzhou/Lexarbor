@@ -197,13 +197,9 @@ public class VocabularyEditCleanupCombinationEndpointTests
 
     private static int Get(JsonDocument data, string name) => data.RootElement.GetProperty(name).GetInt32();
 
-    private static async Task FailureAsync(HttpResponseMessage response, HttpStatusCode status)
-    {
-        Assert.Equal(status, response.StatusCode);
-        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
-        Assert.Equal(new[] { "message", "success" }, body.RootElement.EnumerateObject().Select(p => p.Name).Order());
-        Assert.False(body.RootElement.GetProperty("success").GetBoolean());
-    }
+    private static Task FailureAsync(HttpResponseMessage response, HttpStatusCode status)
+        => TestInfrastructure.HttpFailureAssertions.AssertFailureAsync(response, status);
+
 
     private static (string?, string, string?) AsTuple(VocabularyMeaningEntity meaning) =>
         (meaning.PartOfSpeech, meaning.Meaning, meaning.Example);

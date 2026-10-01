@@ -170,12 +170,7 @@ public class VocabularyMeaningEditEndpointTests
             .SingleAsync(m => m.Id == "a", TestContext.Current.CancellationToken);
         return $"{meaning.Meaning}|{meaning.PartOfSpeech}|{meaning.Example}";
     }
-    private static async Task FailureAsync(HttpResponseMessage response, HttpStatusCode status)
-    {
-        Assert.Equal(status, response.StatusCode);
-        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
-        Assert.Equal(new[] { "message", "success" }, body.RootElement.EnumerateObject().Select(p => p.Name).Order());
-        Assert.False(body.RootElement.GetProperty("success").GetBoolean());
-        Assert.DoesNotContain("original", body.RootElement.GetProperty("message").GetString());
-    }
+    private static Task FailureAsync(HttpResponseMessage response, HttpStatusCode status)
+        => TestInfrastructure.HttpFailureAssertions.AssertFailureAsync(response, status);
+
 }

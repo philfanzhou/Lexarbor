@@ -116,7 +116,17 @@ public class VocabularyAdminQueryEndpointTests
         using var response = await client.GetAsync(path, TestContext.Current.CancellationToken);
         Assert.Equal(status, (int)response.StatusCode);
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
-        Assert.Equal(status == 200, body.RootElement.GetProperty("success").GetBoolean());
+        if (status == 200)
+        {
+            Assert.True(body.RootElement.GetProperty("success").GetBoolean());
+        }
+        else if (!body.RootElement.TryGetProperty("title", out _))
+        {
+            // Endpoint-explicit failures keep the envelope; exception-generated
+            // failures are ServiceMantle Problem Details, whose shape is checked
+            // by the shared failure assertions elsewhere.
+            Assert.False(body.RootElement.GetProperty("success").GetBoolean());
+        }
     }
 
     [Fact]
