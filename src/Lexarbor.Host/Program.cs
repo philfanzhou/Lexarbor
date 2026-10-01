@@ -16,9 +16,11 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using ServiceMantle;
+using ServiceMantle.Web;
 
 // Before anything is built. The container HEALTHCHECK runs this same assembly,
 // and a health probe that first composed configuration, opened the database and
@@ -264,6 +266,31 @@ var serviceMantle = builder.Services.AddServiceMantle(
     ServiceId.Parse("lexarbor"),
     instanceId,
     serviceVersion: ApplicationVersion.Current);
+// Console logging runs through the ServiceMantle Serilog pipeline: every
+// structured property is sanitized before it reaches the console, and the
+// service identity travels with each event. The `Logging:LogLevel` section is
+// mapped onto the pipeline: `Default` becomes the minimum level, every other
+// category becomes a minimum-level override, and `None` — which an override
+// cannot express — keeps its LoggerFilterOptions rule below.
+var mappedLogLevels = LexarborLoggingSetup.Map(builder.Configuration.GetSection("Logging:LogLevel"));
+builder.AddServiceMantleSerilog(options =>
+{
+    options.MinimumLevel = mappedLogLevels.MinimumLevel;
+    options.MinimumLevelOverrides = mappedLogLevels.Overrides.Count > 0
+        ? new Dictionary<string, LogLevel>(mappedLogLevels.Overrides, StringComparer.Ordinal)
+        : null;
+});
+foreach (var category in mappedLogLevels.NoneLevelCategories)
+{
+    builder.Logging.AddFilter(category, LogLevel.None);
+}
+
+// The built-in denied list (Authorization, Proxy-Authorization, Cookie,
+// Set-Cookie, X-Api-Key, X-Auth-Token) already covers every header Lexarbor
+// handles: its own additions — X-Requested-With as a CSRF marker and the
+// test-only client-address header — carry no secret material, so there is
+// nothing to register beyond wiring the sanitizer itself.
+serviceMantle.AddSensitiveHeaders();
 if (useTrustedForwarding)
 {
     serviceMantle.AddForwardedHeaders(options =>
@@ -462,19 +489,27 @@ app.MapMethods(
     .RequireAuthorization("VocabularyAdmin");
 app.MapFallbackToFile("index.html").AllowAnonymous();
 
-try
+// The service identity (ServiceName, ServiceVersion, InstanceId) rides a
+// factory-wide logging scope around the whole run, so startup logs and every
+// request log carry the same identity fields. Per-request correlation ids are
+// layered on top when the correlation middleware runs.
+using (app.Services.GetRequiredService<ServiceMantle.Web.Logging.ServiceLogContext>()
+    .BeginScope(app.Logger))
 {
-    app.Run();
-}
-catch (OptionsValidationException exception)
-{
-    // Startup validation (the AdminAuthentication:Provider tripwire above) reports
-    // through this path: a critical log naming the setting and a non-zero exit —
-    // the same shape the key-ring validation uses. Disposing here is deliberately
-    // skipped: process exit reclaims everything, and tearing the partially started
-    // host down inside this handler can hang a container indefinitely.
-    app.Logger.LogCritical("{Diagnostic}", exception.Message);
-    return 1;
+    try
+    {
+        app.Run();
+    }
+    catch (OptionsValidationException exception)
+    {
+        // Startup validation (the AdminAuthentication:Provider tripwire above) reports
+        // through this path: a critical log naming the setting and a non-zero exit —
+        // the same shape the key-ring validation uses. Disposing here is deliberately
+        // skipped: process exit reclaims everything, and tearing the partially started
+        // host down inside this handler can hang a container indefinitely.
+        app.Logger.LogCritical("{Diagnostic}", exception.Message);
+        return 1;
+    }
 }
 
 // Reached when the host shuts down. Present because the health check path above
