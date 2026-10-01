@@ -226,8 +226,8 @@ public class LoggingPipelineTests
             ["X-Requested-With"] = "XMLHttpRequest"
         };
         var projected = projector.Project(headers);
-        Assert.Equal("[REDACTED]", projected["Authorization"].ToString());
-        Assert.Equal("[REDACTED]", projected["Cookie"].ToString());
-        Assert.Equal("XMLHttpRequest", projected["X-Requested-With"].ToString());
+        Assert.Equal("[REDACTED]", projected["Authorization"]?.ToString());
+        Assert.Equal("[REDACTED]", projected["Cookie"]?.ToString());
+        Assert.Equal("XMLHttpRequest", projected["X-Requested-With"]?.ToString());
     }
 }
