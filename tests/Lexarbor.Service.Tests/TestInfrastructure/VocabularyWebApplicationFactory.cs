@@ -73,13 +73,15 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
     protected override IHost CreateHost(IHostBuilder builder)
     {
         // Minimal hosting reads configuration before ConfigureWebHost can add the
-        // in-memory test overrides. Forwarded-header trust is registered at that
-        // point, so expose these values during host construction only. Serialize
-        // factory startup to keep process environment changes isolated.
+        // in-memory test overrides. Forwarded-header trust and the ServiceMantle
+        // instance id are read at that point, so expose those values during host
+        // construction only. Serialize factory startup to keep process
+        // environment changes isolated.
         lock (NetworkConfigurationLock)
         {
             var networkSettings = _extraConfiguration
-                .Where(entry => entry.Key.StartsWith("Network:", StringComparison.Ordinal))
+                .Where(entry => entry.Key.StartsWith("Network:", StringComparison.Ordinal)
+                    || entry.Key.StartsWith("Service:", StringComparison.Ordinal))
                 .Select(entry => (Name: entry.Key.Replace(":", "__", StringComparison.Ordinal), entry.Value))
                 .ToArray();
             var previous = networkSettings

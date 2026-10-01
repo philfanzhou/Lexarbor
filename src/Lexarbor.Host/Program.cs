@@ -267,15 +267,50 @@ builder.Services.AddAuthorization(options =>
 
 var networkOptions = builder.Configuration.GetSection(NetworkOptions.SectionName).Get<NetworkOptions>() ?? new NetworkOptions();
 var useTrustedForwarding = networkOptions.IsConfigured || networkOptions.ForwardLimit != 1;
+
+// The ServiceMantle host identity is registered unconditionally: capabilities
+// built on it (Problem Details correlation, security headers, redacted logging,
+// Data Protection keys, health endpoints) must be available in every
+// deployment, with or without a trusted proxy. Forwarded-header trust remains
+// the one capability that is added only when an operator configures it.
+var instanceIdText = builder.Configuration["Service:InstanceId"];
+InstanceId instanceId;
+if (string.IsNullOrEmpty(instanceIdText))
+{
+    // An unset (or explicitly empty) instance id keeps the historical behavior
+    // of a fresh random id per start.
+    instanceId = InstanceId.Parse($"lexarbor-{Guid.NewGuid():N}");
+}
+else if (InstanceId.TryParse(instanceIdText, out var configuredInstanceId))
+{
+    // TryParse's out parameter is nullable by signature only; a true result
+    // always carries a parsed, normalized value.
+    instanceId = configuredInstanceId!;
+}
+else
+{
+    // The invalid value is deliberately absent from the message: an instance
+    // id is operator-supplied text, and echoing it would put it in logs and
+    // error reports, where it does not belong. Whitespace-only text is invalid
+    // rather than "unset" — InstanceId trims and then rejects an empty result.
+    throw new InvalidOperationException(
+        "Service:InstanceId is not a valid instance identifier. It must be 1 to 256 characters "
+        + "after trimming, with no control characters. Remove the setting to go back to a random "
+        + "instance id per start.");
+}
+
+var serviceMantle = builder.Services.AddServiceMantle(
+    ServiceId.Parse("lexarbor"),
+    instanceId,
+    serviceVersion: ApplicationVersion.Current);
 if (useTrustedForwarding)
 {
-    builder.Services.AddServiceMantle(ServiceId.Parse("lexarbor"), InstanceId.Parse($"lexarbor-{Guid.NewGuid():N}"))
-        .AddForwardedHeaders(options =>
-        {
-            options.KnownProxies = networkOptions.TrustedProxies;
-            options.KnownIPNetworks = networkOptions.TrustedNetworks;
-            options.ForwardLimit = networkOptions.ForwardLimit;
-        });
+    serviceMantle.AddForwardedHeaders(options =>
+    {
+        options.KnownProxies = networkOptions.TrustedProxies;
+        options.KnownIPNetworks = networkOptions.TrustedNetworks;
+        options.ForwardLimit = networkOptions.ForwardLimit;
+    });
 }
 builder.Services.AddLexarborRateLimiting(builder.Configuration);
 

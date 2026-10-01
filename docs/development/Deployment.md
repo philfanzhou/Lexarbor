@@ -139,6 +139,16 @@ On the first container startup, Lexarbor copies the image's built-in `appsetting
 
 Therefore the persistent file controls normal deployments, while an explicit environment variable remains available for secret injection or an emergency override. When `/app/data` is not bound to a host directory or named volume, Docker's image-declared anonymous volume still lets the application run, but a newly created container will not automatically reuse that data.
 
+## Service identity
+
+| Environment variable | Configuration key | Default | Purpose |
+|---|---|---|---|
+| `LEXARBOR_INSTANCE_ID` | `Service:InstanceId` | random per start | Instance identifier reported by the ServiceMantle host identity in structured logs |
+
+The service identifier is fixed at `lexarbor` and is not configurable. Every deployment registers the ServiceMantle host identity at startup, with or without a trusted proxy, so later capabilities (correlated error responses, security headers, redacted logging, health endpoints) have the same identity fields everywhere. The service version is taken from the running assembly and matches the version in the startup log.
+
+`LEXARBOR_INSTANCE_ID` names one running instance for diagnostics. When it is not supplied — or supplied empty — each start generates a fresh random value, so an instance id does not survive a restart. A deployment that wants stable instance ids across restarts, for log correlation or multi-instance fleets, sets the variable explicitly. An invalid value (empty after trimming, longer than 256 characters, or containing control characters) stops the container at startup with a message naming `Service:InstanceId`; the submitted value is not repeated in the message or the logs.
+
 ## Database
 
 | Configuration key | Default | Purpose |

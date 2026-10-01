@@ -43,6 +43,7 @@ add_configuration_override LEXARBOR_GATEWAY_AUTHORITY AdminAuthentication__Gatew
 add_configuration_override LEXARBOR_GATEWAY_TOKEN_PATH AdminAuthentication__Gateway__TokenPath
 add_configuration_override LEXARBOR_GATEWAY_APP_ID AdminAuthentication__Gateway__AppId
 add_configuration_override LEXARBOR_GATEWAY_APP_SECRET AdminAuthentication__Gateway__AppSecret
+add_configuration_override LEXARBOR_INSTANCE_ID Service__InstanceId
 
 mkdir -p "$DATA_DIR"
 docker network inspect "$NETWORK_NAME" >/dev/null 2>&1 || docker network create "$NETWORK_NAME"
