@@ -658,6 +658,42 @@ Set `LEXARBOR_ADMIN_AUTH_PROVIDER=Gateway` to use the compatibility adapter for 
 | `LEXARBOR_GATEWAY_APP_ID` | Application identifier |
 | `LEXARBOR_GATEWAY_APP_SECRET` | Application secret |
 
+## Logging
+
+Console logging runs through the ServiceMantle Serilog pipeline. Every
+structured property is sanitized before it reaches the console — authentication,
+cookie and API-key header names are redacted to `[REDACTED]`, and the mandatory
+sanitizer cannot be disabled. Message-template literal text remains free text:
+code must keep secrets out of interpolated messages, which is why the
+application logs structured properties only.
+
+Every event carries the service identity fields `ServiceName=lexarbor`,
+`ServiceVersion` (the running build) and `InstanceId` (from `Service:InstanceId`
+or a fresh random value per start). The console line format changed from the
+default `info: Category[Event]` prefix to Serilog's
+`[timestamp LEVEL] message {properties}`.
+
+The existing `Logging:LogLevel` configuration keeps its meaning: `Default`
+becomes the pipeline minimum level and every other category becomes a
+minimum-level override, exactly as before. A category set to `None` — which an
+override cannot express — stays a framework filter rule, which the Serilog
+provider honors identically. An invalid level fails startup without echoing the
+submitted key or value. The console output format is the only
+operator-visible change.
+
+Two product rules remain as framework filter rules and keep working under the
+Serilog provider: the request-scoped suppression of Entity Framework diagnostics
+while administrator session storage is being read or written, and the
+`LogLevel.None` rule for `Microsoft.AspNetCore.DataProtection` (framework
+diagnostics there can contain key XML). Remote log sinks (Loki) and OpenTelemetry
+log export are not enabled.
+
+The sensitive request-header registry uses ServiceMantle's built-in denied list
+(`Authorization`, `Proxy-Authorization`, `Cookie`, `Set-Cookie`, `X-Api-Key`,
+`X-Auth-Token`). Lexarbor adds no further names: its only custom headers,
+`X-Requested-With` as a CSRF marker and the test-only client-address header,
+carry no secret material.
+
 ## Rate limits and client addresses
 
 The two anonymous surfaces carry a per-client-address ceiling. `POST /admin/auth/login`
