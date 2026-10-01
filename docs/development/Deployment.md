@@ -41,7 +41,7 @@ info: Lexarbor starting, version 1.2.3
 info: Lexarbor build, channel release, revision 0123456789abcdef0123456789abcdef01234567
 ```
 
-Authorized administrators can also read the running build through `GET /admin/system/version` using the existing Cookie or Bearer credentials. The response is `{"success":true,"data":{"version":"1.2.3","revision":null,"channel":"release"}}`; revision is the full SHA when supplied at build time. All responses on this path, including 401/403, use `Cache-Control: no-store`, without ETag, Last-Modified, or 304 responses. Anonymous `/health` remains exactly `{"success":true,"data":{"status":"healthy"}}`. Anonymous callers receive no build identity.
+Authorized administrators can also read the running build through `GET /admin/system/version` using the existing Cookie or Bearer credentials. The response is `{"success":true,"data":{"version":"1.2.3","revision":null,"channel":"release"}}`; revision is the full SHA when supplied at build time. All responses on this path, including 401/403, use `Cache-Control: no-store`, without ETag, Last-Modified, or 304 responses. Anonymous callers receive no build identity.
 
 The signed-in administration header shows the same identity beside the `Lexarbor` brand — `v1.2.3` (prerelease suffixes preserved), `edge · a1b2c3d`, or 开发版本 — with the full version, complete revision, and channel behind a keyboard-reachable detail opened from the label. A failed or unreadable fetch reads 版本未知 and does not block the page; the frontend asks once per administrator session and again after a browser reload, and never caches the values in web storage.
 
@@ -122,7 +122,9 @@ lexarbor   Up 2 minutes (healthy)
 ```
 
 The probe runs the published assembly with `--health-check`, which requests
-`/health` on loopback and exits non-zero when it does not answer. It is not a
+`/health/ready` on loopback and exits non-zero when it does not answer, so the
+container reports unhealthy when the database is unreachable even though the
+process is alive. It is not a
 `curl` call, because the runtime image ships no HTTP client and adding one would
 give any future remote-code-execution a download tool the image currently lacks.
 
@@ -717,10 +719,37 @@ visible in the first lines of the container log.
 ## Health and smoke checks
 
 ```bash
-curl http://localhost:5008/health
+curl http://localhost:5008/health/ready
+curl http://localhost:5008/health/live
 curl -i http://localhost:5008/admin/vocabulary-books
 curl http://localhost:5008/api/vocabulary-books/all
 ```
+
+The health endpoints are provided by ServiceMantle and are anonymous and unmetered.
+`GET /health/live` answers `{"status":"live"}` whenever the process serves. `GET
+/health/ready` and `GET /health` answer the readiness snapshot:
+
+```json
+{
+  "status": "ready",
+  "phase": "completed",
+  "migrationStatus": "succeeded",
+  "databaseStatus": "reachable",
+  "errorCode": null
+}
+```
+
+Readiness means: this process's startup initialization succeeded (or, when
+`Database:InitializeOnStartup` is `false`, a one-time startup check found no
+unapplied migrations) and one bounded read-only SQLite probe just answered. An
+unreadable or wedged database answers 503 with
+`"errorCode":"vocabulary.database_unreachable"`; unapplied migrations answer 503
+with `"migrationStatus":"notStarted"`. The response never contains a path,
+version, connection string or exception text. This is a breaking change from the
+previous always-healthy `{"success":true,"data":{"status":"healthy"}}` envelope:
+external monitors that parsed the old envelope must read the new fields or use
+`/health/live`. The container `HEALTHCHECK` now probes `/health/ready`, so a
+container whose database is unreachable turns unhealthy.
 
 Expected results: health returns 200; an anonymous administration request returns 401; the public book request returns a success envelope whose `data.books` is empty on a new instance.
 

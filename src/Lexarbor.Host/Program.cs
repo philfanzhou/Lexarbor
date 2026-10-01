@@ -20,6 +20,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using ServiceMantle;
+using ServiceMantle.Web;
 
 // Before anything is built. The container HEALTHCHECK runs this same assembly,
 // and a health probe that first composed configuration, opened the database and
@@ -303,6 +304,17 @@ var serviceMantle = builder.Services.AddServiceMantle(
     ServiceId.Parse("lexarbor"),
     instanceId,
     serviceVersion: ApplicationVersion.Current);
+// Readiness is answered by the ServiceMantle health endpoints: one bounded,
+// read-only SQLite probe per request plus this process's startup migration
+// result. The probe timeout stays well inside the container HEALTHCHECK's own
+// deadline so a wedged database is reported rather than killed.
+serviceMantle.AddServiceMantleHealthEndpoints(options => options.ProbeTimeout = TimeSpan.FromSeconds(3));
+var healthState = new LexarborHealthState();
+builder.Services.AddSingleton(healthState);
+builder.Services.AddSingleton<ServiceMantle.Health.IServiceHealthSnapshotSource>(
+    serviceProvider => new LexarborHealthSnapshotSource(
+        healthState,
+        serviceProvider.GetRequiredService<IServiceScopeFactory>()));
 if (useTrustedForwarding)
 {
     serviceMantle.AddForwardedHeaders(options =>
@@ -433,13 +445,34 @@ if (!app.Environment.IsDevelopment() &&
     }
 }
 
-// Configure database initialization.
+// Configure database initialization. The outcome feeds the readiness snapshot:
+// a failed migration stops startup (and records the failure for any future
+// non-fatal handling), while a disabled initialization only checks once whether
+// migrations are pending so readiness still reflects the real schema state.
 if (builder.Configuration.GetValue("Database:InitializeOnStartup", true))
 {
     using var scope = app.Services.CreateScope();
     var dbContext = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
     var loggerFactory = scope.ServiceProvider.GetRequiredService<ILoggerFactory>();
-    await DatabaseInitializer.InitializeAsync(dbContext, loggerFactory);
+    try
+    {
+        await DatabaseInitializer.InitializeAsync(dbContext, loggerFactory);
+        healthState.MigrationStatus = ServiceMantle.Health.ServiceMigrationReadinessState.Succeeded;
+    }
+    catch
+    {
+        healthState.MigrationStatus = ServiceMantle.Health.ServiceMigrationReadinessState.Failed;
+        throw;
+    }
+}
+else
+{
+    using var scope = app.Services.CreateScope();
+    var dbContext = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+    var pending = await dbContext.Database.GetPendingMigrationsAsync();
+    healthState.MigrationStatus = pending.Any()
+        ? ServiceMantle.Health.ServiceMigrationReadinessState.NotStarted
+        : ServiceMantle.Health.ServiceMigrationReadinessState.Succeeded;
 }
 
 // Configure the HTTP request pipeline.
@@ -475,12 +508,11 @@ app.MapVocabularyMeaningPositionEndpoints();
 app.MapVocabularyAdminQueryEndpoints();
 app.MapVocabularyCleanupEndpoints();
 app.MapVocabularyHttpEndpoints(RateLimitingExtensions.PublicApiPolicy);
-// Anonymous liveness exposes only status. Build identity is available through
-// startup logs and the authorized administrator version endpoint.
-app.MapGet(
-        "/health",
-        () => VocabularyHttpResponse.Ok(new { status = "healthy" }))
-    .AllowAnonymous();
+// The ServiceMantle health endpoints are anonymous and unmetered: /health/live
+// answers liveness alone, /health/ready and /health project the readiness
+// snapshot. Build identity stays in the startup logs and the authorized
+// administrator version endpoint.
+app.MapServiceMantleHealthEndpoints();
 
 string[] allHttpMethods =
 [

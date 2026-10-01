@@ -41,8 +41,8 @@ wait_for_health() {
 
   for _ in $(seq 1 60); do
     if curl --fail --silent --show-error \
-      "http://127.0.0.1:${mapped_port}/health" >"$TEST_ROOT/health.json" 2>/dev/null; then
-      jq --exit-status '. == {success:true,data:{status:"healthy"}}' \
+      "http://127.0.0.1:${mapped_port}/health/ready" >"$TEST_ROOT/health.json" 2>/dev/null; then
+      jq --exit-status '.status == "ready" and .phase == "completed" and .migrationStatus == "succeeded" and .databaseStatus == "reachable" and .errorCode == null' \
         "$TEST_ROOT/health.json" >/dev/null
       return 0
     fi

@@ -2,6 +2,8 @@ using System.Data.Common;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
+using System.Net;
+using System.Text.Json;
 using Lexarbor.Database;
 using Lexarbor.Database.Entities;
 using Lexarbor.Database.Repositories;
@@ -454,7 +456,15 @@ public sealed class AdminSessionStoreTests : IDisposable
         using var hostCleanup = new AdminSessionCleanupService(host.Services.GetRequiredService<IServiceScopeFactory>(),
             TimeProvider.System, logger);
         await hostCleanup.RunBatchAsync(Ct);
-        Assert.True((await client.GetAsync("/health", Ct)).IsSuccessStatusCode);
+        // With initialization disabled and the shared database still unmigrated,
+        // readiness honestly reports not-ready; the host itself stays alive and
+        // serving, which liveness now expresses separately from readiness.
+        using var alive = await client.GetAsync("/health/live", Ct);
+        Assert.True(alive.IsSuccessStatusCode);
+        using var ready = await client.GetAsync("/health/ready", Ct);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, ready.StatusCode);
+        Assert.Equal("notStarted", JsonDocument.Parse(await ready.Content.ReadAsStringAsync(Ct))
+            .RootElement.GetProperty("migrationStatus").GetString());
     }
 
     [Fact]

@@ -70,6 +70,7 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
 
     public FakeIdentityState Identity { get; }
 
+
     protected override IHost CreateHost(IHostBuilder builder)
     {
         // Minimal hosting reads configuration before ConfigureWebHost can add the

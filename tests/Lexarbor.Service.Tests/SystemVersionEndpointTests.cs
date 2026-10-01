@@ -85,7 +85,8 @@ public class SystemVersionEndpointTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => client.GetAsync(SystemVersionEndpoints.Path, cancellation.Token));
         using var health = await client.GetAsync("/health", TestContext.Current.CancellationToken);
         using var json = JsonDocument.Parse(await health.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
-        Assert.Equal(new[] { "status" }, json.RootElement.GetProperty("data").EnumerateObject().Select(p => p.Name));
+        Assert.Equal("ready", json.RootElement.GetProperty("status").GetString());
+        Assert.Equal("reachable", json.RootElement.GetProperty("databaseStatus").GetString());
         Assert.Null(health.Headers.CacheControl);
     }
 
