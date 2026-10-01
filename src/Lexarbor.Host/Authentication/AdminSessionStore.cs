@@ -24,7 +24,10 @@ public sealed class ValidatedAdminSession
 public sealed class AdminSessionStore(AdminSessionRepository repository,
     IDataProtectionProvider protectionProvider, TimeProvider timeProvider)
 {
-    private readonly IDataProtector _protector = protectionProvider.CreateProtector(PersistentAdminKeyRing.AdminSessionPurpose);
+    /// <summary>The stable purpose string for administrator session payloads.</summary>
+    public const string AdminSessionPurpose = "Lexarbor.AdminSession.v1";
+
+    private readonly IDataProtector _protector = protectionProvider.CreateProtector(AdminSessionPurpose);
 
     public Task<string> CreateAsync(ValidatedAdminSession session, CancellationToken cancellationToken = default) =>
         ReplaceAsync(null, session, cancellationToken);

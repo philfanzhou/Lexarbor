@@ -12,7 +12,7 @@ The multi-stage build compiles the Vue frontend, publishes the .NET backend, and
 
 - `/app/data/vocabulary.db` contains the SQLite database.
 - `/app/data/appsettings.json` contains the operator-managed application configuration.
-- `/app/data/admin-keys/` contains the persistent ASP.NET Core Data Protection key ring.
+- `/app/data/data-protection-root-key` holds the Data Protection root key (unless `LEXARBOR_DATA_PROTECTION_ROOT_KEY` injects one).
 
 Tagged releases publish SBOM-enabled images with build provenance for AMD64 and ARM64 to `ghcr.io/philfanzhou/lexarbor`. For example:
 
@@ -171,65 +171,63 @@ Two consequences for operators:
 
 ## Data Protection key storage
 
-The Host uses `data/admin-keys` relative to its content root (`/app/data/admin-keys`
-in the container), with the fixed application name `Lexarbor`. No extra volume or
-configuration setting is needed. The ring protects administrator
-sessions under the independent versioned purpose `Lexarbor.AdminSession.v1`.
-Password login still issues the legacy JWT cookie; the internal session scheme
-described below also uses this ring. Anonymous APIs and health responses are unchanged.
+Data Protection keys live in the SQLite database itself, in the
+`service_data_protection_keys` table, as ServiceMantle `sm:v1:` authenticated
+envelopes scoped to the `lexarbor` service id. The application name stays
+`Lexarbor` and the session purpose stays `Lexarbor.AdminSession.v1`; opaque
+administrator sessions keep their meaning. The `AddServiceDataProtectionKeys`
+migration creates the table; nothing else in the database changes.
+Hosted sign-in is the only login and establishes only the internal session scheme
+described below; the retired password-login JWT cookie is not authenticated by
+anything. Anonymous APIs and health responses are unchanged.
 
-On Linux and macOS, startup creates or restricts the ring directory to 0700 and its
-key XML files to 0600. Only the runtime user can read, write, and traverse the directory.
-Permission changes stay inside this ring; other `data` files and directories are
-not recursively changed. The framework also creates new keys with no group/other
-permissions. A symbolic link for the ring or a ring file is rejected. On Windows,
-operators must protect the directory with an ACL granting access only to the runtime
-user; Lexarbor does not automatically configure an equivalent Windows ACL. Protect
-the parent `data` directory's ownership and ACL as well.
+The envelopes are protected by a **root key** with two sources, in this order:
 
-Before serving requests, startup verifies read/write access, loads every retained
-key, and performs a non-sensitive Protect/Unprotect probe using a separate purpose.
-An inaccessible or read-only filesystem, invalid key XML, or unusable retained key
-stops startup with a safe diagnostic. Lexarbor does not fall back to an in-memory
-ring, delete damaged keys, or log XML/protected payloads. Correct ownership and
-permissions or restore a complete valid ring before restarting.
+1. `DataProtection:RootKey` (container variable `LEXARBOR_DATA_PROTECTION_ROOT_KEY`),
+   for deployments that inject secrets.
+2. Otherwise, a random root-key file created atomically on first start at
+   `data/data-protection-root-key` (directory 0700, file 0600, symbolic links
+   refused) and reused ever after — a single-container deployment stays
+   zero-configuration. `DataProtection:RootKeyFile` can point the file
+   elsewhere; the default is the `data/` path above.
 
-ASP.NET Core retains automatic key rotation (the default lifetime is 90 days).
-Expired keys must remain available to decrypt older payloads. Application upgrades
-and container recreation reuse the mounted ring without replacing keys. Do not
-remove old keys to force rotation. An anonymous Docker volume must be explicitly
-reused if recreating a container; a fresh volume cannot decrypt old payloads.
+Startup probes the repository with a non-sensitive Protect/Unprotect round-trip
+after the database is initialized. A wrong root key, damaged ciphertext, an
+unreadable or group/other-accessible root-key file, or a cross-service key row
+stops startup with a fixed safe diagnostic — no key material, paths or provider
+detail. Losing the root key invalidates administrator sessions only: vocabulary
+data is unaffected and administrators sign in again.
 
-**Security boundary.** File persistence stores unencrypted key XML: filesystem
-permissions provide access control, not disk-theft protection. Anyone with runtime
-user/root privileges or a complete data backup can use these keys. This contract
-covers one instance on a trusted local filesystem; it does not protect against an
-attacker controlling parent directories or replacing files at runtime, and does not
-support network mounts or multiple instances. No external KMS or certificate-based
-key encryption is configured. See the [official Data Protection configuration
-documentation](https://learn.microsoft.com/en-us/aspnet/core/security/data-protection/configuration/overview?view=aspnetcore-10.0).
+**Upgrade.** The upgrade adds the table and switches the ring; existing
+administrator sessions end once (they cannot outlive their access tokens
+anyway), so administrators sign in again after the first start. The retired
+`data/admin-keys` directory is never read and can be deleted manually once the
+upgrade is confirmed. Roll back by deploying the previous image: it ignores the
+new table and keeps using its own `admin-keys` directory, which is why that
+directory should only be deleted after the deployment is confirmed to stay.
 
-**Backup and restore.** Stop the application and back up the entire `data` directory
-confidentially, following the SQLite consistency procedure above; include the whole
-`admin-keys` ring, including expired keys, and configuration. Restore it to the same
-data mount before startup, preserving/reapplying runtime ownership and private
-permissions. The encrypted `admin_session` table must be backed up together with this ring.
-Before starting after a historical database restore, clear `admin_session` as described below.
-Losing an original key makes its protected payloads unreadable; affected sessions
-require a fresh login and cannot be recovered from token plaintext.
-The current external-token login does not consume these keys.
+**Security boundary.** A database file that leaks alone no longer exposes the
+session encryption keys: the envelopes need the root key as well. The root key
+file is protected by filesystem permissions; keep injected root keys in a
+secret store. This does not protect against an attacker who obtains both the
+database and the root key — for example, an entire copied volume — and it does
+not provide root-key rotation tooling. Multi-instance deployments sharing one
+database share the key rows; single-instance remains the deployment contract.
 
-**Rollback.** Rolling back this infrastructure change leaves current login behavior
-unchanged. Keep `admin-keys` in the data mount for a subsequent upgrade; rolling back
-code is not a reason to remove the ring or discard its backup.
+**Backup and restore.** Back up the SQLite database and the root key (the
+injected value or the root-key file) together, and store them separately from
+each other. Follow the SQLite consistency procedure above; include the
+persistent configuration. Before starting after a historical database restore,
+clear `admin_session` as described below. Restoring the database without its
+matching root key refuses startup with the diagnostic above.
 
 ## Encrypted administrator session storage
 
 The additive `AddAdminSessions` migration creates an empty `admin_session` table
 and an expiry/hash index without changing vocabulary data. This release registers
 storage, bounded cleanup and an internal session authentication/sign-in service.
-This storage layer does not enable refresh or change the production password
-login and frontend flow.
+Hosted login is the only production sign-in; every administrator session,
+including the frontend's, lives in this storage layer.
 The table contains SHA-256 handle digests, UTC Unix millisecond deadlines and Data
 Protection ciphertext. Token/identity data is bound to each row's digest and deadline.
 Only trusted Host callers with independently verified tokens may create sessions.
@@ -269,17 +267,16 @@ access token's signature, issuer, audience, token-to-principal association and e
 HTTP endpoint. It requires an authenticated administrator principal with issuer,
 subject and a future `exp`; structural and role checks do not replace token validation.
 Only the encrypted server-side payload contains access/ID tokens. Responses and the
-new cookie contain no token. Password/OIDC password-grant/Gateway login continues
-issuing the configured legacy HttpOnly JWT cookie with its existing Strict/secure
-settings and response envelope; optional OIDC Code login uses the server-side session described below.
+session cookie contain no token. Hosted authorization-code login is the only
+administrator sign-in and always establishes the server-side session described below.
 
 Each request selects exactly one authentication source:
 
 1. An `Authorization` value starting with `Bearer ` (case insensitive) selects
    Bearer, including empty or invalid values.
-2. Otherwise the presence of `__Host-Lexarbor.AdminSession`, including an empty
-   value, selects the encrypted server-side session.
-3. Otherwise the configured legacy JWT cookie uses the existing JWT validation.
+2. Otherwise — cookie-bearing or anonymous — the encrypted server-side session
+   answers. The retired `lexarborAdmin` password-login JWT cookie is never read
+   and never authenticates a request.
 
 Invalid, expired or unreadable selected credentials return 401 without falling back
 or mixing roles from another source. Authenticated users without the configured role
@@ -287,14 +284,10 @@ receive 403. Challenges remain JSON, with no HTML redirect. `/admin/auth/session
 retains `{success:true,data:{username,roles}}`; public API and health stay anonymous.
 For authenticated cookie requests, all non-safe `/admin` methods require exactly
 `X-Requested-With: XMLHttpRequest`; Bearer requests are exempt even when carrying
-both cookies. Unauthenticated protected writes return 401. An invalid new cookie
-therefore also suppresses a valid legacy cookie. To switch from an internal session
-to a password/Gateway login, log out first; legacy login does not replace the selected
-new session cookie.
+the session cookie. Unauthenticated protected writes return 401.
 
-The new cookie name is fixed, with HttpOnly, Secure, SameSite=Lax, Path=/ and no
-Domain. HTTPS is required even if `AdminAuthentication:CookieSecure` is false for the
-legacy cookie. Its Expires/Max-Age never exceeds the independently verified access
+The session cookie name is fixed, with HttpOnly, Secure, SameSite=Lax, Path=/ and no
+Domain. Its Expires/Max-Age never exceeds the independently verified access
 `exp`; there is no sliding renewal. The handler rechecks exact expiry and protected
 payload integrity on every request and reconstructs only identity/roles, never token
 claims. Restart with the same database and key ring preserves unexpired sessions.
@@ -330,9 +323,44 @@ Keep the additive table and key ring; do not run migration Down or convert handl
 JWT cookies. The two cookie formats are not interchangeable. A historical database
 restore still requires clearing `admin_session` before startup as described above.
 
-## OIDC authentication (default)
+## Administrator sign-in (hosted login only)
 
-The administration UI submits a username and password to Lexarbor. The backend exchanges those credentials with the configured OIDC token endpoint, validates the returned JWT, requires the configured role, and stores the access token in an HttpOnly cookie. The current adapter uses the OAuth2 resource owner password credentials grant; the identity provider must explicitly enable it.
+The password proxy login has been removed. The SignaCore hosted login page is the
+only administrator sign-in: `GET /admin/auth/start` redirects the browser to the
+identity provider's authorization endpoint, and the callback exchanges the
+one-time code for tokens that never touch the browser. Lexarbor no longer
+receives or forwards administrator passwords anywhere. Bearer tokens from the
+`Authorization` header keep working for non-interactive administration.
+
+`POST /admin/auth/login` no longer exists and is answered like any other unknown
+`/admin/*` route: 401 for anonymous callers, 404 for authenticated administrators.
+The `AdminAuthentication:Oidc`, `AdminAuthentication:Gateway`,
+`AdminAuthentication:CookieName` and `AdminAuthentication:CookieSecure` sections
+are gone, together with the `LEXARBOR_OIDC_{TOKEN_ENDPOINT,CLIENT_ID,CLIENT_SECRET,SCOPE}`,
+`LEXARBOR_GATEWAY_*`, `LEXARBOR_ADMIN_AUTH_PROVIDER` and `LEXARBOR_COOKIE_SECURE`
+container variables. The old `lexarborAdmin` JWT cookie is not authenticated
+anymore (its lifetime was at most one hour, so every issued cookie has long
+expired naturally); logout and hosted sign-in still delete it from the browser.
+
+`AdminAuthentication:Provider` remains only as a tripwire: it must be unset or
+exactly `OidcCode`. Any other value — for example the removed `Oidc` or `Gateway`
+— stops startup with a diagnostic pointing at this document, so an operator
+cannot believe password login still exists.
+
+**Upgrading an existing deployment.**
+
+1. Register a Confidential application with your identity provider (SignaCore:
+   see below), select per-application access-token audience, and register the
+   exact external HTTPS callback `https://<external-host>/admin/auth/callback`
+   (and, for prepared logout, `https://<external-host>/admin/auth/logout/return`).
+2. Configure the hosted-login settings — `LEXARBOR_OIDC_CODE_CLIENT_ID`,
+   `LEXARBOR_OIDC_CODE_CLIENT_SECRET`, `LEXARBOR_OIDC_CODE_REDIRECT_URI` and the
+   identity variables below — and restart.
+3. Remove the retired `LEXARBOR_ADMIN_AUTH_PROVIDER`, `LEXARBOR_COOKIE_SECURE`,
+   `LEXARBOR_OIDC_*` (non-`_CODE`) and `LEXARBOR_GATEWAY_*` variables from the
+   deployment environment. A persisted `appsettings.json` that still carries
+   `"Provider": "Oidc"` or `"Gateway"` must be edited by hand; the startup
+   diagnostic names the setting.
 
 | Environment variable | Default | .NET configuration key |
 |---|---|---|
@@ -340,40 +368,26 @@ The administration UI submits a username and password to Lexarbor. The backend e
 | `LEXARBOR_IDENTITY_ISSUER` | Authority when Authority is explicitly supplied | `IdentityService:Issuer` |
 | `LEXARBOR_IDENTITY_AUDIENCE` | not supplied | `IdentityService:Audience` |
 | `LEXARBOR_REQUIRE_HTTPS_METADATA` | required outside Development | `IdentityService:RequireHttpsMetadata` |
-| `LEXARBOR_ADMIN_AUTH_PROVIDER` | not supplied | `AdminAuthentication:Provider` |
-| `LEXARBOR_OIDC_TOKEN_ENDPOINT` | not supplied | `AdminAuthentication:Oidc:TokenEndpoint` |
-| `LEXARBOR_OIDC_CLIENT_ID` | not supplied | `AdminAuthentication:Oidc:ClientId` |
-| `LEXARBOR_OIDC_CLIENT_SECRET` | not supplied | `AdminAuthentication:Oidc:ClientSecret` |
-| `LEXARBOR_OIDC_SCOPE` | not supplied | `AdminAuthentication:Oidc:Scope` |
-| `LEXARBOR_COOKIE_SECURE` | not supplied | `AdminAuthentication:CookieSecure` |
+| `LEXARBOR_OIDC_CODE_CLIENT_ID` | not supplied | `AdminAuthentication:OidcCode:ClientId` |
+| `LEXARBOR_OIDC_CODE_CLIENT_SECRET` | not supplied | `AdminAuthentication:OidcCode:ClientSecret` |
+| `LEXARBOR_OIDC_CODE_REDIRECT_URI` | not supplied | `AdminAuthentication:OidcCode:RedirectUri` |
+| `LEXARBOR_OIDC_CODE_POST_LOGOUT_REDIRECT_URI` | not supplied | `AdminAuthentication:OidcCode:PostLogoutRedirectUri` |
+| `LEXARBOR_OIDC_CODE_SCOPE` | `openid profile` | `AdminAuthentication:OidcCode:Scope` |
 
-When these variables are not supplied, values come from the persistent file and ultimately from the image defaults. The validated token must contain `role=admin` by default. Override `AdminAuthentication__RequiredRole` to use another role. Set `LEXARBOR_COOKIE_SECURE=true` whenever the browser accesses Lexarbor over HTTPS. Missing credential-provider settings do not prevent startup; administration login returns 503 until configured.
-
-A provider refusal that concerns the client rather than the password — RFC 6749 `invalid_client`, `unauthorized_client`, `unsupported_grant_type`, `invalid_scope`, `invalid_request`, `server_error`, or `temporarily_unavailable` — answers 502 rather than 401, and the log names the error code. `invalid_grant` and any other code answer 401.
+When these variables are not supplied, values come from the persistent file and ultimately from the image defaults. The validated access token must contain `role=admin` by default. Override `AdminAuthentication__RequiredRole` to use another role. Missing hosted-login settings do not prevent startup; `GET /admin/auth/start` answers its existing 503 until the configuration is complete, and the startup log states that `AdminAuthentication:OidcCode` is missing or invalid.
 
 `LEXARBOR_REQUIRE_HTTPS_METADATA` decides whether the provider's signing metadata may be fetched over plain HTTP. It is required unless the environment is Development or the authority is a loopback address, so an `http://` authority pointing at another host stops the container at startup with a message naming the setting, rather than starting and answering 500 on every administration request. Loopback is exempt because there is no network path to rewrite, and because the image's placeholder authority is a loopback one: a container that has not been given an identity provider still starts and serves its public API. The keys served from that address decide every administration authorization, so anyone able to rewrite the response can mint an administrator token; setting this to `false` is a statement that the network path to the provider is trusted. It is deliberately absent from the image's `appsettings.json`: writing a value there would freeze it into the persistent file on first start and take the environment out of the decision. Whichever way it resolves, the startup log says so — at information when metadata is required and at warning when it is not.
 
-Example:
-
-```bash
-export LEXARBOR_IDENTITY_AUTHORITY=https://identity.example.com
-export LEXARBOR_IDENTITY_ISSUER=https://identity.example.com
-export LEXARBOR_IDENTITY_AUDIENCE=lexarbor
-export LEXARBOR_OIDC_CLIENT_ID=lexarbor-admin
-export LEXARBOR_OIDC_CLIENT_SECRET=replace-me
-export LEXARBOR_COOKIE_SECURE=true
-bash scripts/start.sh
-```
-
 ### Connecting to SignaCore
 
-[SignaCore](https://github.com/philfanzhou/SignaCore) works with the default `Oidc` provider through its RFC 6749 token endpoint, `/oauth2/token`. SignaCore also provides hosted authorization-code login, available with the optional `OidcCode` mode below. Administrators currently sign in through the Lexarbor login form and Lexarbor performs the password grant server-side; the browser never receives the client secret or the access token.
+[SignaCore](https://github.com/philfanzhou/SignaCore) provides the hosted login through its authorization-code flow. Administrators sign in on SignaCore's own page; Lexarbor performs the confidential token exchange server-side and the browser never receives the client secret, the access token or the ID token.
 
 In SignaCore:
 
-1. Register an application for Lexarbor in the administration console, for example with AppId `lexarbor-admin`, and keep its AppSecret.
+1. Register a **Confidential** application for Lexarbor in the administration console, for example with AppId `lexarbor-admin`, and keep its AppSecret.
 2. Set the application's access-token audience mode to per-application (`PUT /api/admin/apps/{appId}/audience-mode`). Its tokens then carry `aud` equal to the AppId, and tokens issued to other applications are rejected by Lexarbor. In the shared mode every token carries SignaCore's `Jwt:Audience` (default `SignaCore.Services`), which any other shared-mode service would also accept.
-3. Decide who administers Lexarbor. Lexarbor requires `role=admin` in the token. SignaCore adds that role for its bootstrap administrator (`Admin:Username`) in every application; any other account receives roles only from the application's claims callback, whose response lists them in `roles`.
+3. Register the exact external HTTPS callback `https://<external-host>/admin/auth/callback` for the authorization-code flow, and optionally `https://<external-host>/admin/auth/logout/return` as the post-logout URI for the prepared logout.
+4. Decide who administers Lexarbor. Lexarbor requires `role=admin` in the access token. SignaCore adds that role for its bootstrap administrator (`Admin:Username`) in every application; any other account receives roles only from the application's claims callback, whose response lists them in `roles`.
 
 In Lexarbor:
 
@@ -381,21 +395,18 @@ In Lexarbor:
 export LEXARBOR_IDENTITY_AUTHORITY=https://signacore.example.com
 export LEXARBOR_IDENTITY_ISSUER=https://signacore.example.com
 export LEXARBOR_IDENTITY_AUDIENCE=lexarbor-admin
-export LEXARBOR_OIDC_CLIENT_ID=lexarbor-admin
-export LEXARBOR_OIDC_CLIENT_SECRET=replace-me
-export LEXARBOR_OIDC_SCOPE=
-export LEXARBOR_COOKIE_SECURE=true
+export LEXARBOR_OIDC_CODE_CLIENT_ID=lexarbor-admin
+export LEXARBOR_OIDC_CODE_CLIENT_SECRET=replace-me
+export LEXARBOR_OIDC_CODE_REDIRECT_URI=https://lexarbor.example.com/admin/auth/callback
 bash scripts/start.sh
 ```
 
-- `LEXARBOR_OIDC_SCOPE` must be set, and set to an empty value. SignaCore rejects every requested scope with `invalid_scope`, including the image default `openid profile`. A deployment configured through the persistent `appsettings.json` instead sets `AdminAuthentication:Oidc:Scope` to `""` there.
-- `LEXARBOR_IDENTITY_ISSUER` must equal the `issuer` field of SignaCore's `/.well-known/openid-configuration` exactly. `LEXARBOR_OIDC_TOKEN_ENDPOINT` is not needed, because the token endpoint is read from the same document.
-- `LEXARBOR_IDENTITY_AUDIENCE` and `LEXARBOR_OIDC_CLIENT_ID` are both the AppId, and `LEXARBOR_OIDC_CLIENT_SECRET` is the AppSecret.
-- A session lasts as long as SignaCore's access token (`Jwt:TokenExpirationHours`, 2 hours by default). Lexarbor discards the refresh token, so the administrator signs in again when the session ends. Disabling an account or removing its role in SignaCore does not end a Lexarbor session that has already started; it ends when the token expires.
+- `LEXARBOR_IDENTITY_ISSUER` must equal the `issuer` field of SignaCore's `/.well-known/openid-configuration` exactly. The authorization and token endpoints are read from the same document.
+- `LEXARBOR_IDENTITY_AUDIENCE` and `LEXARBOR_OIDC_CODE_CLIENT_ID` are both the AppId, and `LEXARBOR_OIDC_CODE_CLIENT_SECRET` is the AppSecret.
+- The Code scope defaults to `openid profile`. SignaCore's hosted login rejects the empty scope that the removed password grant required; do not copy password-grant settings into the Code section.
+- A session lasts as long as SignaCore's Code access token (15 minutes), with no refresh: the administrator signs in again when it ends. Disabling an account or removing its role in SignaCore does not end a Lexarbor session that has already started; it ends when the token expires.
 
-When login answers 502, the Lexarbor log names the cause. `rejected with invalid_scope` means the scope is still being sent, `rejected with invalid_client` means the client ID or secret is wrong, and `Identity access token validation failed` usually means the issuer or audience does not match the token.
-
-The `Gateway` adapter also speaks SignaCore's older `/api/auth/token` contract, but new deployments should use `/oauth2/token` through the `Oidc` provider.
+When hosted login fails, the browser lands on `/#/login?reason=canceled|denied|sign_in_failed|provider_unavailable` with a fixed classification; the Lexarbor log names the failing stage without tokens or provider bodies.
 
 ## Pending hosted-login transactions
 
@@ -437,8 +448,8 @@ no database, migration or persistence-directory change is needed.
 ## Authorization-code validation
 
 The Host uses `AdminCodeExchange` for Confidential SignaCore hosted login.
-The default password/Gateway/Bearer behavior remains available.
-Incomplete unused Code settings do not prevent the existing service from starting.
+Bearer administration keeps its existing behavior.
+Incomplete unused Code settings do not prevent the service from starting.
 
 Its settings are `AdminAuthentication:OidcCode:ClientId`, `ClientSecret`, `RedirectUri`
 and `Scope` (default `openid profile`), alongside the existing `IdentityService`
@@ -477,18 +488,18 @@ caller cancellation propagates. The callback first validates and consumes
 its browser-bound transaction and must keep all tokens/verifiers/secrets server-side.
 No database, migration, persistence directory or public JSON contract changes here.
 
-## Hosted authorization-code login (optional)
+## Hosted authorization-code login
 
 Register a Confidential SignaCore application first, select PerApplication audience,
 register the exact external HTTPS `/admin/auth/callback` URI, enable authorization
 code with PKCE S256 and `openid profile`, and supply the administrator role through
-the access token. Only then select `AdminAuthentication:Provider=OidcCode`. The
-client ID and `IdentityService:Audience` must both be the application ID; issuer
+the access token — see the upgrade steps above. `AdminAuthentication:Provider`
+selects nothing and only accepts being unset or `OidcCode`; any other value stops
+startup. The client ID and `IdentityService:Audience` must both be the application ID; issuer
 must exactly match Discovery. Set `IdentityService:Authority` to the trusted HTTPS
 provider. SignaCore Code access tokens last 15 minutes; the session ends at exact
-access-token `exp`, with no refresh. Code scope defaults to `openid profile`;
-SignaCore's older password grant instead requires the **empty** scope documented
-above. Do not copy password-grant settings into the Code section.
+access-token `exp`, with no refresh. Code scope defaults to `openid profile`.
+Do not copy removed password-grant settings into the Code section.
 
 | Container script variable | Configuration key |
 |---|---|
@@ -499,22 +510,20 @@ above. Do not copy password-grant settings into the Code section.
 | `LEXARBOR_OIDC_CODE_SCOPE` | `AdminAuthentication:OidcCode:Scope` |
 
 These independent overrides never rewrite a pre-existing `/app/data/appsettings.json`.
-Use `LEXARBOR_ADMIN_AUTH_PROVIDER=OidcCode` and the existing identity variables.
 Protect the secret as server configuration; never put it in frontend settings.
 A registered static callback query is kept byte-for-byte, but duplicate fields or
 reserved `state`, `iss`, `code`, `error`, `error_description` fields are refused.
 Behind a proxy use the registered external HTTPS URI and trusted client-address
 forwarding; the callback is never inferred from untrusted request headers.
 
-`GET /admin/auth/method` returns only `{success:true,data:{method:"hosted"}}` in
-Code mode (`password` otherwise). Navigate to `GET /admin/auth/start`, optionally
-with one `returnUrl` from the route allowlist above. It shares the password login's
+`GET /admin/auth/method` returns only `{success:true,data:{method:"hosted"}}`.
+Navigate to `GET /admin/auth/start`, optionally
+with one `returnUrl` from the route allowlist above. It carries the anonymous
 per-IP quota and 429/Retry-After contract. Invalid return targets give 400; missing
 Code configuration or full pending capacity gives 503, and failed/untrusted
 Discovery gives 502, without creating a login cookie or changing existing sessions.
-Old modes safely refuse hosted routes. Code mode rejects every
-`POST /admin/auth/login` with 400 before parsing a password body; existing cookie
-CSRF protection still applies. Configuration is selected at startup.
+The deleted `POST /admin/auth/login` route is answered by the unknown-admin-route
+semantics: 401 anonymous, 404 authenticated. Configuration is validated at startup.
 
 Start uses Discovery's authorization endpoint with unique supported fields, no
 `response_mode`. Callback requires unique state/issuer and exactly one code or
@@ -550,28 +559,22 @@ access_log /var/log/nginx/lexarbor.access.log lexarbor_safe;
 ```
 
 The administration UI follows this mode automatically: it reads
-`GET /admin/auth/method`, replaces the password form with the SignaCore
-navigation in Code mode, consumes the prepared-logout `data.logoutUrl` as a
+`GET /admin/auth/method`, shows the SignaCore navigation, consumes the
+prepared-logout `data.logoutUrl` as a
 top-level navigation, and renders the callback and logout-return `reason`
-values. To switch an existing password-grant deployment, register the
-application as described above, set the `OidcCode` section and
-`LEXARBOR_ADMIN_AUTH_PROVIDER=OidcCode`, and restart; from then on every new
-sign-in goes through the hosted flow, and the login page no longer accepts a
-password. Legacy JWT-cookie sessions from the old mode are not force-logged
-out: they keep validating per request like any other selected credential and
-end at their access token's natural `exp` (at most SignaCore's password-grant
-token lifetime), and the administrator signs in again through the hosted
-flow; no forced logout or data migration is involved. To roll back, stop new Code logins, restore the
-`Oidc`/`Gateway` configuration, and restart: the login page shows the password
-form again on its next method read, and the opaque-cookie sessions of the
-Code mode keep working until their own exact access-token expiry (15 minutes)
-while their logout degrades to local-only. Keep the database and key ring;
-never convert handles to JWTs. Restart discards pending login and
-logout-return transactions and requires a fresh start.
+values. There is no password form anymore and Lexarbor never receives a
+password. The retired `lexarborAdmin` JWT cookie from the removed modes is not
+force-logged-out — it is simply never authenticated, and its lifetime was at
+most one hour anyway; hosted sign-in and logout delete it from the browser.
+To roll back, deploy an image that still contains the password proxy: the
+opaque-cookie sessions of this release keep working on the old image until
+their own exact access-token expiry while their logout degrades to local-only.
+Keep the database and key ring; never convert handles to JWTs. Restart discards
+pending login and logout-return transactions and requires a fresh start.
 
 ### Prepared upstream logout
 
-In Code mode, `POST /admin/auth/logout` can also end the browser's SignaCore
+`POST /admin/auth/logout` can also end the browser's SignaCore
 session through SignaCore's prepared logout. The local session always ends first:
 the endpoint atomically revokes the presented handle and clears both cookies, and
 only when the revoked session really held an ID token does the server then send the
@@ -581,8 +584,8 @@ confidential client form authentication as the token endpoint. The ID token and 
 client secret stay server-side and never reach the browser, logs or URLs. The
 dedicated backchannel has no loggers, no redirect following, no cookies and a
 30-second deadline, accepts at most 4 KiB, and sends at most one POST per revoked
-session, never retried. Callers without a live session snapshot — no session, a
-legacy JWT cookie, an expired, damaged or repeated logout — never trigger an
+session, never retried. Callers without a live session snapshot — no session, an
+expired, damaged or repeated logout — never trigger an
 upstream call and never fabricate a hint; at most one concurrent logout obtains the
 snapshot.
 
@@ -598,9 +601,8 @@ timeout, non-2xx, malformed or oversized body, untrusted URI shape — leaves th
 plain `{"success":true}` envelope.
 In hosted mode a missing `logoutUrl` means local-only logout: the UI must say that
 the identity provider may still hold a session and must never claim SignaCore
-signed out. No upstream error text is echoed. Code-mode logout responses carry
-`Cache-Control: no-store` because they can contain the one-time URI; old
-password/Gateway modes and Bearer semantics keep their previous responses, and the
+signed out. No upstream error text is echoed. Logout responses carry
+`Cache-Control: no-store` because they can contain the one-time URI, and the
 cookie CSRF rule still answers 403 before anything is revoked.
 
 SignaCore completes the browser navigation to `logoutUrl` with a handle that is
@@ -647,16 +649,41 @@ and when preparation fails the upstream session may survive until SignaCore's ow
 idle/absolute limits end it. A lost local revocation commit remains unknown and is
 never retried or compensated.
 
-## Gateway adapter (optional)
+## Logging
 
-Set `LEXARBOR_ADMIN_AUTH_PROVIDER=Gateway` to use the compatibility adapter for a JSON password-token endpoint. It sends `X-Admin-AppId` and `X-Admin-AppSecret` headers and expects a success envelope containing an access token and user information.
+Console logging runs through the ServiceMantle Serilog pipeline. Every
+structured property is sanitized before it reaches the console — authentication,
+cookie and API-key header names are redacted to `[REDACTED]`, and the mandatory
+sanitizer cannot be disabled. Message-template literal text remains free text:
+code must keep secrets out of interpolated messages, which is why the
+application logs structured properties only.
 
-| Environment variable | Purpose |
-|---|---|
-| `LEXARBOR_GATEWAY_AUTHORITY` | Optional login base URL; falls back to Identity Authority |
-| `LEXARBOR_GATEWAY_TOKEN_PATH` | Token path, default `/api/auth/token` |
-| `LEXARBOR_GATEWAY_APP_ID` | Application identifier |
-| `LEXARBOR_GATEWAY_APP_SECRET` | Application secret |
+Every event carries the service identity fields `ServiceName=lexarbor`,
+`ServiceVersion` (the running build) and `InstanceId` (from `Service:InstanceId`
+or a fresh random value per start). The console line format changed from the
+default `info: Category[Event]` prefix to Serilog's
+`[timestamp LEVEL] message {properties}`.
+
+The existing `Logging:LogLevel` configuration keeps its meaning: `Default`
+becomes the pipeline minimum level and every other category becomes a
+minimum-level override, exactly as before. A category set to `None` — which an
+override cannot express — stays a framework filter rule, which the Serilog
+provider honors identically. An invalid level fails startup without echoing the
+submitted key or value. The console output format is the only
+operator-visible change.
+
+Two product rules remain as framework filter rules and keep working under the
+Serilog provider: the request-scoped suppression of Entity Framework diagnostics
+while administrator session storage is being read or written, and the
+`LogLevel.None` rule for `Microsoft.AspNetCore.DataProtection` (framework
+diagnostics there can contain key XML). Remote log sinks (Loki) and OpenTelemetry
+log export are not enabled.
+
+The sensitive request-header registry uses ServiceMantle's built-in denied list
+(`Authorization`, `Proxy-Authorization`, `Cookie`, `Set-Cookie`, `X-Api-Key`,
+`X-Auth-Token`). Lexarbor adds no further names: its only custom headers,
+`X-Requested-With` as a CSRF marker and the test-only client-address header,
+carry no secret material.
 
 ## Optional OpenTelemetry telemetry
 
@@ -702,10 +729,10 @@ their URL query attributes redacted before export.
 
 ## Rate limits and client addresses
 
-The two anonymous surfaces carry a per-client-address ceiling. `POST /admin/auth/login`
-forwards credentials to the identity provider, so without one it is a password-guessing
-oracle and a way to aim traffic at that provider from an address the provider attributes
-to Lexarbor. The `/api/*` routes are metered far more loosely, only to stop one caller
+The two anonymous surfaces carry a per-client-address ceiling. `GET /admin/auth/start`
+initiates the browser-bound hosted login, so without one it is a way to aim traffic
+at the identity provider from an address the provider attributes to Lexarbor. The
+`/api/*` routes are metered far more loosely, only to stop one caller
 monopolising a single-instance SQLite deployment. Administration routes are not limited:
 an authenticated administrator is not the threat, and metering the administration UI
 would break it long before it broke an attacker.

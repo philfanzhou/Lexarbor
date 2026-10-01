@@ -531,32 +531,6 @@ public class AdminHostedLogoutTests
         Assert.Equal(0, f.LogoutPosts);
     }
 
-    [Theory]
-    [InlineData("Oidc")]
-    [InlineData("Gateway")]
-    public async Task OldModes_LogoutKeepsExactExistingContract(string provider)
-    {
-        using var f = new Fixture(provider: provider);
-        using var anonymous = await f.Client.PostAsync("/admin/auth/logout", null, Ct);
-        Assert.Equal(HttpStatusCode.OK, anonymous.StatusCode);
-        Assert.Equal("{\"success\":true}", await anonymous.Content.ReadAsStringAsync(Ct));
-        Assert.False(anonymous.Headers.Contains("Cache-Control"));
-        Assert.Equal(0, f.LogoutPosts);
-        var handle = await f.Seed();
-        using var response = await f.Send("/admin/auth/logout", AdminSessionCookie.Name + "=" + handle, "POST", csrf: true);
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal("{\"success\":true}", await response.Content.ReadAsStringAsync(Ct));
-        Assert.False(response.Headers.Contains("Cache-Control"));
-        Assert.Equal(0, f.LogoutPosts);
-        AssertBothSessionCookiesDeleted(response);
-        using var gone = await f.Send("/admin/auth/session", AdminSessionCookie.Name + "=" + handle);
-        Assert.Equal(HttpStatusCode.Unauthorized, gone.StatusCode);
-        using var back = await f.Client.GetAsync("/admin/auth/logout/return?state=sensitive-state-marker", Ct);
-        Assert.Equal("/#/login?reason=logout_failed", back.Headers.Location!.OriginalString);
-        ReturnSafety(back);
-        f.AssertNotLogged("sensitive-state-marker");
-    }
-
     [Fact]
     public async Task DefaultRegisteredLogging_DoesNotProjectLogoutMaterial()
     {

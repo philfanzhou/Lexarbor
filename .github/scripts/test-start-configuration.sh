@@ -35,6 +35,14 @@ expected = {
 }
 for key, value in expected.items():
     assert arguments.count(key + '=' + value) == 1, 'Code configuration mapping failed'
+# The removed password-proxy settings must not be mapped at all anymore.
+for removed in (
+    'AdminAuthentication__CookieSecure=',
+    'AdminAuthentication__Oidc__',
+    'AdminAuthentication__Gateway__',
+):
+    assert not any(argument.startswith(removed) for argument in arguments), \
+        'Removed password-proxy mapping still present: ' + removed
 assert pathlib.Path(sys.argv[2]).read_text() == '{"existing":"unchanged"}'
 PY
 printf '%s\n' 'Startup Code configuration mapping passed'

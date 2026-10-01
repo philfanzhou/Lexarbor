@@ -11,17 +11,16 @@ public static class HostedAdminLogin
 {
     public static void MapHostedAdminLogin(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/admin/auth/method", (IOptions<AdminAuthenticationOptions> options) =>
-            VocabularyHttpResponse.Ok(new { method = options.Value.Provider == AdminAuthenticationProvider.OidcCode ? "hosted" : "password" })).AllowAnonymous();
+        // Hosted login is the only administrator sign-in, so the method is a fixed
+        // answer rather than a probe of provider configuration.
+        app.MapGet("/admin/auth/method", () => VocabularyHttpResponse.Ok(new { method = "hosted" })).AllowAnonymous();
         app.MapGet("/admin/auth/start", StartAsync).AllowAnonymous().RequireRateLimiting(RateLimitingExtensions.AdminLoginPolicy);
         app.MapGet("/admin/auth/callback", CallbackAsync).AllowAnonymous();
     }
 
-    private static async Task<IResult> StartAsync(HttpContext context, IOptions<AdminAuthenticationOptions> admin,
+    private static async Task<IResult> StartAsync(HttpContext context,
         IOptions<OidcCodeOptions> settings, AdminCodeExchange exchange, PendingAdminLoginStore pending)
     {
-        if (admin.Value.Provider != AdminAuthenticationProvider.OidcCode)
-            return VocabularyHttpResponse.BadRequest("Hosted authentication is disabled.");
         var query = context.Request.Query;
         if (query.TryGetValue("returnUrl", out var values) && values.Count != 1
             || AdminLoginReturnTarget.Normalize(values.Count == 0 ? null : values[0]) is null)
@@ -45,10 +44,9 @@ public static class HostedAdminLogin
         }));
     }
 
-    private static async Task<IResult> CallbackAsync(HttpContext context, IOptions<AdminAuthenticationOptions> admin,
+    private static async Task<IResult> CallbackAsync(HttpContext context,
         IOptions<IdentityServiceOptions> identity, PendingAdminLoginStore pending, AdminCodeExchange exchange, IAdminSessionSignIn signIn)
     {
-        if (admin.Value.Provider != AdminAuthenticationProvider.OidcCode) return Failure("sign_in_failed");
         try
         {
             var query = context.Request.Query;
@@ -106,36 +104,14 @@ public static class HostedAdminLogin
 
 // Hosting diagnostics run before application middleware and log the full query at
 // Information. These categories must remain off even with provider-specific Trace rules.
-public sealed class AdminHostedLoginSafety(RequestDelegate next, IOptions<AdminAuthenticationOptions> options, EndpointDataSource endpoints)
+public sealed class AdminHostedLoginSafety(RequestDelegate next)
 {
     public static bool SuppressLogCategory(string? category) => category is "Microsoft.AspNetCore.Hosting.Diagnostics"
         or "Microsoft.AspNetCore.Http.Result.RedirectResult"
         || category?.StartsWith("Microsoft.AspNetCore.HttpLogging", StringComparison.Ordinal) == true;
 
-    /// <summary>
-    /// Routing matches a literal route pattern case-insensitively and with one optional
-    /// trailing slash, and PathString equality is itself case-insensitive, so these two
-    /// comparisons cover exactly the request forms routing delivers to the mapped
-    /// endpoint. Other forms (a double trailing slash, an encoded separator) never reach
-    /// these endpoints and must keep their admin catch-all behavior.
-    /// </summary>
-    internal static bool MatchesRoute(PathString path, string route) => path == route || path == route + "/";
-
     public Task InvokeAsync(HttpContext context)
     {
-        // JSON content-type routing can select a fallback before rate limiting. In Code
-        // mode only, restore the real login metadata so even malformed/non-JSON
-        // submissions share the quota and reach the pre-binding rejection, on every
-        // route form routing accepts. Old modes retain their original routing and
-        // JSON/error contracts unchanged.
-        if (options.Value.Provider == AdminAuthenticationProvider.OidcCode
-            && HttpMethods.IsPost(context.Request.Method) && MatchesRoute(context.Request.Path, "/admin/auth/login"))
-        {
-            var login = endpoints.Endpoints.OfType<RouteEndpoint>().First(endpoint =>
-                endpoint.RoutePattern.RawText == "/admin/auth/login"
-                && endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains("POST") == true);
-            context.SetEndpoint(login);
-        }
         // Key the safety headers off the endpoint routing selected rather than the raw
         // path: case and trailing-slash variants of these routes run the same endpoint
         // and must carry the same response guarantees.
@@ -145,38 +121,19 @@ public sealed class AdminHostedLoginSafety(RequestDelegate next, IOptions<AdminA
             context.Response.Headers.CacheControl = "no-store";
             if (route == "/admin/auth/callback") context.Response.Headers["Referrer-Policy"] = "no-referrer";
         }
-        // The Code-mode logout response can carry the one-time upstream logout URI,
-        // and the fixed return route always redirects with a one-time state, so
-        // neither may be stored; the return route also hides its target from
-        // referrers like the login callback. Old-mode logout responses keep their
-        // original headers, and with them their unchanged contract.
+        // The logout response can carry the one-time upstream logout URI, and the
+        // fixed return route always redirects with a one-time state, so neither may
+        // be stored; the return route also hides its target from referrers like the
+        // login callback.
         if (route == "/admin/auth/logout/return")
         {
             context.Response.Headers.CacheControl = "no-store";
             context.Response.Headers["Referrer-Policy"] = "no-referrer";
         }
-        else if (route == "/admin/auth/logout"
-            && options.Value.Provider == AdminAuthenticationProvider.OidcCode)
+        else if (route == "/admin/auth/logout")
         {
             context.Response.Headers.CacheControl = "no-store";
         }
         return next(context);
     }
-}
-
-public sealed class HostedPasswordLoginMiddleware(RequestDelegate next, IOptions<AdminAuthenticationOptions> options)
-{
-    public Task InvokeAsync(HttpContext context) => options.Value.Provider == AdminAuthenticationProvider.OidcCode
-        && HttpMethods.IsPost(context.Request.Method)
-        && AdminHostedLoginSafety.MatchesRoute(context.Request.Path, "/admin/auth/login")
-        ? VocabularyHttpResponse.WriteFailureAsync(context.Response, StatusCodes.Status400BadRequest,
-            "Password login is disabled for hosted authentication.")
-        : next(context);
-}
-
-public sealed class HostedCredentialAuthenticator(AdminCodeExchange exchange) : IAdminCredentialAuthenticator
-{
-    public bool IsConfigured => exchange.IsConfigured;
-    public Task<AdminCredentialResult> AuthenticateAsync(string username, string password, CancellationToken cancellationToken)
-        => Task.FromResult(AdminCredentialResult.Unavailable);
 }

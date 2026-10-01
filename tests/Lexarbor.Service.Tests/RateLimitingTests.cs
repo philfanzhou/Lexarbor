@@ -334,10 +334,10 @@ public class RateLimitingTests
         string? forwardedProto = null,
         bool includeForwardedProto = true)
     {
-        var request = new HttpRequestMessage(HttpMethod.Post, "/admin/auth/login")
-        {
-            Content = JsonContent.Create(new { username = "admin", password = "secret" })
-        };
+        // The hosted login start is the anonymous surface the ceiling protects; the
+        // status it returns under the limit (503 when unconfigured) is irrelevant
+        // here, only the 429 boundary matters.
+        var request = new HttpRequestMessage(HttpMethod.Get, "/admin/auth/start");
         request.Headers.Add(
             VocabularyWebApplicationFactory.ClientAddressHeader,
             clientAddress);

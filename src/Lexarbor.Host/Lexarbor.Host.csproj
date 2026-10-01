@@ -17,6 +17,8 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
     <PackageReference Include="Mapster" />
     <PackageReference Include="ServiceMantle.Diagnostics" />
+    <PackageReference Include="ServiceMantle.Logging" />
+    <PackageReference Include="ServiceMantle.Persistence.Relational" />
     <PackageReference Include="ServiceMantle.Web" />
   </ItemGroup>
   <ItemGroup>

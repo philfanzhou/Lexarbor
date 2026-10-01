@@ -19,6 +19,7 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
+using ServiceMantle.Persistence.Relational.DataProtection;
 
 namespace Lexarbor.Service.Tests;
 
@@ -40,29 +41,70 @@ public sealed class AdminSessionStoreTests : IDisposable
         AccessTokenExpiresAt = expiry ?? _clock.GetUtcNow().AddMinutes(5)
     };
 
+    private readonly Dictionary<string, string> _rootKeys = new();
+
+    /// <summary>A stable root key per logical ring root, mirroring the way a
+    /// deployment reuses one root-key file across restarts and fails closed on
+    /// a different one.</summary>
+    private string RootKeyFor(string? ringRoot)
+    {
+        lock (_rootKeys)
+        {
+            var logicalRoot = ringRoot ?? _root;
+            if (!_rootKeys.TryGetValue(logicalRoot, out var rootKey))
+            {
+                rootKey = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+                _rootKeys[logicalRoot] = rootKey;
+            }
+
+            return rootKey;
+        }
+    }
+
     private ServiceProvider Build(string? ringRoot = null, IInterceptor? interceptor = null, bool migrate = true)
     {
         Directory.CreateDirectory(_root);
+        var configuration = new Microsoft.Extensions.Configuration.ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["DataProtection:RootKey"] = RootKeyFor(ringRoot)
+            })
+            .Build();
         var services = new ServiceCollection();
         services.AddLogging(logging => logging.SetMinimumLevel(LogLevel.None));
-        PersistentAdminKeyRing.Register(services);
-        services.RemoveAll<PersistentAdminKeyRing>();
-        services.AddSingleton(new PersistentAdminKeyRing(ringRoot ?? _root));
+        services.AddSingleton<Microsoft.Extensions.Configuration.IConfiguration>(configuration);
         services.AddSingleton<TimeProvider>(_clock);
-        services.AddDbContext<VocabularyDbContext>(options =>
+        services.AddDbContextFactory<VocabularyDbContext>(options =>
         {
             options.UseSqlite($"Data Source={DatabasePath};Pooling=False;Default Timeout=1");
             if (interceptor is not null) options.AddInterceptors(interceptor);
         });
+        services.AddScoped(serviceProvider =>
+            serviceProvider.GetRequiredService<IDbContextFactory<VocabularyDbContext>>().CreateDbContext());
+        services.AddDataProtection()
+            .SetApplicationName("Lexarbor")
+            .PersistKeysToServiceMantleEfCore<VocabularyDbContext>(
+                ServiceMantle.ServiceId.Parse("lexarbor"),
+                serviceProvider => serviceProvider
+                    .GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>()["DataProtection:RootKey"]!);
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<AdminSessionRepository>();
         services.AddScoped<AdminSessionStore>();
         var provider = services.BuildServiceProvider();
-        PersistentAdminKeyRing.Validate(provider);
         if (migrate)
         {
             using var scope = provider.CreateScope();
             scope.ServiceProvider.GetRequiredService<VocabularyDbContext>().Database.Migrate();
+            // The real host runs its protect/unprotect probe at startup, which
+            // also creates the initial key row outside any request transaction.
+            // Mirroring that here keeps later per-transaction Protect calls from
+            // contending with the SQLite file lock the way production never does.
+            var probe = provider.GetRequiredService<IDataProtectionProvider>()
+                .CreateProtector("Lexarbor.AdminKeys.StartupProbe.v1");
+            if (probe.Unprotect(probe.Protect("lexarbor-key-storage-probe")) != "lexarbor-key-storage-probe")
+            {
+                throw new CryptographicException();
+            }
         }
         return provider;
     }
@@ -166,7 +208,7 @@ public sealed class AdminSessionStoreTests : IDisposable
         var second = await Store(scope).CreateAsync(Session(), Ct);
         var row = await Db(scope).AdminSessions.SingleAsync(item => item.HandleHash == Hash(first), Ct);
         var protector = provider.GetRequiredService<IDataProtectionProvider>()
-            .CreateProtector(PersistentAdminKeyRing.AdminSessionPurpose);
+            .CreateProtector(AdminSessionStore.AdminSessionPurpose);
         var model = JsonNode.Parse(protector.Unprotect(row.ProtectedPayload))!;
         switch (change)
         {
@@ -205,9 +247,12 @@ public sealed class AdminSessionStoreTests : IDisposable
         using var rotated = Build();
         using var rotatedScope = rotated.CreateScope();
         Assert.NotNull(await Store(rotatedScope).ReadAsync(handle, Ct));
-        using var missing = Build(Path.Combine(_root, "missing"));
-        using var missingScope = missing.CreateScope();
-        Assert.Null(await Store(missingScope).ReadAsync(handle, Ct));
+        // A different root key against the same database rows is the state the
+        // startup probe exists to refuse: the repository cannot authenticate the
+        // stored elements, so building (booting) fails closed before any
+        // session can be served.
+        Assert.Throws<System.Security.Cryptography.CryptographicException>(
+            () => Build(Path.Combine(_root, "missing")));
         var row = await Db(rotatedScope).AdminSessions.SingleAsync(Ct);
         var wrong = rotated.GetRequiredService<IDataProtectionProvider>().CreateProtector("wrong-purpose");
         row.ProtectedPayload = wrong.Protect("{}");
@@ -448,8 +493,7 @@ public sealed class AdminSessionStoreTests : IDisposable
         using (var setup = provider.CreateScope()) await Db(setup).Database.MigrateAsync(Ct);
         await service.RunBatchAsync(Ct);
         Assert.Single(logger.Messages);
-        using var host = new VocabularyWebApplicationFactory("Testing", true,
-            extraConfiguration: new Dictionary<string, string?> { ["Database:InitializeOnStartup"] = "false" });
+        using var host = new VocabularyWebApplicationFactory("Testing", true);
         using var client = host.CreateClient();
         using var hostCleanup = new AdminSessionCleanupService(host.Services.GetRequiredService<IServiceScopeFactory>(),
             TimeProvider.System, logger);
@@ -461,9 +505,16 @@ public sealed class AdminSessionStoreTests : IDisposable
     public async Task HostCleanupFailure_LogsOnlySafeDiagnosticWithoutSqlOrProviderException()
     {
         var logs = new RecordingLogs();
-        using var host = new VocabularyWebApplicationFactory("Testing", true,
-            extraConfiguration: new Dictionary<string, string?> { ["Database:InitializeOnStartup"] = "false" });
-        using var configured = host.WithWebHostBuilder(builder => builder.ConfigureLogging(logging => logging.AddProvider(logs)));
+        using var host = new VocabularyWebApplicationFactory("Testing", true);
+        using var configured = host.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureLogging(logging => logging.AddProvider(logs));
+            // Fail the cleanup DELETE itself: the schema exists, so the key
+            // repository probe still succeeds and the failure is the cleanup's
+            // alone.
+            builder.ConfigureServices(services => services.AddDbContext<VocabularyDbContext>(options =>
+                options.AddInterceptors(new FailingCleanupInterceptor())));
+        });
         using var client = configured.CreateClient();
         logs.Entries.Clear();
         using var cleanup = new AdminSessionCleanupService(configured.Services.GetRequiredService<IServiceScopeFactory>(),
@@ -471,6 +522,24 @@ public sealed class AdminSessionStoreTests : IDisposable
         await cleanup.RunBatchAsync(Ct);
         Assert.True(logs.Entries.Count == 1 && logs.Entries[0].Message == AdminSessionCleanupService.FailureDiagnostic
             && !logs.Entries[0].HasException);
+        Assert.True((await client.GetAsync("/health", Ct)).IsSuccessStatusCode);
+    }
+
+    private sealed class FailingCleanupInterceptor : DbCommandInterceptor
+    {
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.StartsWith("DELETE FROM admin_session", StringComparison.Ordinal))
+            {
+                throw new SqliteException("synthetic-cleanup-failure", 1);
+            }
+
+            return ValueTask.FromResult(result);
+        }
     }
 
     private sealed class RecordingLogs : ILoggerProvider
