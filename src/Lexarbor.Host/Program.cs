@@ -5,7 +5,6 @@ using Lexarbor.Domain.Repositories;
 using Lexarbor.Domain.Services;
 using Lexarbor.Host;
 using Lexarbor.Host.Authentication;
-using Lexarbor.Host.Authentication.Providers;
 using Lexarbor.Host.RateLimiting;
 using Lexarbor.Service;
 using Microsoft.AspNetCore.Authentication;
@@ -122,51 +121,23 @@ builder.Services.Configure<RouteHandlerOptions>(options =>
 
 builder.Services.Configure<IdentityServiceOptions>(
     builder.Configuration.GetSection(IdentityServiceOptions.SectionName));
-builder.Services.Configure<AdminAuthenticationOptions>(
-    builder.Configuration.GetSection(AdminAuthenticationOptions.SectionName));
-builder.Services.Configure<GatewayProviderOptions>(
-    builder.Configuration.GetSection(GatewayProviderOptions.SectionName));
-builder.Services.Configure<OidcProviderOptions>(
-    builder.Configuration.GetSection(OidcProviderOptions.SectionName));
-
-// Login and JWKS need not share a host, so the provider may override the base address.
-// Providers that resolve an absolute token endpoint ignore it.
-builder.Services.AddHttpClient(
-    AdminAuthenticationHttpClient.Name,
-    (serviceProvider, client) =>
-    {
-        var providerOptions = serviceProvider
-            .GetRequiredService<IOptions<GatewayProviderOptions>>().Value;
-        var identity = serviceProvider
-            .GetRequiredService<IOptions<IdentityServiceOptions>>().Value;
-        var authority = string.IsNullOrWhiteSpace(providerOptions.Authority)
-            ? identity.Authority
-            : providerOptions.Authority;
-        if (!string.IsNullOrWhiteSpace(authority))
-        {
-            client.BaseAddress = new Uri($"{authority.TrimEnd('/')}/");
-        }
-
-        client.Timeout = TimeSpan.FromSeconds(30);
-    });
-
-// Selection is resolved from options rather than from the configuration read above:
-// values injected by a test host are not visible until builder.Build() runs, and a
-// provider switch that cannot be exercised in tests is a provider switch nobody checks.
-builder.Services.AddScoped<GatewayCredentialAuthenticator>();
-builder.Services.AddScoped<OidcPasswordAuthenticator>();
-builder.Services.AddScoped<IAdminCredentialAuthenticator>(serviceProvider =>
-{
-    var options = serviceProvider
-        .GetRequiredService<IOptions<AdminAuthenticationOptions>>().Value;
-    return options.Provider switch
-    {
-        AdminAuthenticationProvider.Oidc => serviceProvider.GetRequiredService<OidcPasswordAuthenticator>(),
-        AdminAuthenticationProvider.Gateway => serviceProvider.GetRequiredService<GatewayCredentialAuthenticator>(),
-        AdminAuthenticationProvider.OidcCode => new HostedCredentialAuthenticator(serviceProvider.GetRequiredService<AdminCodeExchange>()),
-        _ => serviceProvider.GetRequiredService<GatewayCredentialAuthenticator>()
-    };
-});
+// The retired password proxy left one live setting behind: AdminAuthentication:Provider.
+// It must be unset (or exactly OidcCode); anything else fails startup rather than
+// letting an operator believe password login still exists. Validated on start so a
+// test host's configuration overrides are seen exactly like a deployment's.
+builder.Services.AddOptions<AdminAuthenticationOptions>()
+    .Configure(builder.Configuration.GetSection(AdminAuthenticationOptions.SectionName).Bind)
+    .Validate(options =>
+        string.IsNullOrWhiteSpace(options.Provider) ||
+        string.Equals(options.Provider, "OidcCode", StringComparison.OrdinalIgnoreCase),
+        "AdminAuthentication:Provider no longer selects a login provider. Password proxy login " +
+        "(Oidc password grant and Gateway) has been removed; the hosted SignaCore login page is " +
+        "the only administrator sign-in. Remove AdminAuthentication:Provider (or set it to " +
+        "\"OidcCode\"), register a Confidential application with your identity provider, configure " +
+        "AdminAuthentication:OidcCode, and see docs/development/HostedLoginReleaseNotes.md for the " +
+        "upgrade steps. The LEXARBOR_OIDC_*, LEXARBOR_GATEWAY_* and LEXARBOR_COOKIE_SECURE " +
+        "environment variables no longer exist.")
+    .ValidateOnStart();
 
 builder.Services.AddScoped<AdminAccessTokenValidator>();
 // Internal foundations only; credentials are checked when invoked, not at startup.
@@ -198,8 +169,8 @@ builder.Services
 // settings are now the ones that actually took effect.
 builder.Services
     .AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
-    .Configure<IOptions<IdentityServiceOptions>, IOptions<AdminAuthenticationOptions>, IHostEnvironment>(
-        (options, identity, adminAuthentication, environment) =>
+    .Configure<IOptions<IdentityServiceOptions>, IHostEnvironment>(
+        (options, identity, environment) =>
         {
             var identityService = identity.Value;
             options.Authority = identityService.Authority;
@@ -220,18 +191,8 @@ builder.Services
             };
             options.Events = new JwtBearerEvents
             {
-                OnMessageReceived = context =>
-                {
-                    if (AdminAuthenticationSource.IsCookie(context.Request) &&
-                        context.Request.Cookies.TryGetValue(
-                            adminAuthentication.Value.CookieName,
-                            out var cookieToken))
-                    {
-                        context.Token = cookieToken;
-                    }
-
-                    return Task.CompletedTask;
-                },
+                // Bearer tokens come only from the Authorization header: the retired
+                // password-login cookie is never read here again.
                 OnChallenge = async context =>
                 {
                     context.HandleResponse();
@@ -422,14 +383,13 @@ if (!app.Environment.IsDevelopment() &&
     !app.Environment.IsEnvironment("Testing"))
 {
     using var credentialScope = app.Services.CreateScope();
-    var authenticator = credentialScope.ServiceProvider
-        .GetRequiredService<IAdminCredentialAuthenticator>();
-    if (!authenticator.IsConfigured)
+    // Hosted login is optional at startup exactly like the password proxy was: the
+    // public API keeps serving, /admin/auth/start answers its existing 503, and the
+    // error states the one thing an operator can fix.
+    if (!credentialScope.ServiceProvider.GetRequiredService<AdminCodeExchange>().IsConfigured)
     {
         app.Logger.LogError(
-            "Administrator login is not configured because the {Provider} provider is missing credentials. The service will continue running.",
-            credentialScope.ServiceProvider
-                .GetRequiredService<IOptions<AdminAuthenticationOptions>>().Value.Provider);
+            "Administrator login is not configured because AdminAuthentication:OidcCode is missing or invalid. The service will continue running.");
     }
 }
 
@@ -464,7 +424,6 @@ app.UseRateLimiter();
 app.UseMiddleware<AdminSessionFailureMiddleware>();
 app.UseAuthentication();
 app.UseMiddleware<CookieCsrfMiddleware>();
-app.UseMiddleware<HostedPasswordLoginMiddleware>();
 app.UseAuthorization();
 app.MapAdminAuthEndpoints();
 app.MapSystemVersionEndpoints();
@@ -503,7 +462,20 @@ app.MapMethods(
     .RequireAuthorization("VocabularyAdmin");
 app.MapFallbackToFile("index.html").AllowAnonymous();
 
-app.Run();
+try
+{
+    app.Run();
+}
+catch (OptionsValidationException exception)
+{
+    // Startup validation (the AdminAuthentication:Provider tripwire above) reports
+    // through this path: a critical log naming the setting and a non-zero exit —
+    // the same shape the key-ring validation uses. Disposing here is deliberately
+    // skipped: process exit reclaims everything, and tearing the partially started
+    // host down inside this handler can hang a container indefinitely.
+    app.Logger.LogCritical("{Diagnostic}", exception.Message);
+    return 1;
+}
 
 // Reached when the host shuts down. Present because the health check path above
 // returns a status, which makes this an int-returning entry point.

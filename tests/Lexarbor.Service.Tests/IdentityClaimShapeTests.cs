@@ -31,7 +31,6 @@ public class IdentityClaimShapeTests :
     public IdentityClaimShapeTests(VocabularyWebApplicationFactory factory)
     {
         _factory = factory;
-        _factory.Identity.Reset();
     }
 
     [Theory]
