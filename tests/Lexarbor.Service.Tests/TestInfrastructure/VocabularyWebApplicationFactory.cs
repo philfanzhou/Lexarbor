@@ -81,9 +81,14 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
         // environment changes isolated.
         lock (NetworkConfigurationLock)
         {
+            // Telemetry keys ride the same locked environment-variable
+            // passthrough: the Host reads them before builder.Build(), which
+            // happens inside this lock, so no other concurrently starting test
+            // host can observe them.
             var networkSettings = _extraConfiguration
                 .Where(entry => entry.Key.StartsWith("Network:", StringComparison.Ordinal)
-                    || entry.Key.StartsWith("Service:", StringComparison.Ordinal))
+                    || entry.Key.StartsWith("Service:", StringComparison.Ordinal)
+                    || entry.Key.StartsWith("Telemetry:", StringComparison.Ordinal))
                 .Select(entry => (Name: entry.Key.Replace(":", "__", StringComparison.Ordinal), entry.Value))
                 .ToArray();
             var previous = networkSettings

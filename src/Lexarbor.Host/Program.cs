@@ -21,6 +21,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using OpenTelemetry.Trace;
 using ServiceMantle;
 using ServiceMantle.Persistence.Relational.DataProtection;
 using ServiceMantle.Web;
@@ -322,6 +323,60 @@ if (useTrustedForwarding)
         options.ForwardLimit = networkOptions.ForwardLimit;
     });
 }
+// Optional OpenTelemetry, default off: with neither signal enabled nothing
+// is registered — no provider, no exporter, no outbound connection — and the
+// process behaves exactly as before. The resource carries only the ServiceMantle
+// identity (service.name, service.version, service.instance.id).
+var telemetryTracesEnabled = builder.Configuration.GetValue("Telemetry:Otlp:Traces:Enabled", false);
+var telemetryMetricsEnabled = builder.Configuration.GetValue("Telemetry:Otlp:Metrics:Enabled", false);
+if (telemetryTracesEnabled || telemetryMetricsEnabled)
+{
+    serviceMantle.AddOpenTelemetryInstrumentation(options =>
+    {
+        options.EnableAspNetCoreTracing = telemetryTracesEnabled;
+        options.EnableHttpClientTracing = telemetryTracesEnabled;
+        options.EnableRuntimeMetrics = telemetryMetricsEnabled;
+    });
+    serviceMantle.AddOpenTelemetryOtlpExporter(options =>
+    {
+        MapOtlpSignal(builder.Configuration.GetSection("Telemetry:Otlp:Traces"), options.Traces);
+        MapOtlpSignal(builder.Configuration.GetSection("Telemetry:Otlp:Metrics"), options.Metrics);
+        options.Traces.Enabled = telemetryTracesEnabled;
+        options.Metrics.Enabled = telemetryMetricsEnabled;
+    });
+    if (telemetryTracesEnabled)
+    {
+        // The callback and logout-return URLs carry one-time code/state values;
+        // no span attribute may export them.
+        builder.Services.ConfigureOpenTelemetryTracerProvider((_, tracing) =>
+            tracing.AddProcessor(new AdminCallbackQueryRedactionProcessor()));
+    }
+
+    // The header name is configuration; the value comes from the environment
+    // only, through this resolver, and never reaches logs or exceptions.
+    builder.Services.AddSingleton<ServiceMantle.Diagnostics.IRemoteTelemetryAuthenticationResolver>(
+        new LexarborOtlpAuthenticationResolver());
+}
+
+static void MapOtlpSignal(IConfiguration section, ServiceMantle.Diagnostics.Export.Otlp.OtlpSignalOptions signal)
+{
+    if (Uri.TryCreate(section["Endpoint"], UriKind.Absolute, out var endpoint))
+    {
+        signal.Endpoint = endpoint;
+    }
+
+    if (bool.TryParse(section["AllowInsecureLoopbackForTesting"], out var loopback))
+    {
+        signal.AllowInsecureLoopbackForTesting = loopback;
+    }
+
+    signal.AuthenticationHeaderName = section["AuthenticationHeaderName"];
+    if (Enum.TryParse<ServiceMantle.Diagnostics.Export.Otlp.OtlpProtocol>(section["Protocol"], ignoreCase: true, out var protocol))
+    {
+        signal.Protocol = protocol;
+    }
+}
+
 builder.Services.AddLexarborRateLimiting(builder.Configuration);
 
 var app = builder.Build();

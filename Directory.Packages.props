@@ -11,6 +11,7 @@
     <PackageVersion Include="Microsoft.Testing.Extensions.CodeCoverage" Version="18.11.2" />
     <PackageVersion Include="Moq" Version="4.21.0" />
     <PackageVersion Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
+    <PackageVersion Include="ServiceMantle.Diagnostics" Version="0.2.1" />
     <PackageVersion Include="ServiceMantle.Logging" Version="0.2.1" />
     <PackageVersion Include="ServiceMantle.Persistence.Relational" Version="0.2.1" />
     <PackageVersion Include="ServiceMantle.Web" Version="0.2.1" />
