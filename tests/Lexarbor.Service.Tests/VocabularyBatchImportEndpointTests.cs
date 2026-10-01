@@ -209,8 +209,8 @@ public class VocabularyBatchImportEndpointTests :
             Batch(bookId, Entry($"word-{bookId}", "meaning")),
             TestContext.Current.CancellationToken);
 
-        var envelope = await AssertFailureAsync(response, HttpStatusCode.NotFound);
-        Assert.Equal("Vocabulary book was not found.", envelope.GetProperty("message").GetString());
+        var problem = await AssertFailureAsync(response, HttpStatusCode.NotFound);
+        Assert.Equal("vocabulary.not_found", problem.GetProperty("errorCode").GetString());
         await AssertWordAbsentAsync($"word-{bookId}");
     }
 
@@ -226,10 +226,8 @@ public class VocabularyBatchImportEndpointTests :
             Batch(bookId, Entry($"word-{bookId}", "meaning")),
             TestContext.Current.CancellationToken);
 
-        var envelope = await AssertFailureAsync(response, HttpStatusCode.UnprocessableEntity);
-        Assert.Equal(
-            "New meanings cannot be added to a disabled vocabulary book.",
-            envelope.GetProperty("message").GetString());
+        var problem = await AssertFailureAsync(response, HttpStatusCode.UnprocessableEntity);
+        Assert.Equal("vocabulary.business_rule", problem.GetProperty("errorCode").GetString());
         await AssertBookIsEmptyAsync(bookId);
         await AssertWordAbsentAsync($"word-{bookId}");
     }
@@ -729,8 +727,8 @@ public class VocabularyBatchImportEndpointTests :
         {
             content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
             var response = await client.PostAsync(BatchPath, content, TestContext.Current.CancellationToken);
-            var envelope = await AssertFailureAsync(response, HttpStatusCode.RequestEntityTooLarge);
-            Assert.Equal("The request body is too large.", envelope.GetProperty("message").GetString());
+            var problem = await AssertFailureAsync(response, HttpStatusCode.RequestEntityTooLarge);
+            Assert.Equal("vocabulary.request_too_large", problem.GetProperty("errorCode").GetString());
         }
 
         using (var request = new HttpRequestMessage(HttpMethod.Post, BatchPath))
@@ -740,8 +738,8 @@ public class VocabularyBatchImportEndpointTests :
             request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
             request.Headers.TransferEncodingChunked = true;
             var response = await client.SendAsync(request, TestContext.Current.CancellationToken);
-            var envelope = await AssertFailureAsync(response, HttpStatusCode.RequestEntityTooLarge);
-            Assert.Equal("The request body is too large.", envelope.GetProperty("message").GetString());
+            var problem = await AssertFailureAsync(response, HttpStatusCode.RequestEntityTooLarge);
+            Assert.Equal("vocabulary.request_too_large", problem.GetProperty("errorCode").GetString());
         }
 
         await AssertBookIsEmptyAsync(bookId, factory);
@@ -864,17 +862,10 @@ public class VocabularyBatchImportEndpointTests :
             TestContext.Current.CancellationToken));
     }
 
-    private static async Task<JsonElement> AssertFailureAsync(
+    private static Task<JsonElement> AssertFailureAsync(
         HttpResponseMessage response,
         HttpStatusCode expectedStatus)
-    {
-        Assert.Equal(expectedStatus, response.StatusCode);
-        using var body = JsonDocument.Parse(
-            await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
-        Assert.False(body.RootElement.GetProperty("success").GetBoolean());
-        Assert.False(string.IsNullOrWhiteSpace(body.RootElement.GetProperty("message").GetString()));
-        return body.RootElement.Clone();
-    }
+        => TestInfrastructure.HttpFailureAssertions.AssertFailureAsync(response, expectedStatus);
 
     /// <summary>
     /// Adds normally until the third meaning, then fails the way the storage

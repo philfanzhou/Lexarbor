@@ -191,13 +191,8 @@ public class VocabularyCleanupEndpointTests
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         return JsonDocument.Parse(body.RootElement.GetProperty("data").GetRawText());
     }
-    private static async Task FailureAsync(HttpResponseMessage response, int status)
-    {
-        Assert.Equal(status, (int)response.StatusCode);
-        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
-        Assert.Equal(new[] { "message", "success" }, body.RootElement.EnumerateObject().Select(p => p.Name).Order());
-        Assert.False(body.RootElement.GetProperty("success").GetBoolean());
-    }
+    private static Task FailureAsync(HttpResponseMessage response, int status)
+        => TestInfrastructure.HttpFailureAssertions.AssertFailureAsync(response, (HttpStatusCode)status);
     private static async Task SeedAsync(IServiceProvider services)
     {
         using var scope = services.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();

@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using Lexarbor.Database;
 using Lexarbor.Database.Repositories;
+using Lexarbor.Domain.Exceptions;
 using Lexarbor.Domain.Repositories;
 using Lexarbor.Domain.Services;
 using Lexarbor.Host;
@@ -25,6 +26,7 @@ using OpenTelemetry.Trace;
 using ServiceMantle;
 using ServiceMantle.Persistence.Relational.DataProtection;
 using ServiceMantle.Web;
+using KestrelBadHttpRequestException = Microsoft.AspNetCore.Server.Kestrel.Core.BadHttpRequestException;
 
 // Before anything is built. The container HEALTHCHECK runs this same assembly,
 // and a health probe that first composed configuration, opened the database and
@@ -289,6 +291,48 @@ var serviceMantle = builder.Services.AddServiceMantle(
     ServiceId.Parse("lexarbor"),
     instanceId,
     serviceVersion: ApplicationVersion.Current);
+// Business exceptions map to HTTP through the ServiceMantle Problem Details
+// pipeline: a fixed type/title/status/errorCode (plus correlation id) per
+// mapping, with no room for exception text, SQL or credentials to reach a
+// response. The titles are deliberately generic — the per-case domain reasons
+// stay in server logs, not in public responses. Endpoint-explicit failures
+// keep the existing envelope; only exception-generated responses change shape.
+serviceMantle.AddExceptionMapping<DomainValidationException>(
+    StatusCodes.Status400BadRequest, "vocabulary.validation", "The request is invalid.");
+serviceMantle.AddConditionalExceptionMapping<BadHttpRequestException>(
+[
+    // Kestrel reports a body over the endpoint's size limit this way; ordered so
+    // the 413 case wins before the generic bad-request fallback.
+    new(413, "vocabulary.request_too_large", "The request body is too large.",
+        exception => exception.StatusCode == StatusCodes.Status413PayloadTooLarge),
+    new(400, "vocabulary.bad_request", "The request is invalid.")
+]);
+// Kestrel rejects oversized bodies with its own derived BadHttpRequestException
+// whose exact type the registry matches separately from the public base class.
+// The type is marked obsolete in favor of the public base class, but Kestrel
+// still throws it, so the mapping targets it deliberately.
+#pragma warning disable CS0618 // Type or member is obsolete
+serviceMantle.AddConditionalExceptionMapping<KestrelBadHttpRequestException>(
+[
+    new(413, "vocabulary.request_too_large", "The request body is too large.",
+        exception => exception.StatusCode == StatusCodes.Status413PayloadTooLarge),
+    new(400, "vocabulary.bad_request", "The request is invalid.")
+]);
+#pragma warning restore CS0618 // Type or member is obsolete
+serviceMantle.AddExceptionMapping<ResourceNotFoundException>(
+    StatusCodes.Status404NotFound, "vocabulary.not_found", "The requested resource was not found.");
+serviceMantle.AddExceptionMapping<ConflictException>(
+    StatusCodes.Status409Conflict, "vocabulary.conflict", "The request conflicts with existing data.");
+serviceMantle.AddExceptionMapping<BusinessRuleException>(
+    StatusCodes.Status422UnprocessableEntity, "vocabulary.business_rule", "The request violates a business rule.");
+serviceMantle.AddConditionalExceptionMapping<StorageBusyException>(
+[
+    // The one caller-retryable storage failure keeps its bounded Retry-After;
+    // the library clamps the value to a safe range.
+    new(503, "vocabulary.storage_busy", "The vocabulary database is temporarily busy.",
+        retryAfterSeconds: 1)
+]);
+
 // Console logging runs through the ServiceMantle Serilog pipeline: every
 // structured property is sanitized before it reaches the console, and the
 // service identity travels with each event. The `Logging:LogLevel` section is
@@ -534,8 +578,13 @@ if (useTrustedForwarding)
 }
 
 app.UseSystemVersionNoStore();
+// Correlation ids come before everything that can fail so every response —
+// problem details included — can be tied back to one request.
+app.UseServiceMantleCorrelationId();
 app.UseMiddleware<AdminHostedLoginSafety>();
-app.UseMiddleware<VocabularyExceptionMiddleware>();
+// Replaces the hand-written Vocabulary exception middleware: ServiceMantle
+// writes application/problem+json with the mappings registered above.
+app.UseServiceMantleProblemDetails();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 // Ahead of authentication so a rejected caller costs a partition lookup rather

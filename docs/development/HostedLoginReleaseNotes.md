@@ -47,6 +47,18 @@ Deployment registration, independent Code configuration, proxy query log
 suppression and rollback are documented in
 [Deployment](Deployment.md#hosted-authorization-code-login).
 
+Exception-generated failure responses changed shape (#144). An exception that
+escapes an endpoint before the response has started is no longer answered with
+the `{ "success": false, "message": "..." }` envelope; it is answered with a
+ServiceMantle `application/problem+json` document carrying `type`, `title`,
+`status`, `errorCode` and `correlationId`, and every response also carries the
+correlation id as an `x-correlation-id` header. Status codes are unchanged, the
+busy-database `503` keeps `Retry-After: 1`, and endpoint-explicit failures —
+including the batch import's per-entry `errors` — keep the legacy envelope, so
+clients that parsed only `message` need to read `title` for these responses.
+The two failure shapes and the full exception mapping table are documented in
+[Error handling](ErrorHandling.md#two-failure-shapes).
+
 ## Prepared upstream logout
 
 In `OidcCode` mode, `POST /admin/auth/logout` now also prepares a SignaCore logout
