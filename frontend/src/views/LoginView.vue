@@ -1,49 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import type { FormInstance, FormRules } from 'element-plus'
-import { authMethod, loadAuthMethod, login } from '@/services/authState'
-import type { AuthMethod } from '@/services/authApi'
-import { getApiError } from '@/services/apiError'
+import { computed, ref } from 'vue'
+import { useRoute } from 'vue-router'
 
 const route = useRoute()
-const router = useRouter()
-const formRef = ref<FormInstance>()
-const loading = ref(false)
-const form = ref({
-  username: '',
-  password: ''
-})
-
-// The mode decides which single sign-in action the card offers. While it is
-// unknown — still loading, or the read failed — no submittable password form
-// and no hosted navigation is rendered at all, so neither can flash or be
-// used before the deployment's real mode is known. A cached mode (the logout
-// of the same page load prefetched it) renders immediately without a refetch.
-const mode = ref<AuthMethod | null>(authMethod.value)
-const modeLoading = ref(mode.value === null)
-const modeFailed = ref(false)
 const starting = ref(false)
-
-onMounted(() => {
-  if (mode.value === null) {
-    void fetchMode()
-  }
-})
-
-async function fetchMode() {
-  modeLoading.value = true
-  modeFailed.value = false
-  try {
-    mode.value = await loadAuthMethod()
-  } catch {
-    mode.value = null
-    modeFailed.value = true
-  } finally {
-    modeLoading.value = false
-  }
-}
 
 /**
  * The six fixed reasons of the hosted callback (`canceled`, `denied`,
@@ -67,18 +27,6 @@ const reasonNotice = computed(() => {
   const reason = route.query.reason
   return typeof reason === 'string' ? reasonNotices[reason] ?? null : null
 })
-
-const rules: FormRules = {
-  username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
-  password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
-}
-
-function getRedirectTarget() {
-  const redirect = route.query.redirect
-  return typeof redirect === 'string' && redirect.startsWith('/') && redirect !== '/login'
-    ? redirect
-    : '/books'
-}
 
 // The exact route shapes the start route's allowlist accepts, mirrored here so
 // an unusable `redirect` is dropped — the backend then falls back to its own
@@ -117,32 +65,6 @@ function startHostedLogin() {
   starting.value = true
   window.location.assign(hostedStartUrl())
 }
-
-async function handleLogin() {
-  if (loading.value) {
-    return
-  }
-
-  await formRef.value?.validate()
-  loading.value = true
-  try {
-    await login(form.value.username.trim(), form.value.password)
-    form.value.password = ''
-    await router.replace(getRedirectTarget())
-  } catch (error: unknown) {
-    const apiError = getApiError(error)
-    if (apiError.status === 401) {
-      ElMessage.error('用户名或密码错误')
-    } else if (apiError.status === 403) {
-      ElMessage.error('当前账户没有管理员权限')
-    } else {
-      ElMessage.error(apiError.message)
-    }
-  } finally {
-    form.value.password = ''
-    loading.value = false
-  }
-}
 </script>
 
 <template>
@@ -168,22 +90,7 @@ async function handleLogin() {
         :closable="false"
         show-icon
       />
-      <p v-if="modeLoading" class="auth-card__pending" role="status">
-        正在读取登录方式…
-      </p>
-      <div v-else-if="modeFailed" class="auth-card__mode-error">
-        <el-alert
-          type="error"
-          title="无法读取登录方式"
-          description="未能确认本次部署的登录方式，为避免误提交密码，暂不提供登录动作。"
-          :closable="false"
-          show-icon
-        />
-        <el-button class="auth-card__retry" @click="fetchMode">
-          重试
-        </el-button>
-      </div>
-      <div v-else-if="mode === 'hosted'" class="auth-card__hosted">
+      <div class="auth-card__hosted">
         <p class="auth-card__hint">登录由 SignaCore 托管，本页面不接收密码。</p>
         <el-button
           class="auth-card__action"
@@ -194,39 +101,6 @@ async function handleLogin() {
           使用 SignaCore 登录
         </el-button>
       </div>
-      <el-form
-        v-else
-        ref="formRef"
-        :model="form"
-        :rules="rules"
-        label-position="top"
-        @keyup.enter="handleLogin"
-      >
-        <el-form-item label="用户名" prop="username">
-          <el-input
-            v-model="form.username"
-            autocomplete="username"
-            placeholder="请输入用户名"
-          />
-        </el-form-item>
-        <el-form-item label="密码" prop="password">
-          <el-input
-            v-model="form.password"
-            type="password"
-            autocomplete="current-password"
-            placeholder="请输入密码"
-            show-password
-          />
-        </el-form-item>
-        <el-button
-          class="auth-card__action"
-          type="primary"
-          :loading="loading"
-          @click="handleLogin"
-        >
-          登录
-        </el-button>
-      </el-form>
     </el-card>
   </div>
 </template>

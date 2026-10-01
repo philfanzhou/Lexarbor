@@ -11,9 +11,6 @@ public static class HostedAdminLogin
 {
     public static void MapHostedAdminLogin(this IEndpointRouteBuilder app)
     {
-        // Hosted login is the only administrator sign-in, so the method is a fixed
-        // answer rather than a probe of provider configuration.
-        app.MapGet("/admin/auth/method", () => VocabularyHttpResponse.Ok(new { method = "hosted" })).AllowAnonymous();
         app.MapGet("/admin/auth/start", StartAsync).AllowAnonymous().RequireRateLimiting(RateLimitingExtensions.AdminLoginPolicy);
         app.MapGet("/admin/auth/callback", CallbackAsync).AllowAnonymous();
     }

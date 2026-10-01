@@ -21,7 +21,10 @@ forwards administrator passwords anywhere.
 - The old `lexarborAdmin` JWT cookie is no longer authenticated. Its lifetime
   was at most one hour, so every issued cookie has long expired naturally;
   logout and hosted sign-in still delete it from the browser.
-- `GET /admin/auth/method` now always returns `{"success":true,"data":{"method":"hosted"}}`.
+- `GET /admin/auth/method` no longer exists (#176). The administration UI
+  offers the SignaCore navigation directly, and the deleted route is answered
+  like any unknown `/admin/*` route: 401 for anonymous callers, 404 for
+  authenticated administrators.
 - `GET /admin/auth/start` keeps its per-IP `admin-login` rate limit and its
   429/`Retry-After` contract.
 - Every routed `/admin/*` response (#177) — authentication routes, the business
@@ -49,7 +52,8 @@ It revokes the presented old opaque session atomically and deletes the legacy JW
 cookie only after confirmed commit. Failures before commit preserve existing
 sessions; lost commit/response results remain unknown and are never retried.
 
-New public `method`, `start`, and `callback` routes support backend hosted login.
+Public `start` and `callback` routes support backend hosted login (the
+`method` probe route has since been removed; see the breaking changes above).
 The administration UI rollout (#155) switched the frontend to them; see
 [Administration UI rollout](#administration-ui-rollout).
 Deployment registration, independent Code configuration, proxy query log
@@ -105,11 +109,9 @@ proxy masking live in
 Issue #155 switched the administration frontend to the hosted flow; the change is
 deliberate and mode-scoped, and no backend contract above changed.
 
-- The login page reads `GET /admin/auth/method` before offering any action. In
-  `hosted` mode it renders only a SignaCore navigation and no password field; in
-  `password` mode it keeps the existing credential form unchanged. A failed or
-  malformed method read offers no sign-in action at all and can be retried, so a
-  password form can never flash or submit before the mode is known.
+- The login page renders the SignaCore navigation directly, with no password
+  field and no `method` probe anymore (#176): hosted sign-in is the only mode,
+  so there is nothing left to detect or fall back from.
 - The SignaCore button performs a top-level browser navigation to
   `GET /admin/auth/start`, forwarding only a `returnUrl` from the documented route
   allowlist. One activation starts exactly one navigation. The callback round trip
@@ -120,12 +122,7 @@ deliberate and mode-scoped, and no backend contract above changed.
   with one message; an unknown value stays harmless.
 - Logout consumes the envelope's optional `data.logoutUrl`: when present it hands
   the browser to that one-time URI as a top-level navigation and no local
-  navigation overrides it. When absent, the local session has still ended; in
-  hosted mode the UI then says the provider may still hold a session and never
-  claims SignaCore signed out. Old-mode logout keeps its previous silent
-  behaviour.
-
-The default `Oidc` and `Gateway` deployments see no change: the method reads
-`password` and the existing form, logout, and session restore behave exactly as
-before. Deployment switching, legacy-cookie expiry, and rollback are documented in
-[Deployment](Deployment.md#hosted-authorization-code-login-optional).
+  navigation overrides it. When absent, the local session has still ended and
+  the UI says the provider may still hold a session and never claims SignaCore
+  signed out. Legacy-cookie expiry and rollback are documented in
+  [Deployment](Deployment.md#hosted-authorization-code-login).
