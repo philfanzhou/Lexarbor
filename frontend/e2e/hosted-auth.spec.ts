@@ -26,11 +26,6 @@ function json(route: Route, data: unknown, status = 200) {
   })
 }
 
-function mockMethod(page: Page, method: 'hosted' | 'password') {
-  return page.route('**/admin/auth/method', (route) =>
-    json(route, { success: true, data: { method } }))
-}
-
 /** Everything the administration shell reads once a session is live. */
 async function mockAdministration(page: Page) {
   await page.route('**/admin/system/version', (route) =>
@@ -142,57 +137,18 @@ function expectNoCredentialMaterial(
   }
 }
 
-test('hosted mode shows only the SignaCore navigation and never posts a password', async ({ page }) => {
+test('the login page offers only the SignaCore navigation and never probes a method', async ({ page }) => {
   const requests = trackRequests(page)
-  await mockMethod(page, 'hosted')
-
   await page.goto('/#/login')
 
   await expect(page.getByRole('button', { name: '使用 SignaCore 登录' })).toBeVisible()
   await expect(page.locator('input[autocomplete="username"]')).toHaveCount(0)
   await expect(page.locator('input[type="password"]')).toHaveCount(0)
+  await expect(requests.some((request) => request.url.includes('/admin/auth/method'))).toBe(false)
   await expect(requests.some((request) => request.url.includes('/admin/auth/login'))).toBe(false)
 })
 
-test('password mode keeps the existing credential form', async ({ page }) => {
-  await mockMethod(page, 'password')
-
-  await page.goto('/#/login')
-
-  await expect(page.locator('input[autocomplete="username"]')).toBeVisible()
-  await expect(page.locator('input[type="password"]')).toBeVisible()
-  await expect(page.getByRole('button', { name: '使用 SignaCore 登录' })).toHaveCount(0)
-})
-
-for (const { name, answer } of [
-  { name: 'a 500', answer: (route: Route) => json(route, { success: false, message: 'Broken.' }, 500) },
-  { name: 'an unknown mode value', answer: (route: Route) => json(route, { success: true, data: { method: 'carrier-pigeon' } }) },
-  { name: 'a network failure', answer: (route: Route) => route.abort() }
-]) {
-  test(`a method read answered with ${name} offers no sign-in action until a retry succeeds`, async ({ page }) => {
-    let broken = true
-    await page.route('**/admin/auth/method', (route) =>
-      broken
-        ? answer(route)
-        : json(route, { success: true, data: { method: 'password' } }))
-
-    await page.goto('/#/login')
-
-    // No guess: neither a submittable password form nor a hosted navigation.
-    await expect(page.locator('.auth-card__mode-error')).toBeVisible()
-    await expect(page.locator('input[autocomplete="username"]')).toHaveCount(0)
-    await expect(page.getByRole('button', { name: '使用 SignaCore 登录' })).toHaveCount(0)
-
-    broken = false
-    await page.locator('.auth-card__retry').click()
-
-    await expect(page.locator('input[autocomplete="username"]')).toBeVisible()
-    await expect(page.locator('.auth-card__mode-error')).toHaveCount(0)
-  })
-}
-
 test('the hosted button sends one start navigation with the allowlisted return route', async ({ page }) => {
-  await mockMethod(page, 'hosted')
   const startUrls: string[] = []
   let held: Route | null = null
   await page.route(/\/admin\/auth\/start(?:\?.*)?$/, (route) => {
@@ -232,7 +188,6 @@ for (const { redirect, expected } of [
   { redirect: '/login', expected: '/admin/auth/start' }
 ]) {
   test(`the start navigation keeps the allowlist for redirect ${redirect}`, async ({ page }) => {
-    await mockMethod(page, 'hosted')
     const startUrls: string[] = []
     await page.route(/\/admin\/auth\/start(?:\?.*)?$/, (route) => {
       const url = new URL(route.request().url())
@@ -257,8 +212,6 @@ for (const { reason, text } of [
   { reason: 'logout_failed', text: 'Lexarbor 已退出，但身份提供方的登出未确认完成，它可能仍保留会话。' }
 ]) {
   test(`the login page reads reason ${reason} as its fixed notice`, async ({ page }) => {
-    await mockMethod(page, 'hosted')
-
     await page.goto(`/#/login?reason=${reason}`)
 
     await expect(page.locator('.auth-card__reason')).toContainText(text)
@@ -267,8 +220,6 @@ for (const { reason, text } of [
 }
 
 test('an unknown reason stays harmless', async ({ page }) => {
-  await mockMethod(page, 'hosted')
-
   await page.goto('/#/login?reason=%3Cscript%3E')
 
   await expect(page.locator('.auth-card__reason')).toHaveCount(0)
@@ -279,7 +230,6 @@ test('an unknown reason stays harmless', async ({ page }) => {
 test('the provider round trip returns to the original page and keeps token material out of the browser', async ({ page }) => {
   const requests = trackRequests(page)
   const state = { sessionLive: false }
-  await mockMethod(page, 'hosted')
   await useSessionFlag(page, state)
   await useHostedRoundTrip(page, state)
   await mockAdministration(page)
@@ -315,7 +265,6 @@ test('the provider round trip returns to the original page and keeps token mater
 })
 
 test('a canceled provider login lands back on the login page without a session', async ({ page }) => {
-  await mockMethod(page, 'hosted')
   await useSessionFlag(page, { sessionLive: false })
   await useHostedRoundTrip(page, { sessionLive: false, failure: 'canceled' })
   await mockAdministration(page)
@@ -333,7 +282,6 @@ test('a canceled provider login lands back on the login page without a session',
 })
 
 test('a non-administrator sign-in is denied with the denied notice', async ({ page }) => {
-  await mockMethod(page, 'hosted')
   await useSessionFlag(page, { sessionLive: false })
   await useHostedRoundTrip(page, { sessionLive: false, failure: 'denied' })
   await mockAdministration(page)
@@ -349,7 +297,6 @@ test('a non-administrator sign-in is denied with the denied notice', async ({ pa
 
 test('a reload restores the hosted session without the login page', async ({ page }) => {
   const state = { sessionLive: true }
-  await mockMethod(page, 'hosted')
   await useSessionFlag(page, state)
   await mockAdministration(page)
 
@@ -365,7 +312,6 @@ test('a reload restores the hosted session without the login page', async ({ pag
 
 test('an expired session sends the administrator back through the provider', async ({ page }) => {
   const state = { sessionLive: true }
-  await mockMethod(page, 'hosted')
   await useSessionFlag(page, state)
   await useHostedRoundTrip(page, state)
   await mockAdministration(page)
@@ -387,7 +333,6 @@ test('an expired session sends the administrator back through the provider', asy
 test('logout navigates the browser to the prepared provider logout URI', async ({ page }) => {
   const state = { sessionLive: true }
   const logoutUrl = 'https://idp.test/oauth2/logout?logout_handle=synthetic-one-time-handle'
-  await mockMethod(page, 'hosted')
   await useSessionFlag(page, state)
   await mockAdministration(page)
   const logoutRequests: string[] = []
@@ -411,7 +356,6 @@ test('logout navigates the browser to the prepared provider logout URI', async (
 
 test('a hosted local-only logout says the provider may still hold a session', async ({ page }) => {
   const state = { sessionLive: true }
-  await mockMethod(page, 'hosted')
   await useSessionFlag(page, state)
   await mockAdministration(page)
   await page.route('**/admin/auth/logout', (route) => json(route, { success: true }))
@@ -430,18 +374,3 @@ test('a hosted local-only logout says the provider may still hold a session', as
   await expect(page.getByRole('button', { name: '使用 SignaCore 登录' })).toBeVisible()
 })
 
-test('a password-mode logout stays silent and returns to the login page', async ({ page }) => {
-  const state = { sessionLive: true }
-  await mockMethod(page, 'password')
-  await useSessionFlag(page, state)
-  await mockAdministration(page)
-  await page.route('**/admin/auth/logout', (route) => json(route, { success: true }))
-
-  await page.goto('/#/books')
-  await expect(page.locator('.session')).toContainText(admin.username)
-  await page.locator('.session').getByRole('button', { name: '退出登录' }).click()
-
-  await expect(page).toHaveURL(/#\/login$/)
-  await expect(page.locator('.el-message--warning')).toHaveCount(0)
-  await expect(page.locator('input[autocomplete="username"]')).toBeVisible()
-})

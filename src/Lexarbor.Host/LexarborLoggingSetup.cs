@@ -59,4 +59,16 @@ public static class LexarborLoggingSetup
 
         return new MappedLevels(minimumLevel, overrides, noneCategories);
     }
+
+    /// <summary>
+    /// Hosting diagnostics run before application middleware and log the full
+    /// request — query strings included — at Information, and the redirect and
+    /// HTTP-logging categories do the same for the hosted-login round trips.
+    /// These categories must remain off even with provider-specific Trace
+    /// rules, so the correlation material of a login or logout never reaches a
+    /// log sink.
+    /// </summary>
+    public static bool SuppressLogCategory(string? category) => category is "Microsoft.AspNetCore.Hosting.Diagnostics"
+        or "Microsoft.AspNetCore.Http.Result.RedirectResult"
+        || category?.StartsWith("Microsoft.AspNetCore.HttpLogging", StringComparison.Ordinal) == true;
 }

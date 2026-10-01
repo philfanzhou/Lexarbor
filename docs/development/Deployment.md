@@ -339,6 +339,33 @@ Keep the additive table and key ring; do not run migration Down or convert handl
 JWT cookies. The two cookie formats are not interchangeable. A historical database
 restore still requires clearing `admin_session` before startup as described above.
 
+## Administration response headers
+
+Every routed `/admin/*` response — the authentication routes, the system version
+endpoint, the business administration API and the unknown-route catch-all — carries
+the ServiceMantle mandatory security-header baseline while its headers are still
+unsent:
+
+```text
+Cache-Control: no-store
+Pragma: no-cache
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+Referrer-Policy: no-referrer
+Content-Security-Policy: default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'
+```
+
+The baseline is not configurable. It applies to every answer these endpoints can
+produce — success, validation failure, redirect, 401/403, 429 rate rejections and
+exception-generated Problem Details alike — including case and trailing-slash
+route variants. Routing happens first, so responses short-circuited before a route
+was selected, and transfer-level failures below routing, do not carry the headers.
+`/admin/system/version` additionally never carries `ETag` or `Last-Modified`
+validators. The baseline is deliberately absent from `/api/*`, `/health*` and the
+SPA assets: the administration JSON surface is not cacheable and must not be
+framed or sniffed, while the SPA could not function under
+`default-src 'none'`. Reverse proxies must not strip or override these headers.
+
 ## Administrator sign-in (hosted login only)
 
 The password proxy login has been removed. The SignaCore hosted login page is the
@@ -532,14 +559,14 @@ reserved `state`, `iss`, `code`, `error`, `error_description` fields are refused
 Behind a proxy use the registered external HTTPS URI and trusted client-address
 forwarding; the callback is never inferred from untrusted request headers.
 
-`GET /admin/auth/method` returns only `{success:true,data:{method:"hosted"}}`.
 Navigate to `GET /admin/auth/start`, optionally
 with one `returnUrl` from the route allowlist above. It carries the anonymous
 per-IP quota and 429/Retry-After contract. Invalid return targets give 400; missing
 Code configuration or full pending capacity gives 503, and failed/untrusted
 Discovery gives 502, without creating a login cookie or changing existing sessions.
-The deleted `POST /admin/auth/login` route is answered by the unknown-admin-route
-semantics: 401 anonymous, 404 authenticated. Configuration is validated at startup.
+The deleted `POST /admin/auth/login` and `GET /admin/auth/method` routes are
+answered by the unknown-admin-route semantics: 401 anonymous, 404
+authenticated. Configuration is validated at startup.
 
 Start uses Discovery's authorization endpoint with unique supported fields, no
 `response_mode`. Callback requires unique state/issuer and exactly one code or
@@ -547,8 +574,10 @@ allowlisted error, validates browser binding, then atomically consumes the trans
 and clears only its cookie. Success validates both tokens and the access role,
 commits the encrypted session, and redirects to the stored local hash target.
 Failures immediately redirect to `/#/login?reason=canceled|denied|sign_in_failed|provider_unavailable`
-with a fixed classification, never upstream error descriptions. Method/start/callback
-send `Cache-Control: no-store`, and callback sends `Referrer-Policy: no-referrer`.
+with a fixed classification, never upstream error descriptions. These routes,
+like every routed `/admin/*` response, carry the mandatory security-header
+baseline described under
+[Administration response headers](#administration-response-headers).
 Precommit failure or cancellation preserves the existing new/legacy session;
 after commit begins an interrupted/lost result is unknown. Never replay the callback:
 read `/admin/auth/session` to establish the current state or begin a new login.
@@ -574,12 +603,12 @@ log_format lexarbor_safe '$remote_addr $request_method $lexarbor_log_target $sta
 access_log /var/log/nginx/lexarbor.access.log lexarbor_safe;
 ```
 
-The administration UI follows this mode automatically: it reads
-`GET /admin/auth/method`, shows the SignaCore navigation, consumes the
+The administration UI follows automatically: it shows the SignaCore
+navigation, consumes the
 prepared-logout `data.logoutUrl` as a
 top-level navigation, and renders the callback and logout-return `reason`
-values. There is no password form anymore and Lexarbor never receives a
-password. The retired `lexarborAdmin` JWT cookie from the removed modes is not
+values. There is no password form or method probe anymore and Lexarbor never
+receives a password. The retired `lexarborAdmin` JWT cookie from the removed modes is not
 force-logged-out — it is simply never authenticated, and its lifetime was at
 most one hour anyway; hosted sign-in and logout delete it from the browser.
 To roll back, deploy an image that still contains the password proxy: the

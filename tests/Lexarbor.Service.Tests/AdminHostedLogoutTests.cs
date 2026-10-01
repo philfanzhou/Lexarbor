@@ -527,7 +527,9 @@ public class AdminHostedLogoutTests
         using var response = await f.Client.GetAsync(path, Ct);
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         Assert.Contains("Authentication is required.", await response.Content.ReadAsStringAsync(Ct));
-        Assert.False(response.Headers.Contains("Cache-Control"));
+        // The catch-all is part of the /admin surface, so its answers carry the
+        // shared security response-header baseline.
+        Assert.Equal("no-store", response.Headers.CacheControl!.ToString());
         Assert.Equal(0, f.LogoutPosts);
     }
 
