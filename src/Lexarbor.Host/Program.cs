@@ -467,12 +467,24 @@ if (builder.Configuration.GetValue("Database:InitializeOnStartup", true))
 }
 else
 {
-    using var scope = app.Services.CreateScope();
-    var dbContext = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
-    var pending = await dbContext.Database.GetPendingMigrationsAsync();
-    healthState.MigrationStatus = pending.Any()
-        ? ServiceMantle.Health.ServiceMigrationReadinessState.NotStarted
-        : ServiceMantle.Health.ServiceMigrationReadinessState.Succeeded;
+    // One read-only check whether migrations are pending. A database that
+    // cannot even be opened (for example a placeholder file a deployment
+    // pre-mounted) leaves the host running and readiness honestly not-ready;
+    // with initialization disabled the schema is the operator's responsibility.
+    try
+    {
+        using var scope = app.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+        var pending = await dbContext.Database.GetPendingMigrationsAsync();
+        healthState.MigrationStatus = pending.Any()
+            ? ServiceMantle.Health.ServiceMigrationReadinessState.NotStarted
+            : ServiceMantle.Health.ServiceMigrationReadinessState.Succeeded;
+    }
+    catch (Exception exception) when (
+        exception is OperationCanceledException or Microsoft.Data.Sqlite.SqliteException or InvalidOperationException)
+    {
+        healthState.MigrationStatus = ServiceMantle.Health.ServiceMigrationReadinessState.NotStarted;
+    }
 }
 
 // Configure the HTTP request pipeline.
