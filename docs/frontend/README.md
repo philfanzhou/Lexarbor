@@ -28,9 +28,7 @@ The application uses hash history. On first entry to a protected page it calls `
 
 | Method and path | Request and response |
 |------------|-----------|
-| `GET /admin/auth/method` | `{ method: 'hosted' \| 'password' }`; chooses the single sign-in action the login page offers |
-| `POST /admin/auth/login` | `{ username, password }`, password mode only; on success returns non-sensitive session information only |
-| `GET /admin/auth/start` | Reached only as a hosted-mode top-level browser navigation, never XHR, with an optional allowlisted `returnUrl`; the backend orchestrates the whole provider round trip |
+| `GET /admin/auth/start` | Reached only as a top-level browser navigation, never XHR, with an optional allowlisted `returnUrl`; the backend orchestrates the whole provider round trip |
 | `GET /admin/auth/session` | Returns the current administrator session |
 | `POST /admin/auth/logout` | Deletes the server-side cookie; the frontend always clears its local state. Hosted mode may answer `{ logoutUrl }`, which the browser is then navigated to; without it the logout was local-only |
 
@@ -49,11 +47,8 @@ Authentication state lives in a small in-project TypeScript module or composable
 ```text
 isAuthenticated
 currentUser
-authMethod              // 'hosted' | 'password' | null (unknown)
-login(username, password)
 restoreSession()
 logout()                // resolves with { logoutUrl? }
-loadAuthMethod()
 clearSession()
 ```
 
@@ -76,18 +71,9 @@ The Axios response interceptor runs the global 401/403 handling before any compo
 
 ## Hosted login mode
 
-A deployment whose backend selected the optional `OidcCode` provider signs its administrators in through SignaCore's hosted pages. The frontend orchestrates navigations only; every protocol value — state, nonce, PKCE verifier, code, access token, ID token, client secret — stays server-side and never enters a browser request, the URL the app controls, or web storage.
+SignaCore's hosted pages are the only administrator sign-in, so the login page renders exactly one sign-in action and never asks for a password. The frontend orchestrates navigations only; every protocol value — state, nonce, PKCE verifier, code, access token, ID token, client secret — stays server-side and never enters a browser request, the URL the app controls, or web storage.
 
-The login page reads `GET /admin/auth/method` first and offers exactly one sign-in action:
-
-| Mode read | The login page renders |
-|------|----------|
-| `hosted` | Only the **使用 SignaCore 登录** navigation; it renders no password field and submits none |
-| `password` | The existing username-and-password form with its unchanged 401/403 feedback |
-| Still loading | Neither action, only a pending notice |
-| Failed, malformed, or an unknown value | A retryable failure and no submittable action; it never guesses password mode |
-
-The hosted button runs a top-level navigation to this site's `GET /admin/auth/start`, forwarding the current `redirect` query as `returnUrl` only when it exactly matches the backend's route allowlist (the six fixed routes, or `/books/<id>/words` with a safe id); otherwise the parameter is omitted and the backend default applies. One activation begins exactly one navigation: the button turns busy and a second activation is a no-op. The provider round trip and the callback are backend-driven; on success the browser lands on the stored return page, where the ordinary route guard's `GET /admin/auth/session` restore establishes the username, roles, and the one version request.
+The **使用 SignaCore 登录** button runs a top-level navigation to this site's `GET /admin/auth/start`, forwarding the current `redirect` query as `returnUrl` only when it exactly matches the backend's route allowlist (the six fixed routes, or `/books/<id>/words` with a safe id); otherwise the parameter is omitted and the backend default applies. One activation begins exactly one navigation: the button turns busy and a second activation is a no-op. The provider round trip and the callback are backend-driven; on success the browser lands on the stored return page, where the ordinary route guard's `GET /admin/auth/session` restore establishes the username, roles, and the one version request.
 
 The login page consumes the six fixed `reason` values of the callback and logout-return routes as exactly one notice each, and ignores an unknown value harmlessly:
 

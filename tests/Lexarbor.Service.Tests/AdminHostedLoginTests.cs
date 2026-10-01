@@ -34,9 +34,6 @@ public class AdminHostedLoginTests
     public async Task RealCodeFlow_UsesExactFormEncryptedSessionAndAdminReadWrite()
     {
         using var f = new Fixture();
-        using var method = await f.Client.GetAsync("/admin/auth/method", Ct);
-        Assert.Equal("{\"success\":true,\"data\":{\"method\":\"hosted\"}}", await method.Content.ReadAsStringAsync(Ct));
-        Assert.Equal("no-store", method.Headers.CacheControl!.ToString());
         var t = await f.Start("/books/book_1/words");
         Assert.Equal(8, t.Parameters.Count);
         Assert.All(t.Parameters, pair => Assert.Single(pair.Value));
@@ -304,20 +301,25 @@ public class AdminHostedLoginTests
     }
 
     // ASP.NET Core routing matches a literal route case-insensitively and with one
-    // optional trailing slash, so every form below runs the same endpoint and must
-    // carry the same guarantees as the canonical path.
+    // optional trailing slash, so every form below runs the same admin catch-all
+    // and must carry the same guarantees as the canonical path. The method probe
+    // was deleted with the password form; hosted login is the only sign-in.
     [Theory]
     [InlineData("/admin/auth/method")]
     [InlineData("/admin/auth/method/")]
     [InlineData("/ADMIN/AUTH/METHOD")]
     [InlineData("/Admin/Auth/Method/")]
-    public async Task MethodRouteForms_CarryNoStoreOnEveryAcceptedForm(string path)
+    public async Task DeletedMethodRouteForms_AllBehaveAsUnknownAdminRoute(string path)
     {
         using var f = new Fixture();
-        using var response = await f.Client.GetAsync(path, Ct);
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Contains("\"method\":\"hosted\"", await response.Content.ReadAsStringAsync(Ct));
-        Assert.Equal("no-store", response.Headers.CacheControl!.ToString());
+        using var anonymous = await f.Client.GetAsync(path, Ct);
+        Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
+        Assert.Contains("Authentication is required.", await anonymous.Content.ReadAsStringAsync(Ct));
+        Assert.Equal(0, f.Posts);
+        var handle = await f.Seed();
+        using var notFound = await f.Send(path, AdminSessionCookie.Name + "=" + handle);
+        Assert.Equal(HttpStatusCode.NotFound, notFound.StatusCode);
+        Assert.Contains("Admin endpoint was not found.", await notFound.Content.ReadAsStringAsync(Ct));
     }
 
     [Theory]

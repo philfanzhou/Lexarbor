@@ -523,14 +523,14 @@ reserved `state`, `iss`, `code`, `error`, `error_description` fields are refused
 Behind a proxy use the registered external HTTPS URI and trusted client-address
 forwarding; the callback is never inferred from untrusted request headers.
 
-`GET /admin/auth/method` returns only `{success:true,data:{method:"hosted"}}`.
 Navigate to `GET /admin/auth/start`, optionally
 with one `returnUrl` from the route allowlist above. It carries the anonymous
 per-IP quota and 429/Retry-After contract. Invalid return targets give 400; missing
 Code configuration or full pending capacity gives 503, and failed/untrusted
 Discovery gives 502, without creating a login cookie or changing existing sessions.
-The deleted `POST /admin/auth/login` route is answered by the unknown-admin-route
-semantics: 401 anonymous, 404 authenticated. Configuration is validated at startup.
+The deleted `POST /admin/auth/login` and `GET /admin/auth/method` routes are
+answered by the unknown-admin-route semantics: 401 anonymous, 404
+authenticated. Configuration is validated at startup.
 
 Start uses Discovery's authorization endpoint with unique supported fields, no
 `response_mode`. Callback requires unique state/issuer and exactly one code or
@@ -538,7 +538,7 @@ allowlisted error, validates browser binding, then atomically consumes the trans
 and clears only its cookie. Success validates both tokens and the access role,
 commits the encrypted session, and redirects to the stored local hash target.
 Failures immediately redirect to `/#/login?reason=canceled|denied|sign_in_failed|provider_unavailable`
-with a fixed classification, never upstream error descriptions. Method/start/callback
+with a fixed classification, never upstream error descriptions. Start/callback
 send `Cache-Control: no-store`, and callback sends `Referrer-Policy: no-referrer`.
 Precommit failure or cancellation preserves the existing new/legacy session;
 after commit begins an interrupted/lost result is unknown. Never replay the callback:
@@ -565,12 +565,12 @@ log_format lexarbor_safe '$remote_addr $request_method $lexarbor_log_target $sta
 access_log /var/log/nginx/lexarbor.access.log lexarbor_safe;
 ```
 
-The administration UI follows this mode automatically: it reads
-`GET /admin/auth/method`, shows the SignaCore navigation, consumes the
+The administration UI follows automatically: it shows the SignaCore
+navigation, consumes the
 prepared-logout `data.logoutUrl` as a
 top-level navigation, and renders the callback and logout-return `reason`
-values. There is no password form anymore and Lexarbor never receives a
-password. The retired `lexarborAdmin` JWT cookie from the removed modes is not
+values. There is no password form or method probe anymore and Lexarbor never
+receives a password. The retired `lexarborAdmin` JWT cookie from the removed modes is not
 force-logged-out — it is simply never authenticated, and its lifetime was at
 most one hour anyway; hosted sign-in and logout delete it from the browser.
 To roll back, deploy an image that still contains the password proxy: the

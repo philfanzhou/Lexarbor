@@ -4,7 +4,7 @@ import { RouterLink, RouterView } from 'vue-router'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { EditPen, Notebook, Reading, Upload } from '@element-plus/icons-vue'
-import { currentUser, isAuthenticated, isHostedAuthMethod, logout } from '@/services/authState'
+import { currentUser, isAuthenticated, logout } from '@/services/authState'
 import { versionInfo, versionLabel, versionStatus } from '@/services/systemVersion'
 import { getApiError } from '@/services/apiError'
 
@@ -102,10 +102,11 @@ async function handleLogout() {
       return
     }
 
-    // No logoutUrl: the local session is revoked either way. In hosted mode
-    // this is a local-only logout — say that the provider may still hold a
-    // session, never claim SignaCore signed out, and echo no upstream text.
-    localOnlyHosted = await isHostedAuthMethod()
+    // No logoutUrl: the local session is revoked, and with hosted sign-in as
+    // the only mode this is always a local-only logout — say that the provider
+    // may still hold a session, never claim SignaCore signed out, and echo no
+    // upstream text.
+    localOnlyHosted = true
   } catch (error: unknown) {
     ElMessage.error(getApiError(error).message)
   }

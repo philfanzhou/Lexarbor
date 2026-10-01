@@ -59,8 +59,6 @@ async function useUnits(page: Page) {
 async function openBatchPage(page: Page) {
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: true, data: admin }))
-  await page.route('**/admin/auth/method', (route) =>
-    json(route, { success: true, data: { method: 'password' } }))
   await page.route('**/admin/system/version', (route) =>
     json(route, {
       success: true,
