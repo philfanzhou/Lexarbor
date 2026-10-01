@@ -348,7 +348,7 @@ public class VocabularyHttpEndpointTests :
     }
 
     [Fact]
-    public async Task Health_IsAnonymousAndUsesEnvelope()
+    public async Task Health_IsAnonymousAndReportsReadiness()
     {
         using var client = _factory.CreateClient();
 
@@ -357,15 +357,17 @@ public class VocabularyHttpEndpointTests :
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         using var body = JsonDocument.Parse(
             await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
-        Assert.True(body.RootElement.GetProperty("success").GetBoolean());
-        var data = body.RootElement.GetProperty("data");
-        Assert.Equal("healthy", data.GetProperty("status").GetString());
+        Assert.Equal("ready", body.RootElement.GetProperty("status").GetString());
+        Assert.Equal("completed", body.RootElement.GetProperty("phase").GetString());
+        Assert.Equal("succeeded", body.RootElement.GetProperty("migrationStatus").GetString());
+        Assert.Equal("reachable", body.RootElement.GetProperty("databaseStatus").GetString());
         // The endpoint is anonymous, so anything it returns is public. Asserting
-        // status is the only property keeps that surface from growing back by
+        // the exact property set keeps that surface from growing back by
         // accident: a field added here fails this test rather than shipping.
         Assert.Equal(
-            ["status"],
-            data.EnumerateObject().Select(property => property.Name).ToArray());
+            ["databaseStatus", "errorCode", "migrationStatus", "phase", "status"],
+            body.RootElement.EnumerateObject().Select(property => property.Name).Order());
+        Assert.Equal(JsonValueKind.Null, body.RootElement.GetProperty("errorCode").ValueKind);
     }
 
     private HttpClient CreateAdminClient()

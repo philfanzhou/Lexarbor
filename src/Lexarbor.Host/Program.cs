@@ -291,6 +291,17 @@ var serviceMantle = builder.Services.AddServiceMantle(
     ServiceId.Parse("lexarbor"),
     instanceId,
     serviceVersion: ApplicationVersion.Current);
+// Readiness is answered by the ServiceMantle health endpoints: one bounded,
+// read-only SQLite probe per request plus this process's startup migration
+// result. The probe timeout stays well inside the container HEALTHCHECK's own
+// deadline so a wedged database is reported rather than killed.
+serviceMantle.AddServiceMantleHealthEndpoints(options => options.ProbeTimeout = TimeSpan.FromSeconds(3));
+var healthState = new LexarborHealthState();
+builder.Services.AddSingleton(healthState);
+builder.Services.AddSingleton<ServiceMantle.Health.IServiceHealthSnapshotSource>(
+    serviceProvider => new LexarborHealthSnapshotSource(
+        healthState,
+        serviceProvider.GetRequiredService<IServiceScopeFactory>()));
 // Business exceptions map to HTTP through the ServiceMantle Problem Details
 // pipeline: a fixed type/title/status/errorCode (plus correlation id) per
 // mapping, with no room for exception text, SQL or credentials to reach a
@@ -532,39 +543,81 @@ if (!app.Environment.IsDevelopment() &&
     }
 }
 
-// Configure database initialization. The key repository needs the
-// service_data_protection_keys table, so the startup probe follows the
-// migration (or, with initialization disabled, the schema must already exist).
+// Configure database initialization. The outcome feeds the readiness snapshot:
+// a failed migration stops startup (and records the failure for any future
+// non-fatal handling), while a disabled initialization only checks once whether
+// migrations are pending so readiness still reflects the real schema state. The
+// key repository needs the service_data_protection_keys table, so the startup
+// probe follows the migration (or, with initialization disabled, the schema
+// must already exist).
 if (builder.Configuration.GetValue("Database:InitializeOnStartup", true))
 {
     using var scope = app.Services.CreateScope();
     var dbContext = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
     var loggerFactory = scope.ServiceProvider.GetRequiredService<ILoggerFactory>();
-    await DatabaseInitializer.InitializeAsync(dbContext, loggerFactory);
+    try
+    {
+        await DatabaseInitializer.InitializeAsync(dbContext, loggerFactory);
+        healthState.MigrationStatus = ServiceMantle.Health.ServiceMigrationReadinessState.Succeeded;
+    }
+    catch
+    {
+        healthState.MigrationStatus = ServiceMantle.Health.ServiceMigrationReadinessState.Failed;
+        throw;
+    }
+}
+else
+{
+    // One read-only check whether migrations are pending. A database that
+    // cannot even be opened (for example a placeholder file a deployment
+    // pre-mounted) leaves the host running and readiness honestly not-ready;
+    // with initialization disabled the schema is the operator's responsibility.
+    try
+    {
+        using var scope = app.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+        var pending = await dbContext.Database.GetPendingMigrationsAsync();
+        healthState.MigrationStatus = pending.Any()
+            ? ServiceMantle.Health.ServiceMigrationReadinessState.NotStarted
+            : ServiceMantle.Health.ServiceMigrationReadinessState.Succeeded;
+    }
+    catch (Exception exception) when (
+        exception is OperationCanceledException or Microsoft.Data.Sqlite.SqliteException or InvalidOperationException)
+    {
+        healthState.MigrationStatus = ServiceMantle.Health.ServiceMigrationReadinessState.NotStarted;
+    }
 }
 
 // The key repository fails closed: a wrong root key, damaged ciphertext, an
 // unreadable root-key file or an unusable database stops startup here with a
 // fixed safe diagnostic — never key material or provider detail — instead of
-// surfacing as a 500 on the first administrator login.
-try
+// surfacing as a 500 on the first administrator login. The probe runs only
+// once the startup schema check verified the database: with initialization
+// disabled and migrations pending (or the file unreadable), the schema is the
+// operator's responsibility, the host keeps serving with readiness honestly
+// not-ready, and the first administrator login still fails safe against an
+// unusable repository.
+if (healthState.MigrationStatus == ServiceMantle.Health.ServiceMigrationReadinessState.Succeeded)
 {
-    var protector = app.Services.GetRequiredService<IDataProtectionProvider>()
-        .CreateProtector("Lexarbor.AdminKeys.StartupProbe.v1");
-    const string probe = "lexarbor-key-storage-probe";
-    if (protector.Unprotect(protector.Protect(probe)) != probe)
+    try
     {
-        throw new CryptographicException();
+        var protector = app.Services.GetRequiredService<IDataProtectionProvider>()
+            .CreateProtector("Lexarbor.AdminKeys.StartupProbe.v1");
+        const string probe = "lexarbor-key-storage-probe";
+        if (protector.Unprotect(protector.Protect(probe)) != probe)
+        {
+            throw new CryptographicException();
+        }
     }
-}
-catch (Exception exception) when (
-    exception is DataProtectionKeyRepositoryException
-        or InvalidOperationException
-        or CryptographicException)
-{
-    app.Logger.LogCritical("{Diagnostic}", DataProtectionRootKey.StartupFailureMessage);
-    await app.DisposeAsync();
-    return 1;
+    catch (Exception exception) when (
+        exception is DataProtectionKeyRepositoryException
+            or InvalidOperationException
+            or CryptographicException)
+    {
+        app.Logger.LogCritical("{Diagnostic}", DataProtectionRootKey.StartupFailureMessage);
+        await app.DisposeAsync();
+        return 1;
+    }
 }
 
 // Configure the HTTP request pipeline.
@@ -604,12 +657,11 @@ app.MapVocabularyMeaningPositionEndpoints();
 app.MapVocabularyAdminQueryEndpoints();
 app.MapVocabularyCleanupEndpoints();
 app.MapVocabularyHttpEndpoints(RateLimitingExtensions.PublicApiPolicy);
-// Anonymous liveness exposes only status. Build identity is available through
-// startup logs and the authorized administrator version endpoint.
-app.MapGet(
-        "/health",
-        () => VocabularyHttpResponse.Ok(new { status = "healthy" }))
-    .AllowAnonymous();
+// The ServiceMantle health endpoints are anonymous and unmetered: /health/live
+// answers liveness alone, /health/ready and /health project the readiness
+// snapshot. Build identity stays in the startup logs and the authorized
+// administrator version endpoint.
+app.MapServiceMantleHealthEndpoints();
 
 string[] allHttpMethods =
 [

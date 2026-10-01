@@ -58,6 +58,18 @@ including the batch import's per-entry `errors` — keep the legacy envelope, so
 clients that parsed only `message` need to read `title` for these responses.
 The two failure shapes and the full exception mapping table are documented in
 [Error handling](ErrorHandling.md#two-failure-shapes).
+The health endpoints changed shape and grew (#180). `GET /health` no longer
+answers the old `{"success":true,"data":{"status":"healthy"}}` envelope; it and
+the new `GET /health/ready` answer the ServiceMantle readiness JSON (`status`,
+`phase`, `migrationStatus`, `databaseStatus`, `errorCode`), and the new
+`GET /health/live` answers liveness alone. All three are anonymous and
+unmetered. Readiness reflects the startup migration result plus one bounded
+read-only database probe, so an unreachable or not-yet-migrated database
+answers 503 instead of a blind healthy 200. The container `HEALTHCHECK` now
+probes `/health/ready`, which makes a container whose database is unreachable
+turn unhealthy. External monitors that parsed the old envelope must read the
+new fields or use `/health/live`; see
+[Deployment](Deployment.md#health-and-smoke-checks).
 
 ## Prepared upstream logout
 

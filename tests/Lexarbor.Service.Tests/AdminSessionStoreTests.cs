@@ -1,6 +1,8 @@
 using System.Data.Common;
+using System.Net;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Lexarbor.Database;
 using Lexarbor.Database.Entities;
@@ -493,12 +495,23 @@ public sealed class AdminSessionStoreTests : IDisposable
         using (var setup = provider.CreateScope()) await Db(setup).Database.MigrateAsync(Ct);
         await service.RunBatchAsync(Ct);
         Assert.Single(logger.Messages);
-        using var host = new VocabularyWebApplicationFactory("Testing", true);
+        using var host = new VocabularyWebApplicationFactory("Testing", true,
+            extraConfiguration: new Dictionary<string, string?> { ["Database:InitializeOnStartup"] = "false" });
         using var client = host.CreateClient();
         using var hostCleanup = new AdminSessionCleanupService(host.Services.GetRequiredService<IServiceScopeFactory>(),
             TimeProvider.System, logger);
         await hostCleanup.RunBatchAsync(Ct);
-        Assert.True((await client.GetAsync("/health", Ct)).IsSuccessStatusCode);
+        // With initialization disabled and the shared database still unmigrated,
+        // readiness honestly reports not-ready; the host itself stays alive and
+        // serving, which liveness now expresses separately from readiness.
+        // The key repository probe stays silent for the same reason: the schema
+        // was never verified, so there is no key storage to fail closed on.
+        using var alive = await client.GetAsync("/health/live", Ct);
+        Assert.True(alive.IsSuccessStatusCode);
+        using var ready = await client.GetAsync("/health/ready", Ct);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, ready.StatusCode);
+        Assert.Equal("notStarted", JsonDocument.Parse(await ready.Content.ReadAsStringAsync(Ct))
+            .RootElement.GetProperty("migrationStatus").GetString());
     }
 
     [Fact]
