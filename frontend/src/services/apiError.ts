@@ -6,11 +6,23 @@ export interface ApiEntryError {
   message: string
 }
 
+/**
+ * A ServiceMantle Problem Details failure produced by the exception pipeline:
+ * `application/problem+json` with a fixed `type`, `title`, `status`,
+ * `errorCode` and `correlationId`.
+ */
+export interface ApiProblemDetails {
+  title: string
+  errorCode?: string
+  correlationId?: string
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
     public readonly status?: number,
-    public readonly errors?: ApiEntryError[]
+    public readonly errors?: ApiEntryError[],
+    public readonly problem?: ApiProblemDetails
   ) {
     super(message)
     this.name = 'ApiError'
@@ -20,6 +32,12 @@ export class ApiError extends Error {
 interface ErrorEnvelope {
   message?: unknown
   errors?: unknown
+}
+
+interface ProblemDetailsBody {
+  title?: unknown
+  errorCode?: unknown
+  correlationId?: unknown
 }
 
 /**
@@ -50,20 +68,50 @@ export function getEntryErrors(value: unknown): ApiEntryError[] | undefined {
   return errors
 }
 
+/**
+ * Reads a ServiceMantle Problem Details body when the response carries the
+ * documented fields. Anything else — the legacy envelope, a string body, an
+ * empty body — reads as undefined so both formats keep working side by side.
+ */
+export function getProblemDetails(value: unknown): ApiProblemDetails | undefined {
+  if (typeof value !== 'object' || value === null) {
+    return undefined
+  }
+
+  const { title, errorCode, correlationId } = value as ProblemDetailsBody
+  if (typeof title !== 'string' || title.trim() === '') {
+    return undefined
+  }
+
+  return {
+    title,
+    errorCode: typeof errorCode === 'string' ? errorCode : undefined,
+    correlationId: typeof correlationId === 'string' ? correlationId : undefined
+  }
+}
+
 export function getApiError(error: unknown): ApiError {
   if (error instanceof ApiError) {
     return error
   }
 
   if (axios.isAxiosError<ErrorEnvelope>(error)) {
+    const problem = getProblemDetails(error.response?.data)
     const responseMessage = error.response?.data?.message
-    const message = typeof responseMessage === 'string' && responseMessage.trim()
-      ? responseMessage
-      : error.response
-        ? 'Request failed'
-        : 'Network error'
+    const message = problem
+      ? problem.title
+      : typeof responseMessage === 'string' && responseMessage.trim()
+        ? responseMessage
+        : error.response
+          ? 'Request failed'
+          : 'Network error'
 
-    return new ApiError(message, error.response?.status, getEntryErrors(error.response?.data?.errors))
+    return new ApiError(
+      message,
+      error.response?.status,
+      getEntryErrors(error.response?.data?.errors),
+      problem
+    )
   }
 
   return new ApiError('Network error')

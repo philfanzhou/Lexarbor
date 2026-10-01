@@ -464,16 +464,10 @@ public class VocabularyHttpEndpointTests :
         });
     }
 
-    private static async Task AssertFailureAsync(
+    private static Task AssertFailureAsync(
         HttpResponseMessage response,
         HttpStatusCode expectedStatus)
-    {
-        Assert.Equal(expectedStatus, response.StatusCode);
-        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        Assert.False(body.RootElement.GetProperty("success").GetBoolean());
-        Assert.False(string.IsNullOrWhiteSpace(
-            body.RootElement.GetProperty("message").GetString()));
-    }
+        => TestInfrastructure.HttpFailureAssertions.AssertFailureAsync(response, expectedStatus);
 
     private sealed class ThrowingVocabularyRepository : IVocabularyRepository
     {

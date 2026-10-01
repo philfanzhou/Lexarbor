@@ -26,6 +26,14 @@ function json(route: Route, data: unknown, status = 200) {
   })
 }
 
+function problemJson(route: Route, data: unknown, status: number) {
+  return route.fulfill({
+    status,
+    contentType: 'application/problem+json',
+    body: JSON.stringify(data)
+  })
+}
+
 async function mockCatalog(page: Page, books = [starterBook]) {
   await page.route('**/admin/system/version', (route) =>
     json(route, {
@@ -222,4 +230,25 @@ test('shows a failed list inside the page and loads it again on retry', async ({
 
   await expect(alert).toHaveCount(0)
   await expect(page.locator('.el-table')).toContainText(starterBook.bookName)
+})
+
+// Exception-generated failures arrive as ServiceMantle Problem Details while
+// endpoint-explicit failures keep the envelope; both must remain readable.
+test('shows the Problem Details title of an exception-generated failure', async ({ page }) => {
+  await openCatalog(page, (route) => problemJson(route, {
+    type: 'urn:servicemantle:error:vocabulary.storage_busy',
+    title: 'The vocabulary database is temporarily busy.',
+    status: 503,
+    correlationId: 'synthetic-correlation-id',
+    errorCode: 'vocabulary.storage_busy'
+  }, 503))
+
+  const alert = page.locator('.books-error')
+  await expect(page.locator('.el-message--error'))
+    .toContainText('The vocabulary database is temporarily busy.')
+  await expect(alert).toContainText('The vocabulary database is temporarily busy.')
+  // The readable title replaces the shape's plumbing fields, and a raw
+  // exception text never reaches the page.
+  await expect(page.locator('body')).not.toContainText('correlationId')
+  await expect(page.locator('body')).not.toContainText('postgresql://')
 })
