@@ -217,6 +217,10 @@ check_key_startup_rejected() {
     fi
     sleep 1
   done
+  if [[ "$(docker inspect --format '{{.State.Running}}' "$FAILURE_CONTAINER")" != "false" ]]; then
+    echo "Container $FAILURE_CONTAINER was still running: $(docker inspect --format '{{json .State}}' "$FAILURE_CONTAINER")" >&2
+    docker logs --tail 20 "$FAILURE_CONTAINER" >&2 || true
+  fi
   test "$(docker inspect --format '{{.State.Running}}' "$FAILURE_CONTAINER")" = false
   test "$(docker inspect --format '{{.State.ExitCode}}' "$FAILURE_CONTAINER")" != 0
   docker logs "$FAILURE_CONTAINER" >"$TEST_ROOT/rejected.log" 2>&1
