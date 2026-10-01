@@ -17,8 +17,7 @@ public interface IAdminSessionSignIn
 
 public sealed class AdminSessionSignIn(AdminSessionStore store, TimeProvider clock,
     IOptionsMonitor<AdminAuthenticationOptions> options) : IAdminSessionSignIn
-{
-    public async Task SignInAsync(HttpContext context, ClaimsPrincipal validatedPrincipal, string accessToken,
+{    public async Task SignInAsync(HttpContext context, ClaimsPrincipal validatedPrincipal, string accessToken,
         string? idToken = null, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -52,6 +51,8 @@ public sealed class AdminSessionSignIn(AdminSessionStore store, TimeProvider clo
         cookie.Expires = expiry;
         cookie.MaxAge = TimeSpan.FromSeconds(Math.Max(0, Math.Floor((expiry - clock.GetUtcNow()).TotalSeconds)));
         context.Response.Cookies.Append(AdminSessionCookie.Name, handle, cookie);
-        context.Response.Cookies.Delete(options.CurrentValue.CookieName, AdminAuthEndpoints.CreateCookieOptions(options.CurrentValue, null));
+        // Sign-in replaces every credential the browser may hold from a previous
+        // session, including the retired password-login JWT cookie.
+        context.Response.Cookies.Delete(AdminSessionCookie.LegacyJwtName, AdminSessionCookie.LegacyOptions());
     }
 }
