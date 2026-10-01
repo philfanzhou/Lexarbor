@@ -4,6 +4,7 @@ using System.Security.Claims;
 using System.Text;
 using Lexarbor.Database;
 using Lexarbor.Host;
+using Lexarbor.Host.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -22,6 +23,11 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
 {
     public const string Issuer = "http://localhost:8080";
     public const string Audience = "lexarbor";
+    /// <summary>
+    /// The retired password-login JWT cookie name. The cookie is no longer
+    /// authenticated; the constant remains for tests that prove exactly that and
+    /// for the logout cleanup assertions.
+    /// </summary>
     public const string CookieName = "lexarborAdmin";
     public const string SigningSecret = "vocabulary-test-signing-key-2026-07-29";
 
@@ -50,7 +56,7 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
     internal VocabularyWebApplicationFactory(
         string environment,
         bool includeAppCredentials,
-        string provider = "Gateway",
+        string provider = "OidcCode",
         IReadOnlyDictionary<string, string?>? extraConfiguration = null,
         string? keyContentRoot = null,
         string? databasePath = null)
@@ -64,11 +70,7 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
         _extraConfiguration = extraConfiguration ?? new Dictionary<string, string?>();
         _databaseConnection = new SqliteConnection(databasePath is null ? "Data Source=:memory:" : $"Data Source={databasePath};Pooling=False");
         _databaseConnection.Open();
-        Identity = new FakeIdentityState();
-        Identity.AccessToken = CreateToken("admin");
     }
-
-    public FakeIdentityState Identity { get; }
 
     protected override IHost CreateHost(IHostBuilder builder)
     {
@@ -141,6 +143,30 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
 
+    /// <summary>
+    /// Mints a valid opaque administrator session cookie. The legacy JWT cookie is no
+    /// longer authenticated, so tests that exercise cookie-based administration use a
+    /// real session instead. Blocking is safe: xUnit supplies no synchronization
+    /// context.
+    /// </summary>
+    public string CreateSessionCookie(string role = "admin") =>
+        CreateSessionCookieAsync(role).GetAwaiter().GetResult();
+
+    private async Task<string> CreateSessionCookieAsync(string role)
+    {
+        using var scope = Services.CreateScope();
+        var handle = await scope.ServiceProvider.GetRequiredService<AdminSessionStore>().CreateAsync(new ValidatedAdminSession
+        {
+            AccessToken = "synthetic-access-marker",
+            Issuer = Issuer,
+            Subject = "session-subject",
+            DisplayName = "session-user",
+            Roles = [role],
+            AccessTokenExpiresAt = DateTimeOffset.UtcNow.AddMinutes(15)
+        }, TestContext.Current.CancellationToken);
+        return $"{AdminSessionCookie.Name}={handle}";
+    }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment(_environment);
@@ -160,18 +186,10 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
                 // rather than left to the environment default so that a test
                 // exercising the requirement can turn it back on.
                 ["IdentityService:RequireHttpsMetadata"] = "false",
-                ["AdminAuthentication:CookieName"] = CookieName,
-                ["AdminAuthentication:CookieSecure"] = "false",
                 ["AdminAuthentication:Provider"] = _provider,
-                ["AdminAuthentication:Gateway:AppId"] =
-                    _includeAppCredentials ? "vocabulary-app" : string.Empty,
-                ["AdminAuthentication:Gateway:AppSecret"] =
-                    _includeAppCredentials ? "vocabulary-secret" : string.Empty,
-                ["AdminAuthentication:Oidc:TokenEndpoint"] =
-                    "http://identity.test/protocol/openid-connect/token",
-                ["AdminAuthentication:Oidc:ClientId"] =
+                ["AdminAuthentication:OidcCode:ClientId"] =
                     _includeAppCredentials ? "vocabulary-client" : string.Empty,
-                ["AdminAuthentication:Oidc:ClientSecret"] =
+                ["AdminAuthentication:OidcCode:ClientSecret"] =
                     _includeAppCredentials ? "vocabulary-client-secret" : string.Empty
             });
 
@@ -189,11 +207,6 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
                 options.UseSqlite(_databaseConnection));
             services.AddScoped(serviceProvider =>
                 serviceProvider.GetRequiredService<IDbContextFactory<VocabularyDbContext>>().CreateDbContext());
-
-            services.AddSingleton(Identity);
-            services.AddTransient<FakeIdentityHandler>();
-            services.AddHttpClient("LexarborIdentity")
-                .ConfigurePrimaryHttpMessageHandler<FakeIdentityHandler>();
 
             services.PostConfigure<JwtBearerOptions>(
                 JwtBearerDefaults.AuthenticationScheme,

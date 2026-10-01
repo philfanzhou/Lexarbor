@@ -70,77 +70,50 @@ The Vocabulary backend uses the following configuration:
     "Audience": "lexarbor"
   },
   "AdminAuthentication": {
-    "CookieName": "lexarborAdmin",
-    "CookieSecure": false,
-    "Provider": "Oidc",
     "RequiredRole": "admin",
-    "Oidc": {
-      "TokenEndpoint": "",
+    "OidcCode": {
       "ClientId": "",
       "ClientSecret": "",
+      "RedirectUri": "",
+      "PostLogoutRedirectUri": "",
       "Scope": "openid profile"
-    },
-    "Gateway": {
-      "TokenPath": "/api/auth/token"
     }
   }
 }
 ```
 
-Administrator login goes through the `IAdminCredentialAuthenticator` abstraction, whose implementation is selected by `AdminAuthentication:Provider`; see [ADR-001](../adr/ADR-001-pluggable-admin-authentication.md):
-
-- `Oidc` (default): the standard OAuth2 password grant, configured in `AdminAuthentication:Oidc:{TokenEndpoint,ClientId,ClientSecret,Scope}`; when `TokenEndpoint` is left empty it is resolved from the discovery document.
-- `Gateway` (optional): the compatible JSON password-token contract, with credentials from `AdminAuthentication:Gateway:{AppId,AppSecret}`.
+Administrator login is the hosted SignaCore authorization-code flow with PKCE; see [ADR-008](../adr/ADR-008-servicemantle-first-and-hosted-login.md). The password proxy providers (the OAuth2 password grant and the Gateway JSON adapter) and the `lexarborAdmin` JWT cookie they issued have been removed.
 
 Configuration conventions:
 
 - `IdentityService:*` describes which issuer is trusted and comes from appsettings, standard .NET environment variables, or any other standard configuration provider; a container deployment maps Authority through `LEXARBOR_IDENTITY_AUTHORITY`.
-- Provider credentials are injected from environment variables only and are never written into the frontend or the repository's default configuration.
-- `AdminAuthentication:Gateway:Authority` is optional; when empty it falls back to `IdentityService:Authority`, which serves deployments whose login endpoint and JWKS endpoint are not same-origin.
-- The service still starts when the selected provider's credentials are missing; a login request answers 503 in the shared envelope and the configuration error is logged without any secret.
-- `Issuer`, `Audience`, the signature, public key rotation, and expiry are validated by JWT Bearer.
+- Hosted-login client credentials (`AdminAuthentication:OidcCode:*`) are injected from environment variables only and are never written into the frontend or the repository's default configuration.
+- `AdminAuthentication:Provider` selects nothing; it accepts being unset or exactly `OidcCode`, and any other value stops the process at startup so an operator cannot believe password login still exists.
+- The service still starts when the hosted-login credentials are missing; `GET /admin/auth/start` answers its existing 503 and the configuration error is logged without any secret.
+- `Issuer`, `Audience`, the signature, public key rotation, and expiry are validated by JWT Bearer and independently by the code exchange.
 - The JWT handler has inbound claim mapping turned off. The role claim is accepted both as the short name `role` and as the full `ClaimTypes.Role` URI, which covers how common OIDC and .NET issuers serialize claims. The administrator policy requires `AdminAuthentication:RequiredRole` (default `admin`), which `AdminRoleHandler` reads at evaluation time.
-- A local HTTP development environment may use `CookieSecure=false`; a TLS deployment must configure `true`.
 - The provider's signing metadata may only be fetched over HTTPS unless the environment is Development, the authority is loopback, or `IdentityService:RequireHttpsMetadata` says otherwise. An `http://` authority on another host stops the process at startup. The keys at that address are the root of every administration authorization, so accepting them over plain HTTP has to be something a deployment asked for, and the startup log reports which way it resolved.
 
 ### 5.2 Login flow
 
-1. The browser submits `{ username, password }` to `POST /admin/auth/login`.
-2. Vocabulary validates the required fields and logs neither the request body, the password, nor the username and password combination.
-3. The Lexarbor backend calls the token endpoint obtained from OIDC discovery, or the explicitly configured endpoint.
-4. The OIDC provider uses a form-urlencoded password grant; the optional Gateway provider uses the following JSON:
+1. The browser navigates to `GET /admin/auth/start`, optionally with one allowlisted `returnUrl`.
+2. Lexarbor creates a one-time browser-bound transaction (fresh state, nonce and PKCE verifier, five minutes) and redirects to the provider's authorization endpoint with the confidential client ID. No password ever reaches Lexarbor.
+3. The provider authenticates the administrator on its own page and returns the browser to `/admin/auth/callback` with a one-time code.
+4. The callback validates state, issuer and browser binding, consumes the transaction, and exchanges the code server-side (`client_secret_post` plus PKCE, no redirects, no retries, bounded response size).
+5. Both the access token and the ID token must independently pass signature, issuer, audience, type and lifetime validation; the ID token must match the pending nonce.
+6. Only the validated access token can carry the administrator role; Vocabulary decides administrator identity from that `role` claim. An ordinary user is redirected to `/#/login?reason=denied` without a session.
+7. On success Vocabulary stores the tokens in the encrypted server-side session and sets only an opaque handle in the `__Host-Lexarbor.AdminSession` cookie. The response is a redirect; no token is ever returned to the browser.
 
-   ```json
-   {
-     "grantType": "password",
-     "username": "<submitted username>",
-     "password": "<submitted password>"
-   }
-   ```
-
-5. Only the Gateway provider adds the server-configured `X-Admin-AppId` and `X-Admin-AppSecret` request headers.
-6. When the provider rejects the credentials, Lexarbor answers 401 with a generic credential error and does not pass the upstream's internal message through. When an OIDC provider instead refuses the client itself — RFC 6749 `invalid_client`, `unauthorized_client`, `unsupported_grant_type`, `invalid_scope`, `invalid_request`, `server_error`, or `temporarily_unavailable` — Lexarbor answers 502 and logs only the error code, because retyping the password cannot fix a client registration problem.
-7. Once Identity returns success, Vocabulary validates the access token with the same issuer, audience, signing key, and lifetime parameters used for request authentication; an invalid token or one that does not match the configuration answers 502 and sets no cookie.
-8. Vocabulary decides administrator identity from the `role` claim of the validated JWT; an ordinary user gets 403 and no cookie.
-9. The administrator JWT is written into the `lexarborAdmin` cookie, which uses:
-   - `HttpOnly=true`
-   - `SameSite=Strict`
-   - `Path=/`
-   - `Secure`, controlled by `AdminAuthentication:CookieSecure`
-   - `Max-Age`, taken from Identity's `expiresIn`; when the response carries no usable value it falls back to one hour, and the JWT's own expiry is still validated independently
-10. The login response returns only the success status and the non-sensitive display information the validated JWT requires, never an access token or a refresh token.
-11. A refresh token returned by Identity is discarded immediately and is persisted by neither the frontend nor Vocabulary.
-
-An Identity timeout, network error, or missing usable response answers 502; missing configuration answers 503. No log may contain a password, JWT, cookie, AppSecret, or a full Identity response.
+An Identity timeout, network error, or missing usable response redirects to `/#/login?reason=provider_unavailable`; missing configuration answers 503 on `/admin/auth/start`. No log may contain a code, token, cookie, client secret, or a full Identity response.
 
 ### 5.3 Request authentication
 
-JWT Bearer extracts the token in this order:
+Each request selects exactly one authentication source:
 
-1. `Authorization: Bearer <token>`
-2. the `lexarborAdmin` HttpOnly cookie
+1. `Authorization: Bearer <token>` selects Bearer validation.
+2. Otherwise — cookie-bearing or anonymous — the encrypted server-side session answers. The retired `lexarborAdmin` password-login cookie is never read.
 
-The bearer channel serves automated tests and controlled API calls; the administration frontend uses the cookie only. Every administration endpoint uses the authorization policy named `VocabularyAdmin`, which requires an authenticated principal carrying `role=admin`.
+The bearer channel serves automated tests and controlled API calls; the administration frontend uses the session cookie only. Every administration endpoint uses the authorization policy named `VocabularyAdmin`, which requires an authenticated principal carrying `role=admin`.
 
 An authentication challenge and a forbidden response return, respectively:
 
@@ -157,9 +130,9 @@ with status codes 401 and 403.
 ### 5.4 Logout and sessions
 
 - `GET /admin/auth/session` is protected by the `VocabularyAdmin` policy and lets the frontend initialize its login state.
-- `POST /admin/auth/logout` is callable anonymously and always deletes the cookie of that name, so an expired or corrupted cookie can be cleared too.
-- After logout the browser no longer carries the JWT, and a further administration request answers 401.
-- A JWT is a stateless token, so deleting the cookie is not a server-side global revocation; because the refresh token is not stored, the browser cannot restore the session by itself.
+- `POST /admin/auth/logout` is callable anonymously, atomically revokes the presented session handle, and deletes both the session cookie and the retired `lexarborAdmin` cookie, so an expired or corrupted cookie can be cleared too.
+- After logout the browser no longer carries a usable credential, and a further administration request answers 401.
+- The session ends at the access token's exact `exp`; there is no refresh token, so the browser cannot restore the session by itself.
 
 ### 5.5 CSRF protection for cookie write requests
 
@@ -169,9 +142,9 @@ A `POST`, `PUT`, `PATCH`, or `DELETE` administration request authenticated by co
 X-Requested-With: XMLHttpRequest
 ```
 
-The frontend Axios instance adds that header for all of them. The service opens no CORS policy that lets an arbitrary origin send credentials. Together with `SameSite=Strict`, this check reduces the risk of a cross-site form submission.
+The frontend Axios instance adds that header for all of them. The service opens no CORS policy that lets an arbitrary origin send credentials. Together with `SameSite=Lax`, this check reduces the risk of a cross-site form submission.
 
-The login and logout entry points do not depend on that header; login does not use an existing authentication cookie, and logout only performs an idempotent cookie deletion.
+Logout depends on that header when it is cookie-authenticated; the hosted login start and callback establish no cookie and are not subject to it.
 
 ## 6. Route permission matrix
 
@@ -405,20 +378,20 @@ The existing features, fields, and Vite build of book management and word import
 - `scripts/start.sh` maps only explicitly supplied deployment variables into .NET configuration:
 
   ```text
-  LEXARBOR_ADMIN_AUTH_PROVIDER → AdminAuthentication__Provider
-  LEXARBOR_OIDC_CLIENT_ID → AdminAuthentication__Oidc__ClientId
-  LEXARBOR_OIDC_CLIENT_SECRET → AdminAuthentication__Oidc__ClientSecret
   LEXARBOR_IDENTITY_AUTHORITY → IdentityService__Authority
-  LEXARBOR_COOKIE_SECURE → AdminAuthentication__CookieSecure
+  LEXARBOR_OIDC_CODE_CLIENT_ID → AdminAuthentication__OidcCode__ClientId
+  LEXARBOR_OIDC_CODE_CLIENT_SECRET → AdminAuthentication__OidcCode__ClientSecret
+  LEXARBOR_OIDC_CODE_REDIRECT_URI → AdminAuthentication__OidcCode__RedirectUri
+  LEXARBOR_OIDC_CODE_POST_LOGOUT_REDIRECT_URI → AdminAuthentication__OidcCode__PostLogoutRedirectUri
+  LEXARBOR_OIDC_CODE_SCOPE → AdminAuthentication__OidcCode__Scope
   LEXARBOR_DATA_DIR (defaults to the service's data/) → the /app/data persistent volume
   ```
 
 - `IdentityService:Authority` comes from the persistent configuration and can also be overridden by an explicit `LEXARBOR_IDENTITY_AUTHORITY`.
 - The container mounts `LEXARBOR_DATA_DIR` at `/app/data`. On first startup the image's built-in configuration is copied to `/app/data/appsettings.json`, and an existing file is left unchanged; the same directory holds the default `vocabulary.db`, so no second mount is needed.
 - Configuration precedence is the image defaults, the persistent `appsettings.json`, explicit environment variables, then command-line arguments.
-- The provider's client credentials are passed to Lexarbor by the deployment environment and are never printed to the console.
-- A TLS deployment sets `AdminAuthentication__CookieSecure=true`.
-- The Identity provider must have the Lexarbor client registered in advance, must permit the current password grant, and must supply the administrator role in the JWT.
+- The hosted-login client credentials are passed to Lexarbor by the deployment environment and are never printed to the console.
+- The Identity provider must have the Confidential Lexarbor application and its exact callback registered in advance, and must supply the administrator role in the access token.
 
 ## 15. Testing and verification
 

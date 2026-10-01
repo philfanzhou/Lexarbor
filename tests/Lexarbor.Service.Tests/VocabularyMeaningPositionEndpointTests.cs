@@ -106,13 +106,13 @@ public class VocabularyMeaningPositionEndpointTests
     [Theory]
     [InlineData(null, 401)]
     [InlineData("student", 403)]
-    [InlineData("cookie", 403)]
-    public async Task UnauthorizedAndCookieWithoutCsrf_CannotWrite(string? identity, int status)
+    [InlineData("legacy-cookie", 401)]
+    public async Task UnauthorizedAndLegacyCookieWithoutCsrf_CannotWrite(string? identity, int status)
     {
         await using var factory = new VocabularyWebApplicationFactory();
         await SeedAsync(factory);
         using var client = factory.CreateClient();
-        if (identity == "cookie") client.DefaultRequestHeaders.Add("Cookie", $"{VocabularyWebApplicationFactory.CookieName}={factory.CreateToken("admin")}");
+        if (identity == "legacy-cookie") client.DefaultRequestHeaders.Add("Cookie", $"{VocabularyWebApplicationFactory.CookieName}={factory.CreateToken("admin")}");
         else if (identity != null) client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", factory.CreateToken(identity));
         using var move = await client.PutAsync(Path, Json(Move), TestContext.Current.CancellationToken);
         using var delete = await client.DeleteAsync(Path + "/u1?section=A&entryKind=phrase", TestContext.Current.CancellationToken);

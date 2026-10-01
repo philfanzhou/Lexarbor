@@ -10,13 +10,6 @@ public static class AdminAuthEndpoints
 {
     public static IEndpointRouteBuilder MapAdminAuthEndpoints(this IEndpointRouteBuilder app)
     {
-        // The only anonymous endpoint that costs anything to serve: it forwards
-        // the submitted credentials to the identity provider, so without a ceiling
-        // it is both a password-guessing oracle and a way to point traffic at that
-        // provider from an address the provider attributes to Lexarbor.
-        app.MapPost("/admin/auth/login", LoginAsync)
-            .AllowAnonymous()
-            .RequireRateLimiting(RateLimitingExtensions.AdminLoginPolicy);
         app.MapHostedAdminLogin();
         app.MapGet("/admin/auth/session", GetSession)
             .RequireAuthorization("VocabularyAdmin");
@@ -26,83 +19,13 @@ public static class AdminAuthEndpoints
         app.MapPost("/admin/auth/logout", LogoutAsync)
             .WithMetadata(new AdminSessionLogoutMetadata())
             .AllowAnonymous();
-        // The fixed, pre-registered return route of the Code-mode prepared logout.
-        // Anonymous and unlimited like the login callback: it consumes a one-time
+        // The fixed, pre-registered return route of the prepared logout. Anonymous
+        // and unlimited like the login callback: it consumes a one-time
         // browser-bound state and answers only with fixed in-site redirects, so it
         // establishes no session, accepts no external target, and echoes no input.
         app.MapGet("/admin/auth/logout/return", LogoutReturnAsync)
             .AllowAnonymous();
         return app;
-    }
-
-    private static async Task<IResult> LoginAsync(
-        AdminLoginRequest request,
-        HttpContext context,
-        IAdminCredentialAuthenticator authenticator,
-        AdminAccessTokenValidator accessTokenValidator,
-        IOptions<AdminAuthenticationOptions> authenticationOptions,
-        IHostEnvironment environment,
-        CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(request.Username) ||
-            string.IsNullOrWhiteSpace(request.Password))
-        {
-            return VocabularyHttpResponse.BadRequest("Username and password are required.");
-        }
-
-        var adminAuthentication = authenticationOptions.Value;
-        if (!authenticator.IsConfigured &&
-            !environment.IsDevelopment() &&
-            !environment.IsEnvironment("Testing"))
-        {
-            return VocabularyHttpResponse.ServiceUnavailable(
-                "Administrator login is not configured.");
-        }
-
-        var result = await authenticator.AuthenticateAsync(
-            request.Username,
-            request.Password,
-            cancellationToken);
-        if (result.Status == AdminCredentialStatus.InvalidCredentials)
-        {
-            return VocabularyHttpResponse.Unauthorized("Invalid username or password.");
-        }
-
-        if (result.Status != AdminCredentialStatus.Success ||
-            string.IsNullOrWhiteSpace(result.AccessToken))
-        {
-            return VocabularyHttpResponse.BadGateway(
-                "The authentication provider is unavailable.");
-        }
-
-        var principal = await accessTokenValidator.ValidateAsync(
-            result.AccessToken,
-            cancellationToken);
-        if (principal == null)
-        {
-            return VocabularyHttpResponse.BadGateway(
-                "The authentication provider returned an invalid access token.");
-        }
-
-        if (!VocabularyClaims.HasRole(principal, adminAuthentication.RequiredRole))
-        {
-            return VocabularyHttpResponse.Forbidden("Administrator role is required.");
-        }
-
-        context.Response.Cookies.Append(
-            adminAuthentication.CookieName,
-            result.AccessToken,
-            CreateCookieOptions(
-                adminAuthentication,
-                result.ExpiresIn ?? TimeSpan.FromHours(1)));
-
-        // Every field here comes from the validated token. Whatever the provider claimed
-        // about the user in its own response envelope is never echoed back.
-        return VocabularyHttpResponse.Ok(new
-        {
-            username = VocabularyClaims.GetDisplayName(principal) ?? string.Empty,
-            roles = VocabularyClaims.GetRoles(principal)
-        });
     }
 
     private static IResult GetSession(ClaimsPrincipal user)
@@ -117,7 +40,6 @@ public static class AdminAuthEndpoints
 
     private static async Task<IResult> LogoutAsync(
         HttpContext context,
-        IOptions<AdminAuthenticationOptions> authenticationOptions,
         AdminSessionStore store,
         AdminPreparedLogout preparedLogout,
         PendingAdminLogoutStore pendingLogouts,
@@ -125,14 +47,13 @@ public static class AdminAuthEndpoints
     {
         context.Request.Cookies.TryGetValue(AdminSessionCookie.Name, out var handle);
         var snapshot = await store.RevokeAndReadAsync(handle, cancellationToken);
-        AdminSessionCookie.Clear(context, authenticationOptions.Value);
-        // The local session ends first in every mode, and every caller without a live
-        // snapshot — no session, a legacy JWT cookie, an expired or repeated logout —
+        AdminSessionCookie.Clear(context);
+        // The local session ends first, and every caller without a live
+        // snapshot — no session, an expired or repeated logout —
         // gets the unchanged idempotent 200. Only the single concurrent caller that
-        // atomically revoked a Code-mode session holding a real ID token can prepare
+        // atomically revoked a session holding a real ID token can prepare
         // the upstream logout; nobody else calls upstream or fabricates a hint.
-        if (authenticationOptions.Value.Provider != AdminAuthenticationProvider.OidcCode
-            || string.IsNullOrWhiteSpace(snapshot?.IdToken))
+        if (string.IsNullOrWhiteSpace(snapshot?.IdToken))
             return VocabularyHttpResponse.Ok();
 
         // The return redirect is optional upstream: it is sent only when the deployed
@@ -195,26 +116,5 @@ public static class AdminAuthEndpoints
             }
         }
         return Results.Redirect(LogoutFailedTarget);
-    }
-
-    internal static CookieOptions CreateCookieOptions(
-        AdminAuthenticationOptions options,
-        TimeSpan? maxAge)
-    {
-        return new CookieOptions
-        {
-            HttpOnly = true,
-            Secure = options.CookieSecure,
-            SameSite = SameSiteMode.Strict,
-            Path = "/",
-            IsEssential = true,
-            MaxAge = maxAge
-        };
-    }
-
-    public sealed class AdminLoginRequest
-    {
-        public string Username { get; set; } = string.Empty;
-        public string Password { get; set; } = string.Empty;
     }
 }
