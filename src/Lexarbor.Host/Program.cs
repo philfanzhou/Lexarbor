@@ -85,6 +85,9 @@ builder.Services.AddDbContextFactory<VocabularyDbContext>(options =>
 });
 builder.Services.AddScoped(serviceProvider =>
     serviceProvider.GetRequiredService<IDbContextFactory<VocabularyDbContext>>().CreateDbContext());
+// The ServiceMantle startup gate: SQLite target preparation, single-instance
+// validation, and migration orchestration around the executor above.
+builder.Services.AddLexarborDatabaseStartup();
 // Data Protection keys live in the SQLite database as `sm:v1:` authenticated
 // envelopes scoped to the lexarbor service id, protected by the deployment's
 // root key (injected or created under data/); see DataProtectionRootKey.
@@ -123,7 +126,7 @@ builder.Services.PostConfigure<LoggerFilterOptions>(options =>
         var rule = options.Rules[index];
         options.Rules[index] = new LoggerFilterRule(rule.ProviderName, rule.CategoryName, rule.LogLevel,
             (provider, category, level) =>
-                !AdminHostedLoginSafety.SuppressLogCategory(category)
+                !LexarborLoggingSetup.SuppressLogCategory(category)
                 && !(AdminSessionRepository.IsSessionOperation
                     && category?.StartsWith("Microsoft.EntityFrameworkCore", StringComparison.Ordinal) == true)
                 && (rule.Filter?.Invoke(provider, category, level) ?? true));
@@ -309,6 +312,10 @@ var serviceMantle = builder.Services.AddServiceMantle(
 // result. The probe timeout stays well inside the container HEALTHCHECK's own
 // deadline so a wedged database is reported rather than killed.
 serviceMantle.AddServiceMantleHealthEndpoints(options => options.ProbeTimeout = TimeSpan.FromSeconds(3));
+// The mandatory security response-header baseline for the administration
+// surface. The capability is deliberately not configurable; the /admin
+// endpoints opt in through the shared route-group requirement below.
+serviceMantle.AddSecurityResponseHeaders();
 var healthState = new LexarborHealthState();
 builder.Services.AddSingleton(healthState);
 builder.Services.AddSingleton<ServiceMantle.Health.IServiceHealthSnapshotSource>(
@@ -565,12 +572,13 @@ if (!app.Environment.IsDevelopment() &&
 // must already exist).
 if (builder.Configuration.GetValue("Database:InitializeOnStartup", true))
 {
-    using var scope = app.Services.CreateScope();
-    var dbContext = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
-    var loggerFactory = scope.ServiceProvider.GetRequiredService<ILoggerFactory>();
     try
     {
-        await DatabaseInitializer.InitializeAsync(dbContext, loggerFactory);
+        // The ServiceMantle startup gate: observe (and only now create) the
+        // SQLite target, refuse unusable ones — with one WAL crash-recovery
+        // attempt — and run the EF migration orchestration. A failure keeps
+        // its fixed safe diagnostic and stops startup with a non-zero exit.
+        await LexarborDatabaseStartup.RunStartupMigrationAsync(app.Services);
         healthState.MigrationStatus = ServiceMantle.Health.ServiceMigrationReadinessState.Succeeded;
     }
     catch
@@ -643,11 +651,14 @@ if (useTrustedForwarding)
     app.UseServiceMantleForwardedHeaders();
 }
 
-app.UseSystemVersionNoStore();
 // Correlation ids come before everything that can fail so every response —
 // problem details included — can be tied back to one request.
 app.UseServiceMantleCorrelationId();
-app.UseMiddleware<AdminHostedLoginSafety>();
+// Every routed /admin response — success, validation, 401/403, 429, exception —
+// carries the ServiceMantle mandatory security-header baseline while its
+// headers are still unsent. The endpoints opt in below via the shared
+// requirement; /api, /health and the SPA never match it.
+app.UseServiceMantleSecurityResponseHeaders();
 // Replaces the hand-written Vocabulary exception middleware: ServiceMantle
 // writes application/problem+json with the mappings registered above.
 app.UseServiceMantleProblemDetails();
@@ -661,15 +672,25 @@ app.UseMiddleware<AdminSessionFailureMiddleware>();
 app.UseAuthentication();
 app.UseMiddleware<CookieCsrfMiddleware>();
 app.UseAuthorization();
-app.MapAdminAuthEndpoints();
-app.MapSystemVersionEndpoints();
-app.MapVocabularyWordEditEndpoints();
-app.MapVocabularyMeaningEditEndpoints();
-app.MapVocabularyBookUnitEndpoints();
-app.MapVocabularyMeaningPositionEndpoints();
-app.MapVocabularyAdminQueryEndpoints();
-app.MapVocabularyCleanupEndpoints();
-app.MapVocabularyHttpEndpoints(RateLimitingExtensions.PublicApiPolicy);
+// One requirement for the whole administration surface. The empty-prefix group
+// changes no route; it only carries the ServiceMantle security response-header
+// marker down to every endpoint and nested group these mappers create, so the
+// six mandatory headers apply uniformly — including the unknown-route catch-all
+// below. The one mapper that also maps public /api endpoints takes the
+// requirement for its admin group as a delegate instead, so /api never
+// inherits it.
+var adminSurface = app.MapGroup(string.Empty).RequireServiceMantleSecurityResponseHeaders();
+adminSurface.MapAdminAuthEndpoints();
+adminSurface.MapSystemVersionEndpoints();
+adminSurface.MapVocabularyWordEditEndpoints();
+adminSurface.MapVocabularyMeaningEditEndpoints();
+adminSurface.MapVocabularyBookUnitEndpoints();
+adminSurface.MapVocabularyMeaningPositionEndpoints();
+adminSurface.MapVocabularyAdminQueryEndpoints();
+adminSurface.MapVocabularyCleanupEndpoints();
+app.MapVocabularyHttpEndpoints(
+    RateLimitingExtensions.PublicApiPolicy,
+    static adminGroup => adminGroup.RequireServiceMantleSecurityResponseHeaders());
 // The ServiceMantle health endpoints are anonymous and unmetered: /health/live
 // answers liveness alone, /health/ready and /health project the readiness
 // snapshot. Build identity stays in the startup logs and the authorized
@@ -690,7 +711,7 @@ app.MapMethods(
         allHttpMethods,
         () => VocabularyHttpResponse.NotFound("API endpoint was not found."))
     .RequireRateLimiting(RateLimitingExtensions.PublicApiPolicy);
-app.MapMethods(
+adminSurface.MapMethods(
         "/admin/{**path}",
         allHttpMethods,
         () => VocabularyHttpResponse.NotFound("Admin endpoint was not found."))

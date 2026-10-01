@@ -160,6 +160,13 @@ The service identifier is fixed at `lexarbor` and is not configurable. Every dep
 
 On first startup Lexarbor creates an empty database: it ships no vocabulary data, so administrators create books and add words themselves. Existing databases are migrated only; their rows are neither added to nor removed, so a database created by an earlier release keeps its `Starter English 300` book. The same holds for the schema migration that adds book units and meaning-to-unit assignments: it creates two empty tables and one index and rewrites no existing row, and words or meanings work exactly as before without any unit. Rolling back to such an earlier image does not reload that book into a database this release created, because the earlier release also only migrates an existing file. Stop writes before copying the database, or use a SQLite online-backup tool.
 
+Startup prepares the database through a fixed, fail-closed gate. Before any migration runs, the database's parent directory is created when absent (the `data/` directory of a fresh installation) and the database file is observed without being modified: a missing file — and only a missing file — is created atomically, and a database that cannot be used is refused instead of being repaired, with the process exiting non-zero and a log line that carries a ServiceMantle error code only (no path, connection string, or SQL). Two operational consequences:
+
+- **Strict file rules.** The database path must resolve to a plain local file. A path that passes through a symbolic link, a hard-linked database file, a `file:` URI or `:memory:` data source, or a read-only connection mode is rejected before anything is opened. Keep the data directory free of symbolic links.
+- **The upgrade check refuses newer schemas.** A database whose `__EFMigrationsHistory` records a migration the running build does not know — for example one already migrated by a newer image — stops startup with `migration.version_too_new` instead of being rewritten. Before rolling an image back, compare the newest `MigrationId` in the history table against the target image; the running build migrates only forward, never down.
+
+With `Database:InitializeOnStartup=false` the gate is skipped entirely: the application performs no write at startup, keeps running, and readiness honestly reports `notStarted` while migrations are pending. A pre-mounted placeholder file is never rewritten in this mode.
+
 ### Write-ahead logging
 
 Lexarbor switches the database to WAL journalling on every startup. Under the default rollback journal a reader blocks a writer, so the anonymous detail and question endpoints contended with every administrative write; WAL removes that. The setting is stored in the database header, so it applies to an existing database on its next start and needs no migration.
@@ -168,6 +175,8 @@ Two consequences for operators:
 
 - **`/app/data` must be a local filesystem.** WAL places a shared-memory file beside the database, which some network filesystems do not support. A bind mount from the host or a Docker volume is fine; an NFS or SMB mount is not.
 - **The database is three files, not one.** `vocabulary.db` is accompanied by `vocabulary.db-wal` and `vocabulary.db-shm` while the application runs. A file copy that takes only `vocabulary.db` can miss recently committed data. Copy all three with the application stopped, or use a SQLite online-backup tool, which handles this correctly on its own.
+
+A crash, a power loss, or a `kill -9` can leave the `-wal` and `-shm` files behind with the process gone. The next start recognizes exactly this shape, replays and checkpoints the write-ahead log once, and continues with every committed transaction intact; no operator action is needed. Sidecars without the main database file are not a crash to recover — startup refuses rather than creating a new file over them.
 
 `Default Timeout` in the connection string bounds how long a write waits for a database another connection is holding. Lexarbor lowers the driver's 30-second default to 5 seconds, so contention answers `503` with a `Retry-After` header instead of occupying a request thread for longer than the caller is prepared to wait. Set `Default Timeout=` explicitly in `ConnectionStrings:Default` to choose a different value.
 
@@ -329,6 +338,33 @@ browser using its exact Path=/ and Secure attributes, and require legacy login a
 Keep the additive table and key ring; do not run migration Down or convert handles to
 JWT cookies. The two cookie formats are not interchangeable. A historical database
 restore still requires clearing `admin_session` before startup as described above.
+
+## Administration response headers
+
+Every routed `/admin/*` response — the authentication routes, the system version
+endpoint, the business administration API and the unknown-route catch-all — carries
+the ServiceMantle mandatory security-header baseline while its headers are still
+unsent:
+
+```text
+Cache-Control: no-store
+Pragma: no-cache
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+Referrer-Policy: no-referrer
+Content-Security-Policy: default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'
+```
+
+The baseline is not configurable. It applies to every answer these endpoints can
+produce — success, validation failure, redirect, 401/403, 429 rate rejections and
+exception-generated Problem Details alike — including case and trailing-slash
+route variants. Routing happens first, so responses short-circuited before a route
+was selected, and transfer-level failures below routing, do not carry the headers.
+`/admin/system/version` additionally never carries `ETag` or `Last-Modified`
+validators. The baseline is deliberately absent from `/api/*`, `/health*` and the
+SPA assets: the administration JSON surface is not cacheable and must not be
+framed or sniffed, while the SPA could not function under
+`default-src 'none'`. Reverse proxies must not strip or override these headers.
 
 ## Administrator sign-in (hosted login only)
 
@@ -523,14 +559,14 @@ reserved `state`, `iss`, `code`, `error`, `error_description` fields are refused
 Behind a proxy use the registered external HTTPS URI and trusted client-address
 forwarding; the callback is never inferred from untrusted request headers.
 
-`GET /admin/auth/method` returns only `{success:true,data:{method:"hosted"}}`.
 Navigate to `GET /admin/auth/start`, optionally
 with one `returnUrl` from the route allowlist above. It carries the anonymous
 per-IP quota and 429/Retry-After contract. Invalid return targets give 400; missing
 Code configuration or full pending capacity gives 503, and failed/untrusted
 Discovery gives 502, without creating a login cookie or changing existing sessions.
-The deleted `POST /admin/auth/login` route is answered by the unknown-admin-route
-semantics: 401 anonymous, 404 authenticated. Configuration is validated at startup.
+The deleted `POST /admin/auth/login` and `GET /admin/auth/method` routes are
+answered by the unknown-admin-route semantics: 401 anonymous, 404
+authenticated. Configuration is validated at startup.
 
 Start uses Discovery's authorization endpoint with unique supported fields, no
 `response_mode`. Callback requires unique state/issuer and exactly one code or
@@ -538,8 +574,10 @@ allowlisted error, validates browser binding, then atomically consumes the trans
 and clears only its cookie. Success validates both tokens and the access role,
 commits the encrypted session, and redirects to the stored local hash target.
 Failures immediately redirect to `/#/login?reason=canceled|denied|sign_in_failed|provider_unavailable`
-with a fixed classification, never upstream error descriptions. Method/start/callback
-send `Cache-Control: no-store`, and callback sends `Referrer-Policy: no-referrer`.
+with a fixed classification, never upstream error descriptions. These routes,
+like every routed `/admin/*` response, carry the mandatory security-header
+baseline described under
+[Administration response headers](#administration-response-headers).
 Precommit failure or cancellation preserves the existing new/legacy session;
 after commit begins an interrupted/lost result is unknown. Never replay the callback:
 read `/admin/auth/session` to establish the current state or begin a new login.
@@ -565,12 +603,12 @@ log_format lexarbor_safe '$remote_addr $request_method $lexarbor_log_target $sta
 access_log /var/log/nginx/lexarbor.access.log lexarbor_safe;
 ```
 
-The administration UI follows this mode automatically: it reads
-`GET /admin/auth/method`, shows the SignaCore navigation, consumes the
+The administration UI follows automatically: it shows the SignaCore
+navigation, consumes the
 prepared-logout `data.logoutUrl` as a
 top-level navigation, and renders the callback and logout-return `reason`
-values. There is no password form anymore and Lexarbor never receives a
-password. The retired `lexarborAdmin` JWT cookie from the removed modes is not
+values. There is no password form or method probe anymore and Lexarbor never
+receives a password. The retired `lexarborAdmin` JWT cookie from the removed modes is not
 force-logged-out — it is simply never authenticated, and its lifetime was at
 most one hour anyway; hosted sign-in and logout delete it from the browser.
 To roll back, deploy an image that still contains the password proxy: the

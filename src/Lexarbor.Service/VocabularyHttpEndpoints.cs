@@ -26,9 +26,16 @@ public static partial class VocabularyHttpEndpoints
     /// is a hosting decision: this project describes the routes, and the policy it
     /// would otherwise reference is defined and configured by the host.
     /// </param>
+    /// <param name="configureAdminGroup">
+    /// Optional host-side conventions for the <c>/admin</c> group, such as the
+    /// ServiceMantle security response-header requirement. This project cannot
+    /// reference the library that defines it, so the host hands the decision in —
+    /// the same split as the rate limit policy above.
+    /// </param>
     public static IEndpointRouteBuilder MapVocabularyHttpEndpoints(
         this IEndpointRouteBuilder app,
-        string? publicApiRateLimitPolicy = null)
+        string? publicApiRateLimitPolicy = null,
+        Action<RouteGroupBuilder>? configureAdminGroup = null)
     {
         var apiGroup = app.MapGroup("/api");
         if (!string.IsNullOrWhiteSpace(publicApiRateLimitPolicy))
@@ -43,6 +50,7 @@ public static partial class VocabularyHttpEndpoints
 
         var adminGroup = app.MapGroup("/admin")
             .RequireAuthorization(AdminEndpointAuthorization.PolicyName);
+        configureAdminGroup?.Invoke(adminGroup);
         adminGroup.MapPost("/vocabulary", AddOrUpdateVocabulary);
         adminGroup.MapPost("/vocabulary/batch", ImportVocabularyBatch)
             .WithMetadata(new RequestSizeLimitAttribute(MaxBatchRequestBytes));

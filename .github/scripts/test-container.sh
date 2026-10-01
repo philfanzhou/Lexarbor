@@ -238,11 +238,15 @@ check_key_startup_rejected() {
   docker rm -f "$FAILURE_CONTAINER" >/dev/null
 }
 
-check_auth_method() {
-  local container_name="$1" expected="$2" mapped_port
+# The method probe was deleted with the password form: the route now answers
+# like any unknown /admin/* route, anonymous 401 with the auth envelope.
+check_method_route_deleted() {
+  local container_name="$1" mapped_port status
   mapped_port="$(docker port "$container_name" 5008/tcp | head -n 1 | awk -F: '{print $NF}')"
-  curl --fail --silent --show-error "http://127.0.0.1:${mapped_port}/admin/auth/method" |
-    jq --exit-status --arg expected "$expected" '. == {success:true,data:{method:$expected}}' >/dev/null
+  status="$(curl --silent --show-error --output "$TEST_ROOT/method-body" --write-out '%{http_code}' \
+    "http://127.0.0.1:${mapped_port}/admin/auth/method")"
+  test "$status" = 401
+  jq --exit-status '. == {success:false,message:"Authentication is required."}' "$TEST_ROOT/method-body" >/dev/null
 }
 
 bash .github/scripts/test-start-configuration.sh
@@ -252,13 +256,13 @@ start_container "$UNMOUNTED_CONTAINER"
 check_reported_version "$UNMOUNTED_CONTAINER"
 check_runs_unprivileged "$UNMOUNTED_CONTAINER"
 check_root_key_file "$UNMOUNTED_CONTAINER"
-check_auth_method "$UNMOUNTED_CONTAINER" hosted
+check_method_route_deleted "$UNMOUNTED_CONTAINER"
 check_healthcheck_reports_healthy "$UNMOUNTED_CONTAINER"
 docker rm -f -v "$UNMOUNTED_CONTAINER" >/dev/null
 
 echo "Checking explicit Code mode with missing configuration fails safely"
 start_container "$CODE_CONTAINER" --env AdminAuthentication__Provider=OidcCode
-check_auth_method "$CODE_CONTAINER" hosted
+check_method_route_deleted "$CODE_CONTAINER"
 code_port="$(docker port "$CODE_CONTAINER" 5008/tcp | head -n 1 | awk -F: '{print $NF}')"
 code_status="$(curl --silent --show-error --dump-header "$TEST_ROOT/code-headers" --output "$TEST_ROOT/code-body" --write-out '%{http_code}' "http://127.0.0.1:${code_port}/admin/auth/start")"
 test "$code_status" = 503

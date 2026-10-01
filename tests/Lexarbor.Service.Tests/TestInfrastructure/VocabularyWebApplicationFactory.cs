@@ -9,7 +9,6 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -45,7 +44,6 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
     private readonly bool _includeAppCredentials;
     private readonly string _provider;
     private readonly IReadOnlyDictionary<string, string?> _extraConfiguration;
-    private readonly SqliteConnection _databaseConnection;
     private static readonly object NetworkConfigurationLock = new();
 
     public VocabularyWebApplicationFactory()
@@ -68,8 +66,63 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
         _includeAppCredentials = includeAppCredentials;
         _provider = provider;
         _extraConfiguration = extraConfiguration ?? new Dictionary<string, string?>();
-        _databaseConnection = new SqliteConnection(databasePath is null ? "Data Source=:memory:" : $"Data Source={databasePath};Pooling=False");
-        _databaseConnection.Open();
+        // The startup gate accepts real files only (:memory: is an invalid
+        // target), so every host — the default included — works on its own
+        // file under the gate-safe directory. Like production, the hosts get
+        // the connection string rather than one shared open connection: with
+        // Pooling=False every operation opens and closes its own connection,
+        // so SQLite checkpoints the write-ahead log away between operations
+        // and a second host (WithWebHostBuilder) starts against a file the
+        // strict gate can observe — a held-open connection would keep the
+        // -wal/-shm sidecars alive and look like an unrecovered crash. A test
+        // may instead supply the whole connection string through
+        // ConnectionStrings:Default, which is how non-default options such as
+        // Default Timeout reach the gate unchanged.
+        _databaseDirectory = databasePath is null
+            ? CreateGateSafeDirectory($"lexarbor-host-{Guid.NewGuid():N}")
+            : null;
+        _databasePath = databasePath ?? Path.Combine(_databaseDirectory!, "vocabulary.db");
+        _databaseConnectionString =
+            extraConfiguration is not null
+            && extraConfiguration.TryGetValue("ConnectionStrings:Default", out var configured)
+            && !string.IsNullOrWhiteSpace(configured)
+                ? configured
+                : $"Data Source={_databasePath};Pooling=False";
+    }
+
+    private readonly string? _databaseDirectory;
+    private readonly string _databasePath;
+    private readonly string _databaseConnectionString;
+    private string DatabaseConnectionString => _databaseConnectionString;
+
+    /// <summary>
+    /// A database directory whose every path segment from the root is a real
+    /// directory: the strict startup gate rejects paths that resolve through
+    /// symbolic links, which on macOS rules out <see cref="Path.GetTempPath"/>
+    /// (it lives under /var). The test output directory inside the repository
+    /// satisfies the rule on every platform this suite runs on.
+    /// </summary>
+    public static string CreateGateSafeDirectory(string name)
+    {
+        var directory = Path.Combine(AppContext.BaseDirectory, "gate-databases", name);
+        var resolved = Path.GetFullPath(directory);
+        for (var current = resolved; !string.IsNullOrEmpty(current); current = Path.GetDirectoryName(current)!)
+        {
+            if (File.Exists(current))
+            {
+                break;
+            }
+
+            if (Directory.Exists(current) && new DirectoryInfo(current).LinkTarget is not null)
+            {
+                throw new InvalidOperationException(
+                    $"The test database directory resolves through a symbolic link, which the " +
+                    $"startup gate rejects: {Path.GetFileName(current)}");
+            }
+        }
+
+        Directory.CreateDirectory(directory);
+        return directory;
     }
 
     protected override IHost CreateHost(IHostBuilder builder)
@@ -209,7 +262,7 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
             services.RemoveAll<IDbContextFactory<VocabularyDbContext>>();
             services.RemoveAll<VocabularyDbContext>();
             services.AddDbContextFactory<VocabularyDbContext>(options =>
-                options.UseSqlite(_databaseConnection));
+                options.UseSqlite(DatabaseConnectionString));
             services.AddScoped(serviceProvider =>
                 serviceProvider.GetRequiredService<IDbContextFactory<VocabularyDbContext>>().CreateDbContext());
 
@@ -265,10 +318,22 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
         base.Dispose(disposing);
         if (disposing)
         {
-            _databaseConnection.Dispose();
             if (_ownsKeyContentRoot && Directory.Exists(_keyContentRoot))
             {
                 Directory.Delete(_keyContentRoot, recursive: true);
+            }
+
+            if (_databaseDirectory is not null && Directory.Exists(_databaseDirectory))
+            {
+                try
+                {
+                    Directory.Delete(_databaseDirectory, recursive: true);
+                }
+                catch (IOException)
+                {
+                    // A WAL sidecar that SQLite still holds is left behind with
+                    // the directory; the next run never reuses this name.
+                }
             }
         }
     }

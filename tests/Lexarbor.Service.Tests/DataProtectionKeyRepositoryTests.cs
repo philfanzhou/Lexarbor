@@ -21,6 +21,10 @@ public class DataProtectionKeyRepositoryTests : IDisposable
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
     private readonly string _root = Path.Combine(Path.GetTempPath(), $"lexarbor-rootkey-{Guid.NewGuid():N}");
+    // Database files pass through the strict startup gate, so they live in the
+    // gate-safe directory rather than beside the root-key material.
+    private readonly string _databaseRoot = VocabularyWebApplicationFactory.CreateGateSafeDirectory(
+        $"lexarbor-rootkey-db-{Guid.NewGuid():N}");
 
     public DataProtectionKeyRepositoryTests()
     {
@@ -32,6 +36,19 @@ public class DataProtectionKeyRepositoryTests : IDisposable
         if (Directory.Exists(_root))
         {
             Directory.Delete(_root, recursive: true);
+        }
+
+        if (Directory.Exists(_databaseRoot))
+        {
+            try
+            {
+                Directory.Delete(_databaseRoot, recursive: true);
+            }
+            catch (IOException)
+            {
+                // A WAL sidecar SQLite still holds goes with the next run's new
+                // directory name.
+            }
         }
     }
 
@@ -141,7 +158,7 @@ public class DataProtectionKeyRepositoryTests : IDisposable
         Directory.CreateDirectory(Path.Combine(_root, "admin-keys"));
         File.WriteAllText(Path.Combine(_root, "admin-keys", "key-legacy.xml"), "<key>legacy</key>");
 
-        var database = Path.Combine(_root, "keys.db");
+        var database = Path.Combine(_databaseRoot, "keys.db");
         string handle;
         using (var first = new VocabularyWebApplicationFactory("Testing", true,
                      keyContentRoot: _root, databasePath: database))
@@ -173,7 +190,7 @@ public class DataProtectionKeyRepositoryTests : IDisposable
     [Fact]
     public async Task KeysAreStoredAsEnvelopeRows_WithoutPlaintextXml()
     {
-        var database = Path.Combine(_root, "enveloped.db");
+        var database = Path.Combine(_databaseRoot, "enveloped.db");
         using var factory = new VocabularyWebApplicationFactory("Testing", true,
             keyContentRoot: _root, databasePath: database);
         using var client = factory.CreateClient();
@@ -203,7 +220,7 @@ public class DataProtectionKeyRepositoryTests : IDisposable
     [Fact]
     public async Task WrongRootKeyAgainstExistingRows_FailsClosedAtStartup()
     {
-        var database = Path.Combine(_root, "wrongkey.db");
+        var database = Path.Combine(_databaseRoot, "wrongkey.db");
         using (var created = new VocabularyWebApplicationFactory("Testing", true,
                      keyContentRoot: _root, databasePath: database))
         {

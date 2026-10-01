@@ -406,7 +406,11 @@ public sealed class AdminSessionAuthenticationTests
     {
         var root = Path.Combine(Path.GetTempPath(), $"lexarbor-http-session-{Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
-        var database = Path.Combine(root, "sessions.db");
+        // The database passes through the strict startup gate, so it lives in
+        // the gate-safe directory; the key ring keeps its own temp root.
+        var databaseDirectory = VocabularyWebApplicationFactory.CreateGateSafeDirectory(
+            $"lexarbor-http-session-{Guid.NewGuid():N}");
+        var database = Path.Combine(databaseDirectory, "sessions.db");
         try
         {
             string handle;
@@ -433,7 +437,18 @@ public sealed class AdminSessionAuthenticationTests
                 return lostClient;
             });
         }
-        finally { Directory.Delete(root, recursive: true); }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+            try
+            {
+                Directory.Delete(databaseDirectory, recursive: true);
+            }
+            catch (IOException)
+            {
+                // A WAL sidecar SQLite still holds is left behind.
+            }
+        }
     }
 
     [Fact]

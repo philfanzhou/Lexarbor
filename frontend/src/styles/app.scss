@@ -101,23 +101,10 @@ body {
   margin-top: var(--lx-space-1);
 }
 
-/* The fixed provider/return notice above whichever sign-in action the mode
-   selected; it must read clearly next to the card heading. */
+/* The fixed provider/return notice above the hosted sign-in action; it must
+   read clearly next to the card heading. */
 .auth-card__reason {
   margin-bottom: var(--lx-space-4);
-}
-
-.auth-card__pending {
-  margin: 0;
-  padding: var(--lx-space-4) 0;
-  color: var(--lx-color-text-secondary);
-  font-size: var(--lx-font-size-sm);
-  text-align: center;
-}
-
-.auth-card__mode-error .auth-card__retry {
-  width: 100%;
-  margin-top: var(--lx-space-3);
 }
 
 .auth-card__hint {

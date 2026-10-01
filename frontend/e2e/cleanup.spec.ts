@@ -129,8 +129,6 @@ function useDeferredCommit(page: Page) {
 async function mockSession(page: Page) {
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: true, data: admin }))
-  await page.route('**/admin/auth/method', (route) =>
-    json(route, { success: true, data: { method: 'password' } }))
 }
 
 async function mockBooksList(page: Page, books = [bookA, legacyBook]) {
