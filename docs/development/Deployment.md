@@ -658,6 +658,48 @@ Set `LEXARBOR_ADMIN_AUTH_PROVIDER=Gateway` to use the compatibility adapter for 
 | `LEXARBOR_GATEWAY_APP_ID` | Application identifier |
 | `LEXARBOR_GATEWAY_APP_SECRET` | Application secret |
 
+## Optional OpenTelemetry telemetry
+
+Lexarbor can export traces and metrics through a ServiceMantle OpenTelemetry
+pipeline with an OTLP exporter. The capability is **off by default**: with
+neither signal enabled, no tracer or meter provider is registered, no exporter
+exists and no outbound connection is attempted — the process behaves exactly as
+before. The exported resource carries only the service identity
+(`service.name=lexarbor`, `service.version`, `service.instance.id`); Prometheus
+endpoints, installation-phase metrics and log export are not enabled.
+
+Traces cover ASP.NET Core requests and HttpClient calls; metrics cover the .NET
+runtime. The two signals are configured and enabled independently:
+
+| Configuration key | Container variable | Purpose |
+|---|---|---|
+| `Telemetry:Otlp:Traces:Enabled` | `LEXARBOR_TELEMETRY_OTLP_TRACES_ENABLED` | `true` enables trace export |
+| `Telemetry:Otlp:Traces:Endpoint` | `LEXARBOR_TELEMETRY_OTLP_TRACES_ENDPOINT` | HTTPS OTLP collector endpoint |
+| `Telemetry:Otlp:Traces:Protocol` | `LEXARBOR_TELEMETRY_OTLP_TRACES_PROTOCOL` | `Grpc` (default) or `HttpProtobuf` |
+| `Telemetry:Otlp:Traces:AuthenticationHeaderName` | `LEXARBOR_TELEMETRY_OTLP_TRACES_AUTHENTICATION_HEADER_NAME` | Header carrying the collector credential |
+| `Telemetry:Otlp:Metrics:Enabled` | `LEXARBOR_TELEMETRY_OTLP_METRICS_ENABLED` | `true` enables metric export |
+| `Telemetry:Otlp:Metrics:Endpoint` | `LEXARBOR_TELEMETRY_OTLP_METRICS_ENDPOINT` | HTTPS OTLP collector endpoint |
+| `Telemetry:Otlp:Metrics:Protocol` | `LEXARBOR_TELEMETRY_OTLP_METRICS_PROTOCOL` | `Grpc` (default) or `HttpProtobuf` |
+| `Telemetry:Otlp:Metrics:AuthenticationHeaderName` | `LEXARBOR_TELEMETRY_OTLP_METRICS_AUTHENTICATION_HEADER_NAME` | Header carrying the collector credential |
+
+Endpoint rules: the collector endpoint must be HTTPS over a non-loopback host —
+a plain-HTTP endpoint stops startup — and may carry no query, fragment or user
+info. `Telemetry:Otlp:{Traces,Metrics}:AllowInsecureLoopbackForTesting`
+relaxes this for `127.0.0.1`/`[::1]` endpoints and exists for automated tests
+only.
+
+The authentication **header value** never travels through configuration: set
+the header name with the keys above and provide the value as the environment
+variable `LEXARBOR_TELEMETRY_OTLP_AUTHORIZATION`. It is resolved at export
+time, is not written to the configuration snapshot, and does not appear in
+logs or exceptions.
+
+Delivery follows ServiceMantle's bounded semantics (queue size, batch delay
+and export timeout); delivery, retry and completeness are the SDK's
+responsibility. The hosted-login callback and the prepared-logout return route
+carry one-time authorization codes and states, so spans of those routes have
+their URL query attributes redacted before export.
+
 ## Rate limits and client addresses
 
 The two anonymous surfaces carry a per-client-address ceiling. `POST /admin/auth/login`
