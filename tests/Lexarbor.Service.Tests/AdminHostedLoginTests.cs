@@ -395,7 +395,9 @@ public class AdminHostedLoginTests
         Assert.Contains("Authentication is required.", await response.Content.ReadAsStringAsync(Ct));
         using var method = await f.Client.GetAsync("/admin/auth/method//", Ct);
         Assert.Equal(HttpStatusCode.Unauthorized, method.StatusCode);
-        Assert.False(method.Headers.Contains("Cache-Control"));
+        // The catch-all is part of the /admin surface, so its answers carry the
+        // shared security response-header baseline.
+        Assert.Equal("no-store", method.Headers.CacheControl!.ToString());
         Assert.Equal(0, f.Posts);
     }
 

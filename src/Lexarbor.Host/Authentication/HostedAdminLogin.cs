@@ -98,39 +98,3 @@ public static class HostedAdminLogin
     }
     private static IResult Failure(string reason) => Results.Redirect("/#/login?reason=" + reason);
 }
-
-// Hosting diagnostics run before application middleware and log the full query at
-// Information. These categories must remain off even with provider-specific Trace rules.
-public sealed class AdminHostedLoginSafety(RequestDelegate next)
-{
-    public static bool SuppressLogCategory(string? category) => category is "Microsoft.AspNetCore.Hosting.Diagnostics"
-        or "Microsoft.AspNetCore.Http.Result.RedirectResult"
-        || category?.StartsWith("Microsoft.AspNetCore.HttpLogging", StringComparison.Ordinal) == true;
-
-    public Task InvokeAsync(HttpContext context)
-    {
-        // Key the safety headers off the endpoint routing selected rather than the raw
-        // path: case and trailing-slash variants of these routes run the same endpoint
-        // and must carry the same response guarantees.
-        var route = (context.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText;
-        if (route is "/admin/auth/start" or "/admin/auth/callback")
-        {
-            context.Response.Headers.CacheControl = "no-store";
-            if (route == "/admin/auth/callback") context.Response.Headers["Referrer-Policy"] = "no-referrer";
-        }
-        // The logout response can carry the one-time upstream logout URI, and the
-        // fixed return route always redirects with a one-time state, so neither may
-        // be stored; the return route also hides its target from referrers like the
-        // login callback.
-        if (route == "/admin/auth/logout/return")
-        {
-            context.Response.Headers.CacheControl = "no-store";
-            context.Response.Headers["Referrer-Policy"] = "no-referrer";
-        }
-        else if (route == "/admin/auth/logout")
-        {
-            context.Response.Headers.CacheControl = "no-store";
-        }
-        return next(context);
-    }
-}
