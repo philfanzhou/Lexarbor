@@ -20,9 +20,8 @@ public class VocabularyAdminQueryEndpointTests
         await using var factory = new VocabularyWebApplicationFactory("Testing", true,
             extraConfiguration: new Dictionary<string, string?> { ["AdminAuthentication:RequiredRole"] = role });
         using var client = factory.CreateClient();
-        var token = factory.CreateToken(role);
-        if (cookie) client.DefaultRequestHeaders.Add("Cookie", $"{VocabularyWebApplicationFactory.CookieName}={token}");
-        else client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        if (cookie) client.DefaultRequestHeaders.Add("Cookie", factory.CreateSessionCookie(role));
+        else client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", factory.CreateToken(role));
         using (var scope = factory.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();

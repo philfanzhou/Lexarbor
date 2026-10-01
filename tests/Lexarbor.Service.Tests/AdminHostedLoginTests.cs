@@ -201,7 +201,8 @@ public class AdminHostedLoginTests
         Failure(response, reason);
         Assert.All(response.Headers.GetValues("Set-Cookie"), c => Assert.StartsWith(t.Cookie.Split('=')[0] + "=", c));
         using var existing = await f.Send("/admin/auth/session", AdminSessionCookie.Name + "=" + old); Assert.Equal(HttpStatusCode.OK, existing.StatusCode);
-        using var oldSession = await f.Send("/admin/auth/session", "lexarborAdmin=" + legacy); Assert.Equal(HttpStatusCode.OK, oldSession.StatusCode);
+        // The legacy password-login JWT cookie authenticates nothing anymore.
+        using var oldSession = await f.Send("/admin/auth/session", "lexarborAdmin=" + legacy); Assert.Equal(HttpStatusCode.Unauthorized, oldSession.StatusCode);
         using var replay = await f.Callback(t); Failure(replay, "sign_in_failed"); Assert.Equal(1, f.Posts);
         f.AssertSafeLogs(t);
     }
@@ -270,26 +271,31 @@ public class AdminHostedLoginTests
     [InlineData("{broken")]
     [InlineData("")]
     [InlineData("{\"username\":\"sensitive-password-marker\",\"password\":\"sensitive-password-marker\"}")]
-    public async Task CodePasswordEntry_RejectsBeforeBindingOrReadingBody(string body)
+    public async Task DeletedPasswordRoute_RejectsLikeUnknownAdminRoute(string body)
     {
         using var f = new Fixture();
         using var response = await f.Client.PostAsync("/admin/auth/login", new StringContent(body, Encoding.UTF8, "application/json"), Ct);
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal("{\"success\":false,\"message\":\"Password login is disabled for hosted authentication.\"}", await response.Content.ReadAsStringAsync(Ct));
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Contains("Authentication is required.", await response.Content.ReadAsStringAsync(Ct));
         Assert.Equal(0, f.Posts);
         Assert.DoesNotContain(f.Logs.Messages, l => l.Contains("sensitive-password-marker", StringComparison.Ordinal));
         var handle = await f.Seed();
         using var csrf = await f.Send("/admin/auth/login", AdminSessionCookie.Name + "=" + handle, "POST", new StringContent(body));
         Assert.Equal(HttpStatusCode.Forbidden, csrf.StatusCode);
+        using var notFound = await f.Send("/admin/auth/login", AdminSessionCookie.Name + "=" + handle, "POST", new StringContent(body), csrf: true);
+        Assert.Equal(HttpStatusCode.NotFound, notFound.StatusCode);
+        Assert.Contains("Admin endpoint was not found.", await notFound.Content.ReadAsStringAsync(Ct));
     }
 
     [Fact]
-    public async Task StartAndPassword_ShareIpQuotaAndRetryAfter()
+    public async Task StartSharesIpQuotaAndRetryAfter_LoginRouteIsNotMetered()
     {
         using var f = new Fixture(new Dictionary<string, string?> { ["RateLimits:AdminLogin:Enabled"] = "true", ["RateLimits:AdminLogin:PermitLimit"] = "2", ["RateLimits:AdminLogin:WindowSeconds"] = "300" });
         f.Client.DefaultRequestHeaders.Add(VocabularyWebApplicationFactory.ClientAddressHeader, "203.0.113.8");
         using var start = await f.Client.GetAsync("/admin/auth/start", Ct); Assert.Equal(HttpStatusCode.Redirect, start.StatusCode);
-        using var password = await f.Client.PostAsync("/admin/auth/login", new StringContent(""), Ct); Assert.Equal(HttpStatusCode.BadRequest, password.StatusCode);
+        using var second = await f.Client.GetAsync("/admin/auth/start", Ct); Assert.Equal(HttpStatusCode.Redirect, second.StatusCode);
+        // The deleted password route is no longer part of the anonymous login surface.
+        using var login = await f.Client.PostAsync("/admin/auth/login", new StringContent(""), Ct); Assert.Equal(HttpStatusCode.Unauthorized, login.StatusCode);
         using var limited = await f.Client.GetAsync("/admin/auth/start", Ct); Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
         Assert.NotNull(limited.Headers.RetryAfter); Assert.Equal("no-store", limited.Headers.CacheControl!.ToString());
         f.Client.DefaultRequestHeaders.Remove(VocabularyWebApplicationFactory.ClientAddressHeader);
@@ -351,30 +357,27 @@ public class AdminHostedLoginTests
         f.AssertSafeLogs(success);
     }
 
+    // ASP.NET Core routing matches a literal route case-insensitively and with one
+    // optional trailing slash, so every form below runs the same admin catch-all and
+    // must carry the same guarantees as the canonical path.
     [Theory]
-    [InlineData("/admin/auth/login", "application/json", "{broken")]
-    [InlineData("/admin/auth/login/", "application/json", "{broken")]
-    [InlineData("/ADMIN/AUTH/LOGIN", "application/json", "{broken")]
-    [InlineData("/Admin/Auth/Login/", "application/json", "{broken")]
-    [InlineData("/admin/auth/login", "text/plain", "{broken")]
-    [InlineData("/admin/auth/login/", "text/plain", "{broken")]
-    [InlineData("/ADMIN/AUTH/LOGIN/", "text/plain", "{broken")]
-    [InlineData("/admin/auth/login/", "application/json", "")]
-    [InlineData("/Admin/Auth/Login/", "application/json", "")]
-    [InlineData("/admin/auth/login/", "application/json", "{\"username\":\"sensitive-password-marker\",\"password\":\"sensitive-password-marker\"}")]
-    [InlineData("/ADMIN/AUTH/LOGIN/", "application/json", "{\"username\":\"sensitive-password-marker\",\"password\":\"sensitive-password-marker\"}")]
-    [InlineData("/Admin/Auth/Login/", "text/plain", "{\"username\":\"sensitive-password-marker\",\"password\":\"sensitive-password-marker\"}")]
-    public async Task CodePasswordEntry_RejectsEveryAcceptedRouteFormBeforeBinding(string path, string contentType, string body)
+    [InlineData("/admin/auth/login")]
+    [InlineData("/admin/auth/login/")]
+    [InlineData("/ADMIN/AUTH/LOGIN")]
+    [InlineData("/Admin/Auth/Login/")]
+    public async Task DeletedLoginRouteForms_AllBehaveAsUnknownAdminRoute(string path)
     {
         using var f = new Fixture();
-        using var response = await f.Client.PostAsync(path, new StringContent(body, Encoding.UTF8, contentType), Ct);
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal("{\"success\":false,\"message\":\"Password login is disabled for hosted authentication.\"}", await response.Content.ReadAsStringAsync(Ct));
+        using var response = await f.Client.PostAsync(path, new StringContent("{broken", Encoding.UTF8, "application/json"), Ct);
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Contains("Authentication is required.", await response.Content.ReadAsStringAsync(Ct));
         Assert.Equal(0, f.Posts);
         Assert.DoesNotContain(f.Logs.Messages, l => l.Contains("sensitive-password-marker", StringComparison.Ordinal));
         var handle = await f.Seed();
-        using var csrf = await f.Send(path, AdminSessionCookie.Name + "=" + handle, "POST", new StringContent(body));
+        using var csrf = await f.Send(path, AdminSessionCookie.Name + "=" + handle, "POST", new StringContent("{broken"));
         Assert.Equal(HttpStatusCode.Forbidden, csrf.StatusCode);
+        using var notFound = await f.Send(path, AdminSessionCookie.Name + "=" + handle, "POST", new StringContent("{broken"), csrf: true);
+        Assert.Equal(HttpStatusCode.NotFound, notFound.StatusCode);
     }
 
     // Restricted normalization must not claim paths routing itself rejects: a double
@@ -395,50 +398,17 @@ public class AdminHostedLoginTests
     }
 
     [Fact]
-    public async Task StartAndLoginRouteForms_ShareIpQuotaAndRetryAfter()
+    public async Task StartRouteForms_ShareIpQuotaAndRetryAfter()
     {
         using var f = new Fixture(new Dictionary<string, string?> { ["RateLimits:AdminLogin:Enabled"] = "true", ["RateLimits:AdminLogin:PermitLimit"] = "2", ["RateLimits:AdminLogin:WindowSeconds"] = "300" });
         f.Client.DefaultRequestHeaders.Add(VocabularyWebApplicationFactory.ClientAddressHeader, "203.0.113.10");
         using var start = await f.Client.GetAsync("/admin/auth/start/", Ct); Assert.Equal(HttpStatusCode.Redirect, start.StatusCode);
-        using var password = await f.Client.PostAsync("/Admin/Auth/Login/", new StringContent(""), Ct); Assert.Equal(HttpStatusCode.BadRequest, password.StatusCode);
+        using var second = await f.Client.GetAsync("/admin/auth/start", Ct); Assert.Equal(HttpStatusCode.Redirect, second.StatusCode);
         using var limited = await f.Client.GetAsync("/ADMIN/AUTH/START", Ct); Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
         Assert.NotNull(limited.Headers.RetryAfter); Assert.Equal("no-store", limited.Headers.CacheControl!.ToString());
         f.Client.DefaultRequestHeaders.Remove(VocabularyWebApplicationFactory.ClientAddressHeader);
         f.Client.DefaultRequestHeaders.Add(VocabularyWebApplicationFactory.ClientAddressHeader, "203.0.113.11");
         using var other = await f.Client.GetAsync("/admin/auth/start/", Ct); Assert.Equal(HttpStatusCode.Redirect, other.StatusCode);
-    }
-
-    [Theory]
-    [InlineData("Oidc")]
-    [InlineData("Gateway")]
-    public async Task OldModes_KeepPasswordMethodAndRefuseHostedRoutes(string provider)
-    {
-        using var f = new Fixture(provider: provider);
-        using var method = await f.Client.GetAsync("/admin/auth/method", Ct); Assert.Contains("password", await method.Content.ReadAsStringAsync(Ct));
-        using var start = await f.Client.GetAsync("/admin/auth/start", Ct); Assert.Equal(HttpStatusCode.BadRequest, start.StatusCode); Assert.False(start.Headers.Contains("Set-Cookie"));
-        using var callback = await f.Client.GetAsync("/admin/auth/callback?code=sensitive-code-marker", Ct); Failure(callback, "sign_in_failed"); Assert.False(callback.Headers.Contains("Set-Cookie"));
-        Assert.Equal(0, f.Posts);
-    }
-
-    [Theory]
-    [InlineData("Oidc")]
-    [InlineData("Gateway")]
-    public async Task OldModes_RouteFormsKeepOriginalContract(string provider)
-    {
-        using var f = new Fixture(provider: provider);
-        foreach (var form in new[] { "/admin/auth/login/", "/ADMIN/AUTH/LOGIN", "/Admin/Auth/Login/" })
-        {
-            using var json = await f.Client.PostAsync(form, new StringContent("{broken", Encoding.UTF8, "application/json"), Ct);
-            Assert.Equal(HttpStatusCode.BadRequest, json.StatusCode);
-            Assert.Contains("The request is invalid.", await json.Content.ReadAsStringAsync(Ct));
-            using var text = await f.Client.PostAsync(form, new StringContent("{broken", Encoding.UTF8, "text/plain"), Ct);
-            Assert.Equal(HttpStatusCode.Unauthorized, text.StatusCode);
-            Assert.Contains("Authentication is required.", await text.Content.ReadAsStringAsync(Ct));
-        }
-        using var method = await f.Client.GetAsync("/admin/auth/method/", Ct); Assert.Contains("password", await method.Content.ReadAsStringAsync(Ct));
-        using var start = await f.Client.GetAsync("/admin/auth/start/", Ct); Assert.Equal(HttpStatusCode.BadRequest, start.StatusCode); Assert.False(start.Headers.Contains("Set-Cookie"));
-        using var callback = await f.Client.GetAsync("/admin/auth/callback/?code=sensitive-code-marker", Ct); Failure(callback, "sign_in_failed"); Assert.False(callback.Headers.Contains("Set-Cookie"));
-        Assert.Equal(0, f.Posts);
     }
 
     [Theory]
@@ -520,20 +490,6 @@ public class AdminHostedLoginTests
             if (fault.Enabled && mode == "lost-commit") throw new SqliteException("synthetic-storage-secret-marker", 1);
             return Task.CompletedTask;
         }
-    }
-
-    [Theory]
-    [InlineData("Oidc", "text/plain", "{broken", 401, "Authentication is required.")]
-    [InlineData("Gateway", "text/plain", "{broken", 401, "Authentication is required.")]
-    [InlineData("Oidc", "application/json", "{broken", 400, "The request is invalid.")]
-    [InlineData("Gateway", "application/json", "{}", 400, "Username and password are required.")]
-    public async Task OldPasswordBinding_RetainsOriginalJsonAndContentTypeContract(string provider, string type, string body, int status, string message)
-    {
-        using var f = new Fixture(provider: provider);
-        using var response = await f.Client.PostAsync("/admin/auth/login", new StringContent(body, Encoding.UTF8, type), Ct);
-        Assert.Equal(status, (int)response.StatusCode);
-        var text = await response.Content.ReadAsStringAsync(Ct);
-        if (message.Length == 0) Assert.Empty(text); else Assert.Contains(message, text);
     }
 
     [Fact]

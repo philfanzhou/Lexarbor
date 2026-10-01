@@ -3,6 +3,7 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" />
     <PackageReference Include="Mapster" />
+    <PackageReference Include="ServiceMantle.Persistence.Relational" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Lexarbor.Domain\Lexarbor.Domain.csproj" />

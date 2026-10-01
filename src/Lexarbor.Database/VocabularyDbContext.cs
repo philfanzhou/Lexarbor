@@ -1,5 +1,6 @@
 using Lexarbor.Database.Entities;
 using Microsoft.EntityFrameworkCore;
+using ServiceMantle.Persistence.Relational.DataProtection;
 
 namespace Lexarbor.Database;
 
@@ -20,6 +21,10 @@ public class VocabularyDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        // Data Protection keys live in the business database as authenticated
+        // envelopes (sm:v1:) scoped to the lexarbor service id, replacing the
+        // former plaintext file ring under data/admin-keys.
+        modelBuilder.AddServiceMantleDataProtectionKeys();
         modelBuilder.Entity<AdminSessionEntity>(entity =>
         {
             entity.HasIndex(e => new { e.ExpiresAtUnixMs, e.HandleHash });

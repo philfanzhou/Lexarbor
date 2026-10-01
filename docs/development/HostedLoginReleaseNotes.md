@@ -2,12 +2,39 @@
 
 ## Breaking changes
 
-Selecting the new optional `OidcCode` provider disables `POST /admin/auth/login`
-before password JSON binding, returning 400 with `Password login is disabled for
-hosted authentication.` Existing cookie CSRF rules can still return 403 first.
-The default `Oidc` and optional `Gateway` modes retain their previous contracts.
+The password proxy login has been removed (#175). The SignaCore hosted login
+page is the only administrator sign-in, and Lexarbor no longer receives or
+forwards administrator passwords anywhere.
 
-Successful Code login now creates an encrypted server-side session and sends only
+- `POST /admin/auth/login` no longer exists. It is answered like any unknown
+  `/admin/*` route: 401 for anonymous callers, 404 for authenticated
+  administrators.
+- `AdminAuthentication:Oidc`, `AdminAuthentication:Gateway`,
+  `AdminAuthentication:CookieName` and `AdminAuthentication:CookieSecure` are
+  gone, together with the `LEXARBOR_OIDC_{TOKEN_ENDPOINT,CLIENT_ID,CLIENT_SECRET,SCOPE}`,
+  `LEXARBOR_GATEWAY_*`, `LEXARBOR_ADMIN_AUTH_PROVIDER` and
+  `LEXARBOR_COOKIE_SECURE` container variables.
+- `AdminAuthentication:Provider` no longer selects anything. It must be unset
+  or exactly `OidcCode`; any other value stops startup with an English
+  diagnostic pointing at the migration steps in
+  [Deployment](Deployment.md#administrator-sign-in-hosted-login-only).
+- The old `lexarborAdmin` JWT cookie is no longer authenticated. Its lifetime
+  was at most one hour, so every issued cookie has long expired naturally;
+  logout and hosted sign-in still delete it from the browser.
+- `GET /admin/auth/method` now always returns `{"success":true,"data":{"method":"hosted"}}`.
+- `GET /admin/auth/start` keeps its per-IP `admin-login` rate limit and its
+  429/`Retry-After` contract.
+
+Upgrade steps: register a Confidential application with the identity provider
+(per-application audience, exact HTTPS callback), configure the
+`LEXARBOR_OIDC_CODE_*` variables, remove the retired variables listed above,
+and restart. A persisted `appsettings.json` that still carries
+`"Provider": "Oidc"` or `"Gateway"` must be edited by hand.
+
+Selecting the `OidcCode` provider originally disabled `POST /admin/auth/login`
+before password JSON binding, returning 400 with `Password login is disabled for
+hosted authentication.` Successful Code login creates an encrypted server-side
+session and sends only
 an opaque Secure, HttpOnly cookie, bounded by the verified access token expiry.
 It revokes the presented old opaque session atomically and deletes the legacy JWT
 cookie only after confirmed commit. Failures before commit preserve existing
@@ -18,7 +45,7 @@ The administration UI rollout (#155) switched the frontend to them; see
 [Administration UI rollout](#administration-ui-rollout).
 Deployment registration, independent Code configuration, proxy query log
 suppression and rollback are documented in
-[Deployment](Deployment.md#hosted-authorization-code-login-optional).
+[Deployment](Deployment.md#hosted-authorization-code-login).
 
 ## Prepared upstream logout
 

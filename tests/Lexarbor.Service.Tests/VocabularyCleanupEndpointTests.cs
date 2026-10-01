@@ -180,9 +180,10 @@ public class VocabularyCleanupEndpointTests
     private static Task<HttpResponseMessage> PostAsync(HttpClient client, string body, bool preview = false) => client.PostAsync(Path(preview), new StringContent(body, Encoding.UTF8, "application/json"), TestContext.Current.CancellationToken);
     private static void Authenticate(HttpClient client, VocabularyWebApplicationFactory factory, bool cookie, string role)
     {
-        var token = factory.CreateToken(role);
-        if (cookie) client.DefaultRequestHeaders.Add("Cookie", $"{VocabularyWebApplicationFactory.CookieName}={token}");
-        else client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        // The retired JWT cookie authenticates nothing; the cookie variant now uses a
+        // real opaque session cookie.
+        if (cookie) client.DefaultRequestHeaders.Add("Cookie", factory.CreateSessionCookie(role));
+        else client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", factory.CreateToken(role));
     }
     private static async Task<JsonDocument> DataAsync(HttpResponseMessage response)
     {

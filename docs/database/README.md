@@ -88,6 +88,24 @@ Let R be the meanings selected by book and action, and A the distinct word IDs i
 
 A single instance remains the supported deployment. SQLite serializes external writers; busy/constraint failures keep existing 503/409 mappings. Preview counts can become stale between requests. These destructive commands offer no undo, replay safety or automatic orphan sweep.
 
+## ServiceMantle Data Protection keys
+
+`AddServiceDataProtectionKeys` adds only the independent
+`service_data_protection_keys` table (composite primary key `service_id`,
+`key_id`; payload column `encrypted_xml`). Rows hold ASP.NET Core Data
+Protection key XML as ServiceMantle `sm:v1:` authenticated envelopes scoped to
+the `lexarbor` service id and protected by the deployment root key
+(`DataProtection:RootKey` or the root-key file). No vocabulary row or other
+table is touched, and no plaintext key XML ever reaches the database file.
+
+The table is written by the ServiceMantle repository through the registered
+`IDbContextFactory<VocabularyDbContext>`. A wrong root key, a damaged row, or a
+row copied from another service fails closed: startup stops with a fixed safe
+diagnostic instead of serving unreadable sessions. Migration Down drops only
+this table, invalidating administrator sessions. See
+[Deployment](../development/Deployment.md#data-protection-key-storage) for the
+root key, backup and upgrade contract.
+
 ## Encrypted administrator session storage
 
 `AddAdminSessions` adds only the independent `admin_session` table and the
