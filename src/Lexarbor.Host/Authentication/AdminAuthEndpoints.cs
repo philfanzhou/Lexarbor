@@ -42,12 +42,15 @@ public static class AdminAuthEndpoints
     private static async Task<IResult> LogoutAsync(
         HttpContext context,
         AdminSessionStore store,
+        AdminAuthenticationAudit audit,
         AdminPreparedLogout preparedLogout,
         PendingAdminLogoutStore pendingLogouts,
         CancellationToken cancellationToken)
     {
         context.Request.Cookies.TryGetValue(AdminSessionCookie.Name, out var handle);
-        var snapshot = await store.RevokeAndReadAsync(handle, cancellationToken);
+        // The logout audit row joins the revocation's transaction: it is staged only for a
+        // live revoked session, and commits or rolls back with that revocation.
+        var snapshot = await store.RevokeAndReadAsync(handle, audit.StageLogout(context), cancellationToken);
         AdminSessionCookie.Clear(context);
         // The local session ends first, and every caller without a live
         // snapshot — no session, an expired or repeated logout —

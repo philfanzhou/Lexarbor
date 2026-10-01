@@ -26,6 +26,7 @@ using OpenTelemetry.Trace;
 using ServiceMantle;
 using ServiceMantle.Audit;
 using ServiceMantle.Persistence.Relational.DataProtection;
+using ServiceMantle.Persistence.Relational.Stores;
 using ServiceMantle.Web;
 using ServiceMantle.Web.Management;
 using KestrelBadHttpRequestException = Microsoft.AspNetCore.Server.Kestrel.Core.BadHttpRequestException;
@@ -135,6 +136,10 @@ builder.Services.PostConfigure<LoggerFilterOptions>(options =>
 builder.Services.AddScoped<AdminSessionRepository>();
 builder.Services.AddScoped<AdminSessionStore>();
 builder.Services.AddScoped<IAdminSessionSignIn, AdminSessionSignIn>();
+// Management audit rows share the scoped VocabularyDbContext, so a staged audit write joins
+// whatever unit of work the caller owns (ServiceMantle 0.2.1 has no auto-registration helper).
+builder.Services.AddScoped<IManagementAuditWriter, EfCoreManagementAuditWriter<VocabularyDbContext>>();
+builder.Services.AddScoped<AdminAuthenticationAudit>();
 builder.Services.AddHostedService<AdminSessionCleanupService>();
 builder.Services.AddScoped<IVocabularyWordEditRepository, VocabularyWordEditRepository>();
 builder.Services.AddScoped<VocabularyWordEditService>();

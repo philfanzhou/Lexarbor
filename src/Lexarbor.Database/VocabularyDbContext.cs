@@ -1,6 +1,7 @@
 using Lexarbor.Database.Entities;
 using Microsoft.EntityFrameworkCore;
 using ServiceMantle.Persistence.Relational.DataProtection;
+using ServiceMantle.Persistence.Relational.Mapping;
 
 namespace Lexarbor.Database;
 
@@ -25,6 +26,10 @@ public class VocabularyDbContext : DbContext
         // envelopes (sm:v1:) scoped to the lexarbor service id, replacing the
         // former plaintext file ring under data/admin-keys.
         modelBuilder.AddServiceMantleDataProtectionKeys();
+        // Management audit rows (administrator sign-in, sign-out) share the
+        // business database and its transactions; the octet_length CHECK
+        // constraints match the bundled SQLite (>= 3.45).
+        modelBuilder.AddServiceMantleManagementAudit(ManagementAuditDatabaseDialect.Sqlite);
         modelBuilder.Entity<AdminSessionEntity>(entity =>
         {
             entity.HasIndex(e => new { e.ExpiresAtUnixMs, e.HandleHash });
