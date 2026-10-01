@@ -96,7 +96,13 @@ def verify_startup(output, expected, environment, log, token):
                     try:
                         with urllib.request.urlopen("http://127.0.0.1:5008/health", timeout=2) as response:
                             health = json.load(response)
-                        assert health == {"success": True, "data": {"status": "healthy"}}, health
+                        assert health == {
+                            "status": "ready",
+                            "phase": "completed",
+                            "migrationStatus": "succeeded",
+                            "databaseStatus": "reachable",
+                            "errorCode": None,
+                        }, health
                         break
                     except (urllib.error.URLError, TimeoutError):
                         pass

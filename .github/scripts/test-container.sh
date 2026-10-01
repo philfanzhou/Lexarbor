@@ -381,7 +381,27 @@ config_hash_before="$(sha256sum "$existing_data/appsettings.json" | cut -d ' ' -
 database_hash_before="$(sha256sum "$existing_data/vocabulary.db" | cut -d ' ' -f 1)"
 
 echo "Checking that pre-mounted configuration and database files are not overwritten"
-start_bind_mounted_container "$EXISTING_CONTAINER" "$existing_data"
+# Readiness honestly reports not-ready for the placeholder database, so this
+# container never turns healthy by design; verify it serves liveness instead
+# and that neither pre-mounted file was rewritten.
+docker run --detach \
+  --name "$EXISTING_CONTAINER" \
+  --user "$(id -u):$(id -g)" \
+  --volume "$existing_data:/app/data" \
+  --publish 127.0.0.1::5008 \
+  --env APP_VERSION=9.9.9-runtime \
+  --env APP_REVISION=ffffffffffffffffffffffffffffffffffffffff \
+  --env APP_CHANNEL=edge \
+  "$IMAGE_NAME" >/dev/null
+existing_port="$(docker port "$EXISTING_CONTAINER" 5008/tcp | head -n 1 | awk -F: '{print $NF}')"
+for _ in $(seq 1 30); do
+  if curl --fail --silent --show-error "http://127.0.0.1:${existing_port}/health/live" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 1
+done
+curl --fail --silent --show-error "http://127.0.0.1:${existing_port}/health/ready" >"$TEST_ROOT/existing-health.json"
+jq --exit-status '.status == "not_ready" and .migrationStatus == "notStarted"' "$TEST_ROOT/existing-health.json" >/dev/null
 check_key_ring "$EXISTING_CONTAINER"
 config_hash_after="$(sha256sum "$existing_data/appsettings.json" | cut -d ' ' -f 1)"
 database_hash_after="$(sha256sum "$existing_data/vocabulary.db" | cut -d ' ' -f 1)"
