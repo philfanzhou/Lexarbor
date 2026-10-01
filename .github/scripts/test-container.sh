@@ -449,26 +449,27 @@ config_hash_before="$(sha256sum "$existing_data/appsettings.json" | cut -d ' ' -
 database_hash_before="$(sha256sum "$existing_data/vocabulary.db" | cut -d ' ' -f 1)"
 
 echo "Checking that pre-mounted configuration and database files are not overwritten"
-# The placeholder database cannot serve the key repository, so startup refuses
-# by design; what must hold is that neither pre-mounted file was rewritten
-# before the refusal.
-docker run --detach --name "$EXISTING_CONTAINER" \
+# Readiness honestly reports not-ready for the placeholder database, so this
+# container never turns healthy by design; verify it serves liveness instead
+# and that neither pre-mounted file was rewritten. The key repository probe
+# stays silent here: the schema was never verified, and an unverified schema
+# is the operator's responsibility, not a key-storage failure.
+docker run --detach \
+  --name "$EXISTING_CONTAINER" \
   --user "$(id -u):$(id -g)" \
   --volume "$existing_data:/app/data" \
+  --publish 127.0.0.1::5008 \
   "$IMAGE_NAME" >/dev/null
+existing_port="$(docker port "$EXISTING_CONTAINER" 5008/tcp | head -n 1 | awk -F: '{print $NF}')"
 for _ in $(seq 1 30); do
-  if [[ "$(docker inspect --format '{{.State.Running}}' "$EXISTING_CONTAINER")" != "true" ]]; then
+  if curl --fail --silent --show-error "http://127.0.0.1:${existing_port}/health/live" >/dev/null 2>&1; then
     break
   fi
   sleep 1
 done
-test "$(docker inspect --format '{{.State.Running}}' "$EXISTING_CONTAINER")" = false
-docker logs "$EXISTING_CONTAINER" >"$TEST_ROOT/existing-rejected.log" 2>&1
-grep -q 'The Data Protection key repository is unavailable or invalid' "$TEST_ROOT/existing-rejected.log"
-if grep -q 'data-protection-root-key' "$TEST_ROOT/existing-rejected.log"; then
-  echo "The root-key file name appeared in startup diagnostics" >&2
-  exit 1
-fi
+# The ready answer is an expected 503, so fetch it without --fail.
+curl --silent --show-error "http://127.0.0.1:${existing_port}/health/ready" >"$TEST_ROOT/existing-health.json"
+jq --exit-status '.status == "not_ready" and .migrationStatus == "notStarted"' "$TEST_ROOT/existing-health.json" >/dev/null
 config_hash_after="$(sha256sum "$existing_data/appsettings.json" | cut -d ' ' -f 1)"
 database_hash_after="$(sha256sum "$existing_data/vocabulary.db" | cut -d ' ' -f 1)"
 

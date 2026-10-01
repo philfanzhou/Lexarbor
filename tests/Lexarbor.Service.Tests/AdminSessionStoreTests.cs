@@ -495,7 +495,8 @@ public sealed class AdminSessionStoreTests : IDisposable
         using (var setup = provider.CreateScope()) await Db(setup).Database.MigrateAsync(Ct);
         await service.RunBatchAsync(Ct);
         Assert.Single(logger.Messages);
-        using var host = new VocabularyWebApplicationFactory("Testing", true);
+        using var host = new VocabularyWebApplicationFactory("Testing", true,
+            extraConfiguration: new Dictionary<string, string?> { ["Database:InitializeOnStartup"] = "false" });
         using var client = host.CreateClient();
         using var hostCleanup = new AdminSessionCleanupService(host.Services.GetRequiredService<IServiceScopeFactory>(),
             TimeProvider.System, logger);
@@ -503,6 +504,8 @@ public sealed class AdminSessionStoreTests : IDisposable
         // With initialization disabled and the shared database still unmigrated,
         // readiness honestly reports not-ready; the host itself stays alive and
         // serving, which liveness now expresses separately from readiness.
+        // The key repository probe stays silent for the same reason: the schema
+        // was never verified, so there is no key storage to fail closed on.
         using var alive = await client.GetAsync("/health/live", Ct);
         Assert.True(alive.IsSuccessStatusCode);
         using var ready = await client.GetAsync("/health/ready", Ct);

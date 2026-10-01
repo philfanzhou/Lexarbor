@@ -548,25 +548,33 @@ else
 // The key repository fails closed: a wrong root key, damaged ciphertext, an
 // unreadable root-key file or an unusable database stops startup here with a
 // fixed safe diagnostic — never key material or provider detail — instead of
-// surfacing as a 500 on the first administrator login.
-try
+// surfacing as a 500 on the first administrator login. The probe runs only
+// once the startup schema check verified the database: with initialization
+// disabled and migrations pending (or the file unreadable), the schema is the
+// operator's responsibility, the host keeps serving with readiness honestly
+// not-ready, and the first administrator login still fails safe against an
+// unusable repository.
+if (healthState.MigrationStatus == ServiceMantle.Health.ServiceMigrationReadinessState.Succeeded)
 {
-    var protector = app.Services.GetRequiredService<IDataProtectionProvider>()
-        .CreateProtector("Lexarbor.AdminKeys.StartupProbe.v1");
-    const string probe = "lexarbor-key-storage-probe";
-    if (protector.Unprotect(protector.Protect(probe)) != probe)
+    try
     {
-        throw new CryptographicException();
+        var protector = app.Services.GetRequiredService<IDataProtectionProvider>()
+            .CreateProtector("Lexarbor.AdminKeys.StartupProbe.v1");
+        const string probe = "lexarbor-key-storage-probe";
+        if (protector.Unprotect(protector.Protect(probe)) != probe)
+        {
+            throw new CryptographicException();
+        }
     }
-}
-catch (Exception exception) when (
-    exception is DataProtectionKeyRepositoryException
-        or InvalidOperationException
-        or CryptographicException)
-{
-    app.Logger.LogCritical("{Diagnostic}", DataProtectionRootKey.StartupFailureMessage);
-    await app.DisposeAsync();
-    return 1;
+    catch (Exception exception) when (
+        exception is DataProtectionKeyRepositoryException
+            or InvalidOperationException
+            or CryptographicException)
+    {
+        app.Logger.LogCritical("{Diagnostic}", DataProtectionRootKey.StartupFailureMessage);
+        await app.DisposeAsync();
+        return 1;
+    }
 }
 
 // Configure the HTTP request pipeline.

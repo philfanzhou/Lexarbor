@@ -194,10 +194,15 @@ The envelopes are protected by a **root key** with two sources, in this order:
    elsewhere; the default is the `data/` path above.
 
 Startup probes the repository with a non-sensitive Protect/Unprotect round-trip
-after the database is initialized. A wrong root key, damaged ciphertext, an
-unreadable or group/other-accessible root-key file, or a cross-service key row
-stops startup with a fixed safe diagnostic — no key material, paths or provider
-detail. Losing the root key invalidates administrator sessions only: vocabulary
+once the startup schema check has verified the database (after initialization,
+or after the disabled-initialization check found no unapplied migrations). A
+wrong root key, damaged ciphertext, an unreadable or group/other-accessible
+root-key file, or a cross-service key row stops startup with a fixed safe
+diagnostic — no key material, paths or provider detail. A database that was
+never verified — initialization disabled with migrations pending or the file
+unreadable — keeps the host serving with readiness not-ready instead; the first
+administrator login still fails safe. Losing the root key invalidates
+administrator sessions only: vocabulary
 data is unaffected and administrators sign in again.
 
 **Upgrade.** The upgrade adds the table and switches the ring; existing
