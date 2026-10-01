@@ -37,18 +37,25 @@ The last two components are persisted as SQLite stored generated columns and car
 
 ## First-run creation
 
-The connection string defaults to `Data Source=data/vocabulary.db`. The startup order is fixed:
+The connection string defaults to `Data Source=data/vocabulary.db`. Startup runs the ServiceMantle SQLite startup gate and migration orchestration — the former hand-written initializer is gone, and Lexarbor keeps only the executor (EF migrations plus the write-ahead switch). The startup order is fixed:
 
-1. create the parent directory and run the SQLite migrations;
-2. switch the database to write-ahead logging.
+1. the single-instance SQLite deployment mode is validated from the provider declarations alone;
+2. the target is observed without being touched: only a file that is missing is created, atomically, by the target-preparation provider — nothing that already exists is replaced;
+3. exactly one crash shape is recovered: a target conflict on a file that provably exists (a leftover `vocabulary.db-wal`/`vocabulary.db-shm` after an abnormal shutdown) is replayed and checkpointed once through a `Pooling=false` connection and then observed exactly once more. A conflict that survives that attempt, sidecars without the main file, a file that is not a database, and any other unusable target stop startup with a fixed safe diagnostic (a ServiceMantle error code, never a path, connection string, or SQL) and the file is left byte-for-byte unchanged;
+4. the migration orchestration inspects the EF history: an empty or pending database is migrated, an already-current one is skipped without executing anything, and a database whose recorded schema is newer than the running build refuses to start rather than being rewritten;
+5. execution applies the pending EF migrations and switches the database to write-ahead logging, then re-inspects — startup succeeds only when the database is current.
 
 Startup writes no books, words, or meanings, whether the file is new or already exists, so a new database starts empty and data already in an existing one is neither overwritten, duplicated, nor removed. Lexarbor ships no vocabulary data ([ADR-002](../adr/ADR-002-bundled-vocabulary-data.md)); databases created by releases that still loaded the former `Starter English 300` book keep it unchanged.
+
+The gate applies ServiceMantle's strict target rules: the database path must resolve to a plain local file. A path that passes through a symbolic link, a hard-linked database file, a `file:` URI or `:memory:` data source, or a read-only connection mode is rejected before anything is opened, and the diagnostic names the error code only — never the path. Keep the data directory free of symbolic links.
 
 The database file must live on a persistent volume. Docker mounts the host's `data/` at `/app/data` by default; never put a prebuilt `.db` into the image.
 
 ## Upgrading an existing database
 
 Migrations are the only startup writer, and each migration states exactly what it changes. `AddVocabularyBookUnits` adds the two new tables, their indexes, and the `(id, book_id)` unique index on `vocabulary_meaning`; it rewrites no existing row, so books, words, meanings, and their query results cross the upgrade unchanged. Existing meanings keep working without any unit assignment. `AddMeaningUnitSections` rebuilds `vocabulary_meaning_unit` — SQLite cannot `ALTER TABLE` a primary key — to add the `section` column with its `''`/`'A'`/`'B'` CHECK and the wider `(unit_id, meaning_id, section)` primary key; every existing assignment crosses the upgrade as the unsectioned place (`section = ''`), keeps its book, and answers the same queries, and the two membership indexes are recreated. Its Down migration merges a meaning's positions of one unit back to the single row the previous key allows, so rolling back loses the section split but no assignment. `AddMeaningUnitEntryKinds` rebuilds the table once more to add the `entry_kind` column with its `''`/`'word'`/`'phrase'` CHECK and the four-column `(unit_id, meaning_id, section, entry_kind)` primary key; every existing assignment crosses the upgrade as the unclassified kind (`entry_kind = ''`) with its section and book unchanged, and the membership indexes are recreated. Its Down migration merges a meaning's kinds of one place — one row per `(unit_id, meaning_id, section)` survives with its section intact — so rolling back loses the kind split but no assignment. Back up the database consistently before upgrading (stop writes first, or use a SQLite online-backup tool), as with any release; the table rebuilds rewrite the membership table, so a backup taken before the upgrade is the only way back once a sectioned or kinded assignment has been written.
+
+The startup gate also performs an upgrade check an operator can rely on: a database whose `__EFMigrationsHistory` records a migration the running build does not know (for example a database already migrated by a newer image) stops startup with `migration.version_too_new` and is left untouched. To preview the check against a copy of the database, compare the newest `MigrationId` in `__EFMigrationsHistory` with the migrations of the target image — the running build migrates only forward, never down.
 
 ## Write consistency
 

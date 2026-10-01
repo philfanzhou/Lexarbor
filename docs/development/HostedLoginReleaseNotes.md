@@ -71,6 +71,35 @@ turn unhealthy. External monitors that parsed the old envelope must read the
 new fields or use `/health/live`; see
 [Deployment](Deployment.md#health-and-smoke-checks).
 
+Database startup preparation became strict (#181). The hand-written
+initializer was replaced by the ServiceMantle SQLite startup gate and migration
+orchestration; migration content, connection strings and the
+`Database:InitializeOnStartup` switch are unchanged. The behavioral changes an
+operator can observe:
+
+- A database path that resolves through a symbolic link, a hard-linked
+  database file, a `file:` URI or `:memory:` data source, or a read-only
+  connection mode now stops startup with
+  `database_target_preparation.invalid_target` before anything is opened.
+- A database whose `__EFMigrationsHistory` records a migration the running
+  build does not know now stops startup with `migration.version_too_new`
+  instead of attempting to run.
+- Leftover `vocabulary.db-wal`/`vocabulary.db-shm` files after a crash are
+  replayed and checkpointed once on the next start, which keeps every
+  committed transaction; sidecars without the main file stop startup with
+  `database_target_preparation.target_conflict` instead of being adopted.
+- A pre-mounted file that is not a SQLite database stops startup with
+  `database_target_preparation.connection_failed` and is left byte-for-byte
+  unchanged.
+- Startup failure log lines carry these ServiceMantle error codes only — no
+  path, connection string, or SQL.
+
+Upgrade steps: keep the data directory free of symbolic links, and compare the
+newest `MigrationId` in `__EFMigrationsHistory` with the target image before
+rolling one back; see
+[Database](Deployment.md#database) and
+[the database contract](../database/README.md#first-run-creation).
+
 ## Prepared upstream logout
 
 In `OidcCode` mode, `POST /admin/auth/logout` now also prepares a SignaCore logout

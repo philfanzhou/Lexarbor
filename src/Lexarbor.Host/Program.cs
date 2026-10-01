@@ -83,6 +83,9 @@ builder.Services.AddDbContextFactory<VocabularyDbContext>(options =>
 });
 builder.Services.AddScoped(serviceProvider =>
     serviceProvider.GetRequiredService<IDbContextFactory<VocabularyDbContext>>().CreateDbContext());
+// The ServiceMantle startup gate: SQLite target preparation, single-instance
+// validation, and migration orchestration around the executor above.
+builder.Services.AddLexarborDatabaseStartup();
 // Data Protection keys live in the SQLite database as `sm:v1:` authenticated
 // envelopes scoped to the lexarbor service id, protected by the deployment's
 // root key (injected or created under data/); see DataProtectionRootKey.
@@ -552,12 +555,13 @@ if (!app.Environment.IsDevelopment() &&
 // must already exist).
 if (builder.Configuration.GetValue("Database:InitializeOnStartup", true))
 {
-    using var scope = app.Services.CreateScope();
-    var dbContext = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
-    var loggerFactory = scope.ServiceProvider.GetRequiredService<ILoggerFactory>();
     try
     {
-        await DatabaseInitializer.InitializeAsync(dbContext, loggerFactory);
+        // The ServiceMantle startup gate: observe (and only now create) the
+        // SQLite target, refuse unusable ones — with one WAL crash-recovery
+        // attempt — and run the EF migration orchestration. A failure keeps
+        // its fixed safe diagnostic and stops startup with a non-zero exit.
+        await LexarborDatabaseStartup.RunStartupMigrationAsync(app.Services);
         healthState.MigrationStatus = ServiceMantle.Health.ServiceMigrationReadinessState.Succeeded;
     }
     catch

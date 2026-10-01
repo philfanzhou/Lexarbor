@@ -160,6 +160,13 @@ The service identifier is fixed at `lexarbor` and is not configurable. Every dep
 
 On first startup Lexarbor creates an empty database: it ships no vocabulary data, so administrators create books and add words themselves. Existing databases are migrated only; their rows are neither added to nor removed, so a database created by an earlier release keeps its `Starter English 300` book. The same holds for the schema migration that adds book units and meaning-to-unit assignments: it creates two empty tables and one index and rewrites no existing row, and words or meanings work exactly as before without any unit. Rolling back to such an earlier image does not reload that book into a database this release created, because the earlier release also only migrates an existing file. Stop writes before copying the database, or use a SQLite online-backup tool.
 
+Startup prepares the database through a fixed, fail-closed gate. Before any migration runs, the database file is observed without being modified: a missing file — and only a missing file — is created atomically, and a database that cannot be used is refused instead of being repaired, with the process exiting non-zero and a log line that carries a ServiceMantle error code only (no path, connection string, or SQL). Two operational consequences:
+
+- **Strict file rules.** The database path must resolve to a plain local file. A path that passes through a symbolic link, a hard-linked database file, a `file:` URI or `:memory:` data source, or a read-only connection mode is rejected before anything is opened. Keep the data directory free of symbolic links.
+- **The upgrade check refuses newer schemas.** A database whose `__EFMigrationsHistory` records a migration the running build does not know — for example one already migrated by a newer image — stops startup with `migration.version_too_new` instead of being rewritten. Before rolling an image back, compare the newest `MigrationId` in the history table against the target image; the running build migrates only forward, never down.
+
+With `Database:InitializeOnStartup=false` the gate is skipped entirely: the application performs no write at startup, keeps running, and readiness honestly reports `notStarted` while migrations are pending. A pre-mounted placeholder file is never rewritten in this mode.
+
 ### Write-ahead logging
 
 Lexarbor switches the database to WAL journalling on every startup. Under the default rollback journal a reader blocks a writer, so the anonymous detail and question endpoints contended with every administrative write; WAL removes that. The setting is stored in the database header, so it applies to an existing database on its next start and needs no migration.
@@ -168,6 +175,8 @@ Two consequences for operators:
 
 - **`/app/data` must be a local filesystem.** WAL places a shared-memory file beside the database, which some network filesystems do not support. A bind mount from the host or a Docker volume is fine; an NFS or SMB mount is not.
 - **The database is three files, not one.** `vocabulary.db` is accompanied by `vocabulary.db-wal` and `vocabulary.db-shm` while the application runs. A file copy that takes only `vocabulary.db` can miss recently committed data. Copy all three with the application stopped, or use a SQLite online-backup tool, which handles this correctly on its own.
+
+A crash, a power loss, or a `kill -9` can leave the `-wal` and `-shm` files behind with the process gone. The next start recognizes exactly this shape, replays and checkpoints the write-ahead log once, and continues with every committed transaction intact; no operator action is needed. Sidecars without the main database file are not a crash to recover — startup refuses rather than creating a new file over them.
 
 `Default Timeout` in the connection string bounds how long a write waits for a database another connection is holding. Lexarbor lowers the driver's 30-second default to 5 seconds, so contention answers `503` with a `Retry-After` header instead of occupying a request thread for longer than the caller is prepared to wait. Set `Default Timeout=` explicitly in `ConnectionStrings:Default` to choose a different value.
 
