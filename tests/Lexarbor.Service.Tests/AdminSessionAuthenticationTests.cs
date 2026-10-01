@@ -419,11 +419,15 @@ public sealed class AdminSessionAuthenticationTests
             using (var second = new VocabularyWebApplicationFactory("Testing", true, keyContentRoot: root, databasePath: database))
             using (var client = Client(second))
                 Assert.Equal(HttpStatusCode.OK, (await Send(client, "GET", "/admin/auth/session", Cookies(handle))).StatusCode);
-            using var lost = new VocabularyWebApplicationFactory("Testing", true, keyContentRoot: Path.Combine(root, "new-ring"), databasePath: database);
-            using var lostClient = Client(lost);
-            var cookie = Cookies(handle, lost.CreateToken("admin"));
-            Assert.Equal(HttpStatusCode.Unauthorized, (await Send(lostClient, "GET", "/admin/auth/session", cookie)).StatusCode);
-            Assert.Equal(HttpStatusCode.OK, (await Send(lostClient, "POST", "/admin/auth/logout", cookie)).StatusCode);
+            // A different root key against the existing key rows is refused at
+            // startup by the protect/unprotect probe: the host never serves.
+            Assert.ThrowsAny<Exception>(() =>
+            {
+                using var lost = new VocabularyWebApplicationFactory("Testing", true,
+                    keyContentRoot: Path.Combine(root, "new-ring"), databasePath: database);
+                using var lostClient = Client(lost);
+                return lostClient;
+            });
         }
         finally { Directory.Delete(root, recursive: true); }
     }

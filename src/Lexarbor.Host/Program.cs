@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Security.Cryptography;
 using Lexarbor.Database;
 using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Repositories;
@@ -11,6 +12,7 @@ using Lexarbor.Service;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Data.Sqlite;
@@ -20,6 +22,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using ServiceMantle;
+using ServiceMantle.Persistence.Relational.DataProtection;
 
 // Before anything is built. The container HEALTHCHECK runs this same assembly,
 // and a health probe that first composed configuration, opened the database and
@@ -64,14 +67,33 @@ builder.WebHost.ConfigureKestrel(options =>
 });
 
 // Add services to the container.
-PersistentAdminKeyRing.Register(builder.Services);
 var connectionString = BuildSqliteConnectionString(
     builder.Configuration.GetConnectionString("Default"),
     builder.Environment.ContentRootPath);
-builder.Services.AddDbContext<VocabularyDbContext>(options =>
+// One registration path serves both the application and the ServiceMantle
+// Data Protection key repository: the factory creates the repository's own
+// contexts, and the scoped wrapper gives each request exactly one context.
+builder.Services.AddDbContextFactory<VocabularyDbContext>(options =>
 {
     options.UseSqlite(connectionString);
 });
+builder.Services.AddScoped(serviceProvider =>
+    serviceProvider.GetRequiredService<IDbContextFactory<VocabularyDbContext>>().CreateDbContext());
+// Data Protection keys live in the SQLite database as `sm:v1:` authenticated
+// envelopes scoped to the lexarbor service id, protected by the deployment's
+// root key (injected or created under data/); see DataProtectionRootKey.
+builder.Services
+    .AddDataProtection()
+    .SetApplicationName("Lexarbor")
+    .PersistKeysToServiceMantleEfCore<VocabularyDbContext>(
+        ServiceId.Parse("lexarbor"),
+        serviceProvider => DataProtectionRootKey.Resolve(
+            serviceProvider.GetRequiredService<IConfiguration>(),
+            serviceProvider.GetRequiredService<IHostEnvironment>().ContentRootPath));
+// Framework error diagnostics can include the XML element being processed.
+// Emit only our safe startup diagnostic; never send key material to host logs.
+builder.Services.AddLogging(logging =>
+    logging.AddFilter("Microsoft.AspNetCore.DataProtection", LogLevel.None));
 
 builder.Services.AddScoped<IVocabularyRepository, VocabularyRepository>();
 builder.Services.AddScoped<IVocabularyBookRepository, VocabularyBookRepository>();
@@ -316,16 +338,7 @@ builder.Services.AddLexarborRateLimiting(builder.Configuration);
 
 var app = builder.Build();
 
-try
-{
-    PersistentAdminKeyRing.Validate(app.Services);
-}
-catch (InvalidOperationException exception)
-{
-    app.Logger.LogCritical("{Diagnostic}", exception.Message);
-    await app.DisposeAsync();
-    return 1;
-}
+
 
 app.Logger.LogInformation("Lexarbor starting, version {Version}", ApplicationVersion.Current);
 app.Logger.LogInformation(
@@ -433,13 +446,39 @@ if (!app.Environment.IsDevelopment() &&
     }
 }
 
-// Configure database initialization.
+// Configure database initialization. The key repository needs the
+// service_data_protection_keys table, so the startup probe follows the
+// migration (or, with initialization disabled, the schema must already exist).
 if (builder.Configuration.GetValue("Database:InitializeOnStartup", true))
 {
     using var scope = app.Services.CreateScope();
     var dbContext = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
     var loggerFactory = scope.ServiceProvider.GetRequiredService<ILoggerFactory>();
     await DatabaseInitializer.InitializeAsync(dbContext, loggerFactory);
+}
+
+// The key repository fails closed: a wrong root key, damaged ciphertext, an
+// unreadable root-key file or an unusable database stops startup here with a
+// fixed safe diagnostic — never key material or provider detail — instead of
+// surfacing as a 500 on the first administrator login.
+try
+{
+    var protector = app.Services.GetRequiredService<IDataProtectionProvider>()
+        .CreateProtector("Lexarbor.AdminKeys.StartupProbe.v1");
+    const string probe = "lexarbor-key-storage-probe";
+    if (protector.Unprotect(protector.Protect(probe)) != probe)
+    {
+        throw new CryptographicException();
+    }
+}
+catch (Exception exception) when (
+    exception is DataProtectionKeyRepositoryException
+        or InvalidOperationException
+        or CryptographicException)
+{
+    app.Logger.LogCritical("{Diagnostic}", DataProtectionRootKey.StartupFailureMessage);
+    await app.DisposeAsync();
+    return 1;
 }
 
 // Configure the HTTP request pipeline.
