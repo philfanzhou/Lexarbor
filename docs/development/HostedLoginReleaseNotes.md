@@ -24,6 +24,15 @@ forwards administrator passwords anywhere.
 - `GET /admin/auth/method` now always returns `{"success":true,"data":{"method":"hosted"}}`.
 - `GET /admin/auth/start` keeps its per-IP `admin-login` rate limit and its
   429/`Retry-After` contract.
+- Every routed `/admin/*` response (#177) — authentication routes, the business
+  administration API, the system version endpoint and the unknown-route
+  catch-all — now carries the ServiceMantle mandatory security-header baseline
+  (`Cache-Control: no-store`, `Pragma: no-cache`, `X-Content-Type-Options:
+  nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer` and a
+  lock-down `Content-Security-Policy`) on every answer, replacing the
+  route-by-route handwritten `no-store`/`no-referrer` headers. `/api/*`,
+  `/health*` and the SPA are unchanged; see
+  [Deployment](Deployment.md#administration-response-headers).
 
 Upgrade steps: register a Confidential application with the identity provider
 (per-application audience, exact HTTPS callback), configure the
