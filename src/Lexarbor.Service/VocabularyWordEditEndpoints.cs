@@ -16,6 +16,6 @@ public static class VocabularyWordEditEndpoints
         {
             await service.ReplaceAsync(wordId, request.Word, request.PhoneticUk, request.PhoneticUs, cancellationToken);
             return VocabularyHttpResponse.Ok(new BoolResponse { Success = true });
-        }).RequireAuthorization("VocabularyAdmin");
+        }).RequireAuthorization(AdminEndpointAuthorization.PolicyName);
     }
 }

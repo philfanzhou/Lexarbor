@@ -24,8 +24,10 @@ using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using OpenTelemetry.Trace;
 using ServiceMantle;
+using ServiceMantle.Audit;
 using ServiceMantle.Persistence.Relational.DataProtection;
 using ServiceMantle.Web;
+using ServiceMantle.Web.Management;
 using KestrelBadHttpRequestException = Microsoft.AspNetCore.Server.Kestrel.Core.BadHttpRequestException;
 
 // Before anything is built. The container HEALTHCHECK runs this same assembly,
@@ -223,6 +225,20 @@ builder.Services
             {
                 // Bearer tokens come only from the Authorization header: the retired
                 // password-login cookie is never read here again.
+                OnTokenValidated = context =>
+                {
+                    // A Bearer credential is a non-interactive caller: the
+                    // ServiceMantle management identity is minted from the token's
+                    // own verified claims, and any servicemantle.* claim the token
+                    // carried is removed first, so it can never elevate.
+                    ManagementIdentityMapping.Apply(
+                        context.Principal!,
+                        context.HttpContext.RequestServices
+                            .GetRequiredService<IOptionsMonitor<AdminAuthenticationOptions>>()
+                            .CurrentValue.RequiredRole,
+                        WellKnownManagementAuditOperatorSources.ServiceAccount.Value);
+                    return Task.CompletedTask;
+                },
                 OnChallenge = async context =>
                 {
                     context.HandleResponse();
@@ -246,15 +262,12 @@ builder.Services
                 }
             };
         });
-builder.Services.AddSingleton<IAuthorizationHandler, AdminRoleHandler>();
-builder.Services.AddAuthorization(options =>
-{
-    options.AddPolicy("VocabularyAdmin", policy =>
-    {
-        policy.RequireAuthenticatedUser();
-        policy.AddRequirements(new AdminRoleRequirement());
-    });
-});
+// The administrator policy is the ServiceMantle management contract: it grants
+// only a principal whose ServiceMantle claims (minted by
+// ManagementIdentityMapping from the verified session or Bearer identity)
+// resolve to one operator holding management.admin. The role check itself stays
+// Lexarbor's product rule and lives in the mapping.
+builder.Services.AddServiceMantleManagementAuthorization();
 
 var networkOptions = builder.Configuration.GetSection(NetworkOptions.SectionName).Get<NetworkOptions>() ?? new NetworkOptions();
 var useTrustedForwarding = networkOptions.IsConfigured || networkOptions.ForwardLimit != 1;
@@ -702,7 +715,7 @@ adminSurface.MapMethods(
         "/admin/{**path}",
         allHttpMethods,
         () => VocabularyHttpResponse.NotFound("Admin endpoint was not found."))
-    .RequireAuthorization("VocabularyAdmin");
+    .RequireAuthorization(ManagementAuthorizationDefaults.AdminPolicyName);
 app.MapFallbackToFile("index.html").AllowAnonymous();
 
 // The service identity (ServiceName, ServiceVersion, InstanceId) rides a

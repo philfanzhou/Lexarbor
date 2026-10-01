@@ -18,7 +18,7 @@ public static class VocabularyBookUnitEndpoints
     public static IEndpointRouteBuilder MapVocabularyBookUnitEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/admin/vocabulary-books/{bookId}/units")
-            .RequireAuthorization("VocabularyAdmin");
+            .RequireAuthorization(AdminEndpointAuthorization.PolicyName);
 
         group.MapGet("/", ListUnits);
         group.MapPost("/", CreateUnit);

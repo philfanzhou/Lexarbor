@@ -91,7 +91,7 @@ Configuration conventions:
 - `AdminAuthentication:Provider` selects nothing; it accepts being unset or exactly `OidcCode`, and any other value stops the process at startup so an operator cannot believe password login still exists.
 - The service still starts when the hosted-login credentials are missing; `GET /admin/auth/start` answers its existing 503 and the configuration error is logged without any secret.
 - `Issuer`, `Audience`, the signature, public key rotation, and expiry are validated by JWT Bearer and independently by the code exchange.
-- The JWT handler has inbound claim mapping turned off. The role claim is accepted both as the short name `role` and as the full `ClaimTypes.Role` URI, which covers how common OIDC and .NET issuers serialize claims. The administrator policy requires `AdminAuthentication:RequiredRole` (default `admin`), which `AdminRoleHandler` reads at evaluation time.
+- The JWT handler has inbound claim mapping turned off. The role claim is accepted both as the short name `role` and as the full `ClaimTypes.Role` URI, which covers how common OIDC and .NET issuers serialize claims. Administrator authorization uses the ServiceMantle management identity: after a credential validates, the host maps the principal onto `servicemantle.operator_id` (the verified subject), `servicemantle.operator_source` (`interactive_admin` for a session cookie, `service_account` for a Bearer token) and the `management.admin` permission, but only when the principal carries `AdminAuthentication:RequiredRole` (default `admin`). Every `servicemantle.*` claim an inbound credential carried is removed first, so a ServiceMantle identity can only be minted by this mapping, and a subject that is not in the operator-id wire form fails closed with 403 rather than being truncated. The `ServiceMantle.ManagementAdmin` policy authorizes every administration route.
 - The provider's signing metadata may only be fetched over HTTPS unless the environment is Development, the authority is loopback, or `IdentityService:RequireHttpsMetadata` says otherwise. An `http://` authority on another host stops the process at startup. The keys at that address are the root of every administration authorization, so accepting them over plain HTTP has to be something a deployment asked for, and the startup log reports which way it resolved.
 
 ### 5.2 Login flow
@@ -113,7 +113,7 @@ Each request selects exactly one authentication source:
 1. `Authorization: Bearer <token>` selects Bearer validation.
 2. Otherwise — cookie-bearing or anonymous — the encrypted server-side session answers. The retired `lexarborAdmin` password-login cookie is never read.
 
-The bearer channel serves automated tests and controlled API calls; the administration frontend uses the session cookie only. Every administration endpoint uses the authorization policy named `VocabularyAdmin`, which requires an authenticated principal carrying `role=admin`.
+The bearer channel serves automated tests and controlled API calls; the administration frontend uses the session cookie only. Every administration endpoint uses the ServiceMantle policy named `ServiceMantle.ManagementAdmin`, which resolves the mapped management identity and requires the `management.admin` permission — reachable only through the configured administrator role.
 
 An authentication challenge and a forbidden response return, respectively:
 
@@ -129,7 +129,7 @@ with status codes 401 and 403.
 
 ### 5.4 Logout and sessions
 
-- `GET /admin/auth/session` is protected by the `VocabularyAdmin` policy and lets the frontend initialize its login state.
+- `GET /admin/auth/session` is protected by the `ServiceMantle.ManagementAdmin` policy and lets the frontend initialize its login state; its `{username, roles}` response is still built from the original sign-in claims, never from the mapped management identity.
 - `POST /admin/auth/logout` is callable anonymously, atomically revokes the presented session handle, and deletes both the session cookie and the retired `lexarborAdmin` cookie, so an expired or corrupted cookie can be cleared too.
 - After logout the browser no longer carries a usable credential, and a further administration request answers 401.
 - The session ends at the access token's exact `exp`; there is no refresh token, so the browser cannot restore the session by itself.
@@ -465,13 +465,13 @@ When Identity and Vocabulary can both be run, add HTTP smoke tests for login, th
 
 ### Administrator build identity
 
-`GET /admin/system/version` explicitly requires `VocabularyAdmin` (the existing Cookie/Bearer and configurable required role). Success is `{"success":true,"data":{"version":"1.2.3","revision":null,"channel":"release"}}`. The immutable running Host assembly supplies all three fields: version preserves prerelease suffixes, revision is a full lowercase SHA or JSON null, and channel is `release`, `edge`, or `development`. Missing metadata falls back independently to `unknown`/null/`development`; runtime configuration cannot replace it.
+`GET /admin/system/version` explicitly requires `ServiceMantle.ManagementAdmin` (the existing Cookie/Bearer and configurable required role). Success is `{"success":true,"data":{"version":"1.2.3","revision":null,"channel":"release"}}`. The immutable running Host assembly supplies all three fields: version preserves prerelease suffixes, revision is a full lowercase SHA or JSON null, and channel is `release`, `edge`, or `development`. Missing metadata falls back independently to `unknown`/null/`development`; runtime configuration cannot replace it.
 
 Anonymous/invalid credentials receive 401; authenticated non-administrators receive 403. Failure envelopes contain only `success:false,message`, without build fields. Every response on this path is `Cache-Control: no-store`; there are no ETag/Last-Modified validators or 304 responses. Conditional GET still returns current content. Concurrent reads share the immutable snapshot; cancelled reads do not write storage or schedule work. Anonymous `/health` continues to expose only `status` in its data object. This identity describes the application build, not an image digest or an update check. No configuration or database migration is required.
 
 ### Replace shared word fields
 
-`PUT /admin/vocabulary/{wordId}` requires `VocabularyAdmin`. Send all three fields: `{word:string,phoneticUk:string|null,phoneticUs:string|null}`. Missing fields, undeclared fields (including IDs or meanings), invalid JSON types, and null/blank word return 400 without writes. Word equivalence uses `Trim().ToLowerInvariant()`; phonetics are trimmed and null/blank explicitly clears them. The submitted spelling is stored as the display value, trimmed but with its casing: this endpoint is the one sanctioned way to correct a word's casing, because it is confined to a row whose normalized key is unchanged. Imports never rewrite display spelling. To retain a field, send its current value. This is separate from import's optional-field merge behavior.
+`PUT /admin/vocabulary/{wordId}` requires `ServiceMantle.ManagementAdmin`. Send all three fields: `{word:string,phoneticUk:string|null,phoneticUs:string|null}`. Missing fields, undeclared fields (including IDs or meanings), invalid JSON types, and null/blank word return 400 without writes. Word equivalence uses `Trim().ToLowerInvariant()`; phonetics are trimmed and null/blank explicitly clears them. The submitted spelling is stored as the display value, trimmed but with its casing: this endpoint is the one sanctioned way to correct a word's casing, because it is confined to a row whose normalized key is unchanged. Imports never rewrite display spelling. To retain a field, send its current value. This is separate from import's optional-field merge behavior.
 
 The write transaction re-reads the existing target (404 if missing), rejects any other ID with the same normalized spelling (409), and updates only the shared word, phonetics and that word's `updatedAt`. All meanings and book memberships remain unchanged, including disabled-book memberships. Historical unassigned words can be edited. Success uses the existing BoolResponse envelope (`success:true` in both the envelope and data). Cookie writes still require `X-Requested-With: XMLHttpRequest`; Bearer writes retain existing semantics. Anonymous/non-admin requests return 401/403 without writes.
 
@@ -479,7 +479,7 @@ Edits and imports serialize through the existing UnitOfWork. Last successful com
 
 ### Replace one book-owned meaning
 
-`PUT /admin/vocabulary-books/{bookId}/words/{wordId}/meanings/{meaningId}` requires `VocabularyAdmin` and all three JSON fields: `{partOfSpeech:string|null,meaning:string,example:string|null}`. Missing fields, unknown fields (including resource IDs or shared word fields), invalid types, or null/blank meaning return 400. Meaning/example are trimmed; part of speech is trimmed and lowercased, with null/blank normalized to the existing empty string. Null/blank example clears it. Send original values to keep them.
+`PUT /admin/vocabulary-books/{bookId}/words/{wordId}/meanings/{meaningId}` requires `ServiceMantle.ManagementAdmin` and all three JSON fields: `{partOfSpeech:string|null,meaning:string,example:string|null}`. Missing fields, unknown fields (including resource IDs or shared word fields), invalid types, or null/blank meaning return 400. Meaning/example are trimmed; part of speech is trimmed and lowercased, with null/blank normalized to the existing empty string. Null/blank example clears it. Send original values to keep them.
 
 The serialized write transaction checks the book, word and meaning exist (404), then verifies exact ownership (409) and rejects an equivalent definition belonging to another meaning ID (409). Existing meanings in disabled books may be edited. It updates only the target meaning's three fields and `updatedAt`, never moves ownership or changes the shared word or other meanings. Success uses the existing BoolResponse envelope. Existing Cookie/Bearer/custom role and Cookie CSRF checks apply; 401/403 never write management data.
 
@@ -487,7 +487,7 @@ The existing UnitOfWork provides atomic rollback and serial order with imports. 
 
 ### Manage book units
 
-The four `/admin/vocabulary-books/{bookId}/units` routes require `VocabularyAdmin`, including the existing Cookie/Bearer credentials, configurable required role, and the Cookie CSRF header on the three writes. They are the only way an administrator creates or maintains the units later import and query tasks reference by stable ID; an import never creates or renames a unit implicitly.
+The four `/admin/vocabulary-books/{bookId}/units` routes require `ServiceMantle.ManagementAdmin`, including the existing Cookie/Bearer credentials, configurable required role, and the Cookie CSRF header on the three writes. They are the only way an administrator creates or maintains the units later import and query tasks reference by stable ID; an import never creates or renames a unit implicitly.
 
 `GET` lists the book's units in ascending unit order, unpaged, as `data.units = [{id,bookId,number,title,meaningCount}]`. Each `meaningCount` is how many distinct meanings the unit has assigned, from one grouped read over the book's memberships — a meaning assigned to both Section A and Section B of the unit counts once; a unit with no assignments reads zero. A missing book returns 404; a disabled book lists like an enabled one.
 
@@ -497,13 +497,13 @@ The serialized write transaction checks the book and unit exist (404), and that 
 
 ### Exact meaning-position writes
 
-The two exact-position routes require `VocabularyAdmin`. `PUT /admin/vocabulary-books/{bookId}/meanings/{meaningId}/positions` accepts `{"from":{"unitId":"...","section":"A"|"B"|null,"entryKind":"word"|"phrase"|null},"to":{...}}`; every field is required and unknown fields or invalid values return 400. It moves the source assignment to the target in one serialized SQLite transaction. Replaying `from=to` succeeds only when that source exists. A missing book, meaning, source/target unit in the book, or source assignment returns 404; a distinct existing target returns 409 without modifying either assignment. Disabled books may be edited.
+The two exact-position routes require `ServiceMantle.ManagementAdmin`. `PUT /admin/vocabulary-books/{bookId}/meanings/{meaningId}/positions` accepts `{"from":{"unitId":"...","section":"A"|"B"|null,"entryKind":"word"|"phrase"|null},"to":{...}}`; every field is required and unknown fields or invalid values return 400. It moves the source assignment to the target in one serialized SQLite transaction. Replaying `from=to` succeeds only when that source exists. A missing book, meaning, source/target unit in the book, or source assignment returns 404; a distinct existing target returns 409 without modifying either assignment. Disabled books may be edited.
 
 `DELETE /admin/vocabulary-books/{bookId}/meanings/{meaningId}/positions/{unitId}?section=...&entryKind=...` removes only the named quadruple. Both query keys are mandatory; `A`/`B` or `none` select a section and `word`/`phrase` or `none` select an entry kind. `none` denotes the unsectioned or unclassified stored position. A missing position returns 404, including a repeated delete. The meaning, shared word, other unit and section positions, and another entry kind at the same unit and section survive. Both routes return `{success:true}` inside the management success envelope. Cookie writes still require `X-Requested-With: XMLHttpRequest`; Bearer writes do not. Authentication, rate limits, public `/api`, and the existing meaning-delete scope are unchanged. A disconnected caller must query the current state before retrying an uncertain write result.
 
 ### Administrator vocabulary reads
 
-These GET routes require `VocabularyAdmin`, including the existing Cookie/Bearer credentials and configurable required role. Anonymous callers receive 401 and authenticated non-administrators 403, with no management data. Existing public endpoints and `/admin/vocabulary-books/{id}/words` retain their contracts.
+These GET routes require `ServiceMantle.ManagementAdmin`, including the existing Cookie/Bearer credentials and configurable required role. Anonymous callers receive 401 and authenticated non-administrators 403, with no management data. Existing public endpoints and `/admin/vocabulary-books/{id}/words` retain their contracts.
 
 | Route | Optional query | Success `data` |
 |---|---|---|
@@ -525,7 +525,7 @@ Blank keywords select all; otherwise trimmed text uses SQLite ASCII case-insensi
 
 ### Preview and commit vocabulary cleanup
 
-Both `POST /admin/vocabulary-books/{bookId}/cleanup/preview` and `POST /admin/vocabulary-books/{bookId}/cleanup` require `VocabularyAdmin`, including the existing Cookie CSRF header for either POST. Bearer and configurable administrator roles retain their behavior. Authorization/CSRF runs before body parsing. Requests have an explicit 1 MiB byte limit (including unknown-length/chunked bodies); oversize requests return the usual 413 failure envelope.
+Both `POST /admin/vocabulary-books/{bookId}/cleanup/preview` and `POST /admin/vocabulary-books/{bookId}/cleanup` require `ServiceMantle.ManagementAdmin`, including the existing Cookie CSRF header for either POST. Bearer and configurable administrator roles retain their behavior. Authorization/CSRF runs before body parsing. Requests have an explicit 1 MiB byte limit (including unknown-length/chunked bodies); oversize requests return the usual 413 failure envelope.
 
 | `action` | Selection fields | Effect |
 |---|---|---|

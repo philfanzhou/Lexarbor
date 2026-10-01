@@ -1,4 +1,5 @@
 using Lexarbor.Service;
+using ServiceMantle.Web.Management;
 
 namespace Lexarbor.Host;
 
@@ -13,6 +14,6 @@ internal static class SystemVersionEndpoints
             version = ApplicationVersion.Current,
             revision = ApplicationVersion.Revision,
             channel = ApplicationVersion.Channel
-        })).RequireAuthorization("VocabularyAdmin");
+        })).RequireAuthorization(ManagementAuthorizationDefaults.AdminPolicyName);
     }
 }

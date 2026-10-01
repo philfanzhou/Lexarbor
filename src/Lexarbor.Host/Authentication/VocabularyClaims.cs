@@ -56,6 +56,16 @@ public static class VocabularyClaims
     }
 
     /// <summary>
+    /// Returns the subject identifier of the signed-in identity, accepting both
+    /// the short <c>sub</c> name and the <see cref="ClaimTypes"/> URI shape.
+    /// Returns null when the token carries none.
+    /// </summary>
+    public static string? GetSubject(ClaimsPrincipal? user)
+    {
+        return user is null ? null : FindFirst(user, SubjectClaimTypes);
+    }
+
+    /// <summary>
     /// Returns a display name for the signed-in administrator, falling back to the
     /// subject identifier. Returns null when the token carries neither.
     /// </summary>

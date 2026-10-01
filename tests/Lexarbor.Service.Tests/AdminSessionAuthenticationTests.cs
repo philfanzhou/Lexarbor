@@ -20,6 +20,7 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
+using ServiceMantle.Web.Management;
 
 namespace Lexarbor.Service.Tests;
 
@@ -527,11 +528,14 @@ public sealed class AdminSessionAuthenticationTests
             return Task.CompletedTask;
         }
     }
-    private sealed class ReadGate : AuthorizationHandler<AdminRoleRequirement>
+    // Holds one administrator request inside authorization (the ServiceMantle
+    // management-permission requirement the /admin routes now use), so a test
+    // can act while that request is between authentication and the endpoint.
+    private sealed class ReadGate : AuthorizationHandler<ManagementPermissionRequirement>
     {
         public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        protected override async Task HandleRequirementAsync(AuthorizationHandlerContext context, AdminRoleRequirement requirement)
+        protected override async Task HandleRequirementAsync(AuthorizationHandlerContext context, ManagementPermissionRequirement requirement)
         {
             if (context.Resource is HttpContext http && http.Request.Path == "/admin/auth/session" && context.User.Identity?.IsAuthenticated == true && !Release.Task.IsCompleted)
             { Entered.TrySetResult(); await Release.Task.WaitAsync(http.RequestAborted); }

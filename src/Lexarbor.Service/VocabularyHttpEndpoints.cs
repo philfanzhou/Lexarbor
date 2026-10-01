@@ -49,7 +49,7 @@ public static partial class VocabularyHttpEndpoints
         apiGroup.MapGet("/vocabulary-books/all", GetAllBooks);
 
         var adminGroup = app.MapGroup("/admin")
-            .RequireAuthorization("VocabularyAdmin");
+            .RequireAuthorization(AdminEndpointAuthorization.PolicyName);
         configureAdminGroup?.Invoke(adminGroup);
         adminGroup.MapPost("/vocabulary", AddOrUpdateVocabulary);
         adminGroup.MapPost("/vocabulary/batch", ImportVocabularyBatch)
