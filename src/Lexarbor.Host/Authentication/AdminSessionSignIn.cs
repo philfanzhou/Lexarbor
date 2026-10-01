@@ -17,7 +17,8 @@ public interface IAdminSessionSignIn
 
 public sealed class AdminSessionSignIn(AdminSessionStore store, TimeProvider clock,
     IOptionsMonitor<AdminAuthenticationOptions> options) : IAdminSessionSignIn
-{    public async Task SignInAsync(HttpContext context, ClaimsPrincipal validatedPrincipal, string accessToken,
+{
+    public async Task SignInAsync(HttpContext context, ClaimsPrincipal validatedPrincipal, string accessToken,
         string? idToken = null, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();

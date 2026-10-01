@@ -295,7 +295,7 @@ public class AdminHostedLoginTests
         using var start = await f.Client.GetAsync("/admin/auth/start", Ct); Assert.Equal(HttpStatusCode.Redirect, start.StatusCode);
         using var second = await f.Client.GetAsync("/admin/auth/start", Ct); Assert.Equal(HttpStatusCode.Redirect, second.StatusCode);
         // The deleted password route is no longer part of the anonymous login surface.
-        using var login = await f.Client.PostAsync("/admin/auth/login", new StringContent("")); Assert.Equal(HttpStatusCode.Unauthorized, login.StatusCode);
+        using var login = await f.Client.PostAsync("/admin/auth/login", new StringContent(""), Ct); Assert.Equal(HttpStatusCode.Unauthorized, login.StatusCode);
         using var limited = await f.Client.GetAsync("/admin/auth/start", Ct); Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
         Assert.NotNull(limited.Headers.RetryAfter); Assert.Equal("no-store", limited.Headers.CacheControl!.ToString());
         f.Client.DefaultRequestHeaders.Remove(VocabularyWebApplicationFactory.ClientAddressHeader);
