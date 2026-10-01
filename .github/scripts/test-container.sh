@@ -429,8 +429,26 @@ config_hash_before="$(sha256sum "$existing_data/appsettings.json" | cut -d ' ' -
 database_hash_before="$(sha256sum "$existing_data/vocabulary.db" | cut -d ' ' -f 1)"
 
 echo "Checking that pre-mounted configuration and database files are not overwritten"
-start_bind_mounted_container "$EXISTING_CONTAINER" "$existing_data"
-check_root_key_file "$EXISTING_CONTAINER"
+# The placeholder database cannot serve the key repository, so startup refuses
+# by design; what must hold is that neither pre-mounted file was rewritten
+# before the refusal.
+docker run --detach --name "$EXISTING_CONTAINER" \
+  --user "$(id -u):$(id -g)" \
+  --volume "$existing_data:/app/data" \
+  "$IMAGE_NAME" >/dev/null
+for _ in $(seq 1 30); do
+  if [[ "$(docker inspect --format '{{.State.Running}}' "$EXISTING_CONTAINER")" != "true" ]]; then
+    break
+  fi
+  sleep 1
+done
+test "$(docker inspect --format '{{.State.Running}}' "$EXISTING_CONTAINER")" = false
+docker logs "$EXISTING_CONTAINER" >"$TEST_ROOT/existing-rejected.log" 2>&1
+grep -q 'The Data Protection key repository is unavailable or invalid' "$TEST_ROOT/existing-rejected.log"
+if grep -q 'data-protection-root-key' "$TEST_ROOT/existing-rejected.log"; then
+  echo "The root-key file name appeared in startup diagnostics" >&2
+  exit 1
+fi
 config_hash_after="$(sha256sum "$existing_data/appsettings.json" | cut -d ' ' -f 1)"
 database_hash_after="$(sha256sum "$existing_data/vocabulary.db" | cut -d ' ' -f 1)"
 
