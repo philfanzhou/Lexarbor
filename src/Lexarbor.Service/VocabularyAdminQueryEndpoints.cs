@@ -12,7 +12,7 @@ public static class VocabularyAdminQueryEndpoints
 {
     public static void MapVocabularyAdminQueryEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/admin").RequireAuthorization("VocabularyAdmin");
+        var group = app.MapGroup("/admin").RequireAuthorization(AdminEndpointAuthorization.PolicyName);
         group.MapGet("/vocabulary", async ([FromQuery] string? keyword, [FromQuery] string? bookId,
             [FromQuery] int? page, [FromQuery] int? size, VocabularyAdminQueryService service, CancellationToken cancellationToken) =>
         {

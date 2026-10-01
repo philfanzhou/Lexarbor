@@ -13,7 +13,7 @@ public static class VocabularyMeaningPositionEndpoints
     public static IEndpointRouteBuilder MapVocabularyMeaningPositionEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/admin/vocabulary-books/{bookId}/meanings/{meaningId}/positions")
-            .RequireAuthorization("VocabularyAdmin");
+            .RequireAuthorization(AdminEndpointAuthorization.PolicyName);
         group.MapPut("/", Move);
         group.MapDelete("/{unitId}", Remove);
         return app;

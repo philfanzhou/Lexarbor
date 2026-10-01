@@ -14,7 +14,8 @@ public sealed class AdminAuthenticationOptions
     public string? Provider { get; set; }
 
     /// <summary>
-    /// Role required by the <c>VocabularyAdmin</c> policy and by hosted sign-in.
+    /// Role required for a principal to be mapped onto the ServiceMantle
+    /// management identity, and by hosted sign-in.
     /// </summary>
     public string RequiredRole { get; set; } = "admin";
 }

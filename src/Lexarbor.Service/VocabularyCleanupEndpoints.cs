@@ -16,7 +16,7 @@ public static class VocabularyCleanupEndpoints
 
     public static void MapVocabularyCleanupEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/admin/vocabulary-books").RequireAuthorization("VocabularyAdmin");
+        var group = app.MapGroup("/admin/vocabulary-books").RequireAuthorization(AdminEndpointAuthorization.PolicyName);
         group.MapPost("/{bookId}/cleanup/preview", (string bookId, HttpRequest request, VocabularyCleanupService service, ILoggerFactory logs) =>
             HandleAsync(bookId, request, service, logs, true)).WithMetadata(new RequestSizeLimitAttribute(MaxRequestBytes));
         group.MapPost("/{bookId}/cleanup", (string bookId, HttpRequest request, VocabularyCleanupService service, ILoggerFactory logs) =>

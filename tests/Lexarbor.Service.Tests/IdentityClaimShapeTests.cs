@@ -41,7 +41,7 @@ public class IdentityClaimShapeTests :
         using var client = CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer",
-            CreateToken(new Claim(roleClaimType, "admin")));
+            CreateToken(new Claim(roleClaimType, "admin"), new Claim("sub", "shape-admin")));
 
         var response = await client.GetAsync("/admin/vocabulary-books?page=1&size=20",
             TestContext.Current.CancellationToken);
@@ -81,7 +81,8 @@ public class IdentityClaimShapeTests :
             "Bearer",
             CreateToken(
                 new Claim(roleClaimType, "admin"),
-                new Claim(nameClaimType, "bootstrap-admin")));
+                new Claim(nameClaimType, "bootstrap-admin"),
+                new Claim("sub", "bootstrap-subject")));
 
         var response = await client.GetAsync("/admin/auth/session",
             TestContext.Current.CancellationToken);
@@ -137,13 +138,13 @@ public class IdentityClaimShapeTests :
 
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer",
-            CreateToken(new Claim(ClaimTypes.Role, "vocabulary-curator")));
+            CreateToken(new Claim(ClaimTypes.Role, "vocabulary-curator"), new Claim("sub", "curator-subject")));
         var curator = await client.GetAsync("/admin/vocabulary-books?page=1&size=20",
             TestContext.Current.CancellationToken);
 
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer",
-            CreateToken(new Claim(ClaimTypes.Role, "admin")));
+            CreateToken(new Claim(ClaimTypes.Role, "admin"), new Claim("sub", "plain-admin")));
         var admin = await client.GetAsync("/admin/vocabulary-books?page=1&size=20",
             TestContext.Current.CancellationToken);
 

@@ -17,6 +17,6 @@ public static class VocabularyMeaningEditEndpoints
             {
                 await service.ReplaceAsync(bookId, wordId, meaningId, request.PartOfSpeech, request.Meaning, request.Example, cancellationToken);
                 return VocabularyHttpResponse.Ok(new BoolResponse { Success = true });
-            }).RequireAuthorization("VocabularyAdmin");
+            }).RequireAuthorization(AdminEndpointAuthorization.PolicyName);
     }
 }

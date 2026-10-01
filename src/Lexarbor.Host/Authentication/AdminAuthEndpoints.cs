@@ -3,6 +3,7 @@ using Lexarbor.Host.RateLimiting;
 using Lexarbor.Service;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
+using ServiceMantle.Web.Management;
 
 namespace Lexarbor.Host.Authentication;
 
@@ -12,7 +13,7 @@ public static class AdminAuthEndpoints
     {
         app.MapHostedAdminLogin();
         app.MapGet("/admin/auth/session", GetSession)
-            .RequireAuthorization("VocabularyAdmin");
+            .RequireAuthorization(ManagementAuthorizationDefaults.AdminPolicyName);
         // Deliberately unlimited. Logout revokes a local session, and an administrator
         // who cannot end a session because someone else exhausted a shared ceiling
         // is a worse outcome than the requests this would have refused.

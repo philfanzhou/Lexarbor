@@ -6,6 +6,7 @@ using Lexarbor.Service;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Options;
+using ServiceMantle.Audit;
 
 namespace Lexarbor.Host.Authentication;
 
@@ -64,14 +65,23 @@ public static class AdminSessionCookie
 
 public sealed class AdminSessionAuthenticationHandler(
     IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder,
-    AdminSessionStore store) : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
+    AdminSessionStore store, IOptionsMonitor<AdminAuthenticationOptions> adminOptions)
+    : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
 {
     protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
     {
         Request.Cookies.TryGetValue(AdminSessionCookie.Name, out var handle);
         var session = await store.ReadAsync(handle, Context.RequestAborted);
         if (session is null) return AuthenticateResult.Fail("Administrator session is invalid or expired.");
-        return AuthenticateResult.Success(new AuthenticationTicket(CreatePrincipal(session), Scheme.Name));
+        var principal = CreatePrincipal(session);
+        // The session cookie is an interactive administrator: the ServiceMantle
+        // management identity is minted from the session's own verified claims,
+        // never accepted from the outside.
+        ManagementIdentityMapping.Apply(
+            principal,
+            adminOptions.CurrentValue.RequiredRole,
+            WellKnownManagementAuditOperatorSources.InteractiveAdmin.Value);
+        return AuthenticateResult.Success(new AuthenticationTicket(principal, Scheme.Name));
     }
 
     internal static ClaimsPrincipal CreatePrincipal(ValidatedAdminSession session)
