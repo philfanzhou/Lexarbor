@@ -1,6 +1,6 @@
 # ADR-007：暂缓迁移至 ServiceMantle 管理会话
 
-- **状态**：已决定，暂缓生产迁移
+- **状态**：已决定，暂缓生产迁移。[ADR-008](ADR-008-servicemantle-first-and-hosted-login.md) 将本 ADR 的"暂缓"升级为"明确不采用，待 ServiceMantle 提供可撤销服务端会话与 OIDC 授权码回调签入后重评"；本 ADR 的契约对照与净收益估算继续有效。
 - **日期**：2026-09-29
 - **范围**：[Issue #145](https://github.com/philfanzhou/Lexarbor/issues/145) 的认证契约对照与隔离消费原型；比较对象为已发布的 `ServiceMantle.Web` v0.2.0
 

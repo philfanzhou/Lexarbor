@@ -1,6 +1,6 @@
 # ADR-001: Pluggable administrator credential providers
 
-- Status: Accepted; default provider amended by ADR-004
+- Status: Superseded by ADR-008 (hosted login becomes the only administrator login; the `Oidc` password grant and `Gateway` provider are removed); default provider amended by ADR-004
 - Date: 2026-08-05
 - Scope: administrator login and authorization; public `/api/*` routes are unchanged
 
