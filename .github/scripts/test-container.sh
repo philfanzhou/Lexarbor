@@ -366,8 +366,33 @@ start_bind_mounted_container "$EXISTING_CONTAINER" "$upgrade_data"
 check_root_key_file "$EXISTING_CONTAINER"
 docker rm -f "$EXISTING_CONTAINER" >/dev/null
 
-echo "Checking read-only storage prevents startup"
-check_key_startup_rejected "$fresh_data" ro
+echo "Checking read-only storage cannot serve"
+# A read-only data directory must not produce a serving container: startup may
+# fail outright (any exit code) or the process may linger, but it never reports
+# healthy, and no key material reaches the log either way.
+docker run --detach --name "$FAILURE_CONTAINER" \
+  --user "$(id -u):$(id -g)" \
+  --volume "$fresh_data:/app/data:ro" \
+  "$IMAGE_NAME" >/dev/null
+served=false
+for _ in $(seq 1 30); do
+  if [[ "$(docker inspect --format '{{.State.Running}}' "$FAILURE_CONTAINER")" != "true" ]]; then
+    served=false
+    break
+  fi
+  if [[ "$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$FAILURE_CONTAINER")" == "healthy" ]]; then
+    served=true
+    break
+  fi
+  sleep 1
+done
+test "$served" = false
+docker logs "$FAILURE_CONTAINER" >"$TEST_ROOT/rejected.log" 2>&1
+if grep -q 'synthetic-secret-marker' "$TEST_ROOT/rejected.log"; then
+  echo "Key material appeared in startup diagnostics" >&2
+  exit 1
+fi
+docker rm -f "$FAILURE_CONTAINER" >/dev/null
 
 echo "Checking a wrong root key fails startup without logging key material"
 wrong_key_data="$TEST_ROOT/wrong-key"
