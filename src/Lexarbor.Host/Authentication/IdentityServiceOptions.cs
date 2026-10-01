@@ -4,9 +4,9 @@ namespace Lexarbor.Host.Authentication;
 /// Which token issuer this service trusts. The section can be supplied by appsettings,
 /// environment variables, or another standard ASP.NET Core configuration provider.
 ///
-/// Provider credentials deliberately live elsewhere — see
-/// <see cref="GatewayProviderOptions"/> and <see cref="OidcProviderOptions"/> — because
-/// they are per-deployment secrets and do not belong in shared defaults.
+/// The hosted-login client credentials deliberately live elsewhere — see
+/// <see cref="OidcCodeOptions"/> — because they are per-deployment secrets and do
+/// not belong in shared defaults.
 /// </summary>
 public sealed class IdentityServiceOptions
 {

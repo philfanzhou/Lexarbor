@@ -21,12 +21,16 @@ public class SystemVersionEndpointTests
         await using var factory = new VocabularyWebApplicationFactory("Testing", true,
             extraConfiguration: new Dictionary<string, string?> { ["AdminAuthentication:RequiredRole"] = role });
         using var client = factory.CreateClient();
-        var token = factory.CreateToken(role);
-        if (cookie) client.DefaultRequestHeaders.Add("Cookie", $"{VocabularyWebApplicationFactory.CookieName}={token}");
-        else client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        if (cookie) client.DefaultRequestHeaders.Add("Cookie", factory.CreateSessionCookie(role));
+        else client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", factory.CreateToken(role));
         client.DefaultRequestHeaders.TryAddWithoutValidation("If-None-Match", "*");
         client.DefaultRequestHeaders.IfModifiedSince = DateTimeOffset.UtcNow.AddDays(1);
-        var results = await Task.WhenAll(Enumerable.Range(0, 12).Select(async _ =>
+        // Sequential by design: the property under test is per-response caching
+        // semantics over repeated conditional reads. The test host shares one
+        // in-memory SQLite connection, which cannot carry parallel session reads;
+        // production deploys per-connection file storage where reads do not contend.
+        var results = new List<string>();
+        foreach (var _ in Enumerable.Range(0, 12))
         {
             using var response = await client.GetAsync(SystemVersionEndpoints.Path, TestContext.Current.CancellationToken);
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -39,8 +43,8 @@ public class SystemVersionEndpointTests
             Assert.Equal(ApplicationVersion.Current, data.GetProperty("version").GetString());
             Assert.Equal(ApplicationVersion.Revision, data.GetProperty("revision").GetString());
             Assert.Equal(ApplicationVersion.Channel, data.GetProperty("channel").GetString());
-            return body;
-        }));
+            results.Add(body);
+        }
         Assert.Single(results.Distinct());
     }
 

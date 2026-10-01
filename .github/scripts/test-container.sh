@@ -15,6 +15,7 @@ EXISTING_CONTAINER="lexarbor-existing-${RUN_SUFFIX}"
 NAMED_CONTAINER="lexarbor-named-${RUN_SUFFIX}"
 FAILURE_CONTAINER="lexarbor-failure-${RUN_SUFFIX}"
 CODE_CONTAINER="lexarbor-code-${RUN_SUFFIX}"
+PROVIDER_FAILURE_CONTAINER="lexarbor-provider-failure-${RUN_SUFFIX}"
 NAMED_VOLUME="lexarbor-data-${RUN_SUFFIX}"
 TEST_ROOT="$(mktemp -d)"
 
@@ -25,7 +26,8 @@ cleanup() {
     "$EXISTING_CONTAINER" \
     "$NAMED_CONTAINER" \
     "$FAILURE_CONTAINER" \
-    "$CODE_CONTAINER" >/dev/null 2>&1 || true
+    "$CODE_CONTAINER" \
+    "$PROVIDER_FAILURE_CONTAINER" >/dev/null 2>&1 || true
   docker volume rm "$NAMED_VOLUME" >/dev/null 2>&1 || true
   case "$TEST_ROOT" in
     /tmp/*) rm -rf -- "$TEST_ROOT" ;;
@@ -244,7 +246,7 @@ start_container "$UNMOUNTED_CONTAINER"
 check_reported_version "$UNMOUNTED_CONTAINER"
 check_runs_unprivileged "$UNMOUNTED_CONTAINER"
 check_key_ring "$UNMOUNTED_CONTAINER"
-check_auth_method "$UNMOUNTED_CONTAINER" password
+check_auth_method "$UNMOUNTED_CONTAINER" hosted
 check_healthcheck_reports_healthy "$UNMOUNTED_CONTAINER"
 docker rm -f -v "$UNMOUNTED_CONTAINER" >/dev/null
 
@@ -257,9 +259,10 @@ test "$code_status" = 503
 jq --exit-status '. == {success:false,message:"Hosted authentication is not configured."}' "$TEST_ROOT/code-body" >/dev/null
 grep -qi '^Cache-Control: no-store' "$TEST_ROOT/code-headers"
 ! grep -qi '^Set-Cookie:' "$TEST_ROOT/code-headers"
+# The deleted password route answers like any unknown admin route: anonymous 401.
 password_status="$(curl --silent --show-error --output "$TEST_ROOT/code-password" --write-out '%{http_code}' --request POST --header 'Content-Type: application/json' --data '{broken' "http://127.0.0.1:${code_port}/admin/auth/login")"
-test "$password_status" = 400
-jq --exit-status '. == {success:false,message:"Password login is disabled for hosted authentication."}' "$TEST_ROOT/code-password" >/dev/null
+test "$password_status" = 401
+jq --exit-status '. == {success:false,message:"Authentication is required."}' "$TEST_ROOT/code-password" >/dev/null
 echo "Checking Code-mode logout smoke: sessionless local-only logout and failed-return redirect"
 logout_status="$(curl --silent --show-error --dump-header "$TEST_ROOT/code-logout-headers" --output "$TEST_ROOT/code-logout" --write-out '%{http_code}' --request POST "http://127.0.0.1:${code_port}/admin/auth/logout")"
 test "$logout_status" = 200
@@ -272,6 +275,23 @@ grep -qi '^Cache-Control: no-store' "$TEST_ROOT/code-return-headers"
 grep -qi '^Referrer-Policy: no-referrer' "$TEST_ROOT/code-return-headers"
 ! grep -q 'sensitive-state-marker' "$TEST_ROOT/code-return-headers"
 docker rm -f -v "$CODE_CONTAINER" >/dev/null
+
+echo "Checking a removed password provider value refuses startup"
+docker run --detach --name "$PROVIDER_FAILURE_CONTAINER" \
+  --env AdminAuthentication__Provider=Oidc \
+  "$IMAGE_NAME" >/dev/null
+for _ in $(seq 1 30); do
+  if [[ "$(docker inspect --format '{{.State.Running}}' "$PROVIDER_FAILURE_CONTAINER")" != "true" ]]; then
+    break
+  fi
+  sleep 1
+done
+test "$(docker inspect --format '{{.State.Running}}' "$PROVIDER_FAILURE_CONTAINER")" = false
+test "$(docker inspect --format '{{.State.ExitCode}}' "$PROVIDER_FAILURE_CONTAINER")" != 0
+docker logs "$PROVIDER_FAILURE_CONTAINER" >"$TEST_ROOT/provider-rejected.log" 2>&1
+grep -q 'AdminAuthentication:Provider' "$TEST_ROOT/provider-rejected.log"
+grep -q 'HostedLoginReleaseNotes' "$TEST_ROOT/provider-rejected.log"
+docker rm -f "$PROVIDER_FAILURE_CONTAINER" >/dev/null
 
 echo "Checking named-volume key storage as the image user"
 docker volume create "$NAMED_VOLUME" >/dev/null

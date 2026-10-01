@@ -14,32 +14,29 @@ public static class AdminAuthenticationSource
     public const string PolicyScheme = "AdminAuthentication";
     public const string SessionScheme = "AdminSession";
 
-    // Presence, including an empty cookie or Bearer value, determines the source.
-    // Authentication, challenge, CSRF and logout must never choose a fallback identity.
+    // Bearer credentials come only from the Authorization header; every other
+    // request — cookie-bearing or anonymous — is answered by the session scheme.
+    // Authentication, challenge, CSRF and logout must never choose a fallback
+    // identity, so a legacy JWT cookie can no longer authenticate anything.
     public static string Select(HttpRequest request) =>
-        !IsCookie(request)
-            ? JwtBearerDefaults.AuthenticationScheme
-            : HasSessionCookie(request)
-                ? SessionScheme
-                : JwtBearerDefaults.AuthenticationScheme;
+        IsCookie(request)
+            ? SessionScheme
+            : JwtBearerDefaults.AuthenticationScheme;
 
     public static bool IsCookie(HttpRequest request) =>
         !request.Headers.Authorization.ToString().StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase);
-
-    private static bool HasSessionCookie(HttpRequest request) =>
-        request.Cookies.ContainsKey(AdminSessionCookie.Name)
-        // ASP.NET's cookie collection omits empty values. They must still select
-        // the session scheme, rather than exposing a legacy fallback identity.
-        || request.Headers.Cookie.Any(header => header?.Split(';').Any(pair =>
-        {
-            var separator = pair.IndexOf('=');
-            return separator >= 0 && pair[..separator].Trim() == AdminSessionCookie.Name;
-        }) == true);
 }
 
 public static class AdminSessionCookie
 {
     public const string Name = "__Host-Lexarbor.AdminSession";
+
+    /// <summary>
+    /// The retired password-login JWT cookie. It stopped being authenticated when the
+    /// password proxy was removed; logout keeps deleting it so a browser that still
+    /// carries one is cleaned up at the first sign-out.
+    /// </summary>
+    public const string LegacyJwtName = "lexarborAdmin";
 
     public static CookieOptions Options() => new()
     {
@@ -50,10 +47,18 @@ public static class AdminSessionCookie
         IsEssential = true
     };
 
-    public static void Clear(HttpContext context, AdminAuthenticationOptions options)
+    internal static CookieOptions LegacyOptions() => new()
+    {
+        HttpOnly = true,
+        SameSite = SameSiteMode.Strict,
+        Path = "/",
+        IsEssential = true
+    };
+
+    public static void Clear(HttpContext context)
     {
         context.Response.Cookies.Delete(Name, Options());
-        context.Response.Cookies.Delete(options.CookieName, AdminAuthEndpoints.CreateCookieOptions(options, null));
+        context.Response.Cookies.Delete(LegacyJwtName, LegacyOptions());
     }
 }
 
@@ -88,7 +93,7 @@ public sealed class AdminSessionAuthenticationHandler(
 // cleanup on logout when storage cannot confirm revocation. Never log provider details.
 internal sealed class AdminSessionLogoutMetadata;
 
-public sealed class AdminSessionFailureMiddleware(RequestDelegate next, IOptions<AdminAuthenticationOptions> options,
+public sealed class AdminSessionFailureMiddleware(RequestDelegate next,
     ILogger<AdminSessionFailureMiddleware> logger)
 {
     public async Task InvokeAsync(HttpContext context)
@@ -99,7 +104,7 @@ public sealed class AdminSessionFailureMiddleware(RequestDelegate next, IOptions
             && exception.Message == AdminSessionRepository.StorageFailureMessage)
         {
             if (context.GetEndpoint()?.Metadata.GetMetadata<AdminSessionLogoutMetadata>() is not null)
-                AdminSessionCookie.Clear(context, options.Value);
+                AdminSessionCookie.Clear(context);
             var busy = exception is StorageBusyException;
             if (busy) context.Response.Headers.RetryAfter = "1";
             logger.LogWarning("Administrator session storage operation could not be confirmed.");
