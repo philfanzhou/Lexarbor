@@ -122,7 +122,9 @@ public class VocabularyWordEditEndpointTests
     [Fact]
     public async Task ExternalSqliteWriter_Returns503WithRetryAfter()
     {
-        var path = Path.Combine(Path.GetTempPath(), $"lexarbor-word-http-{Guid.NewGuid():N}.db");
+        var path = Path.Combine(
+            VocabularyWebApplicationFactory.CreateGateSafeDirectory($"lexarbor-word-http-{Guid.NewGuid():N}"),
+            "vocabulary.db");
         try
         {
             await using var factory = new VocabularyWebApplicationFactory();

@@ -28,8 +28,12 @@ namespace Lexarbor.Service.Tests;
 public sealed class AdminSessionStoreTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), $"lexarbor-sessions-{Guid.NewGuid():N}");
+    // The database passes through the strict startup gate, so it lives in the
+    // gate-safe directory rather than beside the key-ring root.
+    private readonly string _databaseRoot = VocabularyWebApplicationFactory.CreateGateSafeDirectory(
+        $"lexarbor-sessions-db-{Guid.NewGuid():N}");
     private readonly Clock _clock = new();
-    private string DatabasePath => Path.Combine(_root, "sessions.db");
+    private string DatabasePath => Path.Combine(_databaseRoot, "sessions.db");
     private CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private ValidatedAdminSession Session(DateTimeOffset? expiry = null) => new()
@@ -634,5 +638,13 @@ public sealed class AdminSessionStoreTests : IDisposable
     public void Dispose()
     {
         if (Directory.Exists(_root)) Directory.Delete(_root, true);
+        try
+        {
+            if (Directory.Exists(_databaseRoot)) Directory.Delete(_databaseRoot, true);
+        }
+        catch (IOException)
+        {
+            // A WAL sidecar SQLite still holds is left behind.
+        }
     }
 }

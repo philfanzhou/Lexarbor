@@ -154,7 +154,9 @@ public class VocabularyCleanupEndpointTests
     [Fact]
     public async Task ExternalSqliteWriter_Returns503AndRetryAfterWithoutWrites()
     {
-        var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"lexarbor-cleanup-http-{Guid.NewGuid():N}.db");
+        var path = System.IO.Path.Combine(
+            VocabularyWebApplicationFactory.CreateGateSafeDirectory($"lexarbor-cleanup-http-{Guid.NewGuid():N}"),
+            "vocabulary.db");
         try
         {
             await using var factory = new VocabularyWebApplicationFactory();
