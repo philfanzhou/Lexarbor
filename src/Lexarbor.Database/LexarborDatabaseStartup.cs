@@ -109,6 +109,20 @@ public static class LexarborDatabaseStartup
             serverVersion: null,
             connectionString);
 
+        // The database directory is part of the deployment contract: the
+        // default `data/` directory is created on a first start exactly as the
+        // previous initializer did, so a fresh installation (a just-published
+        // output directory, an empty volume) starts instead of being rejected
+        // as an invalid target. Only the directory is created here; the file
+        // itself is still created solely by the atomic preparation below.
+        var databasePath = Path.GetFullPath(
+            new SqliteConnectionStringBuilder(connectionString).DataSource);
+        var directory = Path.GetDirectoryName(databasePath);
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
         // The mode decision comes before every side effect, from declarations
         // only: SQLite declares single-instance-only, so this can only detect a
         // registration drift, and it still fails closed.

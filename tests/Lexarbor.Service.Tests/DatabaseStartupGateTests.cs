@@ -85,6 +85,40 @@ public class DatabaseStartupGateTests
     }
 
     [Fact]
+    public async Task FirstStart_WithoutTheParentDirectory_CreatesItAndMigrates()
+    {
+        // A fresh installation — a just-published output directory or an
+        // empty volume — has no data directory at all yet. The gate creates
+        // it like the previous initializer did instead of rejecting the
+        // target, while the file itself is still created only by the atomic
+        // preparation.
+        var root = CreateGateDirectory("missing-parent");
+        var nested = Path.Combine(root, "data", "nested");
+        var database = Path.Combine(nested, "vocabulary.db");
+        try
+        {
+            Assert.False(Directory.Exists(nested));
+
+            await using var factory = CreateHost(database);
+            using var client = factory.CreateClient();
+
+            using var ready = await client.GetAsync("/health/ready", Ct);
+            Assert.Equal(HttpStatusCode.OK, ready.StatusCode);
+
+            Assert.True(File.Exists(database));
+            await using var scope = factory.Services.CreateAsyncScope();
+            var context = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+            Assert.Equal(
+                context.Database.GetMigrations().Order(),
+                (await context.Database.GetAppliedMigrationsAsync(Ct)).Order());
+        }
+        finally
+        {
+            TryDeleteDirectory(root);
+        }
+    }
+
+    [Fact]
     public async Task SecondStart_OnMigratedDatabase_SkipsTheExecutorAndKeepsData()
     {
         var directory = CreateGateDirectory("second-start");
