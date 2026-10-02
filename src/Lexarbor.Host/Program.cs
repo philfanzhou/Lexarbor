@@ -456,7 +456,7 @@ static void MapOtlpSignal(IConfiguration section, ServiceMantle.Diagnostics.Expo
     }
 }
 
-builder.Services.AddLexarborRateLimiting(builder.Configuration);
+serviceMantle.AddLexarborRateLimiting(builder.Configuration);
 
 var app = builder.Build();
 
@@ -670,6 +670,7 @@ app.UseStaticFiles();
 // Ahead of authentication so a rejected caller costs a partition lookup rather
 // than a JWT validation, which for a cookie-bearing request can reach out to the
 // identity provider for signing keys.
+app.UseLexarborRateLimitRetryAfter();
 app.UseRateLimiter();
 app.UseMiddleware<AdminSessionFailureMiddleware>();
 app.UseAuthentication();
@@ -692,7 +693,7 @@ adminSurface.MapVocabularyMeaningPositionEndpoints();
 adminSurface.MapVocabularyAdminQueryEndpoints();
 adminSurface.MapVocabularyCleanupEndpoints();
 app.MapVocabularyHttpEndpoints(
-    RateLimitingExtensions.PublicApiPolicy,
+    rateLimitOptions.PublicApi.Enabled ? RateLimitingExtensions.PublicApiPolicy : null,
     static adminGroup => adminGroup.RequireServiceMantleSecurityResponseHeaders());
 // The ServiceMantle health endpoints are anonymous and unmetered: /health/live
 // answers liveness alone, /health/ready and /health project the readiness
@@ -709,11 +710,18 @@ string[] allHttpMethods =
     HttpMethods.Delete,
     HttpMethods.Options
 ];
-app.MapMethods(
+var unknownApi = app.MapMethods(
         "/api/{**path}",
         allHttpMethods,
-        () => VocabularyHttpResponse.NotFound("API endpoint was not found."))
-    .RequireRateLimiting(RateLimitingExtensions.PublicApiPolicy);
+        () => VocabularyHttpResponse.NotFound("API endpoint was not found."));
+if (rateLimitOptions.PublicApi.Enabled)
+{
+    unknownApi.RequireRateLimiting(RateLimitingExtensions.PublicApiPolicy);
+}
+else
+{
+    unknownApi.DisableRateLimiting();
+}
 adminSurface.MapMethods(
         "/admin/{**path}",
         allHttpMethods,

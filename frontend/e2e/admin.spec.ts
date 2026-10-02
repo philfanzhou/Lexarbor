@@ -220,3 +220,19 @@ test('shows the Problem Details title of an exception-generated failure', async 
   await expect(page.locator('body')).not.toContainText('correlationId')
   await expect(page.locator('body')).not.toContainText('postgresql://')
 })
+
+
+test('reads a 429 Problem Details title without losing the administrator session', async ({ page }) => {
+  await openCatalog(page, (route) => problemJson(route, {
+    type: 'urn:servicemantle:error:rate_limit.exceeded',
+    title: 'Too many requests.',
+    status: 429,
+    correlationId: 'synthetic-correlation-id',
+    errorCode: 'rate_limit.exceeded'
+  }, 429))
+  await expect(page.locator('.books-error')).toContainText('Too many requests.')
+  await expect(page.locator('.el-message--error')).toContainText('Too many requests.')
+  await expect(page).toHaveURL(/\/books$/)
+  await expect(page.getByRole('button', { name: '退出登录' })).toBeVisible()
+  await expect(page.locator('body')).not.toContainText('correlationId')
+})

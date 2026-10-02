@@ -842,7 +842,20 @@ monopolising a single-instance SQLite deployment. Administration routes are not 
 an authenticated administrator is not the threat, and metering the administration UI
 would break it long before it broke an attacker.
 
-A refused request answers `429` in the standard envelope with a `Retry-After` header.
+ServiceMantle 0.3.0 supplies process-local sliding windows with six segments,
+no queue, and separate buckets for each policy and trusted client address.
+IPv4-mapped IPv6 addresses share their IPv4 bucket; requests without an address
+share one unknown bucket. No arbitrary header is used as an address fallback.
+A refused request answers `429` as `application/problem+json`, with
+`errorCode: rate_limit.exceeded`, `title: Too many requests.`, `status: 429`,
+and a correlation id matching `x-correlation-id`. No client address or bucket
+key appears in the response or shared rejection diagnostic.
+
+`Retry-After` remains a positive integer. When the shared sliding-window lease
+omits retry metadata, the Host supplies the configured whole window as a
+conservative backoff suggestion, preserving any shared header. Concurrent traffic
+can still exhaust the quota when the suggested delay ends. This is neither a
+distributed limiter nor a WAF or DDoS defense; configuration is fixed at startup.
 
 | Configuration key | Default | Purpose |
 |---|---|---|
@@ -853,9 +866,18 @@ A refused request answers `429` in the standard envelope with a `Retry-After` he
 | `RateLimits:PublicApi:WindowSeconds` | `60` | Public API window length |
 | `RateLimits:PublicApi:Enabled` | `true` | Set to `false` to remove the public API ceiling |
 
-A permit count or window below 1 fails startup rather than being clamped, so a typo in a
-ceiling cannot become a value that looks as though it took effect. Disabling a limit is
-therefore an explicit `Enabled: false`, and startup logs a warning naming the policy.
+Enabled policies require `PermitLimit` in `1..10000` and `WindowSeconds` in
+`10..600`. Out-of-range settings fail startup without clamping. Disabled policies
+ignore their numeric settings, consume no bucket, and log a startup warning.
+Only `GET /admin/auth/start` (including case/trailing-slash equivalents) and all
+`/api/*` routes, including unknown routes, are metered. Callback, logout, logout
+return, administrator business routes, health and the SPA remain unmetered.
+
+Upgrade deployments with enabled settings outside those bounds before starting
+the new version. Rolling back application code restores fixed windows, the old
+429 envelope and the original numeric range. No database migration or data rewrite
+is involved; defaults, route names, authentication and persistent directories stay
+unchanged.
 
 ### Behind a reverse proxy
 

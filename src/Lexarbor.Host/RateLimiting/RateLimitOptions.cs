@@ -11,14 +11,8 @@ public sealed class RateLimitOptions
     public const string SectionName = "RateLimits";
 
     /// <summary>
-    /// <c>POST /admin/auth/login</c>. Anonymous, and every call forwards a
-    /// username and password to the identity provider, so an unlimited endpoint
-    /// is both a password-guessing oracle and a way to aim traffic at the
-    /// provider from an address the provider sees as Lexarbor's.
-    ///
-    /// The default allows an administrator to mistype a password several times
-    /// in a row and still get in, while reducing an exhaustive search to a rate
-    /// that would take longer than the credential's useful life.
+    /// <c>GET /admin/auth/start</c> initiates hosted sign-in. The default
+    /// protects the identity provider while allowing ordinary login retries.
     /// </summary>
     public RateLimitPolicyOptions AdminLogin { get; set; } = new()
     {
@@ -40,9 +34,8 @@ public sealed class RateLimitOptions
 }
 
 /// <summary>
-/// One fixed window. Fixed rather than sliding because the reset is something an
-/// operator reading <c>Retry-After</c> can reason about, and because the burst a
-/// fixed window permits at a boundary is irrelevant at these limits.
+/// One shared sliding window, divided into six segments. Enabled policies
+/// accept 1..10000 permits and 10..600 seconds; invalid values fail startup.
 /// </summary>
 public sealed class RateLimitPolicyOptions
 {
