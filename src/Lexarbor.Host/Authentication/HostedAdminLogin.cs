@@ -11,7 +11,15 @@ public static class HostedAdminLogin
 {
     public static void MapHostedAdminLogin(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/admin/auth/start", StartAsync).AllowAnonymous().RequireRateLimiting(RateLimitingExtensions.AdminLoginPolicy);
+        var start = app.MapGet("/admin/auth/start", StartAsync).AllowAnonymous();
+        if (app.ServiceProvider.GetRequiredService<IOptions<RateLimitOptions>>().Value.AdminLogin.Enabled)
+        {
+            start.RequireRateLimiting(RateLimitingExtensions.AdminLoginPolicy);
+        }
+        else
+        {
+            start.DisableRateLimiting();
+        }
         app.MapGet("/admin/auth/callback", CallbackAsync).AllowAnonymous();
     }
 

@@ -50,6 +50,13 @@ Problem Details pipeline as `application/problem+json`:
 }
 ```
 
+**Rate-limit rejections** also use `application/problem+json`: type
+`urn:servicemantle:error:rate_limit.exceeded`, title `Too many requests.`, status
+429, `errorCode: rate_limit.exceeded`, and `correlationId`. The body contains no
+client address or partition key. `Retry-After` is a positive integer, conservatively
+set to the selected whole window when shared retry metadata is absent; it does
+not promise admission under concurrent traffic.
+
 Every response also carries the correlation id as an `x-correlation-id` header.
 The mappings are fixed per exception type and are registered in the Host:
 
@@ -95,3 +102,9 @@ The ServiceMantle exception pipeline maps domain exceptions, database conflicts,
   and all endpoint-explicit envelopes (including the batch import's per-entry
   `errors`) are unchanged. Clients that parsed only `message` need to read
   `title` for these responses.
+
+- Rate-limit 429 responses now use Problem Details and a six-segment sliding
+  window, with enabled numeric ranges `PermitLimit=1..10000` and
+  `WindowSeconds=10..600`. Read `title` and respect `Retry-After`. Rolling back
+  application code restores the fixed-window/envelope behavior without touching
+  data. Endpoint-explicit envelopes remain unchanged.

@@ -2,9 +2,11 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Lexarbor.Host.RateLimiting;
 using Lexarbor.Service.Tests.TestInfrastructure;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Extensions.Options;
+using Microsoft.Extensions.DependencyInjection;
+using ServiceMantle.Web.RateLimiting;
 
 namespace Lexarbor.Service.Tests;
 
@@ -20,7 +22,7 @@ public class RateLimitingTests
     private const string ClientB = "203.0.113.11";
 
     [Fact]
-    public async Task AdminLogin_BeyondPermitLimit_Returns429Envelope()
+    public async Task AdminLogin_BeyondPermitLimit_Returns429ProblemDetails()
     {
         using var factory = CreateFactory(loginPermits: 3);
         using var client = CreateClient(factory);
@@ -34,11 +36,7 @@ public class RateLimitingTests
         var refused = await LoginAsync(client, ClientA);
 
         Assert.Equal(HttpStatusCode.TooManyRequests, refused.StatusCode);
-        var body = await refused.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
-        using var envelope = JsonDocument.Parse(body);
-        Assert.False(envelope.RootElement.GetProperty("success").GetBoolean());
-        Assert.False(
-            string.IsNullOrWhiteSpace(envelope.RootElement.GetProperty("message").GetString()));
+        await AssertProblemAsync(refused);
     }
 
     [Fact]
@@ -90,7 +88,7 @@ public class RateLimitingTests
 
         var refused = await GetPublicAsync(client, ClientA);
 
-        Assert.Equal(HttpStatusCode.TooManyRequests, refused.StatusCode);
+        await AssertProblemAsync(refused);
     }
 
     [Fact]
@@ -276,24 +274,145 @@ public class RateLimitingTests
 
     [Theory]
     [InlineData("0", "300")]
-    [InlineData("10", "0")]
     [InlineData("-1", "300")]
-    public void InvalidPolicy_FailsStartupRatherThanDisablingTheLimit(
-        string permitLimit,
-        string windowSeconds)
+    [InlineData("10001", "300")]
+    [InlineData("10", "0")]
+    [InlineData("10", "-1")]
+    [InlineData("10", "9")]
+    [InlineData("10", "601")]
+    public void InvalidEnabledPolicies_FailSharedStartupValidation(string permits, string seconds)
     {
-        using var factory = CreateFactory(
+        foreach (var policy in new[] { "AdminLogin", "PublicApi" })
+        {
+            using var factory = CreateFactory(extraConfiguration: new Dictionary<string, string?>
+            {
+                [$"RateLimits:{policy}:PermitLimit"] = permits,
+                [$"RateLimits:{policy}:WindowSeconds"] = seconds
+            });
+            Assert.Throws<RateLimitingConfigurationException>(() => factory.CreateClient());
+        }
+    }
+
+    [Theory]
+    [InlineData("1", "10")]
+    [InlineData("10000", "600")]
+    public void SharedNumericBoundaries_AreValid(string permits, string seconds)
+    {
+        using var factory = CreateFactory(extraConfiguration: new Dictionary<string, string?>
+        {
+            ["RateLimits:AdminLogin:PermitLimit"] = permits,
+            ["RateLimits:AdminLogin:WindowSeconds"] = seconds,
+            ["RateLimits:PublicApi:PermitLimit"] = permits,
+            ["RateLimits:PublicApi:WindowSeconds"] = seconds
+        });
+        using var client = CreateClient(factory);
+    }
+
+    [Theory]
+    [InlineData("AdminLogin", "/admin/auth/start", "/api/does-not-exist")]
+    [InlineData("PublicApi", "/api/does-not-exist", "/admin/auth/start")]
+    public async Task DisabledPolicy_IgnoresInvalidValuesAndPreservesOtherPolicy(
+        string policy, string disabledPath, string enabledPath)
+    {
+        using var factory = CreateFactory(loginPermits: 1, publicApiPermits: 1,
             extraConfiguration: new Dictionary<string, string?>
             {
-                ["RateLimits:AdminLogin:PermitLimit"] = permitLimit,
-                ["RateLimits:AdminLogin:WindowSeconds"] = windowSeconds
+                [$"RateLimits:{policy}:Enabled"] = "false",
+                [$"RateLimits:{policy}:PermitLimit"] = "-1",
+                [$"RateLimits:{policy}:WindowSeconds"] = "-1"
             });
+        using var client = CreateClient(factory);
+        for (var i = 0; i < 3; i++)
+            Assert.NotEqual(HttpStatusCode.TooManyRequests, (await GetAsync(client, disabledPath, ClientA)).StatusCode);
+        await GetAsync(client, enabledPath, ClientA);
+        await AssertProblemAsync(await GetAsync(client, enabledPath, ClientA));
+    }
 
-        // A typo in a security ceiling must not be quietly repaired into a value
-        // that took effect, and must not wait until the first request that would
-        // have been limited to surface.
-        var failure = Assert.Throws<OptionsValidationException>(() => factory.CreateClient());
-        Assert.Contains("RateLimits:AdminLogin", failure.Message);
+    [Fact]
+    public async Task PoliciesAndAddresses_AreIsolatedAndMappedAddressesShareBucket()
+    {
+        using var factory = CreateFactory(loginPermits: 1, publicApiPermits: 1);
+        using var client = CreateClient(factory);
+        await GetPublicAsync(client, ClientA);
+        Assert.NotEqual(HttpStatusCode.TooManyRequests, (await LoginAsync(client, ClientA)).StatusCode);
+        Assert.NotEqual(HttpStatusCode.TooManyRequests, (await GetPublicAsync(client, ClientB)).StatusCode);
+        await AssertProblemAsync(await GetPublicAsync(client, $"::ffff:{ClientA}"));
+        await client.GetAsync("/api/unknown", TestContext.Current.CancellationToken);
+        await AssertProblemAsync(await client.GetAsync("/api/unknown", TestContext.Current.CancellationToken));
+    }
+
+    [Theory]
+    [InlineData("/admin/auth/start")]
+    [InlineData("/api/does-not-exist")]
+    public async Task ConcurrentSameBucket_AdmitsOnlyPermitCountWithoutQueue(string path)
+    {
+        using var factory = CreateFactory(loginPermits: 3, publicApiPermits: 3);
+        using var client = CreateClient(factory);
+        var responses = await Task.WhenAll(Enumerable.Range(0, 20).Select(_ => GetAsync(client, path, ClientA)));
+        Assert.Equal(3, responses.Count(response => response.StatusCode != HttpStatusCode.TooManyRequests));
+        foreach (var response in responses.Where(response => response.StatusCode == HttpStatusCode.TooManyRequests))
+            await AssertProblemAsync(response);
+        Assert.NotEqual(HttpStatusCode.TooManyRequests, (await GetAsync(client, path, ClientB)).StatusCode);
+    }
+
+    [Fact]
+    public async Task DefaultPolicies_UseProductDefaultsAndFinalOptions()
+    {
+        using var factory = new VocabularyWebApplicationFactory();
+        using var client = CreateClient(factory);
+        var options = factory.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<RateLimitOptions>>().Value;
+        Assert.True(options.AdminLogin.Enabled);
+        Assert.Equal(10, options.AdminLogin.PermitLimit);
+        Assert.Equal(300, options.AdminLogin.WindowSeconds);
+        Assert.True(options.PublicApi.Enabled);
+        Assert.Equal(300, options.PublicApi.PermitLimit);
+        Assert.Equal(60, options.PublicApi.WindowSeconds);
+        foreach (var (path, permits, seconds) in new[] { ("/admin/auth/start", 10, 300), ("/api/unknown", 300, 60) })
+        {
+            for (var i = 0; i < permits; i++)
+                Assert.NotEqual(HttpStatusCode.TooManyRequests, (await GetAsync(client, path, ClientA)).StatusCode);
+            var response = await GetAsync(client, path, ClientA);
+            await AssertProblemAsync(response);
+            Assert.Equal(seconds.ToString(), Assert.Single(response.Headers.GetValues("Retry-After")));
+        }
+    }
+
+    [Theory]
+    [InlineData("/admin/auth/callback")]
+    [InlineData("/admin/auth/logout/return")]
+    [InlineData("/health/live")]
+    [InlineData("/health/ready")]
+    public async Task OtherEndpoints_RemainUnmeteredWithoutRetryHeader(string path)
+    {
+        using var factory = CreateFactory(loginPermits: 1, publicApiPermits: 1);
+        using var client = CreateClient(factory);
+        await LoginAsync(client, ClientA);
+        await GetPublicAsync(client, ClientA);
+        for (var i = 0; i < 3; i++)
+        {
+            var response = await GetAsync(client, path, ClientA);
+            Assert.NotEqual(HttpStatusCode.TooManyRequests, response.StatusCode);
+            Assert.False(response.Headers.Contains("Retry-After"));
+        }
+    }
+
+    private static async Task AssertProblemAsync(HttpResponseMessage response)
+    {
+        Assert.Equal(HttpStatusCode.TooManyRequests, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        var problem = body.RootElement;
+        Assert.Equal(5, problem.EnumerateObject().Count());
+        Assert.Equal("urn:servicemantle:error:rate_limit.exceeded", problem.GetProperty("type").GetString());
+        Assert.Equal("Too many requests.", problem.GetProperty("title").GetString());
+        Assert.Equal(429, problem.GetProperty("status").GetInt32());
+        Assert.Equal("rate_limit.exceeded", problem.GetProperty("errorCode").GetString());
+        var correlation = problem.GetProperty("correlationId").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(correlation));
+        Assert.Equal(correlation, Assert.Single(response.Headers.GetValues("x-correlation-id")));
+        Assert.True(int.TryParse(Assert.Single(response.Headers.GetValues("Retry-After")), out var seconds) && seconds > 0);
+        Assert.DoesNotContain(ClientA, problem.GetRawText());
+        Assert.DoesNotContain("consumer:", problem.GetRawText());
     }
 
     private static VocabularyWebApplicationFactory CreateFactory(
