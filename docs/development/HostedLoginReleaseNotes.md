@@ -26,7 +26,7 @@ forwards administrator passwords anywhere.
   like any unknown `/admin/*` route: 401 for anonymous callers, 404 for
   authenticated administrators.
 - `GET /admin/auth/start` keeps its per-IP `admin-login` rate limit and its
-  429/`Retry-After` contract.
+  positive-integer `Retry-After` header.
 - Every routed `/admin/*` response (#177) — authentication routes, the business
   administration API, the system version endpoint and the unknown-route
   catch-all — now carries the ServiceMantle mandatory security-header baseline
@@ -182,3 +182,23 @@ The table has no built-in retention or query API — backup and pruning are the
 operator's responsibility. Events, fields and the retention contract are
 documented in [Deployment](Deployment.md#management-audit-log) and
 [the database contract](../database/README.md#management-audit-log).
+
+## Shared rate-limit migration
+
+ServiceMantle 0.3.0 now supplies `admin-login` and `public-api` with six-segment
+sliding windows. Default quotas and the protected routes stay the same, but
+boundary bursts differ from the former fixed window. 429 is now
+`application/problem+json` with `title: Too many requests.`,
+`errorCode: rate_limit.exceeded`, status and correlation id; no address or bucket
+key is exposed. The hosted start is a top-level browser navigation, so a rejected
+navigation displays this safe document directly. No frontend secret is needed.
+The frontend reads `title` and treats 429 separately from 401/403 redirects.
+
+Enabled policies accept `PermitLimit=1..10000` and `WindowSeconds=10..600`;
+prepare any out-of-range deployment configuration before upgrading. Disabled
+policies ignore invalid numeric values and retain their startup warning. Settings
+are fixed at startup. `Retry-After` keeps any shared value, otherwise recommends
+one configured whole window; concurrent traffic can still use the next quota.
+The limiter is process-local with no queue, and is not distributed protection or
+a WAF. Rolling back application code restores the old fixed window, envelope and
+numeric range, without migrating data or changing persistent directories.
