@@ -41,6 +41,8 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
     private readonly string _keyContentRoot;
     private readonly bool _ownsKeyContentRoot;
     private readonly string _environment;
+    private readonly bool _useProductionDatabase;
+    private readonly string? _contentRootPath;
     private readonly bool _includeAppCredentials;
     private readonly string _provider;
     private readonly IReadOnlyDictionary<string, string?> _extraConfiguration;
@@ -57,12 +59,16 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
         string provider = "OidcCode",
         IReadOnlyDictionary<string, string?>? extraConfiguration = null,
         string? keyContentRoot = null,
-        string? databasePath = null)
+        string? databasePath = null,
+        bool useProductionDatabase = false,
+        string? contentRootPath = null)
     {
         _ownsKeyContentRoot = keyContentRoot is null;
         _keyContentRoot = keyContentRoot ?? Path.Combine(
             Path.GetTempPath(), $"lexarbor-host-keys-{Guid.NewGuid():N}");
         _environment = environment;
+        _useProductionDatabase = useProductionDatabase;
+        _contentRootPath = contentRootPath;
         _includeAppCredentials = includeAppCredentials;
         _provider = provider;
         _extraConfiguration = extraConfiguration ?? new Dictionary<string, string?>();
@@ -130,7 +136,9 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
         // Minimal hosting reads configuration before ConfigureWebHost can add the
         // in-memory test overrides. Forwarded-header trust and the ServiceMantle
         // instance id are read at that point, so expose those values during host
-        // construction only. Serialize factory startup to keep process
+        // construction only. The explicit production-database mode also passes
+        // the connection setting before Program captures it, retaining its real
+        // DbContext registration. Serialize factory startup to keep process
         // environment changes isolated.
         lock (NetworkConfigurationLock)
         {
@@ -141,7 +149,8 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
             var networkSettings = _extraConfiguration
                 .Where(entry => entry.Key.StartsWith("Network:", StringComparison.Ordinal)
                     || entry.Key.StartsWith("Service:", StringComparison.Ordinal)
-                    || entry.Key.StartsWith("Telemetry:", StringComparison.Ordinal))
+                    || entry.Key.StartsWith("Telemetry:", StringComparison.Ordinal)
+                    || (_useProductionDatabase && entry.Key.StartsWith("ConnectionStrings:", StringComparison.Ordinal)))
                 .Select(entry => (Name: entry.Key.Replace(":", "__", StringComparison.Ordinal), entry.Value))
                 .ToArray();
             var previous = networkSettings
@@ -228,6 +237,7 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment(_environment);
+        if (_contentRootPath is not null) builder.UseContentRoot(_contentRootPath);
         builder.ConfigureAppConfiguration((_, configuration) =>
         {
             configuration.AddInMemoryCollection(new Dictionary<string, string?>
@@ -258,13 +268,16 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
         builder.ConfigureServices(services =>
         {
             services.AddSingleton<IStartupFilter, ClientAddressStartupFilter>();
-            services.RemoveAll<DbContextOptions<VocabularyDbContext>>();
-            services.RemoveAll<IDbContextFactory<VocabularyDbContext>>();
-            services.RemoveAll<VocabularyDbContext>();
-            services.AddDbContextFactory<VocabularyDbContext>(options =>
-                options.UseSqlite(DatabaseConnectionString));
-            services.AddScoped(serviceProvider =>
-                serviceProvider.GetRequiredService<IDbContextFactory<VocabularyDbContext>>().CreateDbContext());
+            if (!_useProductionDatabase)
+            {
+                services.RemoveAll<DbContextOptions<VocabularyDbContext>>();
+                services.RemoveAll<IDbContextFactory<VocabularyDbContext>>();
+                services.RemoveAll<VocabularyDbContext>();
+                services.AddDbContextFactory<VocabularyDbContext>(options =>
+                    options.UseSqlite(DatabaseConnectionString));
+                services.AddScoped(serviceProvider =>
+                    serviceProvider.GetRequiredService<IDbContextFactory<VocabularyDbContext>>().CreateDbContext());
+            }
 
             services.PostConfigure<JwtBearerOptions>(
                 JwtBearerDefaults.AuthenticationScheme,
