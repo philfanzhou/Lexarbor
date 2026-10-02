@@ -15,7 +15,6 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Routing;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -74,7 +73,7 @@ builder.WebHost.ConfigureKestrel(options =>
 });
 
 // Add services to the container.
-var connectionString = BuildSqliteConnectionString(
+var connectionString = SqliteConnectionConfiguration.Build(
     builder.Configuration.GetConnectionString("Default"),
     builder.Environment.ContentRootPath);
 // One registration path serves both the application and the ServiceMantle
@@ -477,8 +476,7 @@ if (persistentConfiguration != null)
             : "Loaded persistent configuration from {ConfigurationPath}",
         persistentConfiguration.Path);
 }
-var sqliteConnection = new SqliteConnectionStringBuilder(connectionString);
-app.Logger.LogInformation("Database: SQLite {DatabasePath}", sqliteConnection.DataSource);
+app.Logger.LogInformation("Database: SQLite");
 
 var rateLimitOptions = app.Services.GetRequiredService<IOptions<RateLimitOptions>>().Value;
 LogRateLimit("admin login", rateLimitOptions.AdminLogin);
@@ -786,46 +784,6 @@ static bool RequiresHttpsMetadata(
     // return 503 from the login endpoint.
     return !(Uri.TryCreate(identityService.Authority, UriKind.Absolute, out var authority)
              && authority.IsLoopback);
-}
-
-static string BuildSqliteConnectionString(
-    string? configuredConnectionString,
-    string contentRootPath)
-{
-    var builder = new SqliteConnectionStringBuilder(
-        string.IsNullOrWhiteSpace(configuredConnectionString)
-            ? "Data Source=data/vocabulary.db"
-            : configuredConnectionString);
-    if (string.IsNullOrWhiteSpace(builder.DataSource))
-    {
-        throw new InvalidOperationException(
-            "ConnectionStrings:Default must define a SQLite data source.");
-    }
-
-    if (!string.Equals(builder.DataSource, ":memory:", StringComparison.OrdinalIgnoreCase) &&
-        !Path.IsPathRooted(builder.DataSource))
-    {
-        builder.DataSource = Path.GetFullPath(
-            Path.Combine(contentRootPath, builder.DataSource));
-    }
-
-    // Microsoft.Data.Sqlite implements its timeout as a retry loop around
-    // SQLITE_BUSY, so the library default meant a contended write held its
-    // request thread for a full thirty seconds before failing -- longer than the
-    // admin UI's own thirty-second HTTP timeout, so the caller saw a network
-    // error rather than an answer. Writes are now serialized in process and
-    // readers no longer block them under WAL, which leaves only brief
-    // contention; five seconds rides out a checkpoint and still returns the 503
-    // while the caller is waiting for it. An operator who needs a different
-    // value sets `Default Timeout=` in the connection string, and any value
-    // other than the library default is left alone.
-    const int LibraryDefaultTimeoutSeconds = 30;
-    if (builder.DefaultTimeout == LibraryDefaultTimeoutSeconds)
-    {
-        builder.DefaultTimeout = 5;
-    }
-
-    return builder.ToString();
 }
 
 public partial class Program

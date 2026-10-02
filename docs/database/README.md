@@ -2,6 +2,27 @@
 
 Vocabulary supports SQLite only. The default database file is `data/vocabulary.db`, and the EF Core model together with the migrations under `src/Lexarbor.Database/Migrations` describes the complete schema. The service has not shipped, so no legacy PostgreSQL migration chain is kept.
 
+## Data-source resolution
+
+SQLite data-source resolution uses ServiceMantle 0.3.0 with the Host content root
+as its explicit absolute base directory, independently of the process working
+directory. Missing, null or blank configuration keeps `data/vocabulary.db`;
+relative paths and `..` segments normalize under that base, and absolute local
+paths keep their target. This pure parsing step performs no filesystem writes,
+creates no directory/database, and preserves other connection parameters.
+The driver's default or explicit 30-second timeout becomes 5 seconds; explicit
+values such as 7 or 0 remain unchanged.
+
+Parsing preserves `:memory:` (case-insensitively) and `file:` URI sources. This
+does not enable them at runtime: the existing startup gate rejects these
+non-file targets before opening a database, and no literal URI filename is
+created. `|DataDirectory|` substitutions and invalid input are unsupported and
+fail with a safe diagnostic without echoing configuration or provider details.
+EF and the startup/migration gate use the same final connection string and
+canonical target identity. Paths through symbolic links or mount aliases are
+not resolved by parsing. No schema, seed, migration or container `/app/data`
+layout changes; rolling back application code neither moves nor rewrites data.
+
 ## Core relationships
 
 ```text

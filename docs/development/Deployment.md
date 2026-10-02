@@ -158,6 +158,26 @@ The service identifier is fixed at `lexarbor` and is not configurable. Every dep
 | `ConnectionStrings:Default` | `Data Source=data/vocabulary.db` | SQLite data source; relative paths use the Host content root |
 | `Database:InitializeOnStartup` | `true` | Create a missing database and apply migrations |
 
+
+SQLite data-source resolution uses ServiceMantle 0.3.0 with the Host content root
+as its explicit absolute base directory, independently of the process working
+directory. Missing, null or blank configuration keeps `data/vocabulary.db`;
+relative paths and `..` segments normalize under that base, and absolute local
+paths keep their target. This pure parsing step performs no filesystem writes,
+creates no directory/database, and preserves other connection parameters.
+The driver's default or explicit 30-second timeout becomes 5 seconds; explicit
+values such as 7 or 0 remain unchanged.
+
+Parsing preserves `:memory:` (case-insensitively) and `file:` URI sources. This
+does not enable them at runtime: the existing startup gate rejects these
+non-file targets before opening a database, and no literal URI filename is
+created. `|DataDirectory|` substitutions and invalid input are unsupported and
+fail with a safe diagnostic without echoing configuration or provider details.
+EF and the startup/migration gate use the same final connection string and
+canonical target identity. Paths through symbolic links or mount aliases are
+not resolved by parsing. No schema, seed, migration or container `/app/data`
+layout changes; rolling back application code neither moves nor rewrites data.
+
 On first startup Lexarbor creates an empty database: it ships no vocabulary data, so administrators create books and add words themselves. Existing databases are migrated only; their rows are neither added to nor removed, so a database created by an earlier release keeps its `Starter English 300` book. The same holds for the schema migration that adds book units and meaning-to-unit assignments: it creates two empty tables and one index and rewrites no existing row, and words or meanings work exactly as before without any unit. Rolling back to such an earlier image does not reload that book into a database this release created, because the earlier release also only migrates an existing file. Stop writes before copying the database, or use a SQLite online-backup tool.
 
 Startup prepares the database through a fixed, fail-closed gate. Before any migration runs, the database's parent directory is created when absent (the `data/` directory of a fresh installation) and the database file is observed without being modified: a missing file — and only a missing file — is created atomically, and a database that cannot be used is refused instead of being repaired, with the process exiting non-zero and a log line that carries a ServiceMantle error code only (no path, connection string, or SQL). Two operational consequences:
