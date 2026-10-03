@@ -1,12 +1,11 @@
 import js from '@eslint/js'
+import { defineConfig } from 'eslint/config'
 import pluginVue from 'eslint-plugin-vue'
-import { defineConfigWithVueTs, vueTsConfigs } from '@vue/eslint-config-typescript'
+import tseslint from 'typescript-eslint'
 
-// Flat config. The two shared configs below are the ones create-vue scaffolds,
-// chosen so this file stays a list of decisions rather than a rule set of its
-// own that would drift from what the Vue and typescript-eslint projects
-// consider correct.
-export default defineConfigWithVueTs(
+// Compose the upstream recommended configs directly. The Vue TypeScript
+// wrapper discovers files through fast-glob, which pulls in unpatched braces.
+export default defineConfig(
   {
     name: 'lexarbor/ignores',
     // Build output, plus the two declaration files unplugin-auto-import and
@@ -24,13 +23,27 @@ export default defineConfigWithVueTs(
   // The core rules, which the Vue and typescript-eslint configs layer on top
   // of rather than restate.
   js.configs.recommended,
-  pluginVue.configs['flat/recommended'],
   // Not the type-checked variant. vue-tsc already runs over the same files in
   // test:types and reports what a type-aware rule would need the type
   // information for; adding a second, slower pass across four tsconfigs would
   // buy the floating-promise rules at the cost of a config that has to track
   // every project reference.
-  vueTsConfigs.recommended,
+  tseslint.configs.recommended.map(config => config.files
+    ? { ...config, files: ['**/*.{ts,vue}'] }
+    : config),
+  pluginVue.configs['flat/recommended'],
+  {
+    name: 'lexarbor/vue-typescript',
+    files: ['**/*.vue'],
+    languageOptions: {
+      parserOptions: {
+        parser: tseslint.parser
+      }
+    },
+    rules: {
+      'vue/block-lang': ['error', { script: { lang: ['ts'], allowNoLang: false } }]
+    }
+  },
   {
     name: 'lexarbor/layout-is-not-lint',
     rules: {
