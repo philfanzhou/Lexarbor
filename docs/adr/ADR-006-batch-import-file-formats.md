@@ -30,6 +30,23 @@ What a position means depends on the format:
 | JSON | The item's number in the array, from 1 |
 | Excel | The row number of the first sheet, as Excel shows it |
 
+### Explicit page modes and final assignment
+
+The shared batch component has three routes: `/import/batch` (mixed, the compatible default), `/import/batch/words` (word), and `/import/batch/phrases` (phrase). These are explicit administrator choices, never automatic recognition. Mode changes preserve the canonical raw rows and re-resolve them; every format uses one final assignment boundary after parsing.
+
+| Mode | Raw kind | Final kind | Final unit |
+| --- | --- | --- | --- |
+| Mixed | Blank / absent / JSON null | Omitted, unclassified | Raw unit; blank means no assignment |
+| Mixed | `word` / `phrase` | Raw value | Existing unit required |
+| Word / Phrase | Blank / absent / JSON null | Selected mode, page-default source | Raw nonblank unit first, otherwise selected default unit |
+| Word / Phrase | Same kind | Raw value | Same unit rule |
+| Word / Phrase | Opposite kind | Row error recommending mixed mode | No silent overwrite |
+| Any | Invalid kind / non-string JSON field | Existing parser or row error | Defaults cannot mask invalid values |
+
+The default unit lists only the current book's existing units and clears when changing books; mixed mode never uses it. Unknown nonblank numbers (`02`, `Unit 2`, or absent numbers) remain errors. Sections have no page default and require a final valid unit. The preview shows raw and final kind/unit values with file/page source, and the request is built from that same resolved preview, retaining duplicate row order and server `errors[].index` mapping. Category summaries count input rows, while API `created`/`reused` count meanings.
+
+Pure word or phrase files may omit kind and unit when their corresponding mode and a default unit are selected. Mixed files keep their row-level `entry_kind`/`entryKind` and `unit` values, including legacy unclassified/unassigned rows. Mode/default changes invalidate server errors and result notices without changing raw text or workbooks. In-flight writes freeze mode/default and the final request. No parsing rejection, worker bound, API, authentication, storage, migration, or existing-position behavior changes. The hosted-login return allowlist is unchanged: authenticated new deep links retain mode on refresh, but unauthenticated new routes return through the default login target; navigation after login selects them.
+
 ### Choosing the format
 
 The page has a format selector with TSV, CSV, and JSON; TSV is the default. Pasted text is parsed in the selected format, and changing the format parses the same text again. Choosing a file selects its format by extension, ignoring case:
@@ -71,7 +88,7 @@ Every format carries an optional unit assignment for an entry: the TSV seventh c
 
 - The page loads the selected book's units from `GET /admin/vocabulary-books/{bookId}/units` when a book is picked, and again whenever the book changes; an answer for a book no longer chosen is dropped. While the list cannot be loaded, the page shows a retryable error and refuses to submit, because it could neither display nor resolve a unit number.
 - A unit value is trimmed and compared exactly with `String(unit.number)` for each of that book's units. A padded `02` or a spelling like `Unit 2` matches nothing, by design: an assignment must be explicit, and a guessed match could put a meaning in the wrong unit.
-- A blank unit value is no assignment, the same as every other blank optional value.
+- In mixed mode, a blank unit value is no assignment, the same as every other blank optional value.
 - A value that matches no unit makes the row invalid with the value shown, so the administrator can find it; the preview shows the resolved unit's number and title beside each row that has one. An import never creates a unit.
 - The resolved `unitId` is the only thing the request carries; the server re-validates it under [ADR-005](./ADR-005-bulk-vocabulary-import.md), so a unit deleted between the load and the submit is refused there, on the row of its `index`.
 
@@ -81,7 +98,7 @@ Every format also carries the optional section of that assignment: the TSV eight
 
 - The value is trimmed and then matched exactly, with case significant: ` A ` is Section A, while `a` matches nothing and makes the row invalid with the value shown, for the same reason a padded `02` does — a guessed match could put a meaning in the wrong place.
 - A blank value is no section, and an input without the section column or field at all parses and submits exactly as before: its entries carry no `section`.
-- A section requires the row's unit: a section without a unit number names a place of nothing, and the row is invalid with that reason (`有分节但未填写单元`) rather than being sent for the server to refuse.
+- A section requires the final unit (including a selected default in a uniform mode): a section without a unit number names a place of nothing, and the row is invalid with that reason (`有分节但未填写单元`) rather than being sent for the server to refuse.
 - The resolved section is sent as the entry's `section`, only when the row carries one; the server re-validates it under [ADR-005](./ADR-005-bulk-vocabulary-import.md).
 
 ### The entry-kind column
@@ -89,8 +106,8 @@ Every format also carries the optional section of that assignment: the TSV eight
 Every format also carries the optional classification of the entry at that assignment's place: the TSV ninth column, the CSV and Excel `entry_kind` header column, and the JSON `entryKind` field. The value is `word` or `phrase` exactly.
 
 - The value is trimmed and then matched exactly, with case significant: ` word ` is a word, while `Word` matches nothing and makes the row invalid with the value shown. The classification is the administrator's explicit act; nothing about the entry's text — spelling, spaces, part of speech, or source file — is examined to guess a kind.
-- A blank value is unclassified, and an input without the kind column or field at all parses and submits exactly as before: its entries carry no `entryKind`.
-- A kind requires the row's unit, because it is a property of an assignment's position: a kind without a unit number classifies nothing, and the row is invalid with that reason (`有类别但未填写单元`) rather than being sent for the server to refuse.
+- In mixed mode, a blank value is unclassified, and an input without the kind column or field at all parses and submits exactly as before: its entries carry no `entryKind`.
+- A kind requires the final unit, because it is a property of an assignment's position: a kind without a unit number classifies nothing, and the row is invalid with that reason (`有类别但未填写单元`) rather than being sent for the server to refuse.
 - The resolved kind is sent as the entry's `entryKind`, only when the row carries one; the server re-validates it under [ADR-005](./ADR-005-bulk-vocabulary-import.md).
 
 ### CSV

@@ -22,7 +22,9 @@ const routes: RouteRecordRaw[] = [
   { path: '/phrases', name: 'phrase-positions', component: PhrasePositionsView },
   { path: '/import', name: 'import', component: ImportView },
   { path: '/import/phrase', name: 'phrase-import', component: PhraseImportView },
-  { path: '/import/batch', name: 'batch-import', component: BatchImportView }
+  { path: '/import/batch', name: 'batch-import', component: BatchImportView, props: { mode: 'mixed' } },
+  { path: '/import/batch/words', name: 'batch-import-words', component: BatchImportView, props: { mode: 'word' } },
+  { path: '/import/batch/phrases', name: 'batch-import-phrases', component: BatchImportView, props: { mode: 'phrase' } }
 ]
 
 const router = createRouter({

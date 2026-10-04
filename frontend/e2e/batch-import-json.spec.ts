@@ -228,7 +228,7 @@ test('marks items invalid by their number and shows the values they were refused
   await expect(previewRow(page, 2)).toContainText('未知字段：Word、__proto__')
   await expect(previewRow(page, 3)).toContainText('字段 phoneticUk 应为字符串；字段 meaning 应为字符串；字段 example 应为字符串')
   await expect(previewRow(page, 3).locator('td')).toHaveText(
-    ['3', 'banana', '["a"]', '', '', '1', 'true', '', '', '', /字段 phoneticUk 应为字符串/])
+    ['3', 'banana', '["a"]', '', '', '1', 'true', '', '', '', /字段 phoneticUk 应为字符串/, '（空白）', '未分类', '无归属'])
   for (const position of [4, 5, 6]) {
     await expect(previewRow(page, position)).toContainText('该项不是对象')
   }

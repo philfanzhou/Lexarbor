@@ -29,7 +29,9 @@ const navigation = [
     links: [
       { to: '/import', label: '单条导入', icon: EditPen },
       { to: '/import/phrase', label: '新增短语', icon: EditPen },
-      { to: '/import/batch', label: '批量导入', icon: Upload }
+      { to: '/import/batch', label: '批量导入', icon: Upload },
+      { to: '/import/batch/words', label: '批量单词导入', icon: Upload },
+      { to: '/import/batch/phrases', label: '批量短语导入', icon: Upload }
     ]
   }
 ]
