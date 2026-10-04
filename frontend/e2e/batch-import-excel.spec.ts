@@ -241,12 +241,12 @@ test('imports the first sheet of a workbook with the same payload as the same ba
   await expect(page.locator('.batch-summary')).toContainText('数据行 7 条，有效 7 条，无效 0 条')
   // Sheet row numbers: the header is on row 3 and row 7 is blank.
   await expect(previewRows(page).locator('td:first-child')).toHaveText(['4', '5', '6', '8', '9', '10', '11'])
-  await expect(previewRow(page, 4).locator('td')).toHaveText(['4', 'apple', '', '', 'n.', '苹果', 'I eat an apple.', '', '', '', '有效'])
-  await expect(previewRow(page, 5).locator('td')).toHaveText(['5', 'banana', '', '2', '', '香蕉', '0.1', '', '', '', '有效'])
-  await expect(previewRow(page, 6).locator('td')).toHaveText(['6', 'cherry', '', '', 'FALSE', '樱桃', 'TRUE', '', '', '', '有效'])
-  await expect(previewRow(page, 8).locator('td')).toHaveText(['8', 'date', '', '2', '', '枣', '2023-03-15', '', '', '', '有效'])
-  await expect(previewRow(page, 9).locator('td')).toHaveText(['9', 'egg', '', '', '', '蛋', '2023-03-15T12:00:00', '', '', '', '有效'])
-  await expect(previewRow(page, 11).locator('td')).toHaveText(['11', 'grape', '', '', '', '葡萄', '', '', '', '', '有效'])
+  await expect(previewRow(page, 4).locator('td')).toHaveText(['4', 'apple', '', '', 'n.', '苹果', 'I eat an apple.', '', '', '', '有效', '（空白）', '未分类', '无归属'])
+  await expect(previewRow(page, 5).locator('td')).toHaveText(['5', 'banana', '', '2', '', '香蕉', '0.1', '', '', '', '有效', '（空白）', '未分类', '无归属'])
+  await expect(previewRow(page, 6).locator('td')).toHaveText(['6', 'cherry', '', '', 'FALSE', '樱桃', 'TRUE', '', '', '', '有效', '（空白）', '未分类', '无归属'])
+  await expect(previewRow(page, 8).locator('td')).toHaveText(['8', 'date', '', '2', '', '枣', '2023-03-15', '', '', '', '有效', '（空白）', '未分类', '无归属'])
+  await expect(previewRow(page, 9).locator('td')).toHaveText(['9', 'egg', '', '', '', '蛋', '2023-03-15T12:00:00', '', '', '', '有效', '（空白）', '未分类', '无归属'])
+  await expect(previewRow(page, 11).locator('td')).toHaveText(['11', 'grape', '', '', '', '葡萄', '', '', '', '', '有效', '（空白）', '未分类', '无归属'])
   await expect(previewRow(page, 10)).not.toContainText('not read')
 
   await submitButton(page).click()

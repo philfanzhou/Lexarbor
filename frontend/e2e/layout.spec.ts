@@ -28,7 +28,9 @@ const navLinks = [
   { name: '短语管理', path: '/phrases' },
   { name: '单条导入', path: '/import' },
   { name: '新增短语', path: '/import/phrase' },
-  { name: '批量导入', path: '/import/batch' }
+  { name: '批量导入', path: '/import/batch' },
+  { name: '批量单词导入', path: '/import/batch/words' },
+  { name: '批量短语导入', path: '/import/batch/phrases' }
 ]
 
 function json(route: Route, data: unknown, status = 200) {

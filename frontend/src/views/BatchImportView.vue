@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getActiveBooks, getBookUnits } from '@/services/bookApi'
 import { importVocabularyBatch } from '@/services/vocabularyApi'
@@ -12,6 +13,15 @@ import { getApiError } from '@/services/apiError'
 import PageHeader from '@/components/PageHeader.vue'
 import type { Book, BookUnit } from '@/types'
 
+type ImportMode = 'mixed' | 'word' | 'phrase'
+const props = withDefaults(defineProps<{ mode?: ImportMode }>(), { mode: 'mixed' })
+const router = useRouter()
+const modePaths: Record<ImportMode, string> = { mixed: '/import/batch', word: '/import/batch/words', phrase: '/import/batch/phrases' }
+const mode = computed({ get: () => props.mode, set: (value: ImportMode) => { if (!submitting.value) void router.push(modePaths[value]) } })
+const modeTitle = computed(() => mode.value === 'word' ? '批量单词导入' : mode.value === 'phrase' ? '批量短语导入' : '批量导入')
+const defaultUnitId = ref('')
+let alive = true
+
 // Both limits are the server's constants (ADR-005). Checking them here only
 // spares a request the server would refuse; the server still checks them.
 const MAX_ENTRIES = 500
@@ -20,7 +30,7 @@ const PAGE_SIZE = 100
 
 const formatLabels: Record<VocabularyInputFormat, string> = { tsv: 'TSV', csv: 'CSV', json: 'JSON' }
 const placeholders: Record<VocabularyInputFormat, string> = {
-  tsv: '每行一条，制表符分隔：单词、英式音标、美式音标、词性、释义，可选第 6 列例句、第 7 列单元编号、第 8 列分节（A/B）、第 9 列类别（word/phrase）；空行和 # 开头的行忽略',
+  tsv: '每行一条，制表符分隔：英文内容、英式音标、美式音标、词性、释义，可选第 6 列例句、第 7 列单元编号、第 8 列分节（A/B）、第 9 列类别（word/phrase）；空行和 # 开头的行忽略',
   csv: '第一行为表头，逗号分隔，例如：word,phonetic_uk,phonetic_us,part_of_speech,meaning,example,unit,section,entry_kind',
   json: '[{"word":"apple","meaning":"苹果","unit":"2","section":"A","entryKind":"word"}]'
 }
@@ -30,7 +40,7 @@ const formatHints: Record<VocabularyFileFormat, { title: string; rules: string[]
     title: 'TSV：制表符分隔',
     rules: [
       '没有表头，每行一条，列之间用制表符（Tab）分隔',
-      '列的顺序固定：单词、英式音标、美式音标、词性、释义，可选的第 6 列例句、第 7 列单元编号、第 8 列分节（A/B）、第 9 列类别（word/phrase）',
+      '列的顺序固定：英文内容、英式音标、美式音标、词性、释义，可选的第 6 列例句、第 7 列单元编号、第 8 列分节（A/B）、第 9 列类别（word/phrase）',
       '空行和 # 开头的行忽略'
     ],
     example: 'apple\t/ˈæp.əl/\t/ˈæp.əl/\tn.\t苹果\tI eat an apple.\t2\tA\tword'
@@ -75,6 +85,7 @@ const bookId = ref('')
 const format = ref<VocabularyInputFormat>('tsv')
 const text = ref('')
 const submitting = ref(false)
+const readingFile = ref(false)
 const onlyInvalid = ref(false)
 const currentPage = ref(1)
 const result = ref<VocabularyBatchImportResult>()
@@ -106,7 +117,19 @@ const selectedFormat = computed<VocabularyFileFormat>({
   }
 })
 const readingExcel = computed(() => excelFile.value !== undefined && excelFile.value.workbook === undefined)
-const formatHelp = computed(() => formatHints[selectedFormat.value])
+const formatHelp = computed(() => {
+  const help = formatHints[selectedFormat.value]
+  if (mode.value === 'mixed') return help
+  const word = mode.value === 'phrase' ? 'take off' : 'apple'
+  const meaning = mode.value === 'phrase' ? '起飞' : '苹果'
+  const examples: Record<VocabularyFileFormat, string> = {
+    tsv: `${word}\t\t\t\t${meaning}`,
+    csv: `word,meaning\n${word},${meaning}`,
+    json: JSON.stringify([{ word, meaning }], null, 2),
+    xlsx: `word | meaning\n${word} | ${meaning}`
+  }
+  return { ...help, example: examples[selectedFormat.value] }
+})
 const sheetNotice = computed(() => excelFile.value?.workbook?.notice)
 
 const parsed = computed(() =>
@@ -125,100 +148,46 @@ const unitByNumber = computed(() => {
   return new Map(units.value.map((unit) => [String(unit.number), unit]))
 })
 
-/**
- * One row's unit column resolved against that list. `undefined` means the list
- * is not there to resolve with (no book yet, still loading, or failed): the row
- * keeps its raw value and no verdict, because submitting is blocked until the
- * list arrives anyway.
- */
-function resolveUnit(columns: string[]): { unit?: BookUnit; unknownFor?: string } | undefined {
+/** All formats resolve their unchanged canonical columns here, after parsing. */
+function resolveAssignment(columns: string[]) {
+  const rawUnit = columns[6] ?? ''
+  const rawSection = (columns[7] ?? '').trim()
+  const rawKind = (columns[8] ?? '').trim()
   const byNumber = unitByNumber.value
-  if (byNumber === undefined) {
-    return undefined
-  }
-
-  const raw = columns[6] ?? ''
-  if (raw === '') {
-    return {}
-  }
-
-  const unit = byNumber.get(raw)
-  return unit === undefined ? { unknownFor: raw } : { unit }
-}
-
-/**
- * One row's section column, checked the way the server checks it: blank is no
- * section, and only `A` and `B` after trimming name one, with case
- * significant. A section also requires the row's unit — it names a place of
- * that unit — so a section without a unit number is a row error here, not a
- * server rejection.
- */
-function resolveSection(columns: string[]): { section?: string; reason?: string } {
-  const raw = (columns[7] ?? '').trim()
-  if (raw === '') {
-    return {}
-  }
-
-  if (raw !== 'A' && raw !== 'B') {
-    return { reason: `分节应为 A 或 B：${raw}` }
-  }
-
-  if ((columns[6] ?? '').trim() === '') {
-    return { reason: '有分节但未填写单元' }
-  }
-
-  return { section: raw }
-}
-
-/**
- * One row's entry-kind column, checked the way the server checks it: blank is
- * unclassified, and only `word` and `phrase` after trimming name one, with
- * case significant — `Word` is not normalized into one. A kind also requires
- * the row's unit — it is a property of the assignment's place — so a kind
- * without a unit number is a row error here, not a server rejection.
- */
-function resolveEntryKind(columns: string[]): { entryKind?: string; reason?: string } {
-  const raw = (columns[8] ?? '').trim()
-  if (raw === '') {
-    return {}
-  }
-
-  if (raw !== 'word' && raw !== 'phrase') {
-    return { reason: `类别应为 word 或 phrase：${raw}` }
-  }
-
-  if ((columns[6] ?? '').trim() === '') {
-    return { reason: '有类别但未填写单元' }
-  }
-
-  return { entryKind: raw }
+  const unitFromDefault = rawUnit === '' && mode.value !== 'mixed' && !!defaultUnitId.value
+  const unit = byNumber === undefined ? undefined : rawUnit
+    ? byNumber.get(rawUnit)
+    : unitFromDefault ? units.value.find(unit => unit.id === defaultUnitId.value) : undefined
+  const unitUnknown = byNumber !== undefined && rawUnit && !unit ? rawUnit : undefined
+  const hasUnit = !!rawUnit || (unitFromDefault && !!unit)
+  const kindFromDefault = rawKind === '' && mode.value !== 'mixed'
+  const entryKind = kindFromDefault ? mode.value : rawKind || undefined
+  let reason: string | undefined
+  if (unitUnknown !== undefined) reason = `未知单元：${unitUnknown}`
+  else if (rawSection && rawSection !== 'A' && rawSection !== 'B') reason = `分节应为 A 或 B：${rawSection}`
+  else if (rawSection && !hasUnit) reason = '有分节但未填写单元'
+  else if (rawKind && rawKind !== 'word' && rawKind !== 'phrase') reason = `类别应为 word 或 phrase：${rawKind}`
+  else if (mode.value !== 'mixed' && rawKind && rawKind !== mode.value) reason = `文件类别 ${rawKind} 与当前模式不一致，请切换混合词汇模式`
+  else if (entryKind && !hasUnit) reason = '有类别但未填写单元；统一模式可选择缺省单元'
+  const unitText = unit === undefined ? rawUnit : unit.title ? `${unit.number} · ${unit.title}` : String(unit.number)
+  return { unit, unitUnknown, unitText, unitFromDefault, section: rawSection || undefined, entryKind, kindFromDefault, reason }
 }
 
 const previewRows = computed(() =>
   rows.value.map((row) => {
     const serverError = serverErrors.value.get(row.position)
-    const resolved = resolveUnit(row.columns)
-    const sectioned = resolveSection(row.columns)
-    const kinded = resolveEntryKind(row.columns)
-    let reason = row.error
-    if (reason === undefined && resolved?.unknownFor !== undefined) {
-      reason = `未知单元：${resolved.unknownFor}`
-    }
-    if (reason === undefined && sectioned.reason !== undefined) {
-      reason = sectioned.reason
-    }
-    if (reason === undefined && kinded.reason !== undefined) {
-      reason = kinded.reason
-    }
-    if (reason === undefined && serverError !== undefined) {
-      reason = `服务端：${serverError}`
-    }
-    const unitText = resolved?.unit === undefined
-      ? row.columns[6] ?? ''
-      : resolved.unit.title ? `${resolved.unit.number} · ${resolved.unit.title}` : String(resolved.unit.number)
-    return { ...row, unit: resolved?.unit, unitUnknown: resolved?.unknownFor, unitText, section: sectioned.section, entryKind: kinded.entryKind, reason }
+    const assignment = resolveAssignment(row.columns)
+    const reason = row.error ?? assignment.reason ?? (serverError === undefined ? undefined : `服务端：${serverError}`)
+    return { ...row, ...assignment, reason }
   })
 )
+
+const categoryCounts = computed(() => ({
+  word: previewRows.value.filter(row => row.entryKind === 'word').length,
+  phrase: previewRows.value.filter(row => row.entryKind === 'phrase').length,
+  unclassified: previewRows.value.filter(row => !row.entryKind).length,
+  invalid: previewRows.value.filter(row => row.entryKind && row.entryKind !== 'word' && row.entryKind !== 'phrase').length
+}))
 
 const invalidCount = computed(() => previewRows.value.filter((row) => row.reason).length)
 
@@ -248,7 +217,7 @@ const payload = computed<VocabularyBatchImportPayload | undefined>(() => {
   if (unitsState.value !== 'loaded') {
     return undefined
   }
-  if (previewRows.value.some((row) => !row.entry || row.unitUnknown !== undefined)) {
+  if (previewRows.value.some((row) => !row.entry || row.reason !== undefined)) {
     return undefined
   }
 
@@ -285,6 +254,9 @@ const blockers = computed(() => {
   } else if (unitsState.value === 'error') {
     reasons.push('当前教材的单元列表未加载，无法解析单元归属，请重试')
   }
+  if (readingFile.value) {
+    reasons.push('正在读取本地文件')
+  }
   if (readingExcel.value) {
     reasons.push('正在读取 Excel 文件')
     return reasons
@@ -316,7 +288,7 @@ const blockers = computed(() => {
 const canSubmit = computed(() => blockers.value.length === 0 && !submitting.value)
 
 // A server verdict belongs to the exact text, format, file, and book it was given for.
-watch([format, text, excelFile, bookId], () => {
+watch([format, text, excelFile, bookId, mode, defaultUnitId], () => {
   serverErrors.value = new Map()
   serverSummary.value = ''
   currentPage.value = 1
@@ -327,6 +299,8 @@ watch([format, text, excelFile, bookId], () => {
   }
 })
 
+watch([mode, defaultUnitId], () => { result.value = undefined; onlyInvalid.value = false })
+
 watch(onlyInvalid, () => {
   currentPage.value = 1
 })
@@ -334,9 +308,9 @@ watch(onlyInvalid, () => {
 async function loadBooks() {
   try {
     const data = await getActiveBooks()
-    books.value = data.books
+    if (alive) books.value = data.books
   } catch (error: unknown) {
-    ElMessage.error(getApiError(error).message)
+    if (alive) ElMessage.error(getApiError(error).message)
   }
 }
 
@@ -346,7 +320,7 @@ async function loadBooks() {
  * preview never resolves unit numbers against another book's units.
  */
 async function loadUnits() {
-  if (!bookId.value) {
+  if (!bookId.value || submitting.value) {
     return
   }
 
@@ -369,6 +343,7 @@ async function loadUnits() {
 }
 
 watch(bookId, () => {
+  defaultUnitId.value = ''
   unitLoads += 1
   units.value = []
   unitsState.value = bookId.value ? 'loading' : 'idle'
@@ -376,7 +351,7 @@ watch(bookId, () => {
 })
 
 function chooseFile() {
-  fileInput.value?.click()
+  if (!submitting.value) fileInput.value?.click()
 }
 
 function stopReadingExcel() {
@@ -386,6 +361,9 @@ function stopReadingExcel() {
 
 /** Leaves Excel mode for an empty TSV text area, the page's starting state. */
 function removeFile() {
+  if (submitting.value) return
+  ++fileReads
+  readingFile.value = false
   stopReadingExcel()
   excelFile.value = undefined
   format.value = 'tsv'
@@ -417,7 +395,7 @@ async function handleFileChange(event: Event) {
   const file = input.files?.[0]
   // Cleared so that choosing the same file again still fires a change.
   input.value = ''
-  if (!file) {
+  if (!file || submitting.value) {
     return
   }
 
@@ -436,7 +414,10 @@ async function handleFileChange(event: Event) {
     return
   }
 
+  stopReadingExcel()
+  if (excelFile.value && !excelFile.value.workbook) excelFile.value = undefined
   const read = ++fileReads
+  readingFile.value = true
   let buffer: ArrayBuffer
   try {
     buffer = await file.arrayBuffer()
@@ -445,6 +426,8 @@ async function handleFileChange(event: Event) {
       ElMessage.error('文件读取失败')
     }
     return
+  } finally {
+    if (read === fileReads) readingFile.value = false
   }
   if (read !== fileReads) {
     return
@@ -493,10 +476,13 @@ async function handleSubmit() {
     return
   }
 
+  const snapshot = { bookId: payload.value.bookId, entries: payload.value.entries.map(entry => ({ ...entry })) }
   submitting.value = true
   result.value = undefined
   try {
-    result.value = await importVocabularyBatch(payload.value)
+    const answer = await importVocabularyBatch(snapshot)
+    if (!alive) return
+    result.value = answer
     ElMessage.success('导入成功')
     // Cleared so the same batch is not sent twice by accident. Sending it twice
     // would be harmless, but the second result would read as a new import.
@@ -505,6 +491,7 @@ async function handleSubmit() {
     excelFile.value = undefined
     onlyInvalid.value = false
   } catch (error: unknown) {
+    if (!alive) return
     const apiError = getApiError(error)
     if (apiError.status === 401 || apiError.status === 403) {
       // The API client has already redirected.
@@ -531,7 +518,7 @@ async function handleSubmit() {
       ElMessage.error(apiError.message)
     }
   } finally {
-    submitting.value = false
+    if (alive) submitting.value = false
   }
 }
 
@@ -540,15 +527,23 @@ function rowClassName({ row }: { row: { reason?: string } }) {
 }
 
 onMounted(loadBooks)
-onBeforeUnmount(stopReadingExcel)
+onBeforeRouteUpdate(() => !submitting.value)
+onBeforeRouteLeave(to => !submitting.value || !Object.values(modePaths).includes(to.path))
+onBeforeUnmount(() => { alive = false; ++unitLoads; ++fileReads; stopReadingExcel() })
 </script>
 
 <template>
   <div class="batch-import-view">
-    <PageHeader title="批量导入" description="从文本或本地文件一次向一本教材导入多个单词" />
+    <PageHeader :title="modeTitle" description="从文本或本地文件一次向一本教材导入多个词条；明确选择类别，不自动识别" />
 
     <section class="batch-section" aria-labelledby="batch-step-book">
       <h2 id="batch-step-book" class="batch-section__title">1. 选择教材</h2>
+      <el-radio-group v-model="mode" class="batch-mode" aria-label="导入模式" :disabled="submitting">
+        <el-radio-button value="mixed">混合词汇</el-radio-button>
+        <el-radio-button value="word">单词</el-radio-button>
+        <el-radio-button value="phrase">短语</el-radio-button>
+      </el-radio-group>
+      <p>{{ mode === 'mixed' ? '混合模式保留逐行类别；缺省类别为未分类，不会显示在短语管理。' : '缺省类别采用当前模式；文件已有类别与单元不会被覆盖。' }}</p>
       <el-form label-position="top">
         <el-form-item label="教材">
           <el-select
@@ -565,6 +560,11 @@ onBeforeUnmount(stopReadingExcel)
             />
           </el-select>
         </el-form-item>
+        <el-form-item v-if="mode !== 'mixed'" label="缺省单元">
+          <el-select v-model="defaultUnitId" class="batch-default-unit" placeholder="仅补充未填写单元的行" clearable :disabled="submitting || unitsState !== 'loaded'">
+            <el-option v-for="unit in units" :key="unit.id" :label="`第 ${unit.number} 单元 ${unit.title ?? ''}`" :value="unit.id" />
+          </el-select>
+        </el-form-item>
       </el-form>
     </section>
 
@@ -576,7 +576,7 @@ onBeforeUnmount(stopReadingExcel)
             v-model="selectedFormat"
             class="batch-format"
             aria-label="数据格式"
-            :disabled="submitting || !!excelFile"
+            :disabled="submitting || readingFile || !!excelFile"
           >
             <el-radio-button value="tsv">TSV</el-radio-button>
             <el-radio-button value="csv">CSV</el-radio-button>
@@ -588,8 +588,8 @@ onBeforeUnmount(stopReadingExcel)
             type="textarea"
             aria-label="导入数据"
             :rows="10"
-            :disabled="submitting || !!excelFile"
-            :placeholder="excelFile ? excelFile.name : placeholders[format]"
+            :disabled="submitting || readingFile || !!excelFile"
+            :placeholder="excelFile ? excelFile.name : mode === 'mixed' ? placeholders[format] : formatHelp.example"
           />
           <div class="batch-input__actions">
             <el-button :disabled="submitting" @click="chooseFile">选择文件</el-button>
@@ -619,9 +619,9 @@ onBeforeUnmount(stopReadingExcel)
             <li>可以选择 .tsv、.txt、.csv、.json 文件（UTF-8 编码）或 .xlsx 文件，单个文件不超过 1 MiB</li>
             <li>单批不超过 {{ MAX_ENTRIES }} 条</li>
             <li>整批在一个事务中写入：任何一条失败，整批都不写入</li>
-            <li>单元编号填写所选教材单元管理中的编号（如 2），去空白后精确匹配；空白计为不归属，写错编号的行无法提交，导入不会创建单元</li>
-            <li>分节在第 8 列（CSV/Excel 表头 `section`、JSON 字段 `section`）填写 A 或 B，去空白后精确匹配、区分大小写；空白计为未分节；有分节时必须同时填写单元编号</li>
-            <li>类别在第 9 列（CSV/Excel 表头 `entry_kind`、JSON 字段 `entryKind`）填写 word 或 phrase，去空白后精确匹配、区分大小写（`Word` 非法）；空白计为未分类，不会自动推断；有类别时必须同时填写单元编号</li>
+            <li>单元编号填写所选教材单元管理中的编号（如 2），去空白后精确匹配；混合模式空白计为不归属；单词/短语模式仅给空白单元使用页面缺省，写错编号的行无法提交，导入不会创建单元</li>
+            <li>分节在第 8 列（CSV/Excel 表头 `section`、JSON 字段 `section`）填写 A 或 B，去空白后精确匹配、区分大小写；空白计为未分节；有分节时必须有最终单元归属（文件单元或页面缺省）</li>
+            <li>类别在第 9 列（CSV/Excel 表头 `entry_kind`、JSON 字段 `entryKind`）填写 word 或 phrase，去空白后精确匹配、区分大小写（`Word` 非法）；混合模式空白计为未分类；单词/短语模式仅给空白类别使用当前模式，相反类别须切换混合模式；不会自动推断，有类别时必须有最终单元归属</li>
             <li>文件只在浏览器中解析，不会上传</li>
           </ul>
         </div>
@@ -639,7 +639,7 @@ onBeforeUnmount(stopReadingExcel)
         show-icon
         title="当前教材的单元列表加载失败，无法解析单元归属"
       >
-        <el-button class="batch-units-retry" size="small" @click="loadUnits">重试</el-button>
+        <el-button class="batch-units-retry" size="small" :disabled="submitting" @click="loadUnits">重试</el-button>
       </el-alert>
 
       <el-alert
@@ -682,6 +682,8 @@ onBeforeUnmount(stopReadingExcel)
           />
         </div>
 
+        <p class="batch-category-summary" role="status">输入类别：单词 {{ categoryCounts.word }} 条 · 短语 {{ categoryCounts.phrase }} 条 · 未分类 {{ categoryCounts.unclassified }} 条<span v-if="categoryCounts.invalid"> · 非法类别 {{ categoryCounts.invalid }} 条</span>；这是输入行数，非服务端新增位置数。</p>
+        <el-alert v-if="mode === 'mixed' && categoryCounts.unclassified" class="batch-unclassified" type="info" title="未分类行不会显示在短语管理；单元与类别不会根据英文内容自动推断。" :closable="false" show-icon />
         <el-table
           :data="pagedRows"
           :row-class-name="rowClassName"
@@ -691,7 +693,7 @@ onBeforeUnmount(stopReadingExcel)
           scrollbar-tabindex="0"
         >
           <el-table-column prop="position" :label="positionLabels[format]" width="70" />
-          <el-table-column label="单词" min-width="110">
+          <el-table-column label="英文内容" min-width="110">
             <template #default="{ row }">{{ row.columns[0] }}</template>
           </el-table-column>
           <el-table-column label="英式音标" min-width="100">
@@ -709,13 +711,13 @@ onBeforeUnmount(stopReadingExcel)
           <el-table-column label="例句" min-width="160">
             <template #default="{ row }">{{ row.columns[5] }}</template>
           </el-table-column>
-          <el-table-column label="单元" min-width="120">
+          <el-table-column label="最终单元" min-width="120">
             <template #default="{ row }">{{ row.unitText }}</template>
           </el-table-column>
           <el-table-column label="分节" width="70">
             <template #default="{ row }">{{ row.columns[7] ?? '' }}</template>
           </el-table-column>
-          <el-table-column label="类别" width="80">
+          <el-table-column label="原始类别" width="100">
             <template #default="{ row }">{{ row.columns[8] ?? '' }}</template>
           </el-table-column>
           <el-table-column label="状态" min-width="180">
@@ -724,6 +726,9 @@ onBeforeUnmount(stopReadingExcel)
               <span v-else class="batch-status batch-status--valid">有效</span>
             </template>
           </el-table-column>
+          <el-table-column label="原始单元" min-width="100"><template #default="{ row }">{{ row.columns[6] || '（空白）' }}</template></el-table-column>
+          <el-table-column label="最终类别" min-width="140"><template #default="{ row }">{{ row.entryKind || '未分类' }}{{ row.kindFromDefault ? '（页面缺省）' : '' }}</template></el-table-column>
+          <el-table-column label="单元来源" min-width="110"><template #default="{ row }">{{ row.unitFromDefault ? '页面缺省' : row.columns[6] ? '文件' : '无归属' }}</template></el-table-column>
         </el-table>
 
         <el-pagination
@@ -772,7 +777,7 @@ onBeforeUnmount(stopReadingExcel)
         type="success"
         :closable="false"
         show-icon
-        :title="`导入完成：总计 ${result.total} 条，新增 ${result.created} 条，复用 ${result.reused} 条`"
+        :title="`导入完成：总计 ${result.total} 条，新增 ${result.created} 条，复用 ${result.reused} 条（新增/复用只计词义，不代表新增位置数）`"
       />
     </section>
   </div>
@@ -801,6 +806,9 @@ onBeforeUnmount(stopReadingExcel)
 .batch-section :deep(.el-form-item) {
   margin-bottom: 0;
 }
+
+.batch-default-unit { width: min(400px, 100%); margin-top: var(--lx-space-3); }
+.batch-unclassified { margin-bottom: var(--lx-space-3); }
 
 .batch-book-select {
   width: min(400px, 100%);

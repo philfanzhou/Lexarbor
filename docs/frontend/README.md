@@ -20,7 +20,9 @@
 | `/vocabulary` | Administrator | Whole-library word list |
 | `/phrases` | Administrator | Phrase positions by book, unit, section, and keyword |
 | `/import` | Administrator | Word import |
-| `/import/batch` | Administrator | Batch word import |
+| `/import/batch` | Administrator | Mixed vocabulary batch import (legacy default) |
+| `/import/batch/words` | Administrator | Explicit word batch import |
+| `/import/batch/phrases` | Administrator | Explicit phrase batch import |
 
 The application uses hash history. On first entry to a protected page it calls `GET /admin/auth/session` to restore the cookie session; an unauthenticated response redirects to `/login` and a 403 redirects to `/forbidden`. While unauthenticated, neither the administration navigation nor any actionable page is rendered. The hosted-login callback and logout-return routes re-enter the application at these hash routes: a successful callback lands on the stored return page, where the ordinary restore establishes the session, and their fixed failures land on `/login?reason=…`, which the login page renders as one notice.
 
@@ -154,6 +156,24 @@ A refused write keeps the entered values: 400 shows the server's reason (a dupli
 
 ## Batch import page
 
+The three batch routes share one parser, preview, and submission flow. `/import/batch` defaults to mixed vocabulary; `/import/batch/words` selects word mode and `/import/batch/phrases` selects phrase mode. The on-page mode switch changes the route without discarding the raw text or workbook. Administrator sessions can open or refresh each deep link with the same mode. The existing hosted-login return allowlist is unchanged: if an unauthenticated administrator starts at a new uniform-mode deep link, signing in returns to the default book page, from which the mode's navigation entry is available; that round trip does not restore the new mode route.
+
+| Mode | File kind | Final kind | Unit resolution |
+| --- | --- | --- | --- |
+| Mixed | Missing, blank, or JSON null | Unclassified; omit `entryKind` | Use the file unit; blank means no assignment |
+| Mixed | `word` / `phrase` | Keep the file value | A valid file unit is required |
+| Word / Phrase | Missing, blank, or JSON null | The explicitly selected mode | Use a nonblank file unit first; otherwise use the selected default unit |
+| Word / Phrase | The same kind | Keep the file value | Same unit rule |
+| Word / Phrase | The opposite kind | Row error; switch to mixed | Never overwrite the file |
+| Any | Invalid kind or a non-string JSON value | Row/parser error | Defaults never repair invalid input |
+
+The optional default-unit picker lists only the selected book's existing units, clears on a book change, and is ignored in mixed mode. Uniform-mode rows still need a final unit; unknown nonblank values such as `02` or `Unit 2` remain errors. Sections have no page default and are checked after final unit resolution. All four formats apply this table after their existing strict parsing. Preview columns distinguish the raw file kind/unit from the final kind/unit and mark page defaults. The category summary counts input rows, including duplicates, rather than positions created by the server; `created`/`reused` count meanings. Unclassified mixed rows do not appear in phrase management.
+
+For a pure word CSV choose word mode and default Unit 2: `word,meaning` followed by `apple,苹果`. For a pure phrase CSV choose phrase mode and default Unit 2: `word,meaning` followed by `take off,起飞`. A mixed file instead uses `word,meaning,unit,entry_kind`, with `apple,苹果,2,word` and `take off,起飞,2,phrase`. No mode infers a kind from spaces, spelling, part of speech, or filenames. Reimporting a classified assignment does not move, delete, or reclassify an existing unclassified position.
+
+Changing mode, book, default unit, or input regenerates the preview and clears stale server errors and success notices while preserving the raw input. Submission freezes the final JSON and disables mode/default changes; same-component route navigation cannot change mode during the write. Removing or replacing a file terminates its old Excel worker, and leaving invalidates file/read/write UI results without automatically submitting or undoing a server transaction. `e2e/batch-import-modes.spec.ts` covers the decision table across TSV/CSV/JSON/Excel, preview/payload parity, preserved inputs, stale reads, mode navigation, frozen writes, and full-page accessibility at 1440px/768px.
+
+
 `/import/batch` imports many entries into one book through `POST /admin/vocabulary/batch`. [ADR-005](../adr/ADR-005-bulk-vocabulary-import.md) is the single source for the payload, the limits, the check order, the failure envelope, and the TSV format, and [ADR-006](../adr/ADR-006-batch-import-file-formats.md) for the other formats, file reading, and the header rules; this section describes only how the page applies them.
 
 The page is laid out as four numbered sections, all visible at once: 1. 选择教材, 2. 输入数据, 3. 预览与校验, and 4. 提交与结果. The input section has a help panel beside the text area when the content area is at least 1000 px wide, and below it otherwise; it describes the selected format (columns or header names, and an example) and, for every format, the accepted extensions, UTF-8, the 1 MiB file limit, the 500-entry batch limit, that a batch is written in one transaction, how the unit column is matched (exactly, against the selected book's numbers, blank for no assignment, never creating a unit), how the section column is matched (`A`/`B` exactly after trimming, blank for no section, requiring the unit column), how the entry-kind column is matched (`word`/`phrase` exactly after trimming with case significant, blank for unclassified, never inferred, requiring the unit column), and that files are parsed only in the browser. The preview section shows an `el-empty` until there is a row to preview, and the submission blockers appear in a warning alert titled 暂时无法提交, directly above the submit button.
@@ -206,15 +226,15 @@ The section column, as ADR-006 defines it, is shared by every format too: the TS
 
 - The value is `A` or `B` exactly, after trimming and with case significant: ` A ` is Section A, while `a` matches nothing and makes the row invalid with the value shown (`分节应为 A 或 B：a`); a wrong section must stop the batch rather than guess.
 - A blank value is no section, and an input without the section column or field at all parses and submits exactly as before: its entries carry no `section`.
-- A section requires the row's unit: a section without a unit number makes the row invalid (`有分节但未填写单元`), because it names a place of nothing.
+- A section requires the final unit, including a page default in uniform mode: a section without a unit number makes the row invalid (`有分节但未填写单元`), because it names a place of nothing.
 - A resolved section is sent as the entry's `section` only when the row carries one; the server re-validates it.
 
 The entry-kind column, as ADR-006 defines it, is shared by every format too: the TSV ninth column, the CSV and Excel `entry_kind` header column, and the JSON `entryKind` field.
 
 - The value is `word` or `phrase` exactly, after trimming and with case significant: ` word ` is a word, while `Word` matches nothing and makes the row invalid with the value shown (`类别应为 word 或 phrase：Word`); a wrong kind must stop the batch rather than guess. Nothing about the entry's text is examined to infer a kind.
-- A blank value is unclassified, and an input without the kind column or field at all parses and submits exactly as before: its entries carry no `entryKind`.
-- A kind requires the row's unit, because it is a property of an assignment's place: a kind without a unit number makes the row invalid (`有类别但未填写单元`), because it classifies nothing.
-- A resolved kind is sent as the entry's `entryKind` only when the row carries one; the server re-validates it.
+- In mixed mode, a blank value is unclassified, and an input without the kind column or field at all parses and submits exactly as before: its entries carry no `entryKind`.
+- A kind requires the final unit, because it is a property of an assignment's place: a kind without a unit number makes the row invalid (`有类别但未填写单元`), because it classifies nothing.
+- A resolved kind is sent as the entry's `entryKind` when the file or explicit uniform mode supplies one; the server re-validates it.
 
 Submission is disabled, with a message saying why, when no book is selected, the selected book's unit list is still loading or has failed to load, there is no data line, any line is invalid, there are more than 500 data lines, or the JSON payload is larger than 1,048,576 bytes in UTF-8. These checks only spare a request the server would refuse; the server validates every entry itself. The page does not split a large input into several batches: each batch is atomic, but several batches together are not, and splitting them automatically would suggest otherwise.
 
@@ -247,7 +267,7 @@ Once signed in, every page sits in one shell:
 - A 56 px header across the page holds `.brand` (`Lexarbor`) on the left, the low-key build-version button beside it, and `.session` (the username and the **退出登录** button) on the right.
 - Below it, a side navigation `<nav aria-label="主导航">` is grouped by task. Each group is a `role="group"` labelled by its title, and each entry is a real link (`RouterLink`), not a menu item:
   - **教材**: 教材管理 (`/books`), 单词管理 (`/vocabulary`), and 短语管理 (`/phrases`).
-  - **词汇导入**: 单条导入 (`/import`), 新增短语 (`/import/phrase`), and 批量导入 (`/import/batch`).
+  - **词汇导入**: 单条导入 (`/import`), 新增短语 (`/import/phrase`), 批量导入 (`/import/batch`), 批量单词导入 (`/import/batch/words`), and 批量短语导入 (`/import/batch/phrases`).
 - A side navigation rather than header links, because the groups need to be visible and later pages need vertical room; three links in the header can show neither.
 - The current page's link is highlighted and carries `aria-current="page"`, for an exact route match only.
 - At 1024 px and wider the navigation is 220 px wide with icons and text. From 768 px to 1023 px it collapses to a 64 px icon bar: each link keeps its name through `aria-label` and a `title` tooltip, and the group titles are hidden visually but not from assistive technology. At 768 px no page scrolls sideways.
