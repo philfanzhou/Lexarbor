@@ -392,8 +392,10 @@ public class AdminHttpTestHostedLoginTests
                 f.LastAccess = accessToken;
                 f.LastId = idToken;
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
-                { Content = JsonContent.Create(new Dictionary<string, object>
-                    { ["access_token"] = accessToken, ["id_token"] = idToken, ["token_type"] = "Bearer", ["expires_in"] = 900, ["scope"] = "openid profile" }) });
+                {
+                    Content = JsonContent.Create(new Dictionary<string, object>
+                    { ["access_token"] = accessToken, ["id_token"] = idToken, ["token_type"] = "Bearer", ["expires_in"] = 900, ["scope"] = "openid profile" })
+                });
             }
         }
 
