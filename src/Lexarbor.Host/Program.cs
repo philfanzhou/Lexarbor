@@ -173,7 +173,22 @@ builder.Services.AddOptions<AdminAuthenticationOptions>()
         "AdminAuthentication:OidcCode, and see docs/development/HostedLoginReleaseNotes.md for the " +
         "upgrade steps. The LEXARBOR_OIDC_*, LEXARBOR_GATEWAY_* and LEXARBOR_COOKIE_SECURE " +
         "environment variables no longer exist.")
+    .Validate<IHostEnvironment>((options, environment) =>
+        string.IsNullOrWhiteSpace(options.HttpTestOrigins) ||
+        environment.IsEnvironment("Testing"),
+        HostedLoginHttpTestTransport.NonTestingFailureMessage)
+    .Validate(options => HostedLoginHttpTestTransport.ValidOrigins(options.HttpTestOrigins),
+        HostedLoginHttpTestTransport.InvalidOriginsFailureMessage)
     .ValidateOnStart();
+// The immutable plain-HTTP test policy for hosted administrator login: constructed
+// once from the standard configuration sources and the actual host environment, and
+// shared by the callback-origin checks and the session/transaction cookie
+// definitions. Every deployment without the setting gets the identical disabled
+// policy, byte-for-byte the previous HTTPS behavior. Startup validation above is
+// the fail-fast gate.
+builder.Services.AddSingleton(serviceProvider => HostedLoginHttpTestTransport.Create(
+    serviceProvider.GetRequiredService<IHostEnvironment>(),
+    serviceProvider.GetRequiredService<IOptions<AdminAuthenticationOptions>>().Value.HttpTestOrigins));
 
 builder.Services.AddScoped<AdminAccessTokenValidator>();
 // Internal foundations only; credentials are checked when invoked, not at startup.
@@ -499,6 +514,33 @@ else
         "Rate limits partition on the connecting address. Behind a reverse proxy, set Network:TrustedProxies or Network:TrustedNetworks or every client will share one partition.");
 }
 
+// Constructed here — synchronously, before the database or any endpoint touches
+// anything — so a misconfigured transport is a startup failure with the same
+// critical-diagnostic shape as the Provider tripwire, and the deliberate downgrade
+// is a loud startup fact rather than a quiet one. The cookie handles and callback
+// codes stay opaque and single-use either way; what plain HTTP gives up is link
+// confidentiality and integrity.
+HostedLoginHttpTestTransport httpTestTransport;
+try
+{
+    httpTestTransport = app.Services.GetRequiredService<HostedLoginHttpTestTransport>();
+}
+catch (OptionsValidationException exception)
+{
+    app.Logger.LogCritical("{Diagnostic}", exception.Message);
+    return 1;
+}
+if (httpTestTransport.Enabled)
+{
+    app.Logger.LogWarning(
+        "Hosted administrator login is accepting plain-HTTP test origins ({OriginCount} configured). " +
+        "Cookies are issued without Secure under the HttpTest- prefix and callbacks, including the " +
+        "one-time authorization code, travel unencrypted. Keep the deployment on an isolated test " +
+        "network with access control, and switch back to HTTPS (which requires signing in again) " +
+        "before any real use.",
+        httpTestTransport.AllowedOriginCount);
+}
+
 // Checked at startup rather than left to the first request that needs it: a
 // metadata address the bearer scheme refuses is a failure to start, not a 500 on
 // every administration request while the deployment reports itself healthy.
@@ -552,6 +594,7 @@ void LogRateLimit(string name, RateLimitPolicyOptions policy)
         app.Logger.LogWarning("Rate limit for {Policy} is disabled by configuration", name);
     }
 }
+
 if (!app.Environment.IsDevelopment() &&
     !app.Environment.IsEnvironment("Testing"))
 {

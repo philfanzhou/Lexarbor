@@ -239,6 +239,30 @@ public class AdminCodeExchangeTests
     }
 
     [Theory]
+    [InlineData("http://192.168.50.10:5008/admin/auth/callback", true)]
+    [InlineData("http://10.0.0.1:80/admin/auth/callback", true)]
+    [InlineData("http://[fd00::5]:5008/admin/auth/callback", true)]
+    [InlineData("http://172.31.255.254:5008/admin/auth/callback", true)]
+    [InlineData("https://192.168.50.10:5008/admin/auth/callback", true)]
+    [InlineData("http://172.32.0.1:5008/admin/auth/callback", false)]
+    [InlineData("http://192.168.50.10:5009/admin/auth/callback", false)]
+    [InlineData("http://10.20.30.40:5008/admin/auth/callback", false)]
+    [InlineData("http://8.8.8.8:5008/admin/auth/callback", false)]
+    [InlineData("http://remote.test:5008/admin/auth/callback", false)]
+    public async Task TestingHttpCallback_OnlyAllowedPrivateOrigins(string uri, bool allowed)
+    {
+        var environment = new Mock<IHostEnvironment>();
+        environment.SetupGet(e => e.EnvironmentName).Returns("Testing");
+        using var f = new Fixture("Testing", HostedLoginHttpTestTransport.Create(
+            environment.Object,
+            "http://192.168.50.10:5008;http://10.0.0.1:80;http://[fd00::5]:5008;http://172.31.255.254:5008"));
+        f.CodeOptions.RedirectUri = uri;
+        f.Reply();
+        Assert.Equal(allowed ? AdminCodeStatus.Success : AdminCodeStatus.Unavailable, (await f.Redeem(TestContext.Current.CancellationToken)).Status);
+        if (allowed) Assert.Equal(uri, f.Form["redirect_uri"]);
+    }
+
+    [Theory]
     [InlineData("missing-access")]
     [InlineData("missing-id")]
     [InlineData("type")]
@@ -381,7 +405,7 @@ public class AdminCodeExchangeTests
         public MetadataManager Manager { get; }
         private readonly AdminCodeExchange _service;
         private readonly HttpClient _http;
-        public Fixture(string environment = "Production")
+        public Fixture(string environment = "Production", HostedLoginHttpTestTransport? httpTestTransport = null)
         {
             Access = Claims(); Access["role"] = "admin"; Access["name"] = "access-name";
             Id = Claims(); Id["nonce"] = Nonce; Id["name"] = "id-name";
@@ -390,6 +414,7 @@ public class AdminCodeExchangeTests
             var options = new JwtBearerOptions { ConfigurationManager = Manager, RefreshOnIssuerKeyNotFound = true };
             var monitor = new Mock<IOptionsMonitor<JwtBearerOptions>>(); monitor.Setup(m => m.Get(It.IsAny<string>())).Returns(options);
             var env = new Mock<IHostEnvironment>(); env.SetupGet(e => e.EnvironmentName).Returns(environment);
+            HttpTestTransport = httpTestTransport ?? HostedLoginHttpTestTransport.Create(env.Object, null);
             _http = new HttpClient(new Handler(async (request, cancellation) =>
             {
                 Posts++; RequestUri = request.RequestUri!.AbsoluteUri; Authorization = request.Headers.Authorization?.ToString();
@@ -401,8 +426,9 @@ public class AdminCodeExchangeTests
                 return new HttpResponseMessage(Status) { Content = new StringContent(RawBody ?? JsonSerializer.Serialize(Body)) };
             }));
             var clients = new Mock<IHttpClientFactory>(); clients.Setup(c => c.CreateClient(AdminCodeExchange.BackchannelName)).Returns(_http);
-            _service = new AdminCodeExchange(clients.Object, Options.Create(CodeOptions), Options.Create(Identity), Options.Create(Admin), monitor.Object, env.Object, new Clock(DateTimeOffset.FromUnixTimeSeconds(Now)));
+            _service = new AdminCodeExchange(clients.Object, Options.Create(CodeOptions), Options.Create(Identity), Options.Create(Admin), monitor.Object, env.Object, new Clock(DateTimeOffset.FromUnixTimeSeconds(Now)), HttpTestTransport);
         }
+        public HostedLoginHttpTestTransport HttpTestTransport { get; }
         private Dictionary<string, object> Claims() => new() { ["iss"] = "https://issuer.test", ["aud"] = "client-id", ["sub"] = "account-42", ["iat"] = Now - 60, ["exp"] = Now + 300 };
         public void Reply(string? badKind = null, string? duplicate = null, bool badSignature = false)
         {

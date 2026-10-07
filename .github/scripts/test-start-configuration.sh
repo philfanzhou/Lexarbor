@@ -21,6 +21,7 @@ LEXARBOR_OIDC_CODE_CLIENT_SECRET=synthetic-code-secret \
 LEXARBOR_OIDC_CODE_REDIRECT_URI='https://lexarbor.test/admin/auth/callback?registered=1' \
 LEXARBOR_OIDC_CODE_POST_LOGOUT_REDIRECT_URI='https://lexarbor.test/admin/auth/logout/return' \
 LEXARBOR_OIDC_CODE_SCOPE='openid profile' \
+LEXARBOR_HOSTED_LOGIN_HTTP_TEST_ORIGINS='http://192.168.50.10:5008' \
 bash scripts/start.sh >/dev/null
 python3 - "$probe_root/arguments" "$probe_root/data/appsettings.json" <<'PY'
 import pathlib, sys
@@ -32,6 +33,7 @@ expected = {
     'AdminAuthentication__OidcCode__RedirectUri': 'https://lexarbor.test/admin/auth/callback?registered=1',
     'AdminAuthentication__OidcCode__PostLogoutRedirectUri': 'https://lexarbor.test/admin/auth/logout/return',
     'AdminAuthentication__OidcCode__Scope': 'openid profile',
+    'AdminAuthentication__HttpTestOrigins': 'http://192.168.50.10:5008',
 }
 for key, value in expected.items():
     assert arguments.count(key + '=' + value) == 1, 'Code configuration mapping failed'

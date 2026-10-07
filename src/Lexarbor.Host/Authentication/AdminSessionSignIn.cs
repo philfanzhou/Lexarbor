@@ -16,7 +16,7 @@ public interface IAdminSessionSignIn
 }
 
 public sealed class AdminSessionSignIn(AdminSessionStore store, AdminAuthenticationAudit audit, TimeProvider clock,
-    IOptionsMonitor<AdminAuthenticationOptions> options) : IAdminSessionSignIn
+    IOptionsMonitor<AdminAuthenticationOptions> options, HostedLoginHttpTestTransport httpTestTransport) : IAdminSessionSignIn
 {
     public async Task SignInAsync(HttpContext context, ClaimsPrincipal validatedPrincipal, string accessToken,
         string? idToken = null, CancellationToken cancellationToken = default)
@@ -44,7 +44,7 @@ public sealed class AdminSessionSignIn(AdminSessionStore store, AdminAuthenticat
             Roles = VocabularyClaims.GetRoles(validatedPrincipal).ToArray(),
             AccessTokenExpiresAt = expiry
         };
-        context.Request.Cookies.TryGetValue(AdminSessionCookie.Name, out var oldHandle);
+        context.Request.Cookies.TryGetValue(AdminSessionCookie.EffectiveName(httpTestTransport), out var oldHandle);
         // Built before any session write: an operator identity the audit model rejects fails
         // the sign-in closed (the callback's generic failure path) rather than issuing a
         // session whose security event cannot be recorded.
@@ -52,10 +52,10 @@ public sealed class AdminSessionSignIn(AdminSessionStore store, AdminAuthenticat
         var handle = await store.ReplaceAsync(oldHandle, session, auditWrite, cancellationToken);
         // Only a confirmed commit reaches here. A lost commit/response is unknown:
         // no compensation, automatic retry, or promise that the old row survived.
-        var cookie = AdminSessionCookie.Options();
+        var cookie = AdminSessionCookie.Options(httpTestTransport);
         cookie.Expires = expiry;
         cookie.MaxAge = TimeSpan.FromSeconds(Math.Max(0, Math.Floor((expiry - clock.GetUtcNow()).TotalSeconds)));
-        context.Response.Cookies.Append(AdminSessionCookie.Name, handle, cookie);
+        context.Response.Cookies.Append(AdminSessionCookie.EffectiveName(httpTestTransport), handle, cookie);
         // Sign-in replaces every credential the browser may hold from a previous
         // session, including the retired password-login JWT cookie.
         context.Response.Cookies.Delete(AdminSessionCookie.LegacyJwtName, AdminSessionCookie.LegacyOptions());

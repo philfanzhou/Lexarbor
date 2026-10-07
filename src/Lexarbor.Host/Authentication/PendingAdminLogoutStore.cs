@@ -9,10 +9,10 @@ public sealed class PendingAdminLogoutStart
 {
     public string State { get; }
     public string BrowserBinding { get; }
-    public string CookieName => PendingAdminLogoutCookie.Name(State);
+    public string CookieName { get; }
     public DateTimeOffset ExpiresAt { get; }
-    internal PendingAdminLogoutStart(string state, string binding, DateTimeOffset expiresAt)
-        => (State, BrowserBinding, ExpiresAt) = (state, binding, expiresAt);
+    internal PendingAdminLogoutStart(string state, string binding, string cookieName, DateTimeOffset expiresAt)
+        => (State, BrowserBinding, CookieName, ExpiresAt) = (state, binding, cookieName, expiresAt);
 }
 
 /// <summary>
@@ -24,12 +24,14 @@ public sealed class PendingAdminLogoutStart
 /// restores a consumed transaction; a restart discards all of them, which surfaces as
 /// the fixed failed-return redirect.
 /// </summary>
-public sealed class PendingAdminLogoutStore(TimeProvider clock)
+public sealed class PendingAdminLogoutStore(TimeProvider clock, HostedLoginHttpTestTransport httpTestTransport)
 {
     public const int Capacity = 4096;
     public static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(5);
     private readonly object _gate = new();
     private readonly Dictionary<string, Pending> _pending = new(StringComparer.Ordinal);
+
+    public PendingAdminLogoutStore(TimeProvider clock) : this(clock, HostedLoginHttpTestTransport.Disabled) { }
 
     public PendingAdminLogoutStart? Create(CancellationToken cancellationToken = default)
     {
@@ -48,7 +50,7 @@ public sealed class PendingAdminLogoutStore(TimeProvider clock)
             var deadline = now + Lifetime;
             cancellationToken.ThrowIfCancellationRequested();
             _pending.Add(stateHash, new Pending(SHA256.HashData(Encoding.ASCII.GetBytes(binding)), deadline));
-            return new PendingAdminLogoutStart(state, binding, deadline);
+            return new PendingAdminLogoutStart(state, binding, PendingAdminLogoutCookie.Name(httpTestTransport, state), deadline);
         }
     }
 
@@ -103,23 +105,23 @@ public sealed class PendingAdminLogoutStore(TimeProvider clock)
 /// <summary>Cookie metadata for the logout return trip; no cookie is written here.</summary>
 public static class PendingAdminLogoutCookie
 {
-    public static string Name(string state)
+    public static string Name(HostedLoginHttpTestTransport transport, string state)
     {
         if (!PendingAdminLogoutStore.Canonical(state)) throw new ArgumentException("A canonical logout state is required.", nameof(state));
-        return "__Host-Lexarbor.Logout." + state;
+        return transport.CookieName("__Host-Lexarbor.Logout." + state);
     }
     // Use these same Path/Secure/Domain attributes when deleting only this transaction's cookie.
-    public static CookieOptions Attributes() => new()
+    public static CookieOptions Attributes(HostedLoginHttpTestTransport transport) => new()
     {
         HttpOnly = true,
-        Secure = true,
+        Secure = !transport.Enabled,
         SameSite = SameSiteMode.Lax,
         Path = "/",
         Domain = null
     };
-    public static CookieOptions ForStart(PendingAdminLogoutStart start)
+    public static CookieOptions ForStart(HostedLoginHttpTestTransport transport, PendingAdminLogoutStart start)
     {
-        var options = Attributes();
+        var options = Attributes(transport);
         options.Expires = start.ExpiresAt;
         options.MaxAge = PendingAdminLogoutStore.Lifetime;
         return options;

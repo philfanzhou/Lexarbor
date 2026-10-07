@@ -45,13 +45,14 @@ public static class AdminAuthEndpoints
         AdminAuthenticationAudit audit,
         AdminPreparedLogout preparedLogout,
         PendingAdminLogoutStore pendingLogouts,
+        HostedLoginHttpTestTransport httpTestTransport,
         CancellationToken cancellationToken)
     {
-        context.Request.Cookies.TryGetValue(AdminSessionCookie.Name, out var handle);
+        context.Request.Cookies.TryGetValue(AdminSessionCookie.EffectiveName(httpTestTransport), out var handle);
         // The logout audit row joins the revocation's transaction: it is staged only for a
         // live revoked session, and commits or rolls back with that revocation.
         var snapshot = await store.RevokeAndReadAsync(handle, audit.StageLogout(context), cancellationToken);
-        AdminSessionCookie.Clear(context);
+        AdminSessionCookie.Clear(context, httpTestTransport);
         // The local session ends first, and every caller without a live
         // snapshot — no session, an expired or repeated logout —
         // gets the unchanged idempotent 200. Only the single concurrent caller that
@@ -92,13 +93,14 @@ public static class AdminAuthEndpoints
             context.Response.Cookies.Append(
                 transaction.CookieName,
                 transaction.BrowserBinding,
-                PendingAdminLogoutCookie.ForStart(transaction));
+                PendingAdminLogoutCookie.ForStart(httpTestTransport, transaction));
         return VocabularyHttpResponse.Ok(new { logoutUrl = logoutUri });
     }
 
     private static IResult LogoutReturnAsync(
         HttpContext context,
         PendingAdminLogoutStore pendingLogouts,
+        HostedLoginHttpTestTransport httpTestTransport,
         CancellationToken cancellationToken)
     {
         // The provider appends the stored state byte-for-byte to the registered
@@ -110,12 +112,12 @@ public static class AdminAuthEndpoints
             && states[0] is { Length: > 0 } state
             && PendingAdminLogoutStore.Canonical(state))
         {
-            context.Request.Cookies.TryGetValue(PendingAdminLogoutCookie.Name(state), out var binding);
+            context.Request.Cookies.TryGetValue(PendingAdminLogoutCookie.Name(httpTestTransport, state), out var binding);
             if (pendingLogouts.Consume(state, binding, cancellationToken))
             {
                 context.Response.Cookies.Delete(
-                    PendingAdminLogoutCookie.Name(state),
-                    PendingAdminLogoutCookie.Attributes());
+                    PendingAdminLogoutCookie.Name(httpTestTransport, state),
+                    PendingAdminLogoutCookie.Attributes(httpTestTransport));
                 return Results.Redirect(LoggedOutTarget);
             }
         }

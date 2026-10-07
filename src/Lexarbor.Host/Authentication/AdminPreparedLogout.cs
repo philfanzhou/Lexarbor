@@ -16,7 +16,8 @@ namespace Lexarbor.Host.Authentication;
 /// </summary>
 public sealed class AdminPreparedLogout(
     IHttpClientFactory clients, IOptions<OidcCodeOptions> codeOptions,
-    IOptions<IdentityServiceOptions> identityOptions, IHostEnvironment environment)
+    IOptions<IdentityServiceOptions> identityOptions, IHostEnvironment environment,
+    HostedLoginHttpTestTransport httpTestTransport)
 {
     public const string BackchannelName = "LexarborPreparedLogout";
     /// <summary>The verified preparation answer is a small JSON object; anything larger is not one.</summary>
@@ -28,7 +29,8 @@ public sealed class AdminPreparedLogout(
     /// <summary>
     /// The byte-exact post-logout redirect URI to send upstream, or null when none
     /// may be sent: not configured, or not an ASCII HTTPS URI (HTTP only on numeric
-    /// loopback in Development/Testing) of this service's fixed anonymous return
+    /// loopback in Development/Testing, or on an allowed private-IP origin of the
+    /// Testing-only HTTP test transport) of this service's fixed anonymous return
     /// route with at most a registered static query. The value is never normalized;
     /// the provider matches it byte-for-byte against its registration.
     /// </summary>
@@ -39,7 +41,7 @@ public sealed class AdminPreparedLogout(
         if (!Ascii(value, 1, 500) || !SafeUri(value, out var uri)) return null;
         if (!string.Equals(uri.AbsolutePath, LogoutReturnPath, StringComparison.Ordinal)) return null;
         if (uri.Scheme != "https" && !(IsLocalEnvironment() && uri.Scheme == "http"
-            && uri.Host is "127.0.0.1" or "[::1]")) return null;
+            && uri.Host is "127.0.0.1" or "[::1]") && !httpTestTransport.Allows(uri)) return null;
         // SignaCore appends the stored state; a registered URI that already carries
         // one, or repeats a field, would not survive its exact-match registration.
         var query = QueryHelpers.ParseQuery(uri.Query);

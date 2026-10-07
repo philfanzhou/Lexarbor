@@ -183,6 +183,38 @@ operator's responsibility. Events, fields and the retention contract are
 documented in [Deployment](Deployment.md#management-audit-log) and
 [the database contract](../database/README.md#management-audit-log).
 
+## Private-network HTTP testing transport
+
+Issue #214 added an explicit, Testing-only plain-HTTP transport for the hosted
+administrator login, for isolated test networks that reach the administration UI
+directly over HTTP on private IP addresses — no HTTPS proxy, certificate or
+localhost tunnel. It is opt-in through one new setting and otherwise changes
+nothing:
+
+- `AdminAuthentication:HttpTestOrigins`
+  (`LEXARBOR_HOSTED_LOGIN_HTTP_TEST_ORIGINS` through the container script) holds a
+  semicolon-separated allowlist of exact private-IP HTTP origins
+  (`http://<literal-IP>:<port>`, explicit port 1–65535, RFC1918 IPv4 or IPv6
+  unique-local only), entry-for-entry compatible with SignaCore 0.1.13's
+  `security.hosted_login_http_test_origins`. The full syntax, boundaries and the
+  two-service relationship are documented in
+  [Deployment](Deployment.md#private-network-http-testing-testing-only).
+- Enabled only when the actual host environment is exactly `Testing` and the parsed
+  list is non-empty; a non-empty allowlist outside Testing stops startup with a
+  diagnostic naming the setting. Missing or empty keeps the default HTTPS contract
+  byte-for-byte.
+- With it enabled, `AdminAuthentication:OidcCode:RedirectUri` and
+  `PostLogoutRedirectUri` may use an allowed HTTP origin, and the session and both
+  transaction cookies are issued as `HttpTest-Lexarbor.…` (HttpOnly, SameSite=Lax,
+  Path=/, no Domain, no Secure) instead of `__Host-Lexarbor.…`. Opaque handles,
+  browser binding, one-time consumption, PKCE, audits and token validation are
+  unchanged; a leftover cookie from the other mode is not read, so switching modes
+  requires signing in again. The database, key ring, container volumes and every
+  public API shape are untouched.
+- Plain HTTP has no confidentiality or integrity — the authorization code and
+  cookie handles travel unencrypted. The deployment must stay on an isolated test
+  network with access control; the startup log states this at warning level.
+
 ## Shared rate-limit migration
 
 ServiceMantle 0.3.0 now supplies `admin-login` and `public-api` with six-segment
