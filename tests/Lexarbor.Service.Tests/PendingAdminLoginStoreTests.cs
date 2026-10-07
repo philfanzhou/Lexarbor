@@ -6,6 +6,8 @@ using Lexarbor.Service.Tests.TestInfrastructure;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Hosting;
 
 namespace Lexarbor.Service.Tests;
 
@@ -207,18 +209,40 @@ public class PendingAdminLoginStoreTests
         Assert.Equal("__Host-Lexarbor.Login." + a.State, a.CookieName);
         foreach (var start in new[] { a, b })
         {
-            var options = PendingAdminLoginCookie.ForStart(start);
+            var options = PendingAdminLoginCookie.ForStart(HostedLoginHttpTestTransport.Disabled, start);
             Assert.True(options.HttpOnly); Assert.True(options.Secure);
             Assert.Equal(SameSiteMode.Lax, options.SameSite); Assert.Equal("/", options.Path); Assert.Null(options.Domain);
             Assert.Equal(TimeSpan.FromMinutes(5), options.MaxAge); Assert.Equal(start.ExpiresAt, options.Expires);
         }
-        var cleanup = PendingAdminLoginCookie.Attributes();
+        var cleanup = PendingAdminLoginCookie.Attributes(HostedLoginHttpTestTransport.Disabled);
         Assert.Equal("/", cleanup.Path); Assert.True(cleanup.Secure); Assert.Null(cleanup.Domain);
         // Cancel first transaction by consumption, preserving the second and its cookie name.
         Assert.NotNull(store.Consume(a.State, a.BrowserBinding, TestContext.Current.CancellationToken));
         Assert.Equal("__Host-Lexarbor.Login." + b.State, b.CookieName);
         Assert.NotNull(store.Consume(b.State, b.BrowserBinding, TestContext.Current.CancellationToken));
-        Assert.Throws<ArgumentException>(() => PendingAdminLoginCookie.Name("malformed"));
+        Assert.Throws<ArgumentException>(() => PendingAdminLoginCookie.Name(HostedLoginHttpTestTransport.Disabled, "malformed"));
+    }
+
+    [Fact]
+    public void HttpTestTransport_LoginCookieUsesTestNameWithoutSecure()
+    {
+        var transport = HostedLoginHttpTestTransport.Create(
+            new TestEnvironment("Testing"), "http://192.168.50.10:5008");
+        var store = new PendingAdminLoginStore(new Clock(), transport); var start = Start(store);
+        Assert.Equal("HttpTest-Lexarbor.Login." + start.State, start.CookieName);
+        var options = PendingAdminLoginCookie.ForStart(transport, start);
+        Assert.True(options.HttpOnly); Assert.False(options.Secure);
+        Assert.Equal(SameSiteMode.Lax, options.SameSite); Assert.Equal("/", options.Path); Assert.Null(options.Domain);
+        var cleanup = PendingAdminLoginCookie.Attributes(transport);
+        Assert.False(cleanup.Secure); Assert.Equal("/", cleanup.Path); Assert.Null(cleanup.Domain);
+    }
+
+    private sealed class TestEnvironment(string environmentName) : IHostEnvironment
+    {
+        public string ApplicationName { get; set; } = "Test";
+        public string EnvironmentName { get; set; } = environmentName;
+        public string ContentRootPath { get; set; } = ".";
+        public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
     }
 
     [Fact]

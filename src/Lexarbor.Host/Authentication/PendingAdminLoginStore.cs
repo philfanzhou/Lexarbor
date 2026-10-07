@@ -11,10 +11,10 @@ public sealed class PendingAdminLoginStart
     public string Nonce { get; }
     public string Challenge { get; }
     public string BrowserBinding { get; }
-    public string CookieName => PendingAdminLoginCookie.Name(State);
+    public string CookieName { get; }
     public DateTimeOffset ExpiresAt { get; }
-    internal PendingAdminLoginStart(string state, string nonce, string challenge, string binding, DateTimeOffset expiresAt)
-        => (State, Nonce, Challenge, BrowserBinding, ExpiresAt) = (state, nonce, challenge, binding, expiresAt);
+    internal PendingAdminLoginStart(string state, string nonce, string challenge, string binding, string cookieName, DateTimeOffset expiresAt)
+        => (State, Nonce, Challenge, BrowserBinding, CookieName, ExpiresAt) = (state, nonce, challenge, binding, cookieName, expiresAt);
 }
 
 public sealed class ConsumedAdminLogin
@@ -31,12 +31,14 @@ public sealed class ConsumedAdminLogin
 /// Callers validate callback cardinality/issuer before Consume; cancellation/error
 /// callbacks also consume. Downstream failure never restores a consumed transaction.
 /// </summary>
-public sealed class PendingAdminLoginStore(TimeProvider clock)
+public sealed class PendingAdminLoginStore(TimeProvider clock, HostedLoginHttpTestTransport httpTestTransport)
 {
     public const int Capacity = 4096;
     public static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(5);
     private readonly object _gate = new();
     private readonly Dictionary<string, Pending> _pending = new(StringComparer.Ordinal);
+
+    public PendingAdminLoginStore(TimeProvider clock) : this(clock, HostedLoginHttpTestTransport.Disabled) { }
 
     public PendingAdminLoginStart? Create(string? returnRoute = null, CancellationToken cancellationToken = default)
     {
@@ -60,7 +62,7 @@ public sealed class PendingAdminLoginStore(TimeProvider clock)
             cancellationToken.ThrowIfCancellationRequested();
             _pending.Add(stateHash, new Pending(SHA256.HashData(Encoding.ASCII.GetBytes(binding)), deadline, nonce, verifier, target));
             var challenge = WebEncoders.Base64UrlEncode(SHA256.HashData(Encoding.ASCII.GetBytes(verifier)));
-            return new PendingAdminLoginStart(state, nonce, challenge, binding, deadline);
+            return new PendingAdminLoginStart(state, nonce, challenge, binding, PendingAdminLoginCookie.Name(httpTestTransport, state), deadline);
         }
     }
 
@@ -110,23 +112,23 @@ public sealed class PendingAdminLoginStore(TimeProvider clock)
 /// <summary>Cookie metadata for future HTTP callers; no cookie is written here.</summary>
 public static class PendingAdminLoginCookie
 {
-    public static string Name(string state)
+    public static string Name(HostedLoginHttpTestTransport transport, string state)
     {
         if (!PendingAdminLoginStore.Canonical(state)) throw new ArgumentException("A canonical login state is required.", nameof(state));
-        return "__Host-Lexarbor.Login." + state;
+        return transport.CookieName("__Host-Lexarbor.Login." + state);
     }
     // Use these same Path/Secure/Domain attributes when deleting only this transaction's cookie.
-    public static CookieOptions Attributes() => new()
+    public static CookieOptions Attributes(HostedLoginHttpTestTransport transport) => new()
     {
         HttpOnly = true,
-        Secure = true,
+        Secure = !transport.Enabled,
         SameSite = SameSiteMode.Lax,
         Path = "/",
         Domain = null
     };
-    public static CookieOptions ForStart(PendingAdminLoginStart start)
+    public static CookieOptions ForStart(HostedLoginHttpTestTransport transport, PendingAdminLoginStart start)
     {
-        var options = Attributes();
+        var options = Attributes(transport);
         options.Expires = start.ExpiresAt;
         options.MaxAge = PendingAdminLoginStore.Lifetime;
         return options;

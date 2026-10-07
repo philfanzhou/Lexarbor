@@ -60,7 +60,8 @@ public sealed class AdminCodeMetadata
 public sealed class AdminCodeExchange(
     IHttpClientFactory clients, IOptions<OidcCodeOptions> codeOptions,
     IOptions<IdentityServiceOptions> identityOptions, IOptions<AdminAuthenticationOptions> adminOptions,
-    IOptionsMonitor<JwtBearerOptions> bearerOptions, IHostEnvironment environment, TimeProvider clock)
+    IOptionsMonitor<JwtBearerOptions> bearerOptions, IHostEnvironment environment, TimeProvider clock,
+    HostedLoginHttpTestTransport httpTestTransport)
 {
     public const string BackchannelName = "LexarborCodeExchange";
     public const int MaximumResponseBytes = 64 * 1024;
@@ -214,7 +215,8 @@ public sealed class AdminCodeExchange(
             && Ascii(settings.RedirectUri, 1, 500) && SafeUri(settings.RedirectUri, out var redirect)
             && redirect.AbsolutePath == "/admin/auth/callback" && ValidRedirectQuery(redirect)
             && (redirect.Scheme == "https" || IsLocalEnvironment() && redirect.Scheme == "http"
-                && redirect.Host is "127.0.0.1" or "[::1]");
+                && redirect.Host is "127.0.0.1" or "[::1]"
+                || httpTestTransport.Allows(redirect));
     }
 
     private static bool ValidRedirectQuery(Uri redirect)

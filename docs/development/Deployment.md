@@ -476,6 +476,7 @@ cannot believe password login still exists.
 | `LEXARBOR_OIDC_CODE_REDIRECT_URI` | not supplied | `AdminAuthentication:OidcCode:RedirectUri` |
 | `LEXARBOR_OIDC_CODE_POST_LOGOUT_REDIRECT_URI` | not supplied | `AdminAuthentication:OidcCode:PostLogoutRedirectUri` |
 | `LEXARBOR_OIDC_CODE_SCOPE` | `openid profile` | `AdminAuthentication:OidcCode:Scope` |
+| `LEXARBOR_HOSTED_LOGIN_HTTP_TEST_ORIGINS` | not supplied (Testing only; see [private-network HTTP testing](#private-network-http-testing-testing-only)) | `AdminAuthentication:HttpTestOrigins` |
 
 When these variables are not supplied, values come from the persistent file and ultimately from the image defaults. The validated access token must contain `role=admin` by default. Override `AdminAuthentication__RequiredRole` to use another role. Missing hosted-login settings do not prevent startup; `GET /admin/auth/start` answers its existing 503 until the configuration is complete, and the startup log states that `AdminAuthentication:OidcCode` is missing or invalid.
 
@@ -529,7 +530,10 @@ fields, and correlation material must never be logged.
 
 HTTP routes use a separate `__Host-Lexarbor.Login.<state>` cookie for
 each transaction, with HttpOnly, Secure, SameSite=Lax, Path=/, no Domain and a
-five-minute lifetime. Parallel starts cannot overwrite a shared binding cookie.
+five-minute lifetime (in the Testing HTTP test transport the same cookie is issued
+as `HttpTest-Lexarbor.Login.<state>` without Secure; see
+[private-network HTTP testing](#private-network-http-testing-testing-only)).
+Parallel starts cannot overwrite a shared binding cookie.
 Callbacks validate unique fields and exact issuer before consuming state/browser
 binding; only one concurrent consumer succeeds, and the exact deadline is expired.
 A wrong browser cannot consume the valid transaction. Clear only that transaction's
@@ -566,7 +570,9 @@ audience to PerApplication, register the exact callback, then enable Code with
 `openid`/`profile` and refresh disabled. The callback must be an ASCII HTTPS URI of
 at most 500 characters with path `/admin/auth/callback`, no userinfo or fragment.
 Only Development/Testing may use HTTP callbacks on numeric `127.0.0.1` or `[::1]`;
-`localhost` is not an HTTP callback. Use the exact registered URI, including any
+`localhost` is not an HTTP callback. In the Testing environment an HTTP callback
+whose origin is in the [private-network HTTP test allowlist](#private-network-http-testing-testing-only)
+is also accepted. Use the exact registered URI, including any
 query, without rewriting it. Behind a proxy, register the external HTTPS URL and
 configure the existing trusted-forwarding boundary.
 
@@ -611,6 +617,7 @@ Do not copy removed password-grant settings into the Code section.
 | `LEXARBOR_OIDC_CODE_REDIRECT_URI` | `AdminAuthentication:OidcCode:RedirectUri` |
 | `LEXARBOR_OIDC_CODE_POST_LOGOUT_REDIRECT_URI` | `AdminAuthentication:OidcCode:PostLogoutRedirectUri` |
 | `LEXARBOR_OIDC_CODE_SCOPE` | `AdminAuthentication:OidcCode:Scope` |
+| `LEXARBOR_HOSTED_LOGIN_HTTP_TEST_ORIGINS` | `AdminAuthentication:HttpTestOrigins` (Testing only; see [private-network HTTP testing](#private-network-http-testing-testing-only)) |
 
 These independent overrides never rewrite a pre-existing `/app/data/appsettings.json`.
 Protect the secret as server configuration; never put it in frontend settings.
@@ -723,7 +730,9 @@ To receive the browser back, set
 URI as the application's post-logout URI in SignaCore; the provider matches it
 byte-for-byte with no normalization. Only an ASCII HTTPS URI of at most 500
 characters is accepted (HTTP only on numeric `127.0.0.1`/`[::1]` in
-Development/Testing), its path must be `/admin/auth/logout/return`, and an optional
+Development/Testing, or on an origin in the
+[private-network HTTP test allowlist](#private-network-http-testing-testing-only)
+in Testing), its path must be `/admin/auth/logout/return`, and an optional
 registered static query must not repeat fields or contain `state`, which SignaCore
 appends. When the setting is absent or invalid, preparation proceeds without the
 return pair: SignaCore shows its own signed-out page and the browser does not come
@@ -732,7 +741,8 @@ back to Lexarbor.
 `GET /admin/auth/logout/return` is the fixed anonymous return route. It accepts
 exactly one canonical `state`, matches it against a one-time browser-binding cookie
 (`__Host-Lexarbor.Logout.<state>`, HttpOnly/Secure/SameSite=Lax, Path=/, no Domain,
-five minutes) issued with the successful logout response, consumes the pair exactly
+five minutes — `HttpTest-Lexarbor.Logout.<state>` without Secure in the Testing
+HTTP test transport) issued with the successful logout response, consumes the pair exactly
 once, deletes only its own cookie and answers with fixed in-site redirects:
 `/#/login?reason=logged_out` on success and `/#/login?reason=logout_failed` for a
 missing, malformed, unknown, expired, duplicate or unbound state — one shape for
@@ -753,6 +763,71 @@ local sessions are untouched, refresh-token revocation is not part of this flow,
 and when preparation fails the upstream session may survive until SignaCore's own
 idle/absolute limits end it. A lost local revocation commit remains unknown and is
 never retried or compensated.
+
+## Private-network HTTP testing (Testing only)
+
+An isolated test network that reaches the administration UI over plain HTTP — no
+HTTPS proxy, certificate or localhost tunnel — can opt in to the private-network
+HTTP test transport. It is a single Testing-process capability, built from the
+standard configuration sources and the actual host environment:
+
+- The container must run with the `Testing` environment
+  (`ASPNETCORE_ENVIRONMENT=Testing`).
+- Set `LEXARBOR_HOSTED_LOGIN_HTTP_TEST_ORIGINS`
+  (`AdminAuthentication:HttpTestOrigins`) to a semicolon-separated allowlist of the
+  exact origins the browsers will use, for example
+  `http://192.168.50.10:5008`. Both conditions are required: without either one,
+  the default HTTPS contract applies byte-for-byte, and a non-empty allowlist
+  outside Testing **stops startup** with an English diagnostic naming the setting —
+  the setting is never silently ignored.
+
+Each entry must be an exact private-IP HTTP origin, compatible entry-for-entry
+with SignaCore's `security.hosted_login_http_test_origins` setting (SignaCore 0.1.13
+or later): `http://<literal-IP>:<port>` with an explicit decimal port 1–65535, an
+RFC1918 IPv4 address (10/8, 172.16/12, 192.168/16) in canonical dotted-quad form,
+or an IPv6 unique-local address (fc00::/7) in brackets. DNS names, `localhost`,
+loopback, link-local, public, multicast and IPv4-mapped addresses, wildcards,
+CIDR ranges, IPv4 alias spellings (leading zeros, octal, hexadecimal, short
+forms), userinfo, paths (including a trailing slash), queries, fragments,
+percent-encoding, zones and backslashes are all refused. Scheme and IPv6 case are
+canonicalized, an explicit `:80` keeps its effective port, canonical duplicates
+collapse, and at most 32 origins are accepted. Matching is canonical and ordinal —
+no network resolution, no wildcards, and no `X-Forwarded-*` headers.
+
+With the transport enabled:
+
+- `AdminAuthentication:OidcCode:RedirectUri` and
+  `AdminAuthentication:OidcCode:PostLogoutRedirectUri` may use an allowed HTTP
+  origin; every other callback rule (fixed routes, query cardinality, registered
+  static query) is unchanged. Register the exact full HTTP callback and return
+  URIs in SignaCore as usual — the provider still matches them exactly. SignaCore
+  must allow the same origin through its own
+  `security.hosted_login_http_test_origins` (and its HTTP public base URL still
+  needs `allowNonHttpsIssuer=true` plus issuer equality there): one service
+  allowing the origin does not make the pair work.
+- The session and both transaction cookies are issued as `HttpTest-Lexarbor.…`
+  instead of `__Host-Lexarbor.…`, still HttpOnly, SameSite=Lax, Path=/, no Domain,
+  but without `Secure`. The opaque server-side sessions, browser bindings and
+  one-time consumption are unchanged; a leftover HTTPS-name cookie is simply not
+  read, so **switching between HTTP and HTTPS modes requires signing in again** —
+  the database and the Data Protection key ring are never converted.
+- The startup log records the enabled transport (origin count, never the origins)
+  at warning level.
+
+Plain HTTP provides no confidentiality or integrity: the one-time authorization
+code, the cookie handles and every response travel unencrypted on that network.
+The operator must keep the deployment on an isolated test network with access
+control; a private IP address alone does not make the network trusted. The
+identity-service trust boundary is unchanged — an HTTP issuer still requires the
+existing Testing/Development or explicit `RequireHttpsMetadata=false` decisions,
+and nothing here relaxes token validation.
+
+To enable or disable, set or remove `LEXARBOR_HOSTED_LOGIN_HTTP_TEST_ORIGINS` and
+restart. To roll back, remove the setting (or run a non-Testing environment) and
+restart: the HTTPS contract and the `__Host-` cookie names return unchanged. Keep
+the database and the external Data Protection root key; administrators sign in
+again after any mode switch. No SQLite migration, container volume or public API
+shape is involved.
 
 ## Logging
 

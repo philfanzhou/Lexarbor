@@ -24,7 +24,8 @@ public static class HostedAdminLogin
     }
 
     private static async Task<IResult> StartAsync(HttpContext context,
-        IOptions<OidcCodeOptions> settings, AdminCodeExchange exchange, PendingAdminLoginStore pending)
+        IOptions<OidcCodeOptions> settings, AdminCodeExchange exchange, PendingAdminLoginStore pending,
+        HostedLoginHttpTestTransport httpTestTransport)
     {
         var query = context.Request.Query;
         if (query.TryGetValue("returnUrl", out var values) && values.Count != 1
@@ -35,7 +36,7 @@ public static class HostedAdminLogin
         if (metadata.AuthorizationEndpoint is null) return VocabularyHttpResponse.BadGateway("The authentication provider is unavailable.");
         var transaction = pending.Create(values.Count == 0 ? null : values[0], context.RequestAborted);
         if (transaction is null) return VocabularyHttpResponse.ServiceUnavailable("Hosted authentication is temporarily unavailable.");
-        context.Response.Cookies.Append(transaction.CookieName, transaction.BrowserBinding, PendingAdminLoginCookie.ForStart(transaction));
+        context.Response.Cookies.Append(transaction.CookieName, transaction.BrowserBinding, PendingAdminLoginCookie.ForStart(httpTestTransport, transaction));
         return Results.Redirect(QueryHelpers.AddQueryString(metadata.AuthorizationEndpoint, new Dictionary<string, string?>
         {
             ["response_type"] = "code",
@@ -51,7 +52,7 @@ public static class HostedAdminLogin
 
     private static async Task<IResult> CallbackAsync(HttpContext context,
         IOptions<IdentityServiceOptions> identity, PendingAdminLoginStore pending, AdminCodeExchange exchange,
-        IAdminSessionSignIn signIn, AdminAuthenticationAudit audit)
+        IAdminSessionSignIn signIn, AdminAuthenticationAudit audit, HostedLoginHttpTestTransport httpTestTransport)
     {
         try
         {
@@ -68,11 +69,11 @@ public static class HostedAdminLogin
             else if (!One(query, "error", out error) || error is not ("access_denied" or "invalid_request" or "invalid_scope"
                 or "unauthorized_client" or "unsupported_response_type" or "server_error" or "temporarily_unavailable"))
                 return await FailureAsync(context, audit, "sign_in_failed");
-            var cookieName = PendingAdminLoginCookie.Name(state!);
+            var cookieName = PendingAdminLoginCookie.Name(httpTestTransport, state!);
             context.Request.Cookies.TryGetValue(cookieName, out var binding);
             var transaction = pending.Consume(state, binding, context.RequestAborted);
             if (transaction is null) return await FailureAsync(context, audit, "sign_in_failed");
-            context.Response.Cookies.Delete(cookieName, PendingAdminLoginCookie.Attributes());
+            context.Response.Cookies.Delete(cookieName, PendingAdminLoginCookie.Attributes(httpTestTransport));
             if (error is not null) return await FailureAsync(context, audit, error == "access_denied" ? "canceled"
                 : error is "server_error" or "temporarily_unavailable" ? "provider_unavailable" : "sign_in_failed");
             var result = await exchange.RedeemAsync(code!, transaction.Verifier, transaction.Nonce, context.RequestAborted);

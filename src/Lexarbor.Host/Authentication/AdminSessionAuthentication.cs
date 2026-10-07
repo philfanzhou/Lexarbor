@@ -39,10 +39,13 @@ public static class AdminSessionCookie
     /// </summary>
     public const string LegacyJwtName = "lexarborAdmin";
 
-    public static CookieOptions Options() => new()
+    /// <summary>The name the running transport issues and reads; the HTTPS default is <see cref="Name"/>.</summary>
+    public static string EffectiveName(HostedLoginHttpTestTransport transport) => transport.CookieName(Name);
+
+    public static CookieOptions Options(HostedLoginHttpTestTransport transport) => new()
     {
         HttpOnly = true,
-        Secure = true,
+        Secure = !transport.Enabled,
         SameSite = SameSiteMode.Lax,
         Path = "/",
         IsEssential = true
@@ -56,21 +59,22 @@ public static class AdminSessionCookie
         IsEssential = true
     };
 
-    public static void Clear(HttpContext context)
+    public static void Clear(HttpContext context, HostedLoginHttpTestTransport transport)
     {
-        context.Response.Cookies.Delete(Name, Options());
+        context.Response.Cookies.Delete(EffectiveName(transport), Options(transport));
         context.Response.Cookies.Delete(LegacyJwtName, LegacyOptions());
     }
 }
 
 public sealed class AdminSessionAuthenticationHandler(
     IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder,
-    AdminSessionStore store, IOptionsMonitor<AdminAuthenticationOptions> adminOptions)
+    AdminSessionStore store, IOptionsMonitor<AdminAuthenticationOptions> adminOptions,
+    HostedLoginHttpTestTransport httpTestTransport)
     : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
 {
     protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
     {
-        Request.Cookies.TryGetValue(AdminSessionCookie.Name, out var handle);
+        Request.Cookies.TryGetValue(AdminSessionCookie.EffectiveName(httpTestTransport), out var handle);
         var session = await store.ReadAsync(handle, Context.RequestAborted);
         if (session is null) return AuthenticateResult.Fail("Administrator session is invalid or expired.");
         var principal = CreatePrincipal(session);
@@ -104,7 +108,7 @@ public sealed class AdminSessionAuthenticationHandler(
 internal sealed class AdminSessionLogoutMetadata;
 
 public sealed class AdminSessionFailureMiddleware(RequestDelegate next,
-    ILogger<AdminSessionFailureMiddleware> logger)
+    ILogger<AdminSessionFailureMiddleware> logger, HostedLoginHttpTestTransport httpTestTransport)
 {
     public async Task InvokeAsync(HttpContext context)
     {
@@ -114,7 +118,7 @@ public sealed class AdminSessionFailureMiddleware(RequestDelegate next,
             && exception.Message == AdminSessionRepository.StorageFailureMessage)
         {
             if (context.GetEndpoint()?.Metadata.GetMetadata<AdminSessionLogoutMetadata>() is not null)
-                AdminSessionCookie.Clear(context);
+                AdminSessionCookie.Clear(context, httpTestTransport);
             var busy = exception is StorageBusyException;
             if (busy) context.Response.Headers.RetryAfter = "1";
             logger.LogWarning("Administrator session storage operation could not be confirmed.");
