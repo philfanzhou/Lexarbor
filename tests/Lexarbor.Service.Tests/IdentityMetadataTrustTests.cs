@@ -1,4 +1,5 @@
 using System.Net;
+using Microsoft.Extensions.Options;
 using System.Net.Http.Headers;
 using Lexarbor.Service.Tests.TestInfrastructure;
 using Xunit;
@@ -36,9 +37,13 @@ public class IdentityMetadataTrustTests
     [Fact]
     public void HttpAuthorityInDevelopment_Starts()
     {
-        using var factory = CreateFactory(
+        // The Bearer surface's Development default still accepts a plain-HTTP
+        // authority; the hosted-login client itself never does (its loopback
+        // exception is narrower), so the login stays in optional mode here.
+        using var factory = new VocabularyWebApplicationFactory(
             "Development",
-            new Dictionary<string, string?>
+            includeAppCredentials: false,
+            extraConfiguration: new Dictionary<string, string?>
             {
                 ["IdentityService:Authority"] = "http://identity.test",
                 ["IdentityService:RequireHttpsMetadata"] = null
@@ -52,20 +57,22 @@ public class IdentityMetadataTrustTests
     [Fact]
     public void HttpAuthorityOutsideDevelopment_StartsWhenTheOperatorAsksForIt()
     {
-        using var factory = CreateFactory(
-            "Production",
-            new Dictionary<string, string?>
-            {
-                ["IdentityService:Authority"] = "http://identity.test",
-                ["IdentityService:RequireHttpsMetadata"] = "false"
-            });
-
-        // The escape hatch exists so that a deployment whose identity provider
-        // is reached over a trusted path can say so. It has to be said: the
-        // value used to be a constant no deployment could see or change.
-        using var client = factory.CreateClient();
-
-        Assert.NotNull(client);
+        // The operator's escape hatch keeps serving the Bearer surface's metadata
+        // trust decision, but the hosted-login client itself never accepts a plain
+        // HTTP authority outside the loopback development/test origins: with login
+        // credentials configured, such an authority is now a startup failure.
+        Assert.True(Assert.ThrowsAny<Exception>(() =>
+        {
+            using var factory = CreateFactory(
+                "Production",
+                new Dictionary<string, string?>
+                {
+                    ["IdentityService:Authority"] = "http://identity.test",
+                    ["IdentityService:RequireHttpsMetadata"] = "false"
+                });
+            using var client = factory.CreateClient();
+            return client;
+        }) is OptionsValidationException or InvalidOperationException);
     }
 
     [Theory]
@@ -73,9 +80,14 @@ public class IdentityMetadataTrustTests
     [InlineData("http://127.0.0.1:8080")]
     public void LoopbackAuthorityOutsideDevelopment_Starts(string authority)
     {
-        using var factory = CreateFactory(
+        // The placeholder-container shape: no hosted-login credentials at all, so the
+        // official client runs in its optional-login mode whatever the placeholder
+        // authority says — with credentials configured, the same value is a
+        // half-configuration and fails startup instead.
+        using var factory = new VocabularyWebApplicationFactory(
             "Production",
-            new Dictionary<string, string?>
+            includeAppCredentials: false,
+            extraConfiguration: new Dictionary<string, string?>
             {
                 ["IdentityService:Authority"] = authority,
                 ["IdentityService:RequireHttpsMetadata"] = null

@@ -20,13 +20,21 @@ public sealed class AdminAuthenticationOptions
     public string RequiredRole { get; set; } = "admin";
 
     /// <summary>
-    /// Optional semicolon-separated allowlist of exact private-IP HTTP origins
-    /// (for example <c>http://192.168.50.10:5008</c>) that enables the plain-HTTP
-    /// testing transport for hosted administrator login — Testing environment only.
-    /// Missing or empty keeps the default HTTPS contract byte-for-byte; a non-empty
-    /// value outside Testing, or any entry that is not an exact RFC1918/ULA literal
-    /// origin, stops startup. See
-    /// <see cref="HostedLoginHttpTestTransport"/> and Deployment.md.
+    /// Retained only as a compatibility tripwire. The Testing-only plain-HTTP transport
+    /// for hosted administrator login was removed with the in-house implementation: the
+    /// official SignaCore client accepts an explicit loopback HTTP origin
+    /// (<c>127.0.0.1</c> / <c>[::1]</c>) in the Development and Testing environments only,
+    /// and every cookie it issues carries <c>Secure</c>. Any value left here fails startup
+    /// so an operator cannot believe the private-network plain-HTTP mode still exists. See
+    /// <c>docs/development/HostedLoginReleaseNotes.md</c> and Deployment.md.
     /// </summary>
     public string? HttpTestOrigins { get; set; }
+
+    internal const string RemovedSettingFailureMessage =
+        "AdminAuthentication:HttpTestOrigins no longer exists. The Testing-only plain-HTTP " +
+        "transport for the hosted administrator login was removed together with the in-house " +
+        "implementation; the official SignaCore client accepts only an explicit loopback HTTP " +
+        "origin (127.0.0.1 or [::1]) in the Development and Testing environments and always " +
+        "issues Secure cookies. Remove the setting and serve test deployments over a loopback " +
+        "or HTTPS origin as documented in docs/development/Deployment.md.";
 }

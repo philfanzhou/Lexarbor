@@ -234,3 +234,74 @@ one configured whole window; concurrent traffic can still use the next quota.
 The limiter is process-local with no queue, and is not distributed protection or
 a WAF. Rolling back application code restores the old fixed window, envelope and
 numeric range, without migrating data or changing persistent directories.
+
+## Migration to the official SignaCore client package (#209)
+
+The in-house hosted-login implementation (OIDC authorization code + PKCE,
+pending stores, prepared logout, the cookie double-submit CSRF middleware) has
+been replaced by the official
+[`SignaCore.Client.AspNetCore` 0.1.14](https://www.nuget.org/packages/SignaCore.Client.AspNetCore)
+package. Lexarbor keeps its own business rules — the administrator role gate
+(now the package's pre-sign-in authorization extension point), the ServiceMantle
+management audit rows, the management identity mapping, and the SQLite session
+rows (as the package's server-side ticket store).
+
+Session continuity: the `__Host-Lexarbor.AdminSession` cookie name, the handle
+format and the protected payload format are unchanged, so sessions signed in
+before the upgrade keep authenticating — and a rollback of this migration keeps
+the sessions signed in after it.
+
+Declared changes of the migration:
+
+1. **CSRF moves to the official antiforgery token model (B6).** The frontend
+   fetches `GET /admin/auth/csrf` (a new public route answering
+   `{"token": ...}` with the browser-bound antiforgery cookie) and echoes the
+   token in the `X-SignaCore-CSRF` header on every unsafe method, the hosted
+   logout included. The `X-Requested-With` double-submit header and the
+   `CookieCsrfMiddleware` are gone.
+2. **CSRF failure presentation.** A session write with a missing or wrong token
+   fails the session authentication itself and is answered with the management
+   API's fixed `401 {"success":false,"message":"Authentication is required."}`
+   (previously `403` with a CSRF-specific message). The logout endpoint answers
+   the package's fixed `400 {"outcome":"csrf_rejected"}`. The frontend reuses
+   its existing 401 handling (the login page) for both.
+3. **Testing-only plain-HTTP browser login is gone.** The official client
+   accepts an explicit loopback HTTP origin (`127.0.0.1` / `[::1]`) only in the
+   Development and Testing environments, and every cookie it issues carries
+   `Secure`. The `AdminAuthentication:HttpTestOrigins` setting, the
+   `LEXARBOR_HOSTED_LOGIN_HTTP_TEST_ORIGINS` mapping and the `HttpTest-`
+   cookie prefix are removed; a leftover value stops startup with a fixed
+   diagnostic. Private-network HTTP browser logins are no longer supported —
+   test deployments use a loopback or HTTPS origin (browsers trust `localhost`).
+   The upstream browser-acceptance topology note applies to
+   [SignaCore#515](https://github.com/philfanzhou/SignaCore/issues/515).
+4. **Redirect URIs no longer accept a query string.**
+   `AdminAuthentication:OidcCode:RedirectUri` and
+   `PostLogoutRedirectUri` are validated by the package: absolute HTTPS (or
+   the explicit loopback form in Development/Testing), with a path and without
+   a query, fragment or user info. A registered static query such as
+   `?registered=1` must be removed from the deployment configuration.
+5. **The default return target of a plain start is `/`.** A
+   `GET /admin/auth/start` without a `returnUrl` lands the completed sign-in on
+   the application root (the package's fixed default) instead of `/#/books`;
+   the allowlist itself is unchanged for explicit values.
+6. **Login-binding and logout-return cookies are renamed** to the package's
+   derived names (`<session>-login-binding.<state>` and
+   `__Secure-<rest>-logout-return`), both one-time and five-minute-lived —
+   no compatibility impact.
+
+Further behavioural notes of the package swap:
+
+- The token and prepared-logout backchannels authenticate with HTTP Basic
+  (`client_secret_basic`); the client credentials never enter a form body.
+- A start whose hosted login is unconfigured still answers its fixed 503
+  before the return target is read; a configured but illegal protocol value
+  (authority, redirect or post-logout URI, scope) now fails startup instead of
+  degrading — the missing-versus-illegal split behind optional login.
+- The closed failure reasons keep the repository's four-value vocabulary
+  (`canceled`, `denied`, `provider_unavailable`, `sign_in_failed`) and the
+  audit rows behind them; the ID-token/access-token validation profile is the
+  package's strict default (zero clock skew, scope-echo subset, duplicate JSON
+  members rejected, bounded bodies, future `iat` rejected).
+- The gated access token's `nbf` is accepted within the package's documented
+  30-second fixed skew (`exp` is still exact); see the SignaCore README.

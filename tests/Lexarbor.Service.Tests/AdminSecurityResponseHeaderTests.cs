@@ -50,7 +50,8 @@ public class AdminSecurityResponseHeaderTests
     {
         // The redirect answers under test are 302s into the SPA; following them
         // would land on the fallback and measure the wrong response.
-        var client = factory.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        var client = factory.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions
+        { AllowAutoRedirect = false, BaseAddress = new Uri("https://localhost") });
         if (token is not null)
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return client;
@@ -60,8 +61,8 @@ public class AdminSecurityResponseHeaderTests
     [InlineData("/admin/auth/session", "GET", HttpStatusCode.Unauthorized)]
     [InlineData("/admin/auth/session/", "GET", HttpStatusCode.Unauthorized)]
     [InlineData("/ADMIN/AUTH/SESSION", "GET", HttpStatusCode.Unauthorized)]
-    [InlineData("/admin/auth/logout", "POST", HttpStatusCode.OK)]
-    [InlineData("/Admin/Auth/Logout/", "POST", HttpStatusCode.OK)]
+    [InlineData("/admin/auth/logout", "POST", HttpStatusCode.BadRequest)]
+    [InlineData("/Admin/Auth/Logout/", "POST", HttpStatusCode.BadRequest)]
     // The anonymous return route never demands a caller: it answers with its
     // fixed failure redirect even for an anonymous request.
     [InlineData("/admin/auth/logout/return", "GET", HttpStatusCode.Redirect)]
@@ -82,9 +83,11 @@ public class AdminSecurityResponseHeaderTests
         using var answered = method == "GET"
             ? await admin.GetAsync(path, Ct)
             : await admin.PostAsync(path, null, Ct);
-        // The session and logout routes answer 200; the fixed return route always
-        // redirects with its failure target when no logout is pending.
-        Assert.True(answered.StatusCode is HttpStatusCode.OK or HttpStatusCode.Redirect,
+        // The session route answers 200 for the administrator; the logout endpoint
+        // answers its antiforgery rejection for a caller without a token pair, and
+        // the fixed return route always redirects with its failure target when no
+        // logout is pending.
+        Assert.True(answered.StatusCode is HttpStatusCode.OK or HttpStatusCode.Redirect or HttpStatusCode.BadRequest,
             $"unexpected status {answered.StatusCode}");
         AssertBaseline(answered);
     }
@@ -119,8 +122,10 @@ public class AdminSecurityResponseHeaderTests
         await using var factory = new VocabularyWebApplicationFactory();
         using var client = WithNoRedirects(factory);
 
+        // The optional-login degradation answers every start with its fixed 503
+        // before the return target is even read — the package's ordering.
         using var badTarget = await client.GetAsync("/admin/auth/start?returnUrl=https%3A%2F%2Fevil.test", Ct);
-        Assert.Equal(HttpStatusCode.BadRequest, badTarget.StatusCode);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, badTarget.StatusCode);
         AssertBaseline(badTarget);
 
         using var unconfigured = await client.GetAsync("/admin/auth/start", Ct);
@@ -183,7 +188,7 @@ public class AdminSecurityResponseHeaderTests
     }
 
     [Fact]
-    public async Task CookieWritesWithoutCsrf_CarryBaselineOnThe403()
+    public async Task CookieWritesWithoutCsrf_CarryBaselineOnThe401()
     {
         await using var factory = new VocabularyWebApplicationFactory();
         using var cookieClient = WithNoRedirects(factory);
@@ -193,7 +198,7 @@ public class AdminSecurityResponseHeaderTests
         using var rejected = await cookieClient.PostAsJsonAsync(
             "/admin/vocabulary-books", new { bookName = "csrf", status = true }, Ct);
 
-        Assert.Equal(HttpStatusCode.Forbidden, rejected.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, rejected.StatusCode);
         AssertBaseline(rejected);
     }
 

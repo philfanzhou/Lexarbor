@@ -374,3 +374,33 @@ test('a hosted local-only logout says the provider may still hold a session', as
   await expect(page.getByRole('button', { name: '使用 SignaCore 登录' })).toBeVisible()
 })
 
+test('the hosted logout fetches the antiforgery token and echoes it in the header', async ({ page }) => {
+  const state = { sessionLive: true }
+  const logoutUrl = 'https://idp.test/oauth2/logout?logout_handle=synthetic-one-time-handle'
+  await useSessionFlag(page, state)
+  await mockAdministration(page)
+  const csrfRequests: string[] = []
+  const logoutRequests: Array<{ method: string; headers: Record<string, string> }> = []
+  await page.route('**/admin/auth/csrf', (route) => {
+    csrfRequests.push(route.request().url())
+    return json(route, { token: 'synthetic-antiforgery-token' })
+  })
+  await page.route('**/admin/auth/logout', (route) => {
+    logoutRequests.push({
+      method: route.request().method(),
+      headers: route.request().headers()
+    })
+    return json(route, { success: true, data: { logoutUrl } })
+  })
+
+  await page.goto('/#/books')
+  await expect(page.locator('.session')).toContainText(admin.username)
+  await page.locator('.session').getByRole('button', { name: '退出登录' }).click()
+
+  await expect(page).toHaveURL(logoutUrl)
+  expect(csrfRequests).toHaveLength(1)
+  expect(logoutRequests).toEqual([
+    { method: 'POST', headers: expect.objectContaining({ 'x-signacore-csrf': 'synthetic-antiforgery-token' }) }
+  ])
+})
+

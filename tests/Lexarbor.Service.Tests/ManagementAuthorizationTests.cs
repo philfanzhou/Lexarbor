@@ -63,7 +63,7 @@ public class ManagementAuthorizationTests
         var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add("Cookie", factory.CreateSessionCookie(role));
         // Cookie-authenticated writes keep their CSRF marker requirement.
-        client.DefaultRequestHeaders.Add("X-Requested-With", "XMLHttpRequest");
+        AdminTestAntiforgery.Attach(client, factory);
         return client;
     }
 

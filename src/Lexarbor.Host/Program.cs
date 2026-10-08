@@ -28,6 +28,7 @@ using ServiceMantle.Persistence.Relational.DataProtection;
 using ServiceMantle.Persistence.Relational.Stores;
 using ServiceMantle.Web;
 using ServiceMantle.Web.Management;
+using SignaCore.Client.AspNetCore;
 using KestrelBadHttpRequestException = Microsoft.AspNetCore.Server.Kestrel.Core.BadHttpRequestException;
 
 // Before anything is built. The container HEALTHCHECK runs this same assembly,
@@ -111,10 +112,6 @@ builder.Services.AddScoped<IVocabularyBookUnitRepository, VocabularyBookUnitRepo
 builder.Services.AddScoped<IVocabularyMeaningUnitRepository, VocabularyMeaningUnitRepository>();
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 builder.Services.AddSingleton(TimeProvider.System);
-// One-time, browser-bound hosted login transactions.
-builder.Services.AddSingleton<PendingAdminLoginStore>();
-// One-time, browser-bound prepared-logout return transactions.
-builder.Services.AddSingleton<PendingAdminLogoutStore>();
 // A session database failure must not emit SQL, parameters, or provider exception details.
 builder.Services.PostConfigure<LoggerFilterOptions>(options =>
 {
@@ -134,12 +131,10 @@ builder.Services.PostConfigure<LoggerFilterOptions>(options =>
 });
 builder.Services.AddScoped<AdminSessionRepository>();
 builder.Services.AddScoped<AdminSessionStore>();
-builder.Services.AddScoped<IAdminSessionSignIn, AdminSessionSignIn>();
 // Management audit rows share the scoped VocabularyDbContext, so a staged audit write joins
 // whatever unit of work the caller owns (ServiceMantle 0.2.1 has no auto-registration helper).
 builder.Services.AddScoped<IManagementAuditWriter, EfCoreManagementAuditWriter<VocabularyDbContext>>();
 builder.Services.AddScoped<AdminAuthenticationAudit>();
-builder.Services.AddHostedService<AdminSessionCleanupService>();
 builder.Services.AddScoped<IVocabularyWordEditRepository, VocabularyWordEditRepository>();
 builder.Services.AddScoped<VocabularyWordEditService>();
 builder.Services.AddScoped<VocabularyMeaningEditService>();
@@ -173,42 +168,80 @@ builder.Services.AddOptions<AdminAuthenticationOptions>()
         "AdminAuthentication:OidcCode, and see docs/development/HostedLoginReleaseNotes.md for the " +
         "upgrade steps. The LEXARBOR_OIDC_*, LEXARBOR_GATEWAY_* and LEXARBOR_COOKIE_SECURE " +
         "environment variables no longer exist.")
-    .Validate<IHostEnvironment>((options, environment) =>
-        string.IsNullOrWhiteSpace(options.HttpTestOrigins) ||
-        environment.IsEnvironment("Testing"),
-        HostedLoginHttpTestTransport.NonTestingFailureMessage)
-    .Validate(options => HostedLoginHttpTestTransport.ValidOrigins(options.HttpTestOrigins),
-        HostedLoginHttpTestTransport.InvalidOriginsFailureMessage)
+    .Validate(options => string.IsNullOrWhiteSpace(options.HttpTestOrigins),
+        AdminAuthenticationOptions.RemovedSettingFailureMessage)
     .ValidateOnStart();
-// The immutable plain-HTTP test policy for hosted administrator login: constructed
-// once from the standard configuration sources and the actual host environment, and
-// shared by the callback-origin checks and the session/transaction cookie
-// definitions. Every deployment without the setting gets the identical disabled
-// policy, byte-for-byte the previous HTTPS behavior. Startup validation above is
-// the fail-fast gate.
-builder.Services.AddSingleton(serviceProvider => HostedLoginHttpTestTransport.Create(
-    serviceProvider.GetRequiredService<IHostEnvironment>(),
-    serviceProvider.GetRequiredService<IOptions<AdminAuthenticationOptions>>().Value.HttpTestOrigins));
 
 builder.Services.AddScoped<AdminAccessTokenValidator>();
-// Internal foundations only; credentials are checked when invoked, not at startup.
+// The hosted-login protocol settings, read from the historical keys and re-bound onto the
+// official client package: the container environment contract is unchanged.
 builder.Services.Configure<OidcCodeOptions>(builder.Configuration.GetSection(OidcCodeOptions.SectionName));
-builder.Services.AddScoped<AdminCodeExchange>();
-builder.Services.AddHttpClient(AdminCodeExchange.BackchannelName, client => client.Timeout = TimeSpan.FromSeconds(30))
-    .RemoveAllLoggers()
-    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false });
-// The prepared-logout backchannel mirrors the code exchange one: no loggers that
-// could see the ID token or secret, no redirects, no cookies, and a bounded deadline.
-builder.Services.AddScoped<AdminPreparedLogout>();
-builder.Services.AddHttpClient(AdminPreparedLogout.BackchannelName, client => client.Timeout = TimeSpan.FromSeconds(30))
-    .RemoveAllLoggers()
-    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false });
+builder.Services.AddSingleton<IHttpContextAccessor, HttpContextAccessor>();
+// Registered ahead of the package so its TryAdd registration defers to the SQLite-backed
+// store: the ticket rows, the audit companion writes and the v1 protected payload are
+// Lexarbor's own persistence boundary. The self registration keeps one instance behind
+// both the package's ITicketStore seam and this assembly's own lookups.
+builder.Services.AddSingleton<AdminSessionTicketStore>();
+builder.Services.AddSingleton<ITicketStore>(serviceProvider =>
+    serviceProvider.GetRequiredService<AdminSessionTicketStore>());
+builder.Services.AddSingleton<AdminHostedLoginResponseWriter>();
+builder.Services.AddSingleton<AdminPreSignInRoleGate>();
+builder.Services.AddSignaCoreHostedLogin(login =>
+{
+    var identity = builder.Configuration.GetSection(IdentityServiceOptions.SectionName).Get<IdentityServiceOptions>()
+        ?? new IdentityServiceOptions();
+    var code = builder.Configuration.GetSection(OidcCodeOptions.SectionName).Get<OidcCodeOptions>()
+        ?? new OidcCodeOptions();
+    // A deployment that has not configured the hosted login (all three client settings
+    // blank) keeps the historical placeholder authority out of the protocol options, so
+    // the optional-login degradation answers /admin/auth/start with its fixed 503 the
+    // way the retired implementation did; any configured client setting makes the
+    // authority a required, validated option — half-configuration fails startup.
+    var loginConfigured = !string.IsNullOrWhiteSpace(code.ClientId)
+        || !string.IsNullOrWhiteSpace(code.ClientSecret)
+        || !string.IsNullOrWhiteSpace(code.RedirectUri);
+    login.Authority = loginConfigured ? identity.Authority : null;
+    login.ClientId = code.ClientId;
+    login.ClientSecret = code.ClientSecret;
+    login.RedirectUri = code.RedirectUri;
+    login.Scope = code.Scope;
+    login.PostLogoutRedirectUri = string.IsNullOrWhiteSpace(code.PostLogoutRedirectUri)
+        ? null
+        : code.PostLogoutRedirectUri;
+    // Byte-for-byte the retired implementation's cookie name: existing handles and the
+    // protected payload format survive the migration and a rollback either way.
+    login.SessionCookieName = AdminSessionCookie.Name;
+    // Hosted login stays optional at startup: an unconfigured deployment keeps serving its
+    // public API, /admin/auth/start answers its historical 503, and a configured but illegal
+    // value still fails startup — the package's missing-versus-illegal split.
+    login.AllowUnconfiguredStartup = true;
+    login.ReturnUrlValidator = AdminLoginReturnTarget.Normalize;
+    login.SessionEndpointRequireAuthorization = true;
+    login.PostLogoutReturnPath = AdminHostedLoginResponseWriter.PostLogoutReturnTarget;
+});
+// The Lexarbor presentation and the pre-sign-in administrator gate are singleton services
+// wired onto the package options after configuration, so the request-scoped audit writer is
+// resolved per failing request rather than captured here.
+builder.Services.AddOptions<SignaCoreHostedLoginOptions>()
+    .PostConfigure<AdminHostedLoginResponseWriter, AdminPreSignInRoleGate>(
+        (login, writer, gate) =>
+        {
+            login.ResponseWriter = writer;
+            login.PreSignInAuthorizationDecision = gate;
+        });
 
 builder.Services
     .AddAuthentication(AdminAuthenticationSource.PolicyScheme)
     .AddPolicyScheme(AdminAuthenticationSource.PolicyScheme, null, options =>
-        options.ForwardDefaultSelector = context => AdminAuthenticationSource.Select(context.Request))
-    .AddScheme<AuthenticationSchemeOptions, AdminSessionAuthenticationHandler>(AdminAuthenticationSource.SessionScheme, null)
+    {
+        options.ForwardDefaultSelector = context => AdminAuthenticationSource.Select(context.Request);
+        // The management API's fixed JSON 401/403 answers: the official session handler's
+        // 302-to-start challenge never reaches an API surface through this scheme.
+        options.ForwardChallenge = AdminAuthenticationSource.PresentationScheme;
+        options.ForwardForbid = AdminAuthenticationSource.PresentationScheme;
+    })
+    .AddScheme<AuthenticationSchemeOptions, AdminAuthenticationPresentationHandler>(
+        AdminAuthenticationSource.PresentationScheme, null)
     .AddJwtBearer();
 
 // Configured from the resolved options rather than from the configuration read
@@ -404,7 +437,7 @@ foreach (var category in mappedLogLevels.NoneLevelCategories)
 
 // The built-in denied list (Authorization, Proxy-Authorization, Cookie,
 // Set-Cookie, X-Api-Key, X-Auth-Token) already covers every header Lexarbor
-// handles: its own additions — X-Requested-With as a CSRF marker and the
+// handles: its own additions — the X-SignaCore-CSRF antiforgery marker and the
 // test-only client-address header — carry no secret material, so there is
 // nothing to register beyond wiring the sanitizer itself.
 serviceMantle.AddSensitiveHeaders();
@@ -514,33 +547,6 @@ else
         "Rate limits partition on the connecting address. Behind a reverse proxy, set Network:TrustedProxies or Network:TrustedNetworks or every client will share one partition.");
 }
 
-// Constructed here — synchronously, before the database or any endpoint touches
-// anything — so a misconfigured transport is a startup failure with the same
-// critical-diagnostic shape as the Provider tripwire, and the deliberate downgrade
-// is a loud startup fact rather than a quiet one. The cookie handles and callback
-// codes stay opaque and single-use either way; what plain HTTP gives up is link
-// confidentiality and integrity.
-HostedLoginHttpTestTransport httpTestTransport;
-try
-{
-    httpTestTransport = app.Services.GetRequiredService<HostedLoginHttpTestTransport>();
-}
-catch (OptionsValidationException exception)
-{
-    app.Logger.LogCritical("{Diagnostic}", exception.Message);
-    return 1;
-}
-if (httpTestTransport.Enabled)
-{
-    app.Logger.LogWarning(
-        "Hosted administrator login is accepting plain-HTTP test origins ({OriginCount} configured). " +
-        "Cookies are issued without Secure under the HttpTest- prefix and callbacks, including the " +
-        "one-time authorization code, travel unencrypted. Keep the deployment on an isolated test " +
-        "network with access control, and switch back to HTTPS (which requires signing in again) " +
-        "before any real use.",
-        httpTestTransport.AllowedOriginCount);
-}
-
 // Checked at startup rather than left to the first request that needs it: a
 // metadata address the bearer scheme refuses is a failure to start, not a 500 on
 // every administration request while the deployment reports itself healthy.
@@ -598,14 +604,15 @@ void LogRateLimit(string name, RateLimitPolicyOptions policy)
 if (!app.Environment.IsDevelopment() &&
     !app.Environment.IsEnvironment("Testing"))
 {
-    using var credentialScope = app.Services.CreateScope();
     // Hosted login is optional at startup exactly like the password proxy was: the
-    // public API keeps serving, /admin/auth/start answers its existing 503, and the
-    // error states the one thing an operator can fix.
-    if (!credentialScope.ServiceProvider.GetRequiredService<AdminCodeExchange>().IsConfigured)
+    // public API keeps serving and /admin/auth/start answers its existing 503. The
+    // official client reports the one thing an operator can fix through that answer.
+    if (string.IsNullOrWhiteSpace(app.Configuration["AdminAuthentication:OidcCode:ClientId"])
+        || string.IsNullOrWhiteSpace(app.Configuration["AdminAuthentication:OidcCode:ClientSecret"])
+        || string.IsNullOrWhiteSpace(app.Configuration["AdminAuthentication:OidcCode:RedirectUri"]))
     {
         app.Logger.LogError(
-            "Administrator login is not configured because AdminAuthentication:OidcCode is missing or invalid. The service will continue running.");
+            "Administrator login is not configured because AdminAuthentication:OidcCode is missing. The service will continue running.");
     }
 }
 
@@ -717,7 +724,11 @@ app.UseLexarborRateLimitRetryAfter();
 app.UseRateLimiter();
 app.UseMiddleware<AdminSessionFailureMiddleware>();
 app.UseAuthentication();
-app.UseMiddleware<CookieCsrfMiddleware>();
+// The session-identity bridge: a hosted-login session principal receives its
+// ServiceMantle management identity here, and the retired password-login JWT cookie
+// is cleaned up at the hosted boundary events. Session-authenticated unsafe methods
+// carry the official antiforgery boundary inside the session scheme itself.
+app.UseMiddleware<AdminSessionIdentityMiddleware>();
 app.UseAuthorization();
 // One requirement for the whole administration surface. The empty-prefix group
 // changes no route; it only carries the ServiceMantle security response-header

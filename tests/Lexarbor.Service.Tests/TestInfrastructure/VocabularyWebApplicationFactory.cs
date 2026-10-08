@@ -20,7 +20,10 @@ namespace Lexarbor.Service.Tests.TestInfrastructure;
 
 public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Program>
 {
-    public const string Issuer = "http://localhost:8080";
+    // The official SignaCore client accepts an explicit loopback HTTP authority in the
+    // Testing environment but never a DNS name, so the fake identity host is addressed
+    // by its literal address.
+    public const string Issuer = "http://127.0.0.1:8080";
     public const string Audience = "lexarbor";
     /// <summary>
     /// The retired password-login JWT cookie name. The cookie is no longer
@@ -163,7 +166,17 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
                     Environment.SetEnvironmentVariable(entry.Name, entry.Value);
                 }
 
-                return base.CreateHost(builder);
+                var host = base.CreateHost(builder);
+                // The antiforgery boundary issues and validates its Secure cookie
+                // pairs only over an https request: the in-memory test server presents
+                // an https origin — exactly what a real browser deployment does. A
+                // test that swaps in a real Kestrel binding is unaffected.
+                if (host.Services.GetRequiredService<Microsoft.AspNetCore.Hosting.Server.IServer>()
+                    is Microsoft.AspNetCore.TestHost.TestServer testServer)
+                {
+                    testServer.BaseAddress = new Uri("https://localhost");
+                }
+                return host;
             }
             finally
             {
@@ -234,6 +247,43 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
         return $"{AdminSessionCookie.Name}={handle}";
     }
 
+    /// <summary>
+    /// The hosted-login antiforgery boundary issues and validates its Secure cookie
+    /// pairs only over an https request, so the factory's default clients present an
+    /// https origin — exactly what a real browser deployment does. Clients created
+    /// through a host derived with WithWebHostBuilder are typed as the base factory:
+    /// those call sites use <see cref="CreateHttpsClient"/>.
+    /// </summary>
+    public new HttpClient CreateClient() => CreateClient(new WebApplicationFactoryClientOptions());
+
+    public new HttpClient CreateClient(WebApplicationFactoryClientOptions options)
+    {
+        // The options' default base address is the plain-http localhost origin; the
+        // in-memory test server presents https instead (see the summary above). A
+        // real Kestrel binding from UseKestrel is left exactly as it is.
+        if (options.BaseAddress is { } defaultBase
+            && defaultBase.Host == "localhost"
+            && defaultBase.Port == 80
+            && IsInMemoryTestServer())
+        {
+            options.BaseAddress = new Uri("https://localhost");
+        }
+        return base.CreateClient(options);
+    }
+
+    private bool IsInMemoryTestServer()
+    {
+        try
+        {
+            return Server is Microsoft.AspNetCore.TestHost.TestServer;
+        }
+        catch (NotSupportedException)
+        {
+            // UseKestrel hosts do not expose the Server property.
+            return false;
+        }
+    }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment(_environment);
@@ -246,7 +296,7 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
                 // Each test factory instance owns its root-key file, isolating
                 // the ServiceMantle key repository per test.
                 ["DataProtection:RootKeyFile"] = Path.Combine(_keyContentRoot, "root-key"),
-                ["IdentityService:Authority"] = "http://identity.test",
+                ["IdentityService:Authority"] = "http://127.0.0.1:8080",
                 ["IdentityService:Issuer"] = Issuer,
                 ["IdentityService:Audience"] = Audience,
                 // The fake identity host is an http one, and several tests run
@@ -350,4 +400,16 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
             }
         }
     }
+}
+
+
+/// <summary>
+/// Creates a client with an https origin from a host whose static type is the base
+/// factory (a WithWebHostBuilder derivative): the antiforgery boundary's Secure
+/// cookie pairs are issued and validated only over https requests.
+/// </summary>
+public static class WebApplicationFactoryHttpsExtensions
+{
+    public static HttpClient CreateHttpsClient(this Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> factory) =>
+        factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
 }

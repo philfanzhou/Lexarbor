@@ -67,7 +67,8 @@ public sealed class AdminSessionStoreTests : IDisposable
         }
     }
 
-    private ServiceProvider Build(string? ringRoot = null, IInterceptor? interceptor = null, bool migrate = true)
+    private ServiceProvider Build(string? ringRoot = null, IInterceptor? interceptor = null, bool migrate = true,
+        ILogger<AdminSessionTicketStore>? ticketStoreLogger = null)
     {
         Directory.CreateDirectory(_root);
         var configuration = new Microsoft.Extensions.Configuration.ConfigurationBuilder()
@@ -96,6 +97,11 @@ public sealed class AdminSessionStoreTests : IDisposable
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<AdminSessionRepository>();
         services.AddScoped<AdminSessionStore>();
+        services.AddSingleton<IHttpContextAccessor, HttpContextAccessor>();
+        services.AddOptions<AdminAuthenticationOptions>();
+        services.AddSingleton(ticketStoreLogger
+            ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<AdminSessionTicketStore>.Instance);
+        services.AddSingleton<AdminSessionTicketStore>();
         var provider = services.BuildServiceProvider();
         if (migrate)
         {
@@ -491,20 +497,21 @@ public sealed class AdminSessionStoreTests : IDisposable
     [Fact]
     public async Task CleanupFailure_IsSafeAndRetryable_AndNoInitializationHostStaysHealthy()
     {
-        using var provider = Build(migrate: false);
         var logger = new CapturingLogger();
-        using var service = new AdminSessionCleanupService(provider.GetRequiredService<IServiceScopeFactory>(), _clock, logger);
-        await service.RunBatchAsync(Ct);
-        Assert.Equal([AdminSessionCleanupService.FailureDiagnostic], logger.Messages);
+        using var provider = Build(migrate: false, ticketStoreLogger: logger);
+        // The sweep behind the official package's cleanup service: a missing table is
+        // contained as the fixed warning, and the next batch retries after the schema
+        // exists — the package's sweep loop and the host survive the failure.
+        var cleanup = provider.GetRequiredService<AdminSessionTicketStore>();
+        cleanup.RemoveExpired(CancellationToken.None);
+        Assert.Equal(["Expired administrator session cleanup failed; the next batch will retry."], logger.Messages);
         using (var setup = provider.CreateScope()) await Db(setup).Database.MigrateAsync(Ct);
-        await service.RunBatchAsync(Ct);
+        cleanup.RemoveExpired(CancellationToken.None);
         Assert.Single(logger.Messages);
         using var host = new VocabularyWebApplicationFactory("Testing", true,
             extraConfiguration: new Dictionary<string, string?> { ["Database:InitializeOnStartup"] = "false" });
         using var client = host.CreateClient();
-        using var hostCleanup = new AdminSessionCleanupService(host.Services.GetRequiredService<IServiceScopeFactory>(),
-            TimeProvider.System, logger);
-        await hostCleanup.RunBatchAsync(Ct);
+        host.Services.GetRequiredService<AdminSessionTicketStore>().RemoveExpired(CancellationToken.None);
         // With initialization disabled and the shared database still unmigrated,
         // readiness honestly reports not-ready; the host itself stays alive and
         // serving, which liveness now expresses separately from readiness.
@@ -534,10 +541,9 @@ public sealed class AdminSessionStoreTests : IDisposable
         });
         using var client = configured.CreateClient();
         logs.Entries.Clear();
-        using var cleanup = new AdminSessionCleanupService(configured.Services.GetRequiredService<IServiceScopeFactory>(),
-            TimeProvider.System, configured.Services.GetRequiredService<ILogger<AdminSessionCleanupService>>());
-        await cleanup.RunBatchAsync(Ct);
-        Assert.True(logs.Entries.Count == 1 && logs.Entries[0].Message == AdminSessionCleanupService.FailureDiagnostic
+        configured.Services.GetRequiredService<AdminSessionTicketStore>().RemoveExpired(CancellationToken.None);
+        Assert.True(logs.Entries.Count == 1
+            && logs.Entries[0].Message == "Expired administrator session cleanup failed; the next batch will retry."
             && !logs.Entries[0].HasException);
         Assert.True((await client.GetAsync("/health", Ct)).IsSuccessStatusCode);
     }
@@ -623,7 +629,7 @@ public sealed class AdminSessionStoreTests : IDisposable
             CancellationToken cancellationToken = default) => throw new SqliteException("synthetic-lost-result", 1);
     }
 
-    private sealed class CapturingLogger : ILogger<AdminSessionCleanupService>
+    private sealed class CapturingLogger : ILogger<AdminSessionTicketStore>
     {
         public List<string> Messages { get; } = [];
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;

@@ -18,10 +18,9 @@ PATH="$probe_root/bin:$PATH" LEXARBOR_MAPPING_PROBE="$probe_root/arguments" \
 LEXARBOR_DATA_DIR="$probe_root/data" LEXARBOR_ADMIN_AUTH_PROVIDER=OidcCode \
 LEXARBOR_OIDC_CODE_CLIENT_ID=synthetic-client \
 LEXARBOR_OIDC_CODE_CLIENT_SECRET=synthetic-code-secret \
-LEXARBOR_OIDC_CODE_REDIRECT_URI='https://lexarbor.test/admin/auth/callback?registered=1' \
+LEXARBOR_OIDC_CODE_REDIRECT_URI='https://lexarbor.test/admin/auth/callback' \
 LEXARBOR_OIDC_CODE_POST_LOGOUT_REDIRECT_URI='https://lexarbor.test/admin/auth/logout/return' \
 LEXARBOR_OIDC_CODE_SCOPE='openid profile' \
-LEXARBOR_HOSTED_LOGIN_HTTP_TEST_ORIGINS='http://192.168.50.10:5008' \
 bash scripts/start.sh >/dev/null
 python3 - "$probe_root/arguments" "$probe_root/data/appsettings.json" <<'PY'
 import pathlib, sys
@@ -30,21 +29,22 @@ expected = {
     'AdminAuthentication__Provider': 'OidcCode',
     'AdminAuthentication__OidcCode__ClientId': 'synthetic-client',
     'AdminAuthentication__OidcCode__ClientSecret': 'synthetic-code-secret',
-    'AdminAuthentication__OidcCode__RedirectUri': 'https://lexarbor.test/admin/auth/callback?registered=1',
+    'AdminAuthentication__OidcCode__RedirectUri': 'https://lexarbor.test/admin/auth/callback',
     'AdminAuthentication__OidcCode__PostLogoutRedirectUri': 'https://lexarbor.test/admin/auth/logout/return',
     'AdminAuthentication__OidcCode__Scope': 'openid profile',
-    'AdminAuthentication__HttpTestOrigins': 'http://192.168.50.10:5008',
 }
 for key, value in expected.items():
     assert arguments.count(key + '=' + value) == 1, 'Code configuration mapping failed'
-# The removed password-proxy settings must not be mapped at all anymore.
+# The removed password-proxy settings, and the removed Testing-only plain-HTTP
+# hosted-login transport, must not be mapped at all anymore.
 for removed in (
     'AdminAuthentication__CookieSecure=',
     'AdminAuthentication__Oidc__',
     'AdminAuthentication__Gateway__',
+    'AdminAuthentication__HttpTestOrigins=',
 ):
     assert not any(argument.startswith(removed) for argument in arguments), \
-        'Removed password-proxy mapping still present: ' + removed
+        'Removed authentication mapping still present: ' + removed
 assert pathlib.Path(sys.argv[2]).read_text() == '{"existing":"unchanged"}'
 PY
 printf '%s\n' 'Startup Code configuration mapping passed'
