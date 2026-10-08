@@ -1,7 +1,7 @@
 using System.Net;
-using Microsoft.Extensions.Options;
 using System.Net.Http.Headers;
 using Lexarbor.Service.Tests.TestInfrastructure;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace Lexarbor.Service.Tests;

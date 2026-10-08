@@ -1,9 +1,9 @@
+using System.Text.Encodings.Web;
 using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Exceptions;
 using Lexarbor.Service;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
-using System.Text.Encodings.Web;
 
 namespace Lexarbor.Host.Authentication;
 
