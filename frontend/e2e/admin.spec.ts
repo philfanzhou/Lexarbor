@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
+import { mockAntiforgery } from './support/antiforgery'
 
 const admin = {
   username: 'ci-admin',
@@ -59,6 +60,7 @@ async function mockCatalog(page: Page, books = [starterBook]) {
 test('restores an administrator session and displays the catalog', async ({ page }) => {
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: true, data: admin }))
+  await mockAntiforgery(page)
   await mockCatalog(page)
 
   await page.goto('/#/books')
@@ -73,6 +75,7 @@ test('submits a new catalog book through the administration UI', async ({ page }
 
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: true, data: admin }))
+  await mockAntiforgery(page)
   await mockCatalog(page)
   await page.route(/\/admin\/vocabulary-books$/, async (route) => {
     if (route.request().method() !== 'POST') {
@@ -96,6 +99,7 @@ test('shows an empty catalog without errors and creates the first book', async (
 
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: true, data: admin }))
+  await mockAntiforgery(page)
   await mockCatalog(page, [])
   await page.route(/\/admin\/vocabulary-books$/, async (route) => {
     if (route.request().method() !== 'POST') {
@@ -128,6 +132,7 @@ async function openCatalog(page: Page, respond: (route: Route) => Promise<void>)
   const requests: URL[] = []
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: true, data: admin }))
+  await mockAntiforgery(page)
   await mockCatalog(page)
   await page.route(/\/admin\/vocabulary-books(?:\?.*)?$/, (route) => {
     if (route.request().method() !== 'GET') {

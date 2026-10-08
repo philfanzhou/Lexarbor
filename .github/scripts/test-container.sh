@@ -261,7 +261,12 @@ check_healthcheck_reports_healthy "$UNMOUNTED_CONTAINER"
 docker rm -f -v "$UNMOUNTED_CONTAINER" >/dev/null
 
 echo "Checking explicit Code mode with missing configuration fails safely"
-start_container "$CODE_CONTAINER" --env AdminAuthentication__Provider=OidcCode
+# The docker bridge network (172.16.0.0/12) is trusted for forwarded headers so
+# the logout smoke below can speak to the container the way production traffic
+# arrives: behind an SSL-terminating proxy. The official antiforgery boundary
+# added with B6 (CookieSecurePolicy.Always) rejects a plain-HTTP direct hit.
+start_container "$CODE_CONTAINER" --env AdminAuthentication__Provider=OidcCode \
+  --env Network__TrustedNetworks__0=172.16.0.0/12
 check_method_route_deleted "$CODE_CONTAINER"
 code_port="$(docker port "$CODE_CONTAINER" 5008/tcp | head -n 1 | awk -F: '{print $NF}')"
 code_status="$(curl --silent --show-error --dump-header "$TEST_ROOT/code-headers" --output "$TEST_ROOT/code-body" --write-out '%{http_code}' "http://127.0.0.1:${code_port}/admin/auth/start")"
@@ -274,7 +279,22 @@ password_status="$(curl --silent --show-error --output "$TEST_ROOT/code-password
 test "$password_status" = 401
 jq --exit-status '. == {success:false,message:"Authentication is required."}' "$TEST_ROOT/code-password" >/dev/null
 echo "Checking Code-mode logout smoke: sessionless local-only logout and failed-return redirect"
-logout_status="$(curl --silent --show-error --dump-header "$TEST_ROOT/code-logout-headers" --output "$TEST_ROOT/code-logout" --write-out '%{http_code}' --request POST "http://127.0.0.1:${code_port}/admin/auth/logout")"
+# Since the B6 antiforgery migration the hosted-logout route only accepts an
+# unsafe POST that carries the official token model: fetch a token and its
+# browser cookie from the public csrf endpoint first, then echo the token in
+# X-SignaCore-CSRF. The requests carry the proxy-forwarded scheme the container
+# is configured to trust above (as an SSL-terminating proxy presents it), and
+# the cookie is replayed as a literal header value because the official
+# antiforgery cookie is always Secure, which a curl cookie jar would refuse to
+# send over plain loopback HTTP.
+csrf_status="$(curl --silent --show-error --dump-header "$TEST_ROOT/code-csrf-headers" --output "$TEST_ROOT/code-csrf" --write-out '%{http_code}' --header "X-Forwarded-Proto: https" --header "X-Forwarded-For: 203.0.113.7" "http://127.0.0.1:${code_port}/admin/auth/csrf")"
+test "$csrf_status" = 200
+csrf_token="$(jq --raw-output '.token' "$TEST_ROOT/code-csrf")"
+csrf_cookie="$(awk 'tolower($1)=="set-cookie:"{print $2}' "$TEST_ROOT/code-csrf-headers" | head -n 1)"
+csrf_cookie="${csrf_cookie%;}"
+test -n "$csrf_token"
+test -n "$csrf_cookie"
+logout_status="$(curl --silent --show-error --dump-header "$TEST_ROOT/code-logout-headers" --output "$TEST_ROOT/code-logout" --write-out '%{http_code}' --request POST --header "X-Forwarded-Proto: https" --header "X-Forwarded-For: 203.0.113.7" --header "X-SignaCore-CSRF: ${csrf_token}" --cookie "${csrf_cookie}" "http://127.0.0.1:${code_port}/admin/auth/logout")"
 test "$logout_status" = 200
 jq --exit-status '. == {success:true}' "$TEST_ROOT/code-logout" >/dev/null
 grep -qi '^Cache-Control: no-store' "$TEST_ROOT/code-logout-headers"

@@ -1,5 +1,6 @@
 import { strToU8, zipSync } from 'fflate'
 import { expect, test, type Page, type Route } from '@playwright/test'
+import { mockAntiforgery } from './support/antiforgery'
 
 const admin = {
   username: 'ci-admin',
@@ -38,6 +39,7 @@ const workerChunk = /\/assets\/xlsxWorker-[^/]*\.js$/
 async function openBatchPage(page: Page) {
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: true, data: admin }))
+  await mockAntiforgery(page)
   await page.route('**/admin/system/version', (route) =>
     json(route, {
       success: true,

@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page, type Route } from '@playwright/test'
+import { mockAntiforgery } from './support/antiforgery'
 
 const admin = {
   username: 'ci-admin',
@@ -150,6 +151,7 @@ function json(route: Route, data: unknown, status = 200) {
 async function mockSession(page: Page) {
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: true, data: admin }))
+  await mockAntiforgery(page)
 }
 
 async function mockBooksList(page: Page, books = [bookA, bookB]) {
@@ -730,18 +732,21 @@ test('saves the shared fields as one full replacement after naming every affecte
   await confirmBox.getByRole('button', { name: '保存' }).click()
 
   // One PUT carrying all three fields: the blank phonetic is an explicit null,
-  // and the untouched one is sent again rather than merged.
-  expect(put.count).toBe(1)
+  // and the untouched one is sent again rather than merged. Polled: the write
+  // first waits for the antiforgery token, so the capture can trail the click
+  // on a loaded CI runner.
+  await expect.poll(() => put.count).toBe(1)
   expect(put.bodies[0]).toEqual({ word: 'apple2', phoneticUk: null, phoneticUs: '/ˈæp.əl/新' })
   put.answer()
 
   await expect(page.locator('.el-message--success')).toContainText('共享字段已保存')
-  // The success re-reads the detail and tells the list page to refresh.
-  expect(detailReads).toHaveLength(2)
+  // The success re-reads the detail and tells the list page to refresh; both
+  // re-reads trail the success message, so they are polled as well.
+  await expect.poll(() => detailReads).toHaveLength(2)
   await expect(drawer).toContainText('apple2')
   await expect(drawer).toContainText('英 —')
   await expect(drawer.getByRole('button', { name: '编辑共享字段' })).toHaveCount(1)
-  expect(libraryReads).toHaveLength(2)
+  await expect.poll(() => libraryReads).toHaveLength(2)
 })
 
 test('saves one meaning as a full replacement scoped to its book, word, and meaning', async ({ page }) => {
@@ -777,7 +782,9 @@ test('saves one meaning as a full replacement scoped to its book, word, and mean
   await groupB.getByRole('textbox', { name: '例句' }).fill('')
 
   await groupB.getByRole('button', { name: '保存本条释义' }).click()
-  expect(put.bodies).toHaveLength(1)
+  // Polled: the write first waits for the antiforgery token, so the capture
+  // can trail the click on a loaded CI runner.
+  await expect.poll(() => put.bodies.length).toBe(1)
   expect(put.bodies[0]).toEqual({ partOfSpeech: 'v.', meaning: '一种好吃的水果', example: null })
   expect(put.requests[0].pathname).toBe(`/admin/vocabulary-books/${bookB.id}/words/word-apple/meanings/meaning-b1`)
 
@@ -994,7 +1001,10 @@ test('a meaning save in flight ignores repeated clicks', async ({ page }) => {
   const save = groupA.getByRole('button', { name: '保存本条释义' })
   await save.click()
   await save.click({ force: true })
-  expect(put.bodies).toHaveLength(1)
+  // Polled like the other write captures: the save waits for the antiforgery
+  // token first, so ignores-repeats means "one arrives", never "one has
+  // arrived by the time the second click returns".
+  await expect.poll(() => put.bodies.length).toBe(1)
 
   put.answer()
   await expect(page.locator('.el-message--success')).toContainText('释义已保存')
@@ -1058,7 +1068,9 @@ test('an unassigned word edits through the shared area only', async ({ page }) =
   await expect(page.locator('.el-message-box')).toContainText('该单词当前没有被任何教材引用')
   await page.locator('.el-message-box').getByRole('button', { name: '保存' }).click()
 
-  expect(put.bodies[0]).toEqual({ word: 'legacy2', phoneticUk: null, phoneticUs: null })
+  // Polled: the write first waits for the antiforgery token, so the captured
+  // body can trail the click on a loaded CI runner.
+  await expect.poll(() => put.bodies[0]).toEqual({ word: 'legacy2', phoneticUk: null, phoneticUs: null })
   detailData = updated
   put.answer()
   await expect(drawer).toContainText('legacy2')

@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page, type Route } from '@playwright/test'
+import { mockAntiforgery } from './support/antiforgery'
 
 const admin = {
   username: 'ci-admin',
@@ -156,6 +157,7 @@ function useUnitContent(page: Page, state: { byUnit: Record<string, unknown> }) 
 async function openBookWords(page: Page, book = bookA) {
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: true, data: admin }))
+  await mockAntiforgery(page)
   await page.route('**/admin/system/version', (route) =>
     json(route, { success: true, data: { version: '1.2.3', revision: null, channel: 'release' } }))
   await page.route(bookContentRoute, (route) =>
@@ -182,6 +184,7 @@ test('switches whole book, unit 2, unit 6, and back, each from its own read', as
   const contentRequests: string[] = []
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: true, data: admin }))
+  await mockAntiforgery(page)
   await page.route(bookContentRoute, (route) => {
     contentRequests.push(new URL(route.request().url()).pathname)
     return json(route, { success: true, data: contentA })
@@ -467,6 +470,7 @@ test('narrows the unit view to one section and reports the whole unit\'s section
 
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: true, data: admin }))
+  await mockAntiforgery(page)
   await page.route('**/admin/system/version', (route) =>
     json(route, { success: true, data: { version: '1.2.3', revision: null, channel: 'release' } }))
   await page.route(bookContentRoute, (route) =>
@@ -589,6 +593,7 @@ test('narrows the unit view to one entry kind and reports the whole unit\'s kind
 
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: true, data: admin }))
+  await mockAntiforgery(page)
   await page.route('**/admin/system/version', (route) =>
     json(route, { success: true, data: { version: '1.2.3', revision: null, channel: 'release' } }))
   await page.route(bookContentRoute, (route) =>

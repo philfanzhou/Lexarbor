@@ -623,7 +623,9 @@ public class AdminHostedLoginTests
     {
         public VocabularyWebApplicationFactory Base { get; }
         public WebApplicationFactory<Program> Host { get; }
-        public HttpClient Client { get; }
+        // Unassigned only on the expectStartupFailure path, where tests assert
+        // StartupFailed and never send requests.
+        public HttpClient Client { get; } = null!;
         public SignaCoreAuthorityStub Authority { get; }
         public Clock Clock { get; } = new();
         public Logs Logs { get; } = new();

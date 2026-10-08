@@ -177,7 +177,9 @@ public class AdminHostedLogoutTests
         var cookie = await f.SignIn();
         f.Authority.LogoutDefect = defect;
         using var response = await f.Logout(cookie);
-        Assert.Equal(SignaCoreAuthorityStub.Issuer, new Uri(await LogoutUrlOf(response)).GetLeftPart(UriPartial.Authority));
+        var logoutUrl = await LogoutUrlOf(response);
+        Assert.NotNull(logoutUrl);
+        Assert.Equal(SignaCoreAuthorityStub.Issuer, new Uri(logoutUrl).GetLeftPart(UriPartial.Authority));
         Assert.Equal(1, f.LogoutPosts);
     }
 
@@ -592,7 +594,9 @@ public class AdminHostedLogoutTests
     {
         public VocabularyWebApplicationFactory Base { get; }
         public WebApplicationFactory<Program> Host { get; }
-        public HttpClient Client { get; }
+        // Unassigned only on the expectStartupFailure path, where tests assert
+        // StartupFailed and never send requests.
+        public HttpClient Client { get; } = null!;
         public SignaCoreAuthorityStub Authority { get; }
         public Clock Clock { get; } = new();
         public Logs Logs { get; } = new();

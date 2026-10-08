@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page, type Route } from '@playwright/test'
+import { mockAntiforgery } from './support/antiforgery'
 
 const admin = {
   username: 'ci-admin',
@@ -139,6 +140,7 @@ async function mockBooksList(page: Page, books = [bookA, legacyBook]) {
 async function openBooks(page: Page, books = [bookA, legacyBook]) {
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: true, data: admin }))
+  await mockAntiforgery(page)
   await mockBooksList(page, books)
   await page.goto('/#/books')
   await expect(page.locator('.session')).toContainText(admin.username)
@@ -176,7 +178,9 @@ test('adds a unit through the form and refreshes the list', async ({ page }) => 
   await dialog(page).getByRole('textbox').fill(' Daily Life ')
   await dialog(page).getByRole('button', { name: '添加单元' }).click()
 
-  expect(unitsRoute.requests).toHaveLength(1)
+  // Polled: a write first waits for the antiforgery token, so the capture can
+  // trail the click on a loaded CI runner.
+  await expect.poll(() => unitsRoute.requests.length).toBe(1)
   expect(unitsRoute.requests[0].method).toBe('POST')
   expect(unitsRoute.requests[0].url.pathname).toBe(`/admin/vocabulary-books/${bookA.id}/units`)
   // A replace body: both fields, the title trimmed, never merged.
@@ -202,7 +206,8 @@ test('edits a unit by replacing its number and title', async ({ page }) => {
   await dialog(page).getByRole('textbox').fill('Everyday English')
   await dialog(page).getByRole('button', { name: '保存修改' }).click()
 
-  expect(requests).toHaveLength(1)
+  // Polled for the same reason as the add test above.
+  await expect.poll(() => requests.length).toBe(1)
   expect(requests[0].method).toBe('PUT')
   expect(requests[0].url.pathname).toBe(`/admin/vocabulary-books/${bookA.id}/units/unit-1`)
   expect(requests[0].body).toEqual({ number: 4, title: 'Everyday English' })
@@ -254,7 +259,8 @@ test('deleting a unit confirms its impact and refreshes the list', async ({ page
   state.units.splice(0, 1)
   await confirm.getByRole('button', { name: '确定' }).click()
 
-  expect(unitsRoute.requests).toHaveLength(1)
+  // Polled for the same reason as the add test above.
+  await expect.poll(() => unitsRoute.requests.length).toBe(1)
   expect(unitsRoute.requests[0].method).toBe('DELETE')
   expect(unitsRoute.requests[0].url.pathname).toBe(`/admin/vocabulary-books/${bookA.id}/units/unit-1`)
   await expect(page.locator('.el-message--success')).toContainText('单元已删除')

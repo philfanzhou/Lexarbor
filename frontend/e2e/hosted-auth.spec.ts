@@ -1,5 +1,7 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
 
+import { mockAntiforgery } from './support/antiforgery'
+
 const admin = {
   username: 'ci-admin',
   roles: ['admin']
@@ -334,6 +336,7 @@ test('logout navigates the browser to the prepared provider logout URI', async (
   const state = { sessionLive: true }
   const logoutUrl = 'https://idp.test/oauth2/logout?logout_handle=synthetic-one-time-handle'
   await useSessionFlag(page, state)
+  await mockAntiforgery(page)
   await mockAdministration(page)
   const logoutRequests: string[] = []
   await page.route('**/admin/auth/logout', (route) => {
@@ -357,6 +360,7 @@ test('logout navigates the browser to the prepared provider logout URI', async (
 test('a hosted local-only logout says the provider may still hold a session', async ({ page }) => {
   const state = { sessionLive: true }
   await useSessionFlag(page, state)
+  await mockAntiforgery(page)
   await mockAdministration(page)
   await page.route('**/admin/auth/logout', (route) => json(route, { success: true }))
 
@@ -392,12 +396,18 @@ test('the hosted logout fetches the antiforgery token and echoes it in the heade
     })
     return json(route, { success: true, data: { logoutUrl } })
   })
+  // The provider domain is served by the mock too, so the top-level navigation
+  // stays inside routing instead of racing a real DNS failure into
+  // chrome-error://, which would replace the URL this test wants to observe.
+  await page.route('https://idp.test/**', (route) =>
+    route.fulfill({ status: 200, body: 'provider signed-out page' }))
 
   await page.goto('/#/books')
   await expect(page.locator('.session')).toContainText(admin.username)
   await page.locator('.session').getByRole('button', { name: '退出登录' }).click()
 
   await expect(page).toHaveURL(logoutUrl)
+  await expect(page.locator('body')).toContainText('provider signed-out page')
   expect(csrfRequests).toHaveLength(1)
   expect(logoutRequests).toEqual([
     { method: 'POST', headers: expect.objectContaining({ 'x-signacore-csrf': 'synthetic-antiforgery-token' }) }

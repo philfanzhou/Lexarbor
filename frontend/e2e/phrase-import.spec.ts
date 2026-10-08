@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
+import { mockAntiforgery } from './support/antiforgery'
 
 const books = [
   { id: 'book-a', bookName: 'Book A', status: true },
@@ -10,6 +11,7 @@ const json = (route: Route, data: unknown, status = 200) => route.fulfill({
 
 async function open(page: Page) {
   await page.route('**/admin/auth/session', route => json(route, { success: true, data: { username: 'admin', roles: ['admin'] } }))
+  await mockAntiforgery(page)
   await page.route('**/admin/system/version', route => json(route, { success: true, data: { version: '1', revision: null, channel: 'test' } }))
   await page.route('**/api/vocabulary-books/all', route => json(route, { success: true, data: { books } }))
   await page.goto('/#/import/phrase')
