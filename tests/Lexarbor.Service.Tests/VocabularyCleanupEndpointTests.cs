@@ -24,7 +24,7 @@ public class VocabularyCleanupEndpointTests
         await using var factory = new VocabularyWebApplicationFactory("Testing", true, extraConfiguration:
             new Dictionary<string, string?> { ["AdminAuthentication:RequiredRole"] = role });
         using var client = factory.CreateClient(); await SeedAsync(factory.Services);
-        Authenticate(client, factory, cookie, role); client.DefaultRequestHeaders.Add("X-Requested-With", "XMLHttpRequest");
+        Authenticate(client, factory, cookie, role); AdminTestAntiforgery.Attach(client, factory);
         var before = await StateAsync(factory.Services);
         using var preview = await PostAsync(client, """{"action":"clear"}""", true);
         using var previewBody = await DataAsync(preview);
@@ -85,7 +85,7 @@ public class VocabularyCleanupEndpointTests
     [Theory]
     [InlineData("anonymous", 401)]
     [InlineData("student", 403)]
-    [InlineData("cookie-no-csrf", 403)]
+    [InlineData("cookie-no-csrf", 401)]
     public async Task AuthorizationAndCsrf_PrecedeParsingAndResourceChecks(string identity, int status)
     {
         await using var factory = new VocabularyWebApplicationFactory();

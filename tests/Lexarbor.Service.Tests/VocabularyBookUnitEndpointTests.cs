@@ -28,7 +28,7 @@ public class VocabularyBookUnitEndpointTests
         using var client = factory.CreateClient();
         await SeedAsync(factory.Services, seedUnit: false);
         Authenticate(client, factory, cookie, role);
-        client.DefaultRequestHeaders.Add("X-Requested-With", "XMLHttpRequest");
+        AdminTestAntiforgery.Attach(client, factory);
 
         // Create runs on a disabled book: a book's units are maintained the
         // same way whether it is enabled, and a padded title is trimmed to
@@ -126,7 +126,7 @@ public class VocabularyBookUnitEndpointTests
         using var client = factory.CreateClient();
         await SeedAsync(factory.Services);
         Authenticate(client, factory, false, "admin");
-        client.DefaultRequestHeaders.Add("X-Requested-With", "XMLHttpRequest");
+        AdminTestAntiforgery.Attach(client, factory);
         using var response = await PostAsync(client, body);
         await FailureAsync(response, HttpStatusCode.BadRequest);
         Assert.Equal("A:2:", await StateAsync(factory.Services));
@@ -139,7 +139,7 @@ public class VocabularyBookUnitEndpointTests
         using var client = factory.CreateClient();
         await SeedAsync(factory.Services);
         Authenticate(client, factory, false, "admin");
-        client.DefaultRequestHeaders.Add("X-Requested-With", "XMLHttpRequest");
+        AdminTestAntiforgery.Attach(client, factory);
         using var response = await PostAsync(client, "{}");
         await FailureAsync(response, HttpStatusCode.BadRequest);
         Assert.Equal("A:2:", await StateAsync(factory.Services));
@@ -153,7 +153,7 @@ public class VocabularyBookUnitEndpointTests
     [Theory]
     [InlineData("anonymous", 401)]
     [InlineData("student", 403)]
-    [InlineData("cookie-no-csrf", 403)]
+    [InlineData("cookie-no-csrf", 401)]
     public async Task UnauthorizedWrite_ChangesNothing(string identity, int status)
     {
         await using var factory = new VocabularyWebApplicationFactory();
@@ -172,7 +172,7 @@ public class VocabularyBookUnitEndpointTests
         using var client = factory.CreateClient();
         await SeedAsync(factory.Services);
         Authenticate(client, factory, false, "admin");
-        client.DefaultRequestHeaders.Add("X-Requested-With", "XMLHttpRequest");
+        AdminTestAntiforgery.Attach(client, factory);
 
         // The seeded unit already holds number 2 in book A.
         using var duplicate = await PostAsync(client, Body);
@@ -203,7 +203,7 @@ public class VocabularyBookUnitEndpointTests
         using var client = factory.CreateClient();
         await SeedAsync(factory.Services);
         Authenticate(client, factory, false, "admin");
-        client.DefaultRequestHeaders.Add("X-Requested-With", "XMLHttpRequest");
+        AdminTestAntiforgery.Attach(client, factory);
         using var response = method == "PUT"
             ? await client.PutAsync($"/admin/vocabulary-books/{book}/units/{unit}",
                 Json(Body), TestContext.Current.CancellationToken)
@@ -248,7 +248,7 @@ public class VocabularyBookUnitEndpointTests
             using var client = fileFactory.CreateClient();
             await SeedAsync(fileFactory.Services);
             Authenticate(client, factory, false, "admin");
-            client.DefaultRequestHeaders.Add("X-Requested-With", "XMLHttpRequest");
+            AdminTestAntiforgery.Attach(client, factory);
             using var scope = fileFactory.Services.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
             await using (var transaction = await db.Database.BeginTransactionAsync(TestContext.Current.CancellationToken))

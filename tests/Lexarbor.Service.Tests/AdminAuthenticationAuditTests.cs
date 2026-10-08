@@ -119,6 +119,31 @@ public class AdminAuthenticationAuditTests
     }
 
     [Fact]
+    public async Task ReSignIn_RevokesTheOldKeyAndWritesTheAuditRowInTheSameTransaction()
+    {
+        // A2: a second hosted sign-in with the browser's previous session cookie
+        // replaces it atomically — the new session row and the succeeded audit row
+        // commit together, the old key is revoked in the same transaction, and the
+        // new handle authenticates while the old one no longer does.
+        using var f = new Fixture();
+        var old = await f.SignIn();
+        var rowsBefore = await f.AuditCountAsync(Succeeded);
+        var t = await f.Start();
+        using var response = await f.Send(f.Query(t), t.Cookie + "; " + old);
+        Assert.Equal("/#/books", response.Headers.Location!.OriginalString);
+        var fresh = response.Headers.GetValues("Set-Cookie")
+            .Single(c => c.StartsWith(AdminSessionCookie.Name + "=", StringComparison.Ordinal))
+            .Split(';')[0].Split('=')[1];
+
+        Assert.Equal(1, await f.SessionCountAsync());
+        Assert.Equal(rowsBefore + 1, await f.AuditCountAsync(Succeeded));
+        using var stillFresh = await f.Send("/admin/auth/session", AdminSessionCookie.Name + "=" + fresh);
+        Assert.Equal(HttpStatusCode.OK, stillFresh.StatusCode);
+        using var revoked = await f.Send("/admin/auth/session", old);
+        Assert.Equal(HttpStatusCode.Unauthorized, revoked.StatusCode);
+    }
+
+    [Fact]
     public async Task LogoutWithLiveSession_WritesLogoutRowFromTheRevokedSnapshot()
     {
         using var f = new Fixture();
@@ -283,37 +308,53 @@ public class AdminAuthenticationAuditTests
         public static readonly string Code =
             WebEncoders.Base64UrlEncode(Encoding.ASCII.GetBytes("synthetic-code-marker-0123456789"));
 
-        private readonly RSA _rsa = RSA.Create(2048);
         private readonly string _databasePath = Path.Combine(
             VocabularyWebApplicationFactory.CreateGateSafeDirectory($"lexarbor-audit-{Guid.NewGuid():N}"),
             "audit.db");
 
+        public SignaCoreAuthorityStub Authority { get; } = new(TimeProvider.System);
         public VocabularyWebApplicationFactory Base { get; private set; } = null!;
         public WebApplicationFactory<Program> Host { get; private set; } = null!;
         public HttpClient Client { get; private set; } = null!;
         public string? ClientAddress { get; set; }
-        public string? Defect { get; set; }
-        public string LastAccess { get; private set; } = "";
-        public string LastId { get; private set; } = "";
-        public TaskCompletionSource? Gate { get; set; }
-        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public ConcurrentDictionary<string, string> Challenges { get; } = new();
+        public string? Defect
+        {
+            get => field;
+            set
+            {
+                field = value;
+                Authority.TokenDefect = value;
+            }
+        }
+        public string LastAccess => Authority.LastAccess;
+        public string LastId => Authority.LastId;
+        public TaskCompletionSource? Gate
+        {
+            get => field;
+            set
+            {
+                field = value;
+                Authority.Gate = value;
+            }
+        }
+        public TaskCompletionSource Entered => Authority.Entered;
 
         public Fixture(IInterceptor[]? interceptors = null)
         {
+            // The prepared logout stays local-only: the stub answers the provider's
+            // logout preparation endpoint with a refusal.
+            Authority.LogoutDefect = "400";
             var config = new Dictionary<string, string?>
             {
-                ["IdentityService:Authority"] = Issuer,
-                ["IdentityService:Issuer"] = Issuer,
+                ["IdentityService:Authority"] = SignaCoreAuthorityStub.Issuer,
+                ["IdentityService:Issuer"] = SignaCoreAuthorityStub.Issuer,
                 ["IdentityService:Audience"] = "client-id",
                 ["AdminAuthentication:OidcCode:ClientId"] = "client-id",
                 ["AdminAuthentication:OidcCode:ClientSecret"] = Secret,
-                ["AdminAuthentication:OidcCode:RedirectUri"] =
-                    "https://lexarbor.test/admin/auth/callback?registered=1",
+                ["AdminAuthentication:OidcCode:RedirectUri"] = SignaCoreAuthorityStub.Redirect,
                 ["AdminAuthentication:OidcCode:Scope"] = "openid profile",
                 ["RateLimits:AdminLogin:Enabled"] = "false"
             };
-            var manager = new Metadata(new RsaSecurityKey(_rsa.ExportParameters(false)) { KeyId = "key-1" });
             Base = new VocabularyWebApplicationFactory("Testing", true, "OidcCode", config,
                 databasePath: _databasePath);
             Host = Base.WithWebHostBuilder(builder =>
@@ -322,15 +363,11 @@ public class AdminAuthenticationAuditTests
                 {
                     services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options =>
                     {
-                        options.ConfigurationManager = manager;
-                        options.TokenValidationParameters.IssuerSigningKey = manager.Key;
+                        options.Authority = null; options.MetadataAddress = null!; options.ConfigurationManager = null!;
+                        options.TokenValidationParameters.IssuerSigningKey = Authority.SigningKey;
                     });
-                    services.AddHttpClient(AdminCodeExchange.BackchannelName)
-                        .ConfigurePrimaryHttpMessageHandler(() => new Handler(this));
-                    // The prepared logout stays local-only: a bounded stub stands in for the
-                    // provider's logout preparation endpoint.
-                    services.AddHttpClient(AdminPreparedLogout.BackchannelName)
-                        .ConfigurePrimaryHttpMessageHandler(() => new StubLogoutHandler());
+                    services.AddHttpClient(SignaCore.Client.AspNetCore.SignaCoreHostedLoginDefaults.HttpClientName)
+                        .ConfigurePrimaryHttpMessageHandler(() => Authority);
                     if (interceptors is not null)
                         services.AddDbContext<Lexarbor.Database.VocabularyDbContext>(
                             options => options.AddInterceptors(interceptors));
@@ -346,18 +383,18 @@ public class AdminAuthenticationAuditTests
 
         public async Task<Transaction> Start()
         {
-            using var response = await Client.GetAsync("/admin/auth/start", Ct);
+            using var response = await Client.GetAsync("/admin/auth/start?returnUrl=/books", Ct);
             Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
             var parameters = QueryHelpers.ParseQuery(response.Headers.Location!.Query);
             var state = parameters["state"].ToString();
             var nonce = parameters["nonce"].ToString();
-            Challenges[parameters["code_challenge"].ToString()] = nonce;
+            Authority.Challenges[parameters["code_challenge"].ToString()] = nonce;
             var cookie = response.Headers.GetValues("Set-Cookie").Single();
             return new Transaction(state, nonce, cookie.Split(';')[0]);
         }
 
         public string Query(Transaction t, string? error = null) =>
-            "/admin/auth/callback?registered=1&state=" + t.State + "&iss=" + Uri.EscapeDataString(Issuer)
+            "/admin/auth/callback?state=" + t.State + "&iss=" + Uri.EscapeDataString(SignaCoreAuthorityStub.Issuer)
             + (error is null ? "&code=" + Code : "&error=" + error);
 
         public Task<HttpResponseMessage> Send(string path, string cookie = "")
@@ -381,10 +418,15 @@ public class AdminAuthenticationAuditTests
         public async Task<HttpResponseMessage> Logout(string cookie)
         {
             var request = new HttpRequestMessage(HttpMethod.Post, "/admin/auth/logout");
+            var (token, antiforgery) = AdminTestAntiforgery.Get(Base);
+            request.Headers.Add(AdminTestAntiforgery.HeaderName, token);
             if (cookie.Length > 0)
             {
-                request.Headers.Add("Cookie", cookie);
-                request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+                request.Headers.Add("Cookie", cookie + "; " + antiforgery);
+            }
+            else
+            {
+                request.Headers.Add("Cookie", antiforgery);
             }
 
             ApplyClientAddress(request);
@@ -462,100 +504,7 @@ public class AdminAuthenticationAuditTests
             Client.Dispose();
             Host.Dispose();
             Base.Dispose();
-            _rsa.Dispose();
-        }
-
-        private sealed class StubLogoutHandler : HttpMessageHandler
-        {
-            protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
-                CancellationToken cancellationToken) =>
-                Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
-        }
-
-        private sealed class Handler(Fixture f) : HttpMessageHandler
-        {
-            protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
-                CancellationToken cancellationToken)
-            {
-                var form = (await request.Content!.ReadAsStringAsync(cancellationToken)).Split('&')
-                    .Select(p => p.Split('=', 2))
-                    .ToDictionary(p => WebUtility.UrlDecode(p[0]), p => WebUtility.UrlDecode(p[1]));
-                f.Entered.TrySetResult();
-                if (f.Gate is not null) await f.Gate.Task.WaitAsync(cancellationToken);
-                if (f.Defect == "network") throw new HttpRequestException(Code);
-                var challenge = WebEncoders.Base64UrlEncode(
-                    SHA256.HashData(Encoding.ASCII.GetBytes(form["code_verifier"])));
-                var nonce = f.Challenges[challenge];
-                var access = f.Claims(f.Defect == "nonadmin" ? "student" : "admin");
-                var id = f.Claims();
-                id.Remove("role");
-                id["exp"] = DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 300;
-                id["name"] = "id-user";
-                id["nonce"] = f.Defect == "nonce" ? "wrong" : nonce;
-                var accessToken = f.Token("at+jwt", access);
-                var idToken = f.Token("JWT", id);
-                f.LastAccess = accessToken;
-                f.LastId = idToken;
-                return new(HttpStatusCode.OK)
-                {
-                    Content = JsonContent.Create(new Dictionary<string, object>
-                    {
-                        ["access_token"] = accessToken,
-                        ["id_token"] = idToken,
-                        ["token_type"] = "Bearer",
-                        ["expires_in"] = 900,
-                        ["scope"] = "openid profile"
-                    })
-                };
-            }
-        }
-
-        public Dictionary<string, object> Claims(string? role = null) => new()
-        {
-            ["iss"] = Issuer,
-            ["aud"] = "client-id",
-            ["sub"] = "account-42",
-            ["iat"] = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 60,
-            ["exp"] = DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 900,
-            ["name"] = "access-user",
-            ["role"] = role ?? "admin"
-        };
-
-        public string Token(string type, Dictionary<string, object> claims)
-        {
-            var header = new Dictionary<string, object> { ["alg"] = "RS256", ["kid"] = "key-1", ["typ"] = type };
-            var signing = Base64UrlEncoder.Encode(JsonSerializer.Serialize(header)) + "." +
-                Base64UrlEncoder.Encode(JsonSerializer.Serialize(claims));
-            var signature = _rsa.SignData(Encoding.ASCII.GetBytes(signing), HashAlgorithmName.SHA256,
-                RSASignaturePadding.Pkcs1);
-            return signing + "." + Base64UrlEncoder.Encode(signature);
-        }
-
-        private sealed class Metadata(SecurityKey key) : IConfigurationManager<OpenIdConnectConfiguration>
-        {
-            public SecurityKey Key { get; } = key;
-            public OpenIdConnectConfiguration Configuration { get; } = Published(key);
-
-            private static OpenIdConnectConfiguration Published(SecurityKey publishedKey)
-            {
-                var configuration = new OpenIdConnectConfiguration
-                {
-                    Issuer = Fixture.Issuer,
-                    AuthorizationEndpoint = Fixture.Issuer + "/authorize",
-                    TokenEndpoint = Fixture.Issuer + "/token",
-                    JwksUri = Fixture.Issuer + "/jwks"
-                };
-                configuration.SigningKeys.Add(publishedKey);
-                return configuration;
-            }
-
-            public Task<OpenIdConnectConfiguration> GetConfigurationAsync(CancellationToken cancel)
-            {
-                cancel.ThrowIfCancellationRequested();
-                return Task.FromResult(Configuration);
-            }
-
-            public void RequestRefresh() { }
+            Authority.Dispose();
         }
     }
 }

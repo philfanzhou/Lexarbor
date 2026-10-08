@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { strToU8, zipSync } from 'fflate'
 import { expect, test, type Page, type Route } from '@playwright/test'
+import { mockAntiforgery } from './support/antiforgery'
 
 // A minimal SpreadsheetML workbook, written here so that no binary fixture is
 // committed. Cells must be in row and column order, as Excel writes them.
@@ -91,6 +92,7 @@ async function pick(page: Page, selector: string, label: string) {
 }
 async function setup(page: Page, path = '/import/batch') {
   await page.route('**/admin/auth/session', route => json(route, { success: true, data: { username: 'admin', roles: ['admin'] } }))
+  await mockAntiforgery(page)
   await page.route('**/admin/system/version', route => json(route, { success: true, data: { version: '1', revision: null, channel: 'test' } }))
   await page.route('**/api/vocabulary-books/all', route => json(route, { success: true, data: { books } }))
   await page.route(/\/admin\/vocabulary-books\/[^/]+\/units$/, route => json(route, { success: true, data: { units: route.request().url().includes('book-a') ? units : [{ ...units[0], id: 'other-2', bookId: 'book-b' }] } }))
@@ -172,7 +174,9 @@ for (const format of ['tsv', 'csv', 'json', 'xlsx'] as const) {
     await expect(page.locator('.batch-unclassified')).toContainText('未分类行不会显示在短语管理')
     await expect(page.locator('.batch-default-unit')).toHaveCount(0)
     await submit(page).click()
-    expect(payloads).toEqual([{ bookId: 'book-a', entries: [{ word: 'apple', meaning: 'fruit', unitId: 'unit-2', entryKind: 'word' }, { word: 'take off', meaning: 'leave', unitId: 'unit-5', entryKind: 'phrase' }, { word: 'space in text', meaning: 'uncategorized' }] }])
+    // Polled: the write first waits for the antiforgery token, so the captured
+    // payload can trail the click on a loaded CI runner.
+    await expect.poll(() => payloads).toEqual([{ bookId: 'book-a', entries: [{ word: 'apple', meaning: 'fruit', unitId: 'unit-2', entryKind: 'word' }, { word: 'take off', meaning: 'leave', unitId: 'unit-5', entryKind: 'phrase' }, { word: 'space in text', meaning: 'uncategorized' }] }])
   })
 }
 
@@ -398,5 +402,6 @@ test('a slow file read blocks writes and cannot replace the file selected after 
   await expect(preview(page)).toContainText('new file')
   await expect(preview(page)).not.toContainText('old file')
   await submit(page).click()
-  expect(payloads).toEqual([{ bookId: 'book-a', entries: [{ word: 'new file', meaning: 'new', unitId: 'unit-2', entryKind: 'phrase' }] }])
+  // Polled for the same reason as the mixed-mode tests above.
+  await expect.poll(() => payloads).toEqual([{ bookId: 'book-a', entries: [{ word: 'new file', meaning: 'new', unitId: 'unit-2', entryKind: 'phrase' }] }])
 })

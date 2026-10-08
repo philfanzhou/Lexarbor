@@ -716,7 +716,8 @@ public class VocabularyBatchImportEndpointTests :
         factory.UseKestrel(0);
         factory.StartServer();
         var bookId = await CreateBookAsync(factory);
-        using var client = factory.CreateClient();
+        // The base-class client picks up the real Kestrel binding's address.
+        using var client = ((Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program>)factory).CreateClient();
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", factory.CreateToken("admin"));
 

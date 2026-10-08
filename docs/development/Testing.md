@@ -246,7 +246,16 @@ The browser specifications verify the administration frontend against fixed resp
 
 Chromium treats `http://127.0.0.1` as a trustworthy origin, so the `Secure` and `__Host-` cookies of both services work over the loopback HTTP of this check; production deployments keep the documented HTTPS requirements. Record results with every one-time value (codes, states, handles) and every credential redacted.
 
-A second matrix covers the Testing-only private-network HTTP transport (#214). It needs no loopback exemption: run the same Lexarbor host with `ASPNETCORE_ENVIRONMENT=Testing` and `AdminAuthentication__HttpTestOrigins=http://<host-LAN-IP>:5008` (an RFC1918 or IPv6 ULA literal origin, port included), point the `OidcCode` redirect and post-logout settings at the same origin, and configure SignaCore's matching `security.hosted_login_http_test_origins` (0.1.13+) plus its existing non-HTTPS issuer opt-ins. Verify the same acceptance list as above; additionally the cookies are named `HttpTest-Lexarbor.…` without `Secure`, a leftover `__Host-` cookie authenticates nothing until the administrator signs in again, and configuring the allowlist under a non-Testing environment refuses startup. The automated coverage of this matrix — origin parsing, startup gates, cookie names, the full HTTP login/logout trip and the allowlist boundaries of both callback settings — lives in `HostedLoginHttpTestTransportTests` and `AdminHttpTestHostedLoginTests`.
+A second matrix covered the Testing-only private-network HTTP transport (#214);
+it was removed with the migration to the official SignaCore client package
+(#209). The official client accepts only an explicit loopback HTTP origin
+(`127.0.0.1` / `[::1]`) in the Testing environment and always issues `Secure`
+cookies, so browser-level test deployments point the redirect and post-logout
+settings at a loopback or HTTPS origin; the service-level host tests exercise the
+same acceptance list against the loopback form. The removed setting
+(`AdminAuthentication:HttpTestOrigins`) now stops startup with a fixed
+diagnostic, and its automated coverage lives in
+`AdminHostedLoginMigrationTests`.
 
 ## Conventions
 

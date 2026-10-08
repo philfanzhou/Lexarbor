@@ -20,6 +20,7 @@
     <PackageReference Include="ServiceMantle.Logging" />
     <PackageReference Include="ServiceMantle.Persistence.Relational" />
     <PackageReference Include="ServiceMantle.Web" />
+    <PackageReference Include="SignaCore.Client.AspNetCore" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Lexarbor.Service\Lexarbor.Service.csproj" />

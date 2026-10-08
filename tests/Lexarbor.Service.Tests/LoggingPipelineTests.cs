@@ -60,7 +60,7 @@ public class LoggingPipelineTests
                 ["IdentityService:Audience"] = "client-id",
                 ["AdminAuthentication:OidcCode:ClientId"] = "client-id",
                 ["AdminAuthentication:OidcCode:ClientSecret"] = "synthetic-hosted-secret-marker",
-                ["AdminAuthentication:OidcCode:RedirectUri"] = "https://lexarbor.test/admin/auth/callback?registered=1",
+                ["AdminAuthentication:OidcCode:RedirectUri"] = "https://lexarbor.test/admin/auth/callback",
                 ["AdminAuthentication:OidcCode:Scope"] = "openid profile",
                 ["RateLimits:AdminLogin:Enabled"] = "false"
             });

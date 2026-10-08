@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
+import { mockAntiforgery } from './support/antiforgery'
 
 const book = { id: 'book-a', bookName: 'Disabled Book', status: false, displayOrder: 1 }
 const units = [
@@ -21,6 +22,7 @@ async function setup(page: Page) {
   let unitsStatus = 200
   let releaseMove: (() => void) | null = null
   await page.route('**/admin/auth/session', route => json(route, { success: true, data: { username: 'admin', roles: ['admin'] } }))
+  await mockAntiforgery(page)
   await page.route('**/admin/system/version', route => json(route, { success: true, data: { version: '1', revision: null, channel: 'test' } }))
   await page.route(/\/admin\/vocabulary-books\?/, route => json(route, { success: true, data: { items: [book], totalPage: 1, totalCount: 1 } }))
   await page.route('**/admin/vocabulary-books/book-a/units', route => unitsStatus === 200
@@ -47,7 +49,7 @@ async function setup(page: Page) {
     const request = route.request()
     writes.push({ method: request.method(), url: request.url(),
       body: request.method() === 'PUT' ? request.postDataJSON() : undefined,
-      csrf: request.headers()['x-requested-with'] })
+      csrf: request.headers()['x-signacore-csrf'] })
     if (request.method() === 'PUT') {
       if (moveStatus === -1) return route.abort('failed')
       if (moveStatus === -2) await new Promise<void>(resolve => { releaseMove = resolve })
@@ -89,7 +91,10 @@ test('exact row move and removal preserve other positions and reread counts', as
   await page.locator('.el-select-dropdown__item:visible').filter({ hasText: '词条' }).click()
   await dialog.getByRole('button', { name: '保存位置' }).click()
   await expect(page.getByText('共 0 条短语位置')).toBeVisible()
-  expect(state.writes[0]).toMatchObject({ method: 'PUT', csrf: 'XMLHttpRequest', body: {
+  // The B6 model: the write carries the fetched antiforgery token in the
+  // X-SignaCore-CSRF header (polled, because the token fetch precedes the PUT).
+  await expect.poll(() => state.writes.length).toBe(1)
+  expect(state.writes[0]).toMatchObject({ method: 'PUT', csrf: 'synthetic-antiforgery-token', body: {
     from: initial[0], to: { unitId: 'unit-a', section: 'A', entryKind: 'word' }
   } })
   expect(state.places).toHaveLength(3)

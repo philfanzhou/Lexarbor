@@ -148,12 +148,16 @@ public class AdminAuthenticationTests :
     {
         using var client = CreateClient(_factory);
         var handle = await SeedSessionAsync(_factory);
-        client.DefaultRequestHeaders.Add("Cookie", $"{AdminSessionCookie.Name}={handle}");
-        client.DefaultRequestHeaders.Add("X-Requested-With", "XMLHttpRequest");
+        var (token, antiforgery) = AdminTestAntiforgery.Get(_factory);
+        var request = new HttpRequestMessage(HttpMethod.Post, "/admin/auth/login")
+        {
+            Content = JsonContent.Create(new { username = "admin", password = "test-password" })
+        };
+        request.Headers.Add(AdminTestAntiforgery.HeaderName, token);
+        request.Headers.TryAddWithoutValidation("Cookie",
+            $"{AdminSessionCookie.Name}={handle}; {antiforgery}");
 
-        var response = await client.PostAsync("/admin/auth/login",
-            JsonContent.Create(new { username = "admin", password = "test-password" }),
-            TestContext.Current.CancellationToken);
+        var response = await client.SendAsync(request, TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
         Assert.Contains("Admin endpoint was not found.",
@@ -198,20 +202,22 @@ public class AdminAuthenticationTests :
         var handle = await SeedSessionAsync(_factory);
         client.DefaultRequestHeaders.Add("Cookie", $"{AdminSessionCookie.Name}={handle}");
 
-        var logout = await LogoutAsync(client);
+        var logout = await LogoutAsync(client, _factory);
         var afterLogout = await client.GetAsync("/admin/vocabulary-books?page=1&size=20",
             TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, logout.StatusCode);
         var cookies = logout.Headers.GetValues("Set-Cookie").ToArray();
-        Assert.Equal(2, cookies.Length);
+        // Both names are deleted; the package's own session deletion may appear
+        // beside the middleware's, so the assertion is on the distinct names.
+        Assert.Equal(2, cookies.Select(value => value.Split('=')[0]).Distinct().Count());
         foreach (var name in new[] { AdminSessionCookie.Name, VocabularyWebApplicationFactory.CookieName })
             Assert.Contains(cookies, value => value.StartsWith(name + "=;", StringComparison.Ordinal));
         await AssertFailureAsync(afterLogout, HttpStatusCode.Unauthorized);
     }
 
     [Fact]
-    public async Task Logout_WithoutRequestedWithHeader_Returns403()
+    public async Task Logout_WithoutAntiforgeryToken_ReturnsTheCsrfRejection()
     {
         using var client = CreateClient(_factory);
         var handle = await SeedSessionAsync(_factory);
@@ -220,11 +226,12 @@ public class AdminAuthenticationTests :
         var response = await client.PostAsync("/admin/auth/logout", content: null,
             TestContext.Current.CancellationToken);
 
-        await AssertFailureAsync(response, HttpStatusCode.Forbidden);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("csrf_rejected", await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
-    public async Task CookieWrite_WithoutRequestedWithHeader_Returns403()
+    public async Task CookieWrite_WithoutAntiforgeryToken_Returns401()
     {
         using var client = CreateClient(_factory);
         var handle = await SeedSessionAsync(_factory);
@@ -235,7 +242,7 @@ public class AdminAuthenticationTests :
             new { bookName = "Protected Book", status = true },
                 TestContext.Current.CancellationToken);
 
-        await AssertFailureAsync(response, HttpStatusCode.Forbidden);
+        await AssertFailureAsync(response, HttpStatusCode.Unauthorized);
     }
 
     [Fact]
@@ -292,11 +299,17 @@ public class AdminAuthenticationTests :
         });
     }
 
-    private static Task<HttpResponseMessage> LogoutAsync(HttpClient client)
+    private static async Task<HttpResponseMessage> LogoutAsync(
+        HttpClient client, Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> factory)
     {
+        var (token, antiforgery) = AdminTestAntiforgery.Get(factory);
         var request = new HttpRequestMessage(HttpMethod.Post, "/admin/auth/logout");
-        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
-        return client.SendAsync(request);
+        request.Headers.Add(AdminTestAntiforgery.HeaderName, token);
+        var cookies = new List<string>();
+        if (client.DefaultRequestHeaders.TryGetValues("Cookie", out var existing)) cookies.AddRange(existing);
+        cookies.Add(antiforgery);
+        request.Headers.TryAddWithoutValidation("Cookie", string.Join("; ", cookies));
+        return await client.SendAsync(request);
     }
 
     private static async Task AssertFailureAsync(

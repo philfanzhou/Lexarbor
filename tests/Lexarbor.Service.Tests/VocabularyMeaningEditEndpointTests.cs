@@ -28,7 +28,7 @@ public class VocabularyMeaningEditEndpointTests
         using var client = factory.CreateClient();
         await SeedAsync(factory.Services);
         Authenticate(client, factory, cookie, role);
-        client.DefaultRequestHeaders.Add("X-Requested-With", "XMLHttpRequest");
+        AdminTestAntiforgery.Attach(client, factory);
         using var response = await PutAsync(client, Body);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
@@ -67,7 +67,7 @@ public class VocabularyMeaningEditEndpointTests
     [Theory]
     [InlineData("anonymous", 401)]
     [InlineData("student", 403)]
-    [InlineData("cookie-no-csrf", 403)]
+    [InlineData("cookie-no-csrf", 401)]
     public async Task UnauthorizedWrite_ChangesNothing(string identity, int status)
     {
         await using var factory = new VocabularyWebApplicationFactory();

@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page, type Route } from '@playwright/test'
+import { mockAntiforgery } from './support/antiforgery'
 
 const admin = {
   username: 'ci-admin',
@@ -45,6 +46,7 @@ function json(route: Route, data: unknown, status = 200) {
 async function mockAdministrator(page: Page) {
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: true, data: admin }))
+  await mockAntiforgery(page)
   await page.route('**/admin/system/version', (route) =>
     json(route, {
       success: true,

@@ -1,6 +1,7 @@
 import axios from 'axios'
 import type { AxiosRequestConfig } from 'axios'
 import { ApiError, getApiError, getEntryErrors } from './apiError'
+import { ensureCsrfToken, resetCsrfToken } from './csrfApi'
 
 declare module 'axios' {
   export interface AxiosRequestConfig {
@@ -30,8 +31,27 @@ export function setAuthFailureHandlers(
 
 const api = axios.create({
   timeout: 30000,
-  withCredentials: true,
-  headers: { 'X-Requested-With': 'XMLHttpRequest' }
+  withCredentials: true
+})
+
+/**
+ * Every unsafe method (POST/PUT/PATCH/DELETE, including the hosted logout)
+ * must carry the antiforgery token from `GET /admin/auth/csrf` in the request
+ * header the server validates. The token is fetched once and reused while the
+ * browser keeps its antiforgery cookie; a failed fetch still lets the request
+ * through without the header so the server — the authority of the boundary —
+ * answers it, instead of the client silently swallowing the call.
+ */
+const safeMethods = new Set(['get', 'head', 'options', 'trace'])
+
+api.interceptors.request.use(async (config) => {
+  if (!safeMethods.has((config.method ?? 'get').toLowerCase())) {
+    const token = await ensureCsrfToken()
+    if (token) {
+      config.headers.set('X-SignaCore-CSRF', token)
+    }
+  }
+  return config
 })
 
 api.interceptors.response.use(
@@ -48,6 +68,9 @@ api.interceptors.response.use(
     const apiError = getApiError(error)
     const staleGuard = axios.isAxiosError(error) ? error.config?.lxIsCurrent : undefined
     if (apiError.status === 401) {
+      // The session the token was issued alongside is gone; the next write
+      // must fetch a fresh pair instead of replaying the stale token.
+      resetCsrfToken()
       if (staleGuard?.() !== false) {
         onUnauthorized()
       }

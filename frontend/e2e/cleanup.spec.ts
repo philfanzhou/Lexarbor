@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page, type Route } from '@playwright/test'
+import { mockAntiforgery } from './support/antiforgery'
 
 const admin = {
   username: 'ci-admin',
@@ -129,6 +130,7 @@ function useDeferredCommit(page: Page) {
 async function mockSession(page: Page) {
   await page.route('**/admin/auth/session', (route) =>
     json(route, { success: true, data: admin }))
+  await mockAntiforgery(page)
 }
 
 async function mockBooksList(page: Page, books = [bookA, legacyBook]) {
@@ -483,7 +485,9 @@ test('edits one meaning and then deletes the edited row through the same drawer'
     ]
   }
   await groupA.getByRole('button', { name: '保存本条释义' }).click()
-  expect(meaningPuts).toHaveLength(1)
+  // Polled: the write first waits for the antiforgery token, so the capture
+  // can trail the click on a loaded CI runner.
+  await expect.poll(() => meaningPuts.length).toBe(1)
   expect(meaningPuts[0].url.pathname).toBe(`/admin/vocabulary-books/${bookA.id}/words/word-apple/meanings/meaning-a1`)
   expect(meaningPuts[0].body).toEqual({ partOfSpeech: 'adj.', meaning: '一种红色水果', example: 'An edited example.' })
 
@@ -504,7 +508,9 @@ test('edits one meaning and then deletes the edited row through the same drawer'
   // The commit succeeds; the detail and the list refresh from current state.
   detailData = { ...appleDetail, meanings: [meaningsA[1]] }
   await dialog(page).getByRole('button', { name: '确认清理' }).click()
-  expect(commits).toHaveLength(1)
+  // Polled like the meaning save above: the write waits for the antiforgery
+  // token first.
+  await expect.poll(() => commits.length).toBe(1)
   expect(commits[0].body).toEqual({ action: 'removeMeaning', wordId: 'word-apple', meaningId: 'meaning-a1' })
   await expect(drawer).not.toContainText('一种红色水果')
   await expect(drawer).toContainText('苹果树')
@@ -594,7 +600,10 @@ test('a double click commits exactly once', async ({ page }) => {
   const confirm = dialog(page).getByRole('button', { name: '确认清理' })
   await confirm.click()
   await confirm.click({ force: true })
-  expect(commit.requests).toHaveLength(1)
+  // Polled like the other write captures: the commit waits for the
+  // antiforgery token first, so exactly-once means "one arrives", never
+  // "one has arrived by the time the second click returns".
+  await expect.poll(() => commit.requests.length).toBe(1)
 
   commit.answer({ bookId: bookA.id, action: 'removeWords', affectedWordCount: 1, deletedMeaningCount: 1, deletedWordCount: 0, deletedBook: false })
   await expect(page.locator('.el-message--success')).toContainText('已移除')
