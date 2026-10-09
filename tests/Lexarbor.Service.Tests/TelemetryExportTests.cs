@@ -12,8 +12,9 @@ namespace Lexarbor.Service.Tests;
 /// <summary>
 /// The optional ServiceMantle OpenTelemetry integration: nothing is registered
 /// by default; enabling traces and metrics exports through OTLP with only the
-/// three service identity resource attributes; non-HTTPS endpoints refuse
-/// startup; the authentication value stays out of logs and exceptions; and the
+/// three service identity resource attributes; the transport scheme is the
+/// deployment's decision while structurally unsafe endpoints refuse startup;
+/// the authentication value stays out of logs and exceptions; and the
 /// hosted-login callback and logout-return spans never carry code or state.
 /// </summary>
 public class TelemetryExportTests
@@ -39,11 +40,9 @@ public class TelemetryExportTests
         if (collector is not null)
         {
             configuration["Telemetry:Otlp:Traces:Endpoint"] = collector.BaseAddress + "v1/traces";
-            configuration["Telemetry:Otlp:Traces:AllowInsecureLoopbackForTesting"] = "true";
             configuration["Telemetry:Otlp:Metrics:Enabled"] = "true";
             configuration["Telemetry:Otlp:Metrics:Endpoint"] = collector.BaseAddress + "v1/metrics";
             configuration["Telemetry:Otlp:Metrics:Protocol"] = "HttpProtobuf";
-            configuration["Telemetry:Otlp:Metrics:AllowInsecureLoopbackForTesting"] = "true";
         }
         else
         {
@@ -83,15 +82,28 @@ public class TelemetryExportTests
     }
 
     [Fact]
-    public void NonHttpsEndpoint_RefusesStartupWithoutLeakingTheAuthorizationValue()
+    public void PlainHttpEndpoint_IsAcceptedAsADeploymentDecision()
+    {
+        // ServiceMantle 0.3.2 made the transport scheme the deployment's
+        // decision: http and https endpoints are both accepted, so a
+        // plain-HTTP collector endpoint no longer stops startup. Whether it
+        // should be used is the operator's call, not the library's.
+        using var factory = TelemetryFactory(null, configuration =>
+        {
+            configuration["Telemetry:Otlp:Traces:Endpoint"] = "http://collector.insecure.example";
+        });
+        using var client = factory.CreateClient();
+    }
+
+    [Fact]
+    public void EndpointWithUnsafeComponents_RefusesStartupWithoutEchoingTheEndpoint()
     {
         Exception? failure = null;
         try
         {
             using var factory = TelemetryFactory(null, configuration =>
             {
-                configuration["Telemetry:Otlp:Traces:Endpoint"] = "http://collector.insecure.example";
-                configuration["Telemetry:Otlp:Traces:AuthenticationHeaderName"] = "Authorization";
+                configuration["Telemetry:Otlp:Traces:Endpoint"] = "https://collector.example?ticket=secret";
             });
             using var client = factory.CreateClient();
         }
@@ -100,10 +112,12 @@ public class TelemetryExportTests
             failure = caught;
         }
 
-        // A non-HTTPS collector endpoint is a configuration error: the host
-        // refuses to start, and the failure carries no credential material.
+        // The structural URI rules are unchanged: query, fragment, and
+        // user-info components refuse startup, and the fixed diagnostic
+        // carries no endpoint text.
         Assert.NotNull(failure);
-        Assert.DoesNotContain("collector.insecure.example", failure!.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("collector.example", failure!.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("secret", failure.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
