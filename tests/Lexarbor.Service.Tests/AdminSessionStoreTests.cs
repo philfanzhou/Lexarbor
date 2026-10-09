@@ -27,7 +27,12 @@ namespace Lexarbor.Service.Tests;
 
 public sealed class AdminSessionStoreTests : IDisposable
 {
-    private readonly string _root = Path.Combine(Path.GetTempPath(), $"lexarbor-sessions-{Guid.NewGuid():N}");
+    // The shared root-key source needs a symlink-free, owner-only directory
+    // for the hosts that resolve the key file (Path.GetTempPath lives under
+    // /var on macOS); the Build-based unit tests inject their root key, which
+    // never touches the file, and share the same root for convenience.
+    private readonly string _root = VocabularyWebApplicationFactory.CreateGateSafeDirectory(
+        $"lexarbor-sessions-{Guid.NewGuid():N}");
     // The database passes through the strict startup gate, so it lives in the
     // gate-safe directory rather than beside the key-ring root.
     private readonly string _databaseRoot = VocabularyWebApplicationFactory.CreateGateSafeDirectory(
@@ -35,6 +40,18 @@ public sealed class AdminSessionStoreTests : IDisposable
     private readonly Clock _clock = new();
     private string DatabasePath => Path.Combine(_databaseRoot, "sessions.db");
     private CancellationToken Ct => TestContext.Current.CancellationToken;
+
+    public AdminSessionStoreTests()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            // The root-key source resolves the key file only under a directory
+            // with exactly the owner-only mode bits.
+            File.SetUnixFileMode(
+                _root,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+    }
 
     private ValidatedAdminSession Session(DateTimeOffset? expiry = null) => new()
     {

@@ -1,5 +1,5 @@
-using System.Security.Cryptography;
 using Microsoft.Extensions.Configuration;
+using ServiceMantle.Configuration;
 
 namespace Lexarbor.Host;
 
@@ -8,9 +8,24 @@ namespace Lexarbor.Host;
 /// A deployment injects <c>DataProtection:RootKey</c> (container variable
 /// <c>LEXARBOR_DATA_PROTECTION_ROOT_KEY</c>); without an injected value the
 /// first start atomically creates a random root-key file under <c>data/</c>
-/// (directory 0700, file 0600, symbolic links refused) and reuses it, so a
-/// single-container deployment stays zero-configuration.
+/// and reuses it, so a single-container deployment stays zero-configuration.
+/// The reading, creation, and validation are the shared ServiceMantle
+/// <see cref="RootKeySource"/> semantics; this type keeps only the two
+/// configuration keys and the content-root default path.
 /// </summary>
+/// <remarks>
+/// <para>
+/// The shared source is stricter than the retired in-house implementation in
+/// three ways, all of them fail-closed: the key file's parent directory must
+/// carry exactly the owner-only mode bits on Unix (the deployment's
+/// <c>data/</c> directory is created 0700 for exactly this reason), every
+/// ancestor of the file must be a real directory — a path resolving through a
+/// symbolic link is refused — and the file content must be the canonical
+/// 44-character Base64 form of 32 bytes (the exact shape both implementations
+/// generate). A custom <c>DataProtection:RootKeyFile</c> must therefore be a
+/// fully qualified path.
+/// </para>
+/// </remarks>
 public static class DataProtectionRootKey
 {
     public const string InjectedKeySetting = "DataProtection:RootKey";
@@ -30,107 +45,22 @@ public static class DataProtectionRootKey
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentException.ThrowIfNullOrWhiteSpace(contentRootPath);
 
-        var injected = configuration[InjectedKeySetting];
-        if (!string.IsNullOrWhiteSpace(injected))
-        {
-            return injected;
-        }
-
         var configuredPath = configuration[KeyFileSetting];
         var filePath = string.IsNullOrWhiteSpace(configuredPath)
             ? Path.Combine(contentRootPath, "data", DefaultKeyFileName)
             : configuredPath;
-        return ReadOrCreateFile(filePath);
-    }
 
-    private static string ReadOrCreateFile(string filePath)
-    {
-        if (File.Exists(filePath))
-        {
-            RefuseSymbolicLink(filePath);
-            return ReadFileWithChecks(filePath);
-        }
-
-        var directory = Path.GetDirectoryName(filePath)
-            ?? throw new InvalidOperationException(
-                "The Data Protection root-key file path has no directory.");
-        if (Directory.Exists(directory))
-        {
-            RefuseSymbolicLink(directory, isDirectory: true);
-        }
-        else
-        {
-            if (OperatingSystem.IsWindows())
-            {
-                Directory.CreateDirectory(directory);
-            }
-            else
-            {
-                Directory.CreateDirectory(
-                    directory,
-                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-            }
-        }
-
-        // Random, printable, single-line: 32 bytes of entropy as base64.
-        var rootKey = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
-        var temporaryPath = filePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            File.WriteAllText(temporaryPath, rootKey);
-            if (!OperatingSystem.IsWindows())
-            {
-                File.SetUnixFileMode(
-                    temporaryPath,
-                    UnixFileMode.UserRead | UnixFileMode.UserWrite);
-            }
-
-            RefuseSymbolicLink(temporaryPath);
-            File.Move(temporaryPath, filePath, overwrite: false);
-            return rootKey;
+            // The injected value wins without any file inspection; otherwise
+            // the shared source reads or atomically publishes the key file.
+            // Its one fixed diagnostic — which never carries a path or the
+            // key — is rethrown as this repository's public startup message.
+            return new RootKeySource(configuration[InjectedKeySetting], filePath).Resolve();
         }
-        catch (IOException) when (File.Exists(filePath))
+        catch (InvalidOperationException exception)
         {
-            // Another process initialized the shared directory first; the
-            // surviving file is the one to use.
-            RefuseSymbolicLink(filePath);
-            return ReadFileWithChecks(filePath);
+            throw new InvalidOperationException(StartupFailureMessage, exception);
         }
-        finally
-        {
-            File.Delete(temporaryPath);
-        }
-    }
-
-    private static void RefuseSymbolicLink(string path, bool isDirectory = false)
-    {
-        var linkTarget = isDirectory
-            ? new DirectoryInfo(path).LinkTarget
-            : new FileInfo(path).LinkTarget;
-        if (linkTarget is not null)
-        {
-            throw new InvalidOperationException(StartupFailureMessage);
-        }
-    }
-
-    private static string ReadFileWithChecks(string filePath)
-    {
-        var content = File.ReadAllText(filePath).Trim();
-        if (content.Length == 0)
-        {
-            throw new InvalidOperationException(StartupFailureMessage);
-        }
-
-        if (!OperatingSystem.IsWindows())
-        {
-            var mode = File.GetUnixFileMode(filePath);
-            if (mode.HasFlag(UnixFileMode.GroupRead) || mode.HasFlag(UnixFileMode.OtherRead)
-                || mode.HasFlag(UnixFileMode.GroupWrite) || mode.HasFlag(UnixFileMode.OtherWrite))
-            {
-                throw new InvalidOperationException(StartupFailureMessage);
-            }
-        }
-
-        return content;
     }
 }
