@@ -10,7 +10,7 @@ namespace Lexarbor.Domain.Tests;
 public class VocabularyCleanupScaleTests
 {
     [Fact]
-    public async Task TwentyThousandFileWalWords_UseSetDeletesWithoutMaterializingMeanings()
+    public async Task TwentyThousandFileRollbackWords_UseSetDeletesWithoutMaterializingMeanings()
     {
         await VocabularyCleanupConcurrencyTests.WithFileAsync(async options =>
         {
@@ -38,7 +38,7 @@ public class VocabularyCleanupScaleTests
             await ForeignKeysAsync(db);
             Assert.Equal(0, await TempTableCountAsync(db));
             TestContext.Current.TestOutputHelper!.WriteLine(string.Join("\n\n", probe.Statements));
-            TestContext.Current.TestOutputHelper.WriteLine("File WAL: 20000 meanings and 20000 affected orphan words deleted; two book entities materialized; FK check empty.");
+            TestContext.Current.TestOutputHelper.WriteLine("File rollback journal: 20000 meanings and 20000 affected orphan words deleted; two book entities materialized; FK check empty.");
         });
     }
 

@@ -389,8 +389,14 @@ public class VocabularyAdminQueryTests : TestBase
     }
 
     [Fact]
-    public async Task FileWal_ConcurrentWriterCommits_WhileResponseKeepsOneDeferredSnapshot()
+    public async Task FileRollback_ConcurrentWriterCommitQueuesBehindAnOpenReaderSnapshot()
     {
+        // Under the rollback journal the writer's commit needs the exclusive
+        // lock, which an in-flight reader's shared lock holds off; under WAL
+        // this test used to prove the commit passed the reader. The guarantee
+        // that survives the rollback switch is the snapshot one: the reader
+        // answers from the state it opened with, and the writer still commits
+        // — queued behind the reader rather than beside it.
         var path = Path.Combine(Path.GetTempPath(), $"lexarbor-admin-query-{Guid.NewGuid():N}.db");
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -399,7 +405,6 @@ public class VocabularyAdminQueryTests : TestBase
             var options = new DbContextOptionsBuilder<VocabularyDbContext>().UseSqlite($"Data Source={path};Pooling=False").Options;
             await using var writer = new VocabularyDbContext(options);
             await writer.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
-            await writer.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL", TestContext.Current.CancellationToken);
             await SeedAsync(writer);
             var readOptions = new DbContextOptionsBuilder<VocabularyDbContext>().UseSqlite($"Data Source={path};Pooling=False")
                 .AddInterceptors(new ReadBarrier(entered, release)).Options;
@@ -407,16 +412,17 @@ public class VocabularyAdminQueryTests : TestBase
             var query = new VocabularyAdminQueryService(new VocabularyAdminQueryRepository(reader))
                 .GetContentAsync("A", null, 1, 20, TestContext.Current.CancellationToken);
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
-            try
+            var write = new UnitOfWork(writer).ExecuteInTransactionAsync(async () =>
             {
-                await new UnitOfWork(writer).ExecuteInTransactionAsync(async () =>
-                {
-                    await writer.Database.ExecuteSqlRawAsync("DELETE FROM vocabulary_meaning WHERE book_id='A'", TestContext.Current.CancellationToken);
-                    return 0;
-                }).WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
-            }
-            finally { release.TrySetResult(); }
+                await writer.Database.ExecuteSqlRawAsync("DELETE FROM vocabulary_meaning WHERE book_id='A'", TestContext.Current.CancellationToken);
+                return 0;
+            });
+            // The DELETE itself runs under the reserved lock, but the commit
+            // cannot pass the open reader, so the write is still pending.
+            Assert.False(write.IsCompleted);
+            release.TrySetResult();
             var result = await query;
+            await write.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
             Assert.Equal(2, result.MeaningCount);
             Assert.Equal(2, result.Page.Items.Single().Meanings.Count);
             Assert.Equal(0, await writer.VocabularyMeanings.CountAsync(m => m.BookId == "A", TestContext.Current.CancellationToken));

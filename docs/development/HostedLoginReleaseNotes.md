@@ -101,6 +101,9 @@ operator can observe:
   replayed and checkpointed once on the next start, which keeps every
   committed transaction; sidecars without the main file stop startup with
   `database_target_preparation.target_conflict` instead of being adopted.
+  (The later rollback-journal switch moved this conversion to the startup
+  normalization that runs before the gate observes the target; the
+  committed-transaction guarantee is unchanged.)
 - A pre-mounted file that is not a SQLite database stops startup with
   `database_target_preparation.connection_failed` and is left byte-for-byte
   unchanged.

@@ -7,7 +7,7 @@ namespace Lexarbor.Database;
 /// <summary>
 /// Lexarbor's execution boundary for the ServiceMantle migration orchestration:
 /// the inspection reads only the EF migration history, and the execution is one
-/// EF migration run plus the write-ahead-logging switch.
+/// EF migration run.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -20,11 +20,12 @@ namespace Lexarbor.Database;
 /// build does not know is a newer schema and is refused rather than adopted.
 /// </para>
 /// <para>
-/// Execution runs <c>MigrateAsync</c> on the application's own context and then
-/// switches the database to write-ahead logging, under which a reader no longer
-/// blocks a writer. The WAL setting lives in the database header rather than the
-/// connection, so it is a no-op after the first start; it runs on every start so
-/// that a database restored from a backup taken elsewhere is switched over too.
+/// Execution runs <c>MigrateAsync</c> on the application's own context and
+/// nothing else: the database runs under the rollback journal, and the journal
+/// mode is normalized by the startup gate before this executor is ever
+/// reached — see <see cref="LexarborDatabaseStartup"/>. The normalization runs
+/// on every start rather than only on upgrades so that a database restored
+/// from a backup taken elsewhere is converted too.
 /// </para>
 /// </remarks>
 public sealed class LexarborMigrationExecutor : IDatabaseMigrationExecutor
@@ -82,16 +83,15 @@ public sealed class LexarborMigrationExecutor : IDatabaseMigrationExecutor
 
     /// <inheritdoc />
     /// <remarks>
-    /// The caller's token is read once more after the migration and the WAL
-    /// switch return, so a cancellation requested by that checkpoint is reported
-    /// with the caller's own token instead of a completed execution. A migration
-    /// that fails keeps its own exception unchanged for the orchestrator.
+    /// The caller's token is read once more after the migration returns, so a
+    /// cancellation requested by that checkpoint is reported with the caller's
+    /// own token instead of a completed execution. A migration that fails
+    /// keeps its own exception unchanged for the orchestrator.
     /// </remarks>
     public async ValueTask ExecuteAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         await context.Database.MigrateAsync(cancellationToken);
-        await EnableWriteAheadLoggingAsync(cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
     }
 
@@ -111,24 +111,6 @@ public sealed class LexarborMigrationExecutor : IDatabaseMigrationExecutor
             }
 
             return applied;
-        }
-        finally
-        {
-            await context.Database.CloseConnectionAsync();
-        }
-    }
-
-    private async Task EnableWriteAheadLoggingAsync(CancellationToken cancellationToken)
-    {
-        await context.Database.OpenConnectionAsync(cancellationToken);
-        try
-        {
-            var connection = context.Database.GetDbConnection();
-            await using var command = connection.CreateCommand();
-            // PRAGMA cannot be composed into a query, so it goes through the
-            // raw command rather than through SqlQuery.
-            command.CommandText = "PRAGMA journal_mode=WAL;";
-            await command.ExecuteScalarAsync(cancellationToken);
         }
         finally
         {

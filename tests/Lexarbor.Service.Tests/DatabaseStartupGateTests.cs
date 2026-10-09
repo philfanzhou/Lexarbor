@@ -14,15 +14,18 @@ namespace Lexarbor.Service.Tests;
 
 /// <summary>
 /// Pins the ServiceMantle startup gate that replaced the hand-written
-/// <c>DatabaseInitializer</c>: first start creates and migrates through the
-/// target-preparation flow, later starts skip, a pending migration executes and
-/// re-inspects, a newer schema and a failing migration stop startup with fixed
-/// safe diagnostics, crash-leftover <c>-wal</c>/<c>-shm</c> sidecars recover
-/// once with committed data intact, and every refusal leaves the file bytes
-/// untouched without echoing a path. Every database goes through the real host
-/// startup, so these tests use real files under the gate-safe directory —
-/// never <c>:memory:</c> and never a path that resolves through a symbolic
-/// link, both of which the strict gate rejects.
+/// <c>DatabaseInitializer</c>, including the rollback-journal normalization
+/// that runs before the gate observes the target: first start creates and
+/// migrates through the target-preparation flow already in the rollback
+/// journal, later starts skip, a pending migration executes and re-inspects, a
+/// newer schema and a failing migration stop startup with fixed safe
+/// diagnostics, a database still carrying the WAL header — clean or with a
+/// crash-leftover <c>-wal</c> sidecar — is converted with committed data
+/// intact, a rollback crash's <c>-journal</c> file is rolled back, and every
+/// refusal leaves the file bytes untouched without echoing a path. Every
+/// database goes through the real host startup, so these tests use real files
+/// under the gate-safe directory — never <c>:memory:</c> and never a path that
+/// resolves through a symbolic link, both of which the strict gate rejects.
 /// </summary>
 public class DatabaseStartupGateTests
 {
@@ -30,6 +33,44 @@ public class DatabaseStartupGateTests
 
     private static string CreateGateDirectory(string name) =>
         VocabularyWebApplicationFactory.CreateGateSafeDirectory($"lexarbor-gate-{name}-{Guid.NewGuid():N}");
+
+    /// <summary>
+    /// Reads the SQLite header's file-format version bytes (offsets 18 and 19):
+    /// 1/1 is the rollback journal, 2/2 write-ahead logging. This is the
+    /// persisted fact the acceptance rows speak of, independent of any probe
+    /// connection's own mode.
+    /// </summary>
+    private static (byte Write, byte Read) ReadHeaderJournalBytes(string database)
+    {
+        using var file = File.OpenRead(database);
+        var buffer = new byte[2];
+        file.Position = 18;
+        Assert.Equal(2, file.Read(buffer, 0, 2));
+        return (buffer[0], buffer[1]);
+    }
+
+    private static async Task<string> ReadJournalModeAsync(string database)
+    {
+        await using var probe = new SqliteConnection($"Data Source={database};Pooling=False");
+        await probe.OpenAsync(Ct);
+        using var command = probe.CreateCommand();
+        command.CommandText = "PRAGMA journal_mode;";
+        return command.ExecuteScalar()?.ToString() ?? string.Empty;
+    }
+
+    /// <summary>
+    /// Puts a migrated database back into the WAL shape of the releases this
+    /// build upgrades: the header switches to 2/2 and the last close
+    /// checkpoints the sidecars away, leaving a clean WAL database.
+    /// </summary>
+    private static async Task SwitchToWalAsync(string database)
+    {
+        await using var probe = new SqliteConnection($"Data Source={database};Pooling=False");
+        await probe.OpenAsync(Ct);
+        using var command = probe.CreateCommand();
+        command.CommandText = "PRAGMA journal_mode=WAL;";
+        Assert.Equal("wal", command.ExecuteScalar()?.ToString());
+    }
 
     /// <summary>
     /// A shared key root inside the gate directory: every host a test starts
@@ -49,7 +90,7 @@ public class DatabaseStartupGateTests
         new("Testing", includeAppCredentials: true, keyContentRoot: keyContentRoot, databasePath: databasePath);
 
     [Fact]
-    public async Task FirstStart_InEmptyDirectory_CreatesMigratesAndEnablesWalLogging()
+    public async Task FirstStart_InEmptyDirectory_CreatesMigratesInRollbackJournalMode()
     {
         var directory = CreateGateDirectory("first-start");
         var database = Path.Combine(directory, "vocabulary.db");
@@ -70,13 +111,12 @@ public class DatabaseStartupGateTests
                 context.Database.GetMigrations().Order(),
                 (await context.Database.GetAppliedMigrationsAsync(Ct)).Order());
 
-            // The write-ahead switch is persisted in the database header, so a
-            // connection that did nothing to set it still reads wal.
-            await using var probe = new SqliteConnection($"Data Source={database};Pooling=False");
-            await probe.OpenAsync(Ct);
-            using var command = probe.CreateCommand();
-            command.CommandText = "PRAGMA journal_mode;";
-            Assert.Equal("wal", command.ExecuteScalar()?.ToString());
+            // The rollback journal is the created shape itself: the header
+            // carries 1/1 and a connection that did nothing to set it still
+            // reads delete. The normalization never ran — the file did not
+            // exist — and the gate's atomic preparation created it this way.
+            Assert.Equal((1, 1), ReadHeaderJournalBytes(database));
+            Assert.Equal("delete", await ReadJournalModeAsync(database));
         }
         finally
         {
@@ -167,6 +207,12 @@ public class DatabaseStartupGateTests
             await using var scope2 = second.Services.CreateAsyncScope();
             var context2 = scope2.ServiceProvider.GetRequiredService<VocabularyDbContext>();
             Assert.Equal(["apple"], await context2.Vocabularies.Select(item => item.Word).ToListAsync(Ct));
+
+            // A rollback-journal database crosses the normalization as a
+            // no-op: header 1/1 stays 1/1, the mode still reads delete, and
+            // the gate observed the target as connectable.
+            Assert.Equal((1, 1), ReadHeaderJournalBytes(database));
+            Assert.Equal("delete", await ReadJournalModeAsync(database));
         }
         finally
         {
@@ -313,6 +359,110 @@ public class DatabaseStartupGateTests
     }
 
     [Fact]
+    public async Task WalDatabase_OnNextStart_IsConvertedToRollbackJournalWithDataIntact()
+    {
+        var directory = CreateGateDirectory("wal-conversion");
+        var database = Path.Combine(directory, "vocabulary.db");
+        var keyRoot = CreateSharedKeyRoot(directory);
+        try
+        {
+            await using (var first = CreateHost(database, keyRoot))
+            {
+                using var client = first.CreateClient();
+                await using var scope = first.Services.CreateAsyncScope();
+                var context = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+                var now = DateTimeOffset.UtcNow;
+                context.Vocabularies.Add(new VocabularyEntity
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    Word = "apple",
+                    CreatedAt = now,
+                    UpdatedAt = now
+                });
+                await context.SaveChangesAsync(Ct);
+            }
+
+            // The shape this build upgrades: an existing deployment of the WAL
+            // releases — a clean 2/2 header, no sidecars left by the last
+            // close.
+            await SwitchToWalAsync(database);
+            Assert.Equal((2, 2), ReadHeaderJournalBytes(database));
+            Assert.False(File.Exists(database + "-wal"));
+
+            await using var second = CreateHost(database, keyRoot);
+            using var client2 = second.CreateClient();
+
+            using var ready = await client2.GetAsync("/health/ready", Ct);
+            Assert.Equal(HttpStatusCode.OK, ready.StatusCode);
+
+            // The conversion happened before the gate observed the target:
+            // header 1/1, no sidecars, and every committed row intact.
+            Assert.Equal((1, 1), ReadHeaderJournalBytes(database));
+            Assert.Equal("delete", await ReadJournalModeAsync(database));
+            Assert.False(File.Exists(database + "-wal"));
+            Assert.False(File.Exists(database + "-shm"));
+            await using var scope2 = second.Services.CreateAsyncScope();
+            var context2 = scope2.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+            Assert.Equal(["apple"], await context2.Vocabularies.Select(item => item.Word).ToListAsync(Ct));
+        }
+        finally
+        {
+            TryDeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public async Task ReadonlyDatabaseFile_FailsStartupWithoutServing()
+    {
+        // The write-ahead deployments refused a read-only target implicitly:
+        // opening a WAL database there cannot create its shared-memory file.
+        // The rollback journal has no such artifact, so the refusal is kept
+        // as an explicit writability check ahead of the gate — read-only
+        // storage still never serves.
+        var directory = CreateGateDirectory("readonly");
+        var database = Path.Combine(directory, "vocabulary.db");
+        try
+        {
+            await using (var first = CreateHost(database))
+            {
+                using var client = first.CreateClient();
+            }
+
+            File.SetUnixFileMode(
+                database,
+                File.GetUnixFileMode(database) & ~UnixFileMode.UserWrite
+                    & ~UnixFileMode.GroupWrite & ~UnixFileMode.OtherWrite);
+
+            await using var second = CreateHost(database);
+            var failure = Assert.Throws<InvalidOperationException>(() => second.CreateClient());
+
+            Assert.Contains(
+                "The SQLite database could not be opened for writing.",
+                failure.Message,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(database, failure.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(database))
+                {
+                    File.SetUnixFileMode(
+                        database,
+                        UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                }
+            }
+            catch (IOException)
+            {
+                // The deletion below is best effort either way.
+            }
+
+            TryDeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
     public async Task CrashLeftoverSidecars_AreRecoveredWithCommittedDataIntact()
     {
         var directory = CreateGateDirectory("crash-recovery");
@@ -328,7 +478,10 @@ public class DatabaseStartupGateTests
             // A real crash, not a simulation of its file state: the child
             // commits through a write-ahead connection and is then SIGKILLed,
             // so the commit survives only in the -wal sidecar with no live
-            // holder — a clean close would have checkpointed it away.
+            // holder — a clean close would have checkpointed it away. The
+            // database is switched back to WAL first, because this build
+            // otherwise never produces the sidecar shape.
+            await SwitchToWalAsync(database);
             var marker = Path.Combine(directory, "committed.marker");
             using var child = await StartCrashSimulatorAsync(database, marker, Ct);
             try
@@ -354,11 +507,73 @@ public class DatabaseStartupGateTests
             using var ready = await client2.GetAsync("/health/ready", Ct);
             Assert.Equal(HttpStatusCode.OK, ready.StatusCode);
 
+            // The pre-gate normalization replays the log, folds it into the
+            // database, switches the header, and drops the sidecars — the
+            // committed transaction survives into the rollback-journal file.
             await using var scope = second.Services.CreateAsyncScope();
             var context = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
             Assert.Equal(
                 ["crash-survivor"],
                 await context.Vocabularies.Select(item => item.Word).ToListAsync(Ct));
+            Assert.Equal((1, 1), ReadHeaderJournalBytes(database));
+            Assert.False(File.Exists(database + "-wal"));
+        }
+        finally
+        {
+            TryDeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public async Task RollbackCrashHotJournal_IsRolledBackOnStartup()
+    {
+        var directory = CreateGateDirectory("hot-journal");
+        var database = Path.Combine(directory, "vocabulary.db");
+        var keyRoot = CreateSharedKeyRoot(directory);
+        try
+        {
+            await using (var first = CreateHost(database, keyRoot))
+            {
+                using var client = first.CreateClient();
+            }
+
+            // A rollback crash — the normal crash shape once the rollback
+            // journal is the only mode: an IMMEDIATE transaction wrote a row,
+            // was killed before committing, and left the hot -journal file
+            // holding the original page images.
+            var marker = Path.Combine(directory, "uncommitted.marker");
+            using var child = await StartCrashSimulatorAsync(database, marker, Ct, "hot-journal");
+            try
+            {
+                Assert.True(File.Exists(database + "-journal"));
+
+                child.Kill(entireProcessTree: true);
+                Assert.True(child.WaitForExit(10_000));
+            }
+            finally
+            {
+                if (!child.HasExited)
+                {
+                    child.Kill(entireProcessTree: true);
+                }
+            }
+
+            Assert.True(File.Exists(database + "-journal"));
+
+            await using var second = CreateHost(database, keyRoot);
+            using var client2 = second.CreateClient();
+
+            using var ready = await client2.GetAsync("/health/ready", Ct);
+            Assert.Equal(HttpStatusCode.OK, ready.StatusCode);
+
+            // The opening connection rolls the hot journal back natively: the
+            // uncommitted row is gone, the journal file is replayed away, and
+            // the database stays in the rollback mode.
+            await using var scope2 = second.Services.CreateAsyncScope();
+            var context2 = scope2.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+            Assert.Empty(await context2.Vocabularies.Select(item => item.Word).ToListAsync(Ct));
+            Assert.False(File.Exists(database + "-journal"));
+            Assert.Equal((1, 1), ReadHeaderJournalBytes(database));
         }
         finally
         {
@@ -378,6 +593,9 @@ public class DatabaseStartupGateTests
                 using var client = first.CreateClient();
             }
 
+            // The sidecar shape is prepared by switching the database back to
+            // WAL first — this build otherwise never produces sidecars.
+            await SwitchToWalAsync(database);
             var marker = Path.Combine(directory, "committed.marker");
             using var child = await StartCrashSimulatorAsync(database, marker, Ct);
             try
@@ -426,7 +644,14 @@ public class DatabaseStartupGateTests
             using var factory = CreateHost(database);
             var failure = Assert.Throws<InvalidOperationException>(() => factory.CreateClient());
 
-            Assert.Contains("database_target_preparation.connection_failed", failure.Message, StringComparison.Ordinal);
+            // The pre-gate journal-mode normalization opens an existing file
+            // before the gate does, so a file that is not a database stops
+            // startup at that step with the normalization's fixed safe
+            // diagnostic — still no path, and still byte-for-byte unchanged.
+            Assert.Contains(
+                "The SQLite journal-mode normalization could not open the database.",
+                failure.Message,
+                StringComparison.Ordinal);
             Assert.DoesNotContain(database, failure.Message, StringComparison.Ordinal);
             Assert.Equal(placeholder, File.ReadAllBytes(database));
         }
@@ -538,14 +763,17 @@ public class DatabaseStartupGateTests
 
     /// <summary>
     /// Spawns the crash-simulator child on the simulator assembly built with
-    /// the solution, waits until its committed row is in the write-ahead log
-    /// (the marker is written strictly after the commit), and returns the live
-    /// process for the caller to SIGKILL.
+    /// the solution, waits until its row is written (the marker is written
+    /// strictly after the INSERT), and returns the live process for the caller
+    /// to SIGKILL. The mode selects the crash shape: <c>wal</c> (default)
+    /// commits into the write-ahead log, <c>hot-journal</c> leaves the row
+    /// uncommitted inside an IMMEDIATE transaction.
     /// </summary>
     private static async Task<Process> StartCrashSimulatorAsync(
         string databasePath,
         string markerPath,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string mode = "wal")
     {
         var simulator = ResolveSimulatorAssembly();
         var startInfo = new ProcessStartInfo
@@ -557,6 +785,7 @@ public class DatabaseStartupGateTests
         startInfo.ArgumentList.Add(simulator);
         startInfo.ArgumentList.Add(databasePath);
         startInfo.ArgumentList.Add(markerPath);
+        startInfo.ArgumentList.Add(mode);
         var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("The crash simulator process could not be started.");
 
