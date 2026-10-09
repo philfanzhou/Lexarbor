@@ -400,25 +400,41 @@ public class VocabularyAdminQueryTests : TestBase
         var path = Path.Combine(Path.GetTempPath(), $"lexarbor-admin-query-{Guid.NewGuid():N}.db");
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var deleteExecuted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         try
         {
             var options = new DbContextOptionsBuilder<VocabularyDbContext>().UseSqlite($"Data Source={path};Pooling=False").Options;
-            await using var writer = new VocabularyDbContext(options);
+            await using var writer = new VocabularyDbContext(new DbContextOptionsBuilder<VocabularyDbContext>(options)
+                .AddInterceptors(new DeleteExecutedSignal(deleteExecuted)).Options);
             await writer.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+            // EF Core 10 creates SQLite files in WAL mode; this test asserts
+            // rollback-journal lock semantics, so switch the file back the way
+            // the product's startup normalization leaves it.
+            await writer.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=DELETE", TestContext.Current.CancellationToken);
             await SeedAsync(writer);
             var readOptions = new DbContextOptionsBuilder<VocabularyDbContext>().UseSqlite($"Data Source={path};Pooling=False")
                 .AddInterceptors(new ReadBarrier(entered, release)).Options;
             await using var reader = new VocabularyDbContext(readOptions);
-            var query = new VocabularyAdminQueryService(new VocabularyAdminQueryRepository(reader))
-                .GetContentAsync("A", null, 1, 20, TestContext.Current.CancellationToken);
+            // Both sides run on their own thread: the barrier parks
+            // synchronously inside the snapshot's first reader, and the write's
+            // SQLite calls run on the calling thread until the first real yield.
+            var query = Task.Run(() => new VocabularyAdminQueryService(new VocabularyAdminQueryRepository(reader))
+                .GetContentAsync("A", null, 1, 20, TestContext.Current.CancellationToken));
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
-            var write = new UnitOfWork(writer).ExecuteInTransactionAsync(async () =>
+            var write = Task.Run(() => new UnitOfWork(writer).ExecuteInTransactionAsync(async () =>
             {
                 await writer.Database.ExecuteSqlRawAsync("DELETE FROM vocabulary_meaning WHERE book_id='A'", TestContext.Current.CancellationToken);
                 return 0;
-            });
-            // The DELETE itself runs under the reserved lock, but the commit
-            // cannot pass the open reader, so the write is still pending.
+            }));
+            // The DELETE itself runs under the reserved lock; from here the
+            // write can only finish by taking the exclusive lock at COMMIT,
+            // which the reader's open snapshot transaction holds off for as
+            // long as it is parked.
+            await deleteExecuted.Task.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+            // Grace window: a blocked COMMIT cannot finish no matter how long
+            // this takes, while a journal-mode regression (WAL beside an open
+            // reader) would complete within it.
+            await Task.Delay(TimeSpan.FromMilliseconds(100), TestContext.Current.CancellationToken);
             Assert.False(write.IsCompleted);
             release.TrySetResult();
             var result = await query;
@@ -459,16 +475,30 @@ public class VocabularyAdminQueryTests : TestBase
     private sealed class ReadBarrier(TaskCompletionSource entered, TaskCompletionSource release) : DbCommandInterceptor
     {
         private bool _paused;
-        public override async ValueTask<DbDataReader> ReaderExecutedAsync(DbCommand command, CommandExecutedEventData eventData,
-            DbDataReader result, CancellationToken cancellationToken = default)
+        // ReaderExecuted fires before EF has stepped the statement, so a
+        // deferred snapshot transaction holds no shared lock yet there. Parking
+        // on the first reader's disposal parks between the snapshot's queries,
+        // where the open transaction deterministically holds the shared lock.
+        // The hook is synchronous, so the parked query runs on its own thread.
+        public override InterceptionResult DataReaderDisposing(DbCommand command, DataReaderDisposingEventData eventData, InterceptionResult result)
         {
             if (!_paused)
             {
                 _paused = true;
                 entered.TrySetResult();
-                await release.Task.WaitAsync(TimeSpan.FromSeconds(20), cancellationToken);
+                release.Task.Wait(TimeSpan.FromSeconds(20));
             }
             return result;
+        }
+    }
+    private sealed class DeleteExecutedSignal(TaskCompletionSource executed) : DbCommandInterceptor
+    {
+        public override ValueTask<int> NonQueryExecutedAsync(DbCommand command, CommandExecutedEventData eventData,
+            int result, CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.StartsWith("DELETE FROM vocabulary_meaning ", StringComparison.Ordinal))
+                executed.TrySetResult();
+            return ValueTask.FromResult(result);
         }
     }
 }
