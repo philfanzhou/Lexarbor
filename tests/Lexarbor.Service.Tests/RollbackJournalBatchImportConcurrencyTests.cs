@@ -101,11 +101,15 @@ public class RollbackJournalBatchImportConcurrencyTests
             // 200 with the word — never 5xx and never a timeout failure.
             var import2 = Task.Run(() => admin.PostAsJsonAsync(
                 "/admin/vocabulary/batch",
-                new { bookId, entries = Enumerable.Range(0, 500).Select(index => new
+                new
                 {
-                    word = $"rollback-second-{index:D3}",
-                    meaning = $"meaning {index}"
-                }).ToArray() },
+                    bookId,
+                    entries = Enumerable.Range(0, 500).Select(index => new
+                    {
+                        word = $"rollback-second-{index:D3}",
+                        meaning = $"meaning {index}"
+                    }).ToArray()
+                },
                 Ct));
             var reads = Enumerable.Range(0, 5)
                 .Select(_ => anonymous.GetAsync($"/api/vocabulary/{wordId}?bookId={bookId}", Ct))
