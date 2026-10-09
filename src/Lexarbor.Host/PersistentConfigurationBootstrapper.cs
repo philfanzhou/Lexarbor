@@ -26,7 +26,24 @@ public static class PersistentConfigurationBootstrapper
 
         var dataDirectory = Path.Combine(contentRootPath, "data");
         var destinationPath = Path.Combine(dataDirectory, FileName);
-        Directory.CreateDirectory(dataDirectory);
+        // The data directory is the parent of the Data Protection root-key
+        // file, which the shared root-key source accepts only under a
+        // directory with exactly the owner-only mode bits on Unix. It is
+        // created that way — not with the process umask — so a first start
+        // whose data directory does not pre-exist (the image ships /app/data
+        // at 0700; a custom content root may not) still starts. An existing
+        // directory is never re-chmod; a deliberately wider one stays refused
+        // by the root-key source.
+        if (OperatingSystem.IsWindows())
+        {
+            Directory.CreateDirectory(dataDirectory);
+        }
+        else
+        {
+            Directory.CreateDirectory(
+                dataDirectory,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
 
         if (File.Exists(destinationPath))
         {

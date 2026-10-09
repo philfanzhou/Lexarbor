@@ -100,13 +100,19 @@ After upgrading, take ownership once before starting:
 
 ```bash
 sudo chown -R "$(id -u):$(id -g)" ./data
+chmod 700 ./data
 bash scripts/start.sh
 ```
 
-Skipping this leaves the application unable to open its own database, and it
-exits at startup with a permission error rather than starting in a degraded
-state. Deployments using a named or anonymous volume rather than a bind mount
-need no action.
+Skipping the ownership step leaves the application unable to open its own
+database, and it exits at startup with a permission error rather than starting
+in a degraded state. The `chmod` tightens the directory itself to owner-only:
+the root-key source refuses to resolve a key file under a directory with any
+group or other access bits, and a directory created by an earlier deployment or
+by hand may still be wider. `scripts/start.sh` performs this normalization on
+its own; it is listed for deployments that start the container some other way.
+Deployments using a named or anonymous volume rather than a bind mount need no
+action: the image ships `/app/data` with the required mode.
 
 ### Health status
 
@@ -216,10 +222,24 @@ The envelopes are protected by a **root key** with two sources, in this order:
 1. `DataProtection:RootKey` (container variable `LEXARBOR_DATA_PROTECTION_ROOT_KEY`),
    for deployments that inject secrets.
 2. Otherwise, a random root-key file created atomically on first start at
-   `data/data-protection-root-key` (directory 0700, file 0600, symbolic links
-   refused) and reused ever after — a single-container deployment stays
-   zero-configuration. `DataProtection:RootKeyFile` can point the file
-   elsewhere; the default is the `data/` path above.
+   `data/data-protection-root-key` and reused ever after — a single-container
+   deployment stays zero-configuration. `DataProtection:RootKeyFile` can point
+   the file elsewhere with a fully qualified path; the default is the `data/`
+   path above.
+
+The file is resolved through the ServiceMantle standard root-key source, which
+enforces a strict privacy contract on the whole path: the key file must be
+owner-only (0600 or 0400 on Unix), its parent directory must carry exactly the
+owner-only mode bits (0700 — the image ships `/app/data` this way,
+`scripts/start.sh` normalizes a bind-mounted directory before starting, and a
+first start that has to create the `data/` directory itself — a published
+output directory or an empty volume, at any umask — creates it with exactly
+these bits), every ancestor of the file must be a real directory (a path
+resolving through a symbolic link is refused), and the content must be the
+canonical 44-character Base64 form of 32 bytes — the exact shape the file was
+already generated in, so existing key files keep protecting their key rings. A
+directory or file that is wider than this contract stops startup with the
+fixed diagnostic below.
 
 Startup probes the repository with a non-sensitive Protect/Unprotect round-trip
 once the startup schema check has verified the database (after initialization,
