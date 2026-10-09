@@ -154,6 +154,20 @@ public class DatabaseStartupGateTests
             using var ready = await client.GetAsync("/health/ready", Ct);
             Assert.Equal(HttpStatusCode.OK, ready.StatusCode);
 
+            // The created directory carries exactly the owner-only mode bits,
+            // not the process umask: on the default layout it is also the
+            // parent of the Data Protection root-key file, whose strict
+            // source refuses a wider directory (a umask-022 first start of a
+            // published Host would otherwise fail closed on its own fresh
+            // data/). A pre-existing wider directory is still refused, never
+            // re-chmod — pinned by the root-key repository tests.
+            if (!OperatingSystem.IsWindows())
+            {
+                Assert.Equal(
+                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute,
+                    File.GetUnixFileMode(nested));
+            }
+
             Assert.True(File.Exists(database));
             await using var scope = factory.Services.CreateAsyncScope();
             var context = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();

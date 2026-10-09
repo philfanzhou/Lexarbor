@@ -230,13 +230,16 @@ The envelopes are protected by a **root key** with two sources, in this order:
 The file is resolved through the ServiceMantle standard root-key source, which
 enforces a strict privacy contract on the whole path: the key file must be
 owner-only (0600 or 0400 on Unix), its parent directory must carry exactly the
-owner-only mode bits (0700 — the image ships `/app/data` this way and
-`scripts/start.sh` normalizes a bind-mounted directory before starting), every
-ancestor of the file must be a real directory (a path resolving through a
-symbolic link is refused), and the content must be the canonical 44-character
-Base64 form of 32 bytes — the exact shape the file was already generated in, so
-existing key files keep protecting their key rings. A directory or file that is
-wider than this contract stops startup with the fixed diagnostic below.
+owner-only mode bits (0700 — the image ships `/app/data` this way,
+`scripts/start.sh` normalizes a bind-mounted directory before starting, and a
+first start that has to create the `data/` directory itself — a published
+output directory or an empty volume, at any umask — creates it with exactly
+these bits), every ancestor of the file must be a real directory (a path
+resolving through a symbolic link is refused), and the content must be the
+canonical 44-character Base64 form of 32 bytes — the exact shape the file was
+already generated in, so existing key files keep protecting their key rings. A
+directory or file that is wider than this contract stops startup with the
+fixed diagnostic below.
 
 Startup probes the repository with a non-sensitive Protect/Unprotect round-trip
 once the startup schema check has verified the database (after initialization,

@@ -27,6 +27,32 @@ public sealed class PersistentConfigurationBootstrapperTests : IDisposable
     }
 
     [Fact]
+    public void EnsureFile_MissingDataDirectory_CreatesItOwnerOnly()
+    {
+        Directory.CreateDirectory(_contentRoot);
+        File.WriteAllText(
+            Path.Combine(_contentRoot, PersistentConfigurationBootstrapper.FileName),
+            "image defaults");
+
+        var result = PersistentConfigurationBootstrapper.EnsureFile(_contentRoot);
+
+        Assert.True(result.Created);
+        var dataDirectory = Path.Combine(_contentRoot, "data");
+        Assert.True(Directory.Exists(dataDirectory));
+        if (!OperatingSystem.IsWindows())
+        {
+            // The data directory is the parent of the Data Protection
+            // root-key file, which the strict root-key source accepts only
+            // under a directory with exactly the owner-only mode bits —
+            // independent of the process umask the directory creation would
+            // otherwise inherit.
+            Assert.Equal(
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute,
+                File.GetUnixFileMode(dataDirectory));
+        }
+    }
+
+    [Fact]
     public void EnsureFile_ExistingPersistentFile_DoesNotOverwriteIt()
     {
         Directory.CreateDirectory(Path.Combine(_contentRoot, "data"));
