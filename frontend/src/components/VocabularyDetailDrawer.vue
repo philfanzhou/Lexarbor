@@ -275,13 +275,13 @@ function cancelSharedEdit(event: Event) {
 function sharedConfirmMessage() {
   const books = detail.value?.books ?? []
   if (!books.length) {
-    return '该单词当前没有被任何教材引用；保存仍会更新其共享的拼写与音标。'
+    return '该单词当前没有被任何教材引用；保存仍会更新这个单词的拼写与音标。'
   }
 
   const names = books
     .map((book) => (book.status ? book.bookName : `${book.bookName}（停用）`))
     .join('、')
-  return `拼写与音标是共享字段，保存后会影响引用该单词的全部教材（含停用）：${names}。`
+  return `拼写与音标在各教材间共用，保存后会影响引用该单词的全部教材（含停用）：${names}。`
 }
 
 /**
@@ -329,7 +329,7 @@ async function saveShared() {
   }
 
   try {
-    await ElMessageBox.confirm(sharedConfirmMessage(), '确认修改共享字段', {
+    await ElMessageBox.confirm(sharedConfirmMessage(), '确认修改拼写与音标', {
       type: 'warning',
       confirmButtonText: '保存',
       cancelButtonText: '取消'
@@ -353,7 +353,7 @@ async function saveShared() {
       return
     }
 
-    ElMessage.success('共享字段已保存')
+    ElMessage.success('拼写与音标已保存')
     emit('changed')
     load()
   } catch (error: unknown) {
@@ -470,7 +470,7 @@ async function saveMeaning(meaning: AdminMeaning) {
       />
 
       <template v-else-if="detail">
-        <section class="word-detail__summary" aria-label="共享字段">
+        <section class="word-detail__summary" aria-label="拼写与音标">
           <template v-if="!sharedEditing">
             <h2 class="word-detail__word">{{ detail.word }}</h2>
             <p class="word-detail__phonetics">
@@ -500,10 +500,10 @@ async function saveMeaning(meaning: AdminMeaning) {
             class="word-detail__edit-toggle"
             @click="startSharedEdit"
           >
-            编辑共享字段
+            编辑拼写与音标
           </el-button>
 
-          <div v-else class="word-detail__edit" role="group" aria-label="编辑共享字段">
+          <div v-else class="word-detail__edit" role="group" aria-label="编辑拼写与音标">
             <el-alert
               v-if="sharedError"
               class="word-detail__edit-error"
@@ -516,22 +516,22 @@ async function saveMeaning(meaning: AdminMeaning) {
             </el-alert>
 
             <el-form class="word-detail__form" label-position="top" @submit.prevent="saveShared">
-              <el-form-item label="单词拼写（共享）">
+              <el-form-item label="单词拼写（各教材共用）">
                 <el-input v-model="sharedForm.word" :disabled="sharedSaving" />
               </el-form-item>
-              <el-form-item label="英式音标（共享，留空保存为空）">
+              <el-form-item label="英式音标（各教材共用，留空保存为空）">
                 <el-input v-model="sharedForm.phoneticUk" :disabled="sharedSaving" />
               </el-form-item>
-              <el-form-item label="美式音标（共享，留空保存为空）">
+              <el-form-item label="美式音标（各教材共用，留空保存为空）">
                 <el-input v-model="sharedForm.phoneticUs" :disabled="sharedSaving" />
               </el-form-item>
               <p class="word-detail__edit-hint">
-                拼写与音标为全库共享字段，保存影响以上全部教材；留空的可选音标会明确清空，保存前需确认。
+                拼写与音标在各教材间共用，保存影响以上全部教材；留空的可选音标会明确清空，保存前需确认。
               </p>
               <div class="word-detail__edit-actions">
                 <el-button :disabled="sharedSaving" @click="cancelSharedEdit">取消</el-button>
                 <el-button type="primary" :loading="sharedSaving" @click="saveShared">
-                  保存共享字段
+                  保存拼写与音标
                 </el-button>
               </div>
             </el-form>
@@ -539,7 +539,7 @@ async function saveMeaning(meaning: AdminMeaning) {
         </section>
 
         <p class="word-detail__hint">
-          拼写与音标为全库共享字段；以下释义按教材分组，每条释义仅属于对应教材，可单独编辑。词条/短语类别属于每个单元位置。
+          拼写与音标在各教材间共用；以下释义按教材分组，每条释义仅属于对应教材，可单独编辑。词条/短语类别属于每个单元位置。
         </p>
 
         <section

@@ -12,6 +12,7 @@ Lexarbor 是自托管的词汇目录与测验服务：.NET 10 API、Vue 3 管理
 ## 文档与沟通语言
 
 - 流程与约束文档、GitHub issue/PR 正文和 review 全程使用中文；Issue 标题使用中文。
+- 中文回复、进度说明、Issue、PR 和 review 使用日常中文，直接说明动作、结果和剩余问题；必要术语给出具体含义，代码、路径、命令与正式名称保持原样。
 - PR 标题使用英文 conventional commit 格式（`feat:` / `fix:` / `docs:` / `test:` / `refactor:` / `chore:` 等）。
 - 面向使用者的 `README.md`、`docs/`、API 错误消息和公开契约文字保持英文；代码标识符和 commit message 保持英文。
 - 引用代码、命令、路径、JSON 字段和诊断码时保持原样。

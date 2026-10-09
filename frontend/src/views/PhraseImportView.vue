@@ -123,10 +123,10 @@ async function submit() {
     submitting.value = false
     clearContent(false)
     success.value = `「${snapshot.word.trim()}」 · ${location}：` + (result.created === 1
-      ? '已新增短语词义并确认位置。'
+      ? '已新增短语词义并放入所选单元。'
       : result.reused === 1
-        ? '已复用现有词义并确认短语位置；复用数不是新增位置数，重复位置不会新增。'
-        : '短语位置已处理。')
+        ? '已复用现有词义并放入所选单元；复用数统计的是词义数量，不是在单元、分节、类别中新增的关联数量，已存在的关联不会重复创建。'
+        : '短语已处理。')
   } catch (cause: unknown) {
     if (!alive) return
     const failure = getApiError(cause)

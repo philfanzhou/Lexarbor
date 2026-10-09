@@ -22,18 +22,18 @@ body:
     id: alternatives
     attributes:
       label: 已考虑的替代方案
-      description: 说明已有 workaround 或其他设计方案。
+      description: 说明已有的临时解决办法或其他设计方案。
   - type: textarea
     id: impact
     attributes:
-      label: 固定契约、验收标准与兼容性影响
+      label: 必须保持的接口和行为、验收标准与兼容性影响
       description: 请说明公共 API、配置、SQLite 数据、认证、前端、Docker 和英文文档的影响，以及可逐条验证的验收标准。
     validations:
       required: true
   - type: textarea
     id: adjacent
     attributes:
-      label: 已知邻近问题与依赖
+      label: 已发现但本次不处理的相关问题与依赖
       description: 前置依赖没有时写“无”。
     validations:
       required: true
