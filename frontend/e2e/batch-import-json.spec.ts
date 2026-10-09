@@ -178,7 +178,7 @@ const fileLevelErrors = [
   {
     name: 'a full { bookId, entries } payload',
     text: JSON.stringify({ bookId: starterBook.id, entries: [{ word: 'apple', meaning: '苹果' }] }),
-    expected: /^JSON 顶层必须是数组；不接受 \{ bookId, entries \} 载荷，请只提供 entries 数组；教材以页面选择为准$/
+    expected: /^JSON 顶层必须是数组；不接受包含 bookId 和 entries 的对象，请只提供 entries 数组；教材以页面选择为准$/
   },
   {
     name: 'a syntax error',

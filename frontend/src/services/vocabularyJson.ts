@@ -44,7 +44,7 @@ export function parseVocabularyJson(text: string): VocabularyJsonResult {
     return {
       rows: [],
       error: isPayload
-        ? 'JSON 顶层必须是数组；不接受 { bookId, entries } 载荷，请只提供 entries 数组；教材以页面选择为准'
+        ? 'JSON 顶层必须是数组；不接受包含 bookId 和 entries 的对象，请只提供 entries 数组；教材以页面选择为准'
         : 'JSON 顶层必须是数组'
     }
   }

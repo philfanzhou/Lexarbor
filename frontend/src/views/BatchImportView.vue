@@ -168,7 +168,7 @@ function resolveAssignment(columns: string[]) {
   else if (rawSection && !hasUnit) reason = '有分节但未填写单元'
   else if (rawKind && rawKind !== 'word' && rawKind !== 'phrase') reason = `类别应为 word 或 phrase：${rawKind}`
   else if (mode.value !== 'mixed' && rawKind && rawKind !== mode.value) reason = `文件类别 ${rawKind} 与当前模式不一致，请切换混合词汇模式`
-  else if (entryKind && !hasUnit) reason = '有类别但未填写单元；统一模式可选择缺省单元'
+  else if (entryKind && !hasUnit) reason = '有类别但未填写单元；统一模式可选择默认单元'
   const unitText = unit === undefined ? rawUnit : unit.title ? `${unit.number} · ${unit.title}` : String(unit.number)
   return { unit, unitUnknown, unitText, unitFromDefault, section: rawSection || undefined, entryKind, kindFromDefault, reason }
 }
@@ -543,7 +543,7 @@ onBeforeUnmount(() => { alive = false; ++unitLoads; ++fileReads; stopReadingExce
         <el-radio-button value="word">单词</el-radio-button>
         <el-radio-button value="phrase">短语</el-radio-button>
       </el-radio-group>
-      <p>{{ mode === 'mixed' ? '混合模式保留逐行类别；缺省类别为未分类，不会显示在短语管理。' : '缺省类别采用当前模式；文件已有类别与单元不会被覆盖。' }}</p>
+      <p>{{ mode === 'mixed' ? '混合模式保留逐行类别；类别留空时按未分类处理，不会显示在短语管理。' : '类别留空时采用当前模式；文件已有类别与单元不会被覆盖。' }}</p>
       <el-form label-position="top">
         <el-form-item label="教材">
           <el-select
@@ -560,7 +560,7 @@ onBeforeUnmount(() => { alive = false; ++unitLoads; ++fileReads; stopReadingExce
             />
           </el-select>
         </el-form-item>
-        <el-form-item v-if="mode !== 'mixed'" label="缺省单元">
+        <el-form-item v-if="mode !== 'mixed'" label="默认单元">
           <el-select v-model="defaultUnitId" class="batch-default-unit" placeholder="仅补充未填写单元的行" clearable :disabled="submitting || unitsState !== 'loaded'">
             <el-option v-for="unit in units" :key="unit.id" :label="`第 ${unit.number} 单元 ${unit.title ?? ''}`" :value="unit.id" />
           </el-select>
@@ -619,8 +619,8 @@ onBeforeUnmount(() => { alive = false; ++unitLoads; ++fileReads; stopReadingExce
             <li>可以选择 .tsv、.txt、.csv、.json 文件（UTF-8 编码）或 .xlsx 文件，单个文件不超过 1 MiB</li>
             <li>单批不超过 {{ MAX_ENTRIES }} 条</li>
             <li>整批在一个事务中写入：任何一条失败，整批都不写入</li>
-            <li>单元编号填写所选教材单元管理中的编号（如 2），去空白后精确匹配；混合模式空白计为不归属；单词/短语模式仅给空白单元使用页面缺省，写错编号的行无法提交，导入不会创建单元</li>
-            <li>分节在第 8 列（CSV/Excel 表头 `section`、JSON 字段 `section`）填写 A 或 B，去空白后精确匹配、区分大小写；空白计为未分节；有分节时必须有最终单元归属（文件单元或页面缺省）</li>
+            <li>单元编号填写所选教材单元管理中的编号（如 2），去空白后精确匹配；混合模式空白计为不归属；单词/短语模式仅给空白单元使用页面默认值，写错编号的行无法提交，导入不会创建单元</li>
+            <li>分节在第 8 列（CSV/Excel 表头 `section`、JSON 字段 `section`）填写 A 或 B，去空白后精确匹配、区分大小写；空白计为未分节；有分节时必须有最终单元归属（文件单元或页面默认值）</li>
             <li>类别在第 9 列（CSV/Excel 表头 `entry_kind`、JSON 字段 `entryKind`）填写 word 或 phrase，去空白后精确匹配、区分大小写（`Word` 非法）；混合模式空白计为未分类；单词/短语模式仅给空白类别使用当前模式，相反类别须切换混合模式；不会自动推断，有类别时必须有最终单元归属</li>
             <li>文件只在浏览器中解析，不会上传</li>
           </ul>
@@ -682,7 +682,7 @@ onBeforeUnmount(() => { alive = false; ++unitLoads; ++fileReads; stopReadingExce
           />
         </div>
 
-        <p class="batch-category-summary" role="status">输入类别：单词 {{ categoryCounts.word }} 条 · 短语 {{ categoryCounts.phrase }} 条 · 未分类 {{ categoryCounts.unclassified }} 条<span v-if="categoryCounts.invalid"> · 非法类别 {{ categoryCounts.invalid }} 条</span>；这是输入行数，非服务端新增位置数。</p>
+        <p class="batch-category-summary" role="status">输入类别：单词 {{ categoryCounts.word }} 条 · 短语 {{ categoryCounts.phrase }} 条 · 未分类 {{ categoryCounts.unclassified }} 条<span v-if="categoryCounts.invalid"> · 非法类别 {{ categoryCounts.invalid }} 条</span>；这是输入的行数，不是导入后词义在单元、分节、类别中新增的关联数量。</p>
         <el-alert v-if="mode === 'mixed' && categoryCounts.unclassified" class="batch-unclassified" type="info" title="未分类行不会显示在短语管理；单元与类别不会根据英文内容自动推断。" :closable="false" show-icon />
         <el-table
           :data="pagedRows"
@@ -727,8 +727,8 @@ onBeforeUnmount(() => { alive = false; ++unitLoads; ++fileReads; stopReadingExce
             </template>
           </el-table-column>
           <el-table-column label="原始单元" min-width="100"><template #default="{ row }">{{ row.columns[6] || '（空白）' }}</template></el-table-column>
-          <el-table-column label="最终类别" min-width="140"><template #default="{ row }">{{ row.entryKind || '未分类' }}{{ row.kindFromDefault ? '（页面缺省）' : '' }}</template></el-table-column>
-          <el-table-column label="单元来源" min-width="110"><template #default="{ row }">{{ row.unitFromDefault ? '页面缺省' : row.columns[6] ? '文件' : '无归属' }}</template></el-table-column>
+          <el-table-column label="最终类别" min-width="140"><template #default="{ row }">{{ row.entryKind || '未分类' }}{{ row.kindFromDefault ? '（页面默认）' : '' }}</template></el-table-column>
+          <el-table-column label="单元来源" min-width="110"><template #default="{ row }">{{ row.unitFromDefault ? '页面默认' : row.columns[6] ? '文件' : '无归属' }}</template></el-table-column>
         </el-table>
 
         <el-pagination
@@ -777,7 +777,7 @@ onBeforeUnmount(() => { alive = false; ++unitLoads; ++fileReads; stopReadingExce
         type="success"
         :closable="false"
         show-icon
-        :title="`导入完成：总计 ${result.total} 条，新增 ${result.created} 条，复用 ${result.reused} 条（新增/复用只计词义，不代表新增位置数）`"
+        :title="`导入完成：总计 ${result.total} 条，新增 ${result.created} 条，复用 ${result.reused} 条（新增与复用统计的是词义数量；同一词义放入多个单元、分节或类别时不重复计数，这些数字不代表新增的关联数量）`"
       />
     </section>
   </div>

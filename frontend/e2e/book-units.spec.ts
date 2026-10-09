@@ -252,8 +252,8 @@ test('deleting a unit confirms its impact and refreshes the list', async ({ page
   await dialog(page).locator('.el-table__row', { hasText: 'Starter' }).getByRole('button', { name: '删除' }).click()
 
   const confirm = page.locator('.el-message-box')
-  await expect(confirm).toContainText('移除该单元及其 3 条词义归属')
-  await expect(confirm).toContainText('词义、共享词条和其他单元的归属会保留')
+  await expect(confirm).toContainText('会删除该单元，并移除其中 3 条词义与该单元的关联')
+  await expect(confirm).toContainText('词义和单词本身会保留，其他单元中的关联也不受影响')
   // The server state changes with the delete; the refresh that follows must
   // serve it, so the fixture switches before the request that observes it.
   state.units.splice(0, 1)

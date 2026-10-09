@@ -2,14 +2,14 @@
 
 - **状态**：已接受（取代 [ADR-001](ADR-001-pluggable-admin-authentication.md) 的默认方向；细化 [ADR-007](ADR-007-management-session-migration.md) 的暂缓结论）
 - **日期**：2026-09-30
-- **范围**：Lexarbor 与 ServiceMantle、SignaCore 的能力边界划分；管理员登录方式收敛。本 ADR 只记录决策与理由，不授权任何兼容性变化，具体变化仍由各实施 issue 明确批准。
+- **范围**：Lexarbor 与 ServiceMantle、SignaCore 的能力边界划分；管理员登录只保留一种方式。本 ADR 只记录决策与理由，不授权任何兼容性变化，具体变化仍由各实施 issue 明确批准。
 - **对照基线**：Lexarbor `main@e12a572`；ServiceMantle [`v0.2.1`](https://github.com/philfanzhou/ServiceMantle/tree/v0.2.1)；SignaCore `main@bcac0ea`。
 
 ## 背景与目标
 
 Lexarbor 的方向调整为：**ServiceMantle 已有的通用能力不在本仓库重复实现，已有的重复或近似实现替换为 ServiceMantle；管理员登录只使用 SignaCore 托管登录页。**
 
-ADR-001 记录了可插拔密码代理登录（`Oidc` 密码授权与 `Gateway` 两种提供者），其前提是 Lexarbor 自己渲染登录表单并经手管理员密码。ADR-007 暂缓了 ServiceMantle 管理会话的迁移，但只比较了会话契约本身，没有回答"哪些通用能力应该反过来主动收敛到 ServiceMantle"。托管登录（[HostedAdminLogin.cs](../../src/Lexarbor.Host/Authentication/HostedAdminLogin.cs)、[#164](https://github.com/philfanzhou/Lexarbor/issues/164)、[#155](https://github.com/philfanzhou/Lexarbor/issues/155)）落地后，密码代理模式已成冗余路径。本 ADR 为上述方向提供统一依据。
+ADR-001 记录了可插拔密码代理登录（`Oidc` 密码授权与 `Gateway` 两种提供者），其前提是 Lexarbor 自己渲染登录表单并经手管理员密码。ADR-007 暂缓了 ServiceMantle 管理会话的迁移，但只比较了会话契约本身，没有回答"哪些通用能力应该反过来改用 ServiceMantle 的实现"。托管登录（[HostedAdminLogin.cs](../../src/Lexarbor.Host/Authentication/HostedAdminLogin.cs)、[#164](https://github.com/philfanzhou/Lexarbor/issues/164)、[#155](https://github.com/philfanzhou/Lexarbor/issues/155)）交付后，密码代理模式已成冗余路径。本 ADR 为上述方向提供统一依据。
 
 对照的上游文档：
 
@@ -25,11 +25,11 @@ ADR-001 记录了可插拔密码代理登录（`Oidc` 密码授权与 `Gateway` 
 | 1 | 可信代理转发头（`Program.cs` 中 `Network:*` 已配置时的 `AddForwardedHeaders`，原 `RateLimitingExtensions` 内联实现已删） | [Explicit forwarded-header trust](https://github.com/philfanzhou/ServiceMantle/blob/v0.2.1/README.md#explicit-forwarded-header-trust) | 已替换 | [#143](https://github.com/philfanzhou/Lexarbor/issues/143)（已完成） |
 | 2 | `VocabularyExceptionMiddleware`（`src/Lexarbor.Service/VocabularyExceptionMiddleware.cs`）手写 `{success,message}` envelope 与异常分级 | [Safe Problem Details and exception mapping](https://github.com/philfanzhou/ServiceMantle/blob/v0.2.1/README.md#safe-problem-details-and-exception-mapping)（含 0.2.1 的条件映射与 `Retry-After`） | 替换（错误契约变化须 issue 批准） | [#144](https://github.com/philfanzhou/Lexarbor/issues/144) |
 | 3 | 无请求级关联 ID；日志与响应无 Correlation 字段 | [Request Correlation ID](https://github.com/philfanzhou/ServiceMantle/blob/v0.2.1/README.md#request-correlation-id) | 新增采用（随 #144 一体交付） | [#144](https://github.com/philfanzhou/Lexarbor/issues/144) |
-| 4 | `UseSystemVersionNoStore` 与 `AdminHostedLoginSafety`（`src/Lexarbor.Host/SystemVersionEndpoints.cs`、`HostedAdminLogin.cs`）逐响应头手写 | [Mandatory security response headers](https://github.com/philfanzhou/ServiceMantle/blob/v0.2.1/README.md#mandatory-security-response-headers)（六头基线、不可配置） | 替换 | [#177](https://github.com/philfanzhou/Lexarbor/issues/177) |
+| 4 | `UseSystemVersionNoStore` 与 `AdminHostedLoginSafety`（`src/Lexarbor.Host/SystemVersionEndpoints.cs`、`HostedAdminLogin.cs`）逐响应头手写 | [Mandatory security response headers](https://github.com/philfanzhou/ServiceMantle/blob/v0.2.1/README.md#mandatory-security-response-headers)（默认强制设置六个安全响应头、不可配置） | 替换 | [#177](https://github.com/philfanzhou/Lexarbor/issues/177) |
 | 5 | 默认 Console 日志 + 手写过滤；敏感值防泄漏依赖各调用点自觉 | [Structured logging security](https://github.com/philfanzhou/ServiceMantle/blob/v0.2.1/README.md#structured-logging-security)（`ServiceMantle.Logging` 脱敏管线、`AddSensitiveHeaders` 敏感头注册） | 替换（保留少量产品规则） | [#178](https://github.com/philfanzhou/Lexarbor/issues/178) |
 | 6 | `PersistentAdminKeyRing`（`src/Lexarbor.Host/PersistentAdminKeyRing.cs`）明文 XML 文件密钥环 | [`PersistKeysToServiceMantleEfCore`](https://github.com/philfanzhou/ServiceMantle/blob/v0.2.1/README.md#typed-setting-snapshots)（`service_data_protection_keys` 表、`sm:v1:` 认证信封加密） | 替换 | [#179](https://github.com/philfanzhou/Lexarbor/issues/179) |
 | 7 | `/health` 恒为 healthy（`Program.cs` 直接映射） | [Live and readiness endpoints](https://github.com/philfanzhou/ServiceMantle/blob/v0.2.1/README.md#live-and-readiness-endpoints)（`/health/live`、`/health/ready`、`IServiceHealthSnapshotSource`） | 替换（响应格式变化须 issue 批准） | [#180](https://github.com/philfanzhou/Lexarbor/issues/180) |
-| 8 | `DatabaseInitializer`（`src/Lexarbor.Database/DatabaseInitializer.cs`）建库 + 迁移 | [Database target preparation](https://github.com/philfanzhou/ServiceMantle/blob/v0.2.1/README.md#database-target-preparation)（SQLite 目标准备、部署校验）与 [Database migration orchestration](https://github.com/philfanzhou/ServiceMantle/blob/v0.2.1/README.md#database-migration-orchestration)（单实例迁移编排） | 替换 | [#181](https://github.com/philfanzhou/Lexarbor/issues/181) |
+| 8 | `DatabaseInitializer`（`src/Lexarbor.Database/DatabaseInitializer.cs`）建库 + 迁移 | [Database target preparation](https://github.com/philfanzhou/ServiceMantle/blob/v0.2.1/README.md#database-target-preparation)（SQLite 目标准备、部署校验）与 [Database migration orchestration](https://github.com/philfanzhou/ServiceMantle/blob/v0.2.1/README.md#database-migration-orchestration)（按固定顺序执行单实例数据库迁移） | 替换 | [#181](https://github.com/philfanzhou/Lexarbor/issues/181) |
 | 9 | `VocabularyAdmin` 策略 + `AdminRoleHandler`（`Program.cs`、`src/Lexarbor.Host/Authentication/`） | [Management identity and authorization](https://github.com/philfanzhou/ServiceMantle/blob/v0.2.1/README.md#management-identity-and-authorization)（`servicemantle.*` 声明契约、`ServiceMantle.ManagementAdmin` 策略） | 替换（保留"管理员身份来自 SignaCore 角色声明"的产品规则） | [#182](https://github.com/philfanzhou/Lexarbor/issues/182) |
 | 10 | 无持久管理审计 | [Management audit persistence](https://github.com/philfanzhou/ServiceMantle/blob/v0.2.1/README.md#management-audit-persistence)（`service_audit_logs`、写入脱敏、keyset 分页查询） | 新增采用 | [#183](https://github.com/philfanzhou/Lexarbor/issues/183) |
 | 11 | 无遥测 | [Core OpenTelemetry instrumentation](https://github.com/philfanzhou/ServiceMantle/blob/v0.2.1/README.md#core-opentelemetry-instrumentation)（`ServiceMantle.Diagnostics`，默认关闭、无导出器） | 新增采用（低优先级） | [#184](https://github.com/philfanzhou/Lexarbor/issues/184) |
@@ -47,7 +47,7 @@ ADR-001 记录了可插拔密码代理登录（`Oidc` 密码授权与 `Gateway` 
 
 - `OidcPasswordAuthenticator`（OAuth2 resource owner password credentials 授权，`src/Lexarbor.Host/Authentication/Providers/OidcPasswordAuthenticator.cs`）；
 - `GatewayCredentialAuthenticator`（JSON/header 密码代理契约，`src/Lexarbor.Host/Authentication/Providers/GatewayCredentialAuthenticator.cs`）；
-- 承载它们的 `IAdminCredentialAuthenticator` 选择机制（ADR-001 的 `AdminAuthentication:Provider`）与密码登录表单路径。
+- 负责在这些实现中选择的 `IAdminCredentialAuthenticator` 选择机制（ADR-001 的 `AdminAuthentication:Provider`）与密码登录表单路径。
 
 安全收益：
 
@@ -55,7 +55,7 @@ ADR-001 记录了可插拔密码代理登录（`Oidc` 密码授权与 `Gateway` 
 - 凭据输入只发生在 SignaCore 托管页，Lexarbor 只接收一次性授权码并按 `iss`+`sub` 建立本地会话；client secret 与 token 全部留在服务端；
 - 删除密码代理后，ADR-001 定义的 `AdminAuthentication:Oidc:*`、`AdminAuthentication:Gateway:*` 配置面随之消失，机密配置面缩小为 SignaCore 客户端注册项。
 
-部署影响（由 #175/#176 各自的验收与英文部署文档承载）：部署方必须在 SignaCore 为 Lexarbor 注册 Confidential 应用、登记 HTTPS 回调与 post-logout URI 并启用授权码流程；已按 ADR-001 部署密码授权的环境需迁移到托管登录，旧密码代理配置不再被读取。这是登录入口的兼容性变化，须按上述 issue 批准。
+部署影响（在 #175/#176 对应任务中验证并写入英文部署文档）：部署方必须在 SignaCore 为 Lexarbor 注册 Confidential 应用、登记 HTTPS 回调与 post-logout URI 并启用授权码流程；已按 ADR-001 部署密码授权的环境需迁移到托管登录，旧密码代理配置不再被读取。这是登录入口的兼容性变化，须按上述 issue 批准。
 
 ## 明确不采用及理由
 
@@ -63,11 +63,11 @@ ADR-001 记录了可插拔密码代理登录（`Oidc` 密码授权与 `Gateway` 
 
 1. **ServiceMantle 管理会话**（[management-session.md](https://github.com/philfanzhou/ServiceMantle/blob/v0.2.1/docs/contracts/management-session.md)）。登录入口只接受 `POST` 凭据体（适配器自定 JSON），无法承接托管登录的 GET 回调——回调在授权码兑换之前，浏览器到达时没有任何凭据体可读；其票据是无状态 Data Protection Cookie，登出只删本客户端 Cookie、不撤销已复制票据，不能满足 Lexarbor 的服务端原子撤销要求（[#157](https://github.com/philfanzhou/Lexarbor/issues/157) 已交付的 `AdminSessionStore` 语义）；prepared logout（[#154](https://github.com/philfanzhou/Lexarbor/issues/154)）要求服务端在会话存续期保存该用户的 ID token，无状态票据没有服务端存储位置。ADR-007 的逐项契约对照与净收益估算继续有效。
    *重新评估条件*：ServiceMantle 提供可撤销的服务端管理会话存储与 OIDC 授权码回调签入（见"上游缺口"）。
-2. **Bootstrap / Setup Code / 安装阶段 / 阶段门 / 共享设置**（[bootstrap](https://github.com/philfanzhou/ServiceMantle/blob/v0.2.1/README.md#instance-local-bootstrap)、[One-time Setup Code](https://github.com/philfanzhou/ServiceMantle/blob/v0.2.1/README.md#one-time-setup-code)、[phase gate](https://github.com/philfanzhou/ServiceMantle/blob/v0.2.1/README.md#management-paths-and-startup-phase-gate)、[Transactional setting batches](https://github.com/philfanzhou/ServiceMantle/blob/v0.2.1/README.md#transactional-setting-batches)）。Lexarbor 没有首次安装流程：配置来自镜像默认 + 持久 `appsettings.json` + 环境变量（`PersistentConfigurationBootstrapper`），管理员身份来自 SignaCore 角色声明而非本地管理员引导。
+2. **Bootstrap / Setup Code / 安装阶段 / 启动条件检查 / 共享设置**（[bootstrap](https://github.com/philfanzhou/ServiceMantle/blob/v0.2.1/README.md#instance-local-bootstrap)、[One-time Setup Code](https://github.com/philfanzhou/ServiceMantle/blob/v0.2.1/README.md#one-time-setup-code)、[phase gate](https://github.com/philfanzhou/ServiceMantle/blob/v0.2.1/README.md#management-paths-and-startup-phase-gate)、[Transactional setting batches](https://github.com/philfanzhou/ServiceMantle/blob/v0.2.1/README.md#transactional-setting-batches)；启动条件检查在一次性设置完成前拒绝管理入口请求）。Lexarbor 没有首次安装流程：配置来自镜像默认 + 持久 `appsettings.json` + 环境变量（`PersistentConfigurationBootstrapper`），管理员身份来自 SignaCore 角色声明而非本地管理员引导。
    *重新评估条件*：Lexarbor 出现真实的首次安装/集中配置产品需求。
 3. **ServiceMantle 限流：已采用**（[v0.3.0](https://github.com/philfanzhou/ServiceMantle/tree/v0.3.0)、[#198](https://github.com/philfanzhou/Lexarbor/issues/198)）。共享 `ConsumerPolicies` 已能表达 `admin-login`/`public-api` 的可信地址分区与桶隔离；本仓删除本地分区、固定窗口、数值校验与拒绝 JSON。Issue 明确批准六段滑动窗口、429 Problem Details 与启用数值上下限变化。Host 只保留配置映射、端点启用及缺失共享 `Retry-After` 时补整窗秒数的兼容头适配，不覆写共享头、不承诺并发下必获许可。默认值、路由、代理信任和持久数据不变；不新增管理/安装端点或组合管线。
-4. **`UseServiceMantlePipeline`**（[Composed HTTP pipeline](https://github.com/philfanzhou/ServiceMantle/blob/v0.2.1/README.md#composed-http-pipeline)）。该组合强制要求第 2、3 项能力（安全响应头注册与阶段门）并固定"限流在认证之后"的中间件顺序；在 Lexarbor 的公共 API 限流与托管登录回调布局下不可直接套用。各中间件仍按第 2—9 项逐个显式启用，保持 Lexarbor 自己的管线顺序与匿名公共路由可达性。
-   *重新评估条件*：上述能力全部落地且 Lexarbor 管线与其固定顺序一致时，作为纯重构单独评估。
+4. **`UseServiceMantlePipeline`**（[Composed HTTP pipeline](https://github.com/philfanzhou/ServiceMantle/blob/v0.2.1/README.md#composed-http-pipeline)）。该组合强制要求第 2、3 项能力（安全响应头注册与启动条件检查，条件未满足时拒绝管理入口请求）并固定"限流在认证之后"的中间件顺序；在 Lexarbor 的公共 API 限流与托管登录回调布局下不可直接套用。各中间件仍按第 2—9 项逐个显式启用，保持 Lexarbor 自己的管线顺序与匿名公共路由可达性。
+   *重新评估条件*：上述能力全部实现且 Lexarbor 管线与其固定顺序一致时，作为纯重构单独评估。
 5. **Consul 服务发现**（[Optional Consul client boundary](https://github.com/philfanzhou/ServiceMantle/blob/v0.2.1/README.md#optional-consul-client-boundary)）。单容器部署无服务注册与发现需求。
    *重新评估条件*：Lexarbor 出现多实例/注册中心部署形态。
 

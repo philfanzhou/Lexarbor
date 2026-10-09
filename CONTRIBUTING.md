@@ -36,5 +36,6 @@ bash .github/scripts/test-container.sh lexarbor:ci
 
 - Explain the problem and the chosen solution.
 - Describe any deployment or configuration impact.
+- Write issue and pull request bodies, reviews, replies, and progress updates in plain Chinese: state directly what was done, the result, and what remains. Give necessary terms a concrete meaning, and keep code, paths, commands, and formal names as written. Use an English conventional commit format for the pull request title (`feat:` / `fix:` / `docs:` / `test:` / `refactor:` / `chore:`).
 
 By contributing, you agree that your contribution is licensed under the repository's [MIT License](LICENSE).

@@ -119,7 +119,7 @@ function changeMode() { if (mode.value === 'move' && !units.value.length) void l
         <el-radio-button value="remove">从本单元移除</el-radio-button>
       </el-radio-group>
       <template v-if="mode === 'move'">
-        <p>只调整这条位置；拼写与音标为跨教材共享字段。</p>
+        <p>只调整这条位置；拼写与音标在各教材间共用，修改会影响所有相关教材。</p>
         <p v-if="loading">正在加载单元…</p>
         <p v-if="error && !units.length" role="alert">{{ error }} <el-button @click="loadUnits">重试单元列表</el-button></p>
         <el-form v-else label-position="top">

@@ -505,7 +505,7 @@ test('opens the same read-only detail drawer from both lists', async ({ page }) 
   // Editing is per group: the shared fields once, and each meaning on its own;
   // each meaning's deletion goes through the cleanup confirmation flow
   // (covered by the cleanup specification).
-  await expect(drawer.getByRole('button', { name: '编辑共享字段' })).toHaveCount(1)
+  await expect(drawer.getByRole('button', { name: '编辑拼写与音标' })).toHaveCount(1)
   await expect(drawer.getByRole('button', { name: '编辑', exact: true })).toHaveCount(3)
   await expect(drawer.getByRole('button', { name: '删除' })).toHaveCount(3)
 
@@ -711,14 +711,14 @@ test('saves the shared fields as one full replacement after naming every affecte
   const drawer = page.locator('.el-drawer')
   await expect(drawer).toContainText('apple')
 
-  await drawer.getByRole('button', { name: '编辑共享字段' }).click()
+  await drawer.getByRole('button', { name: '编辑拼写与音标' }).click()
   await drawer.getByRole('textbox', { name: '单词拼写' }).fill('apple2')
   await drawer.getByRole('textbox', { name: '英式音标' }).fill('')
   await drawer.getByRole('textbox', { name: '美式音标' }).fill('/ˈæp.əl/新')
 
-  await drawer.getByRole('button', { name: '保存共享字段' }).click()
+  await drawer.getByRole('button', { name: '保存拼写与音标' }).click()
   const confirmBox = page.locator('.el-message-box')
-  await expect(confirmBox).toContainText('拼写与音标是共享字段')
+  await expect(confirmBox).toContainText('拼写与音标在各教材间共用')
   await expect(confirmBox).toContainText('CI Book A')
   await expect(confirmBox).toContainText('CI Old Book B（停用）')
 
@@ -727,7 +727,7 @@ test('saves the shared fields as one full replacement after naming every affecte
   await expect(confirmBox).toHaveCount(0)
   await expect(drawer.getByRole('textbox', { name: '单词拼写' })).toHaveValue('apple2')
 
-  await drawer.getByRole('button', { name: '保存共享字段' }).click()
+  await drawer.getByRole('button', { name: '保存拼写与音标' }).click()
   detailData = updatedDetail
   await confirmBox.getByRole('button', { name: '保存' }).click()
 
@@ -739,13 +739,13 @@ test('saves the shared fields as one full replacement after naming every affecte
   expect(put.bodies[0]).toEqual({ word: 'apple2', phoneticUk: null, phoneticUs: '/ˈæp.əl/新' })
   put.answer()
 
-  await expect(page.locator('.el-message--success')).toContainText('共享字段已保存')
+  await expect(page.locator('.el-message--success')).toContainText('拼写与音标已保存')
   // The success re-reads the detail and tells the list page to refresh; both
   // re-reads trail the success message, so they are polled as well.
   await expect.poll(() => detailReads).toHaveLength(2)
   await expect(drawer).toContainText('apple2')
   await expect(drawer).toContainText('英 —')
-  await expect(drawer.getByRole('button', { name: '编辑共享字段' })).toHaveCount(1)
+  await expect(drawer.getByRole('button', { name: '编辑拼写与音标' })).toHaveCount(1)
   await expect.poll(() => libraryReads).toHaveLength(2)
 })
 
@@ -805,14 +805,14 @@ test('an unsubmitted edit sends nothing and blank required fields are refused cl
   await page.locator('.el-table__row', { hasText: 'apple' }).getByRole('button', { name: '详情' }).click()
   const drawer = page.locator('.el-drawer')
 
-  await drawer.getByRole('button', { name: '编辑共享字段' }).click()
+  await drawer.getByRole('button', { name: '编辑拼写与音标' }).click()
   await drawer.getByRole('textbox', { name: '单词拼写' }).fill('   ')
-  await drawer.getByRole('button', { name: '保存共享字段' }).click()
+  await drawer.getByRole('button', { name: '保存拼写与音标' }).click()
   await expect(drawer.locator('.word-detail__edit-error')).toContainText('请输入单词拼写')
   expect(put.count).toBe(0)
 
   await drawer.getByRole('button', { name: '取消' }).click()
-  await expect(drawer.getByRole('button', { name: '编辑共享字段' })).toHaveCount(1)
+  await expect(drawer.getByRole('button', { name: '编辑拼写与音标' })).toHaveCount(1)
   await expect(drawer).toContainText('apple')
   await expect(drawer).toContainText('英 /ˈæp.əl/')
 
@@ -844,9 +844,9 @@ test('a 400 keeps the draft with the server reason', async ({ page }) => {
 
   await page.locator('.el-table__row', { hasText: 'apple' }).getByRole('button', { name: '详情' }).click()
   const drawer = page.locator('.el-drawer')
-  await drawer.getByRole('button', { name: '编辑共享字段' }).click()
+  await drawer.getByRole('button', { name: '编辑拼写与音标' }).click()
   await drawer.getByRole('textbox', { name: '单词拼写' }).fill('apples')
-  await drawer.getByRole('button', { name: '保存共享字段' }).click()
+  await drawer.getByRole('button', { name: '保存拼写与音标' }).click()
   await page.locator('.el-message-box').getByRole('button', { name: '保存' }).click()
 
   const error = drawer.locator('.word-detail__edit-error')
@@ -872,9 +872,9 @@ test('a 409 explains the conflict and an explicit reload replaces the draft', as
 
   await page.locator('.el-table__row', { hasText: 'apple' }).getByRole('button', { name: '详情' }).click()
   const drawer = page.locator('.el-drawer')
-  await drawer.getByRole('button', { name: '编辑共享字段' }).click()
+  await drawer.getByRole('button', { name: '编辑拼写与音标' }).click()
   await drawer.getByRole('textbox', { name: '单词拼写' }).fill('apple-mine')
-  await drawer.getByRole('button', { name: '保存共享字段' }).click()
+  await drawer.getByRole('button', { name: '保存拼写与音标' }).click()
   await page.locator('.el-message-box').getByRole('button', { name: '保存' }).click()
 
   const error = drawer.locator('.word-detail__edit-error')
@@ -884,7 +884,7 @@ test('a 409 explains the conflict and an explicit reload replaces the draft', as
   detailData = reloadedDetail
   await error.getByRole('button', { name: '重新加载' }).click()
   await expect(drawer).toContainText('apple-server')
-  await expect(drawer.getByRole('button', { name: '编辑共享字段' })).toHaveCount(1)
+  await expect(drawer.getByRole('button', { name: '编辑拼写与音标' })).toHaveCount(1)
 })
 
 test('a 404 reports the target is gone without hiding the draft', async ({ page }) => {
@@ -902,9 +902,9 @@ test('a 404 reports the target is gone without hiding the draft', async ({ page 
 
   await page.locator('.el-table__row', { hasText: 'apple' }).getByRole('button', { name: '详情' }).click()
   const drawer = page.locator('.el-drawer')
-  await drawer.getByRole('button', { name: '编辑共享字段' }).click()
+  await drawer.getByRole('button', { name: '编辑拼写与音标' }).click()
   await drawer.getByRole('textbox', { name: '单词拼写' }).fill('apples')
-  await drawer.getByRole('button', { name: '保存共享字段' }).click()
+  await drawer.getByRole('button', { name: '保存拼写与音标' }).click()
   await page.locator('.el-message-box').getByRole('button', { name: '保存' }).click()
 
   const error = drawer.locator('.word-detail__edit-error')
@@ -931,16 +931,16 @@ test('an unknown outcome re-reads the detail and is never replayed', async ({ pa
 
   await page.locator('.el-table__row', { hasText: 'apple' }).getByRole('button', { name: '详情' }).click()
   const drawer = page.locator('.el-drawer')
-  await drawer.getByRole('button', { name: '编辑共享字段' }).click()
+  await drawer.getByRole('button', { name: '编辑拼写与音标' }).click()
   await drawer.getByRole('textbox', { name: '单词拼写' }).fill('apples')
-  await drawer.getByRole('button', { name: '保存共享字段' }).click()
+  await drawer.getByRole('button', { name: '保存拼写与音标' }).click()
   await page.locator('.el-message-box').getByRole('button', { name: '保存' }).click()
 
   // No response arrived: the outcome is unknown, the current detail is re-read,
   // and the save is not replayed automatically.
   await expect(page.locator('.el-message--warning')).toContainText('保存结果未知')
   expect(detailReads).toBe(2)
-  await expect(drawer.getByRole('button', { name: '编辑共享字段' })).toHaveCount(1)
+  await expect(drawer.getByRole('button', { name: '编辑拼写与音标' })).toHaveCount(1)
   await page.waitForTimeout(300)
   expect(putReads).toBe(1)
 })
@@ -958,9 +958,9 @@ test('switching targets drops the draft and a late save answer cannot land', asy
   const drawer = page.locator('.el-drawer')
   await expect(drawer).toContainText('apple')
 
-  await drawer.getByRole('button', { name: '编辑共享字段' }).click()
+  await drawer.getByRole('button', { name: '编辑拼写与音标' }).click()
   await drawer.getByRole('textbox', { name: '单词拼写' }).fill('apples')
-  await drawer.getByRole('button', { name: '保存共享字段' }).click()
+  await drawer.getByRole('button', { name: '保存拼写与音标' }).click()
   await page.locator('.el-message-box').getByRole('button', { name: '保存' }).click()
 
   await page.keyboard.press('Escape')
@@ -969,7 +969,7 @@ test('switching targets drops the draft and a late save answer cannot land', asy
   // The new target owns the drawer; the pending save belongs to the old one.
   detail.answerLast({ ...cherry, meanings: [{ id: 'meaning-c1', vocabularyId: 'word-cherry', bookId: bookA.id, partOfSpeech: 'n.', meaning: '樱桃', example: null }] })
   await expect(drawer).toContainText('cherry')
-  await expect(drawer.getByRole('button', { name: '编辑共享字段' })).toHaveCount(1)
+  await expect(drawer.getByRole('button', { name: '编辑拼写与音标' })).toHaveCount(1)
 
   detail.answerNext({ success: true })
   await page.waitForTimeout(200)
@@ -1062,9 +1062,9 @@ test('an unassigned word edits through the shared area only', async ({ page }) =
   await expect(drawer).toContainText('无教材归属')
   await expect(drawer.getByRole('button', { name: '编辑', exact: true })).toHaveCount(0)
 
-  await drawer.getByRole('button', { name: '编辑共享字段' }).click()
+  await drawer.getByRole('button', { name: '编辑拼写与音标' }).click()
   await drawer.getByRole('textbox', { name: '单词拼写' }).fill('legacy2')
-  await drawer.getByRole('button', { name: '保存共享字段' }).click()
+  await drawer.getByRole('button', { name: '保存拼写与音标' }).click()
   await expect(page.locator('.el-message-box')).toContainText('该单词当前没有被任何教材引用')
   await page.locator('.el-message-box').getByRole('button', { name: '保存' }).click()
 
@@ -1125,7 +1125,7 @@ for (const width of [1440, 768]) {
       await expect(drawer).toBeVisible()
 
       // Both edit groups open at once: the shared form and a meaning form.
-      await drawer.getByRole('button', { name: '编辑共享字段' }).click()
+      await drawer.getByRole('button', { name: '编辑拼写与音标' }).click()
       const groupA = drawer.locator('.word-detail__group', { hasText: 'CI Book A' })
       await groupA.getByRole('button', { name: '编辑', exact: true }).first().click()
       await expect(drawer.getByRole('textbox', { name: '单词拼写' })).toBeVisible()

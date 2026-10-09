@@ -154,7 +154,7 @@ async function remove(unit: BookUnit) {
   const label = unit.title ? `单元 ${unit.number}「${unit.title}」` : `单元 ${unit.number}`
   try {
     await ElMessageBox.confirm(
-      `删除${label}会移除该单元及其 ${unit.meaningCount} 条词义归属；词义、共享词条和其他单元的归属会保留。`,
+      `删除${label}会删除该单元，并移除其中 ${unit.meaningCount} 条词义与该单元的关联；词义和单词本身会保留，其他单元中的关联也不受影响。`,
       '确认删除单元',
       { type: 'warning' }
     )
