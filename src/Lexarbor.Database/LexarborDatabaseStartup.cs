@@ -12,22 +12,26 @@ namespace Lexarbor.Database;
 /// <summary>
 /// Replaces the hand-written database bootstrap with ServiceMantle's SQLite
 /// target preparation, single-instance deployment validation, and migration
-/// orchestration. Lexarbor keeps only the executor: EF migrations plus WAL.
+/// orchestration. Lexarbor keeps the journal-mode normalization ahead of the
+/// gate and the executor: EF migrations under the rollback journal.
 /// </summary>
 /// <remarks>
 /// <para>
 /// The startup gate is fixed and fails closed. The single-instance mode is
-/// authorized first, from declarations alone. The target is then observed
-/// without touching it: a missing file is created only by an explicit atomic
-/// preparation, and a present-but-unusable target is never repaired — with the
-/// one exception below. A target conflict on a file that provably exists is the
-/// crash-recovery shape: SQLite replays its write-ahead log on one
-/// <c>Pooling=false</c> open, one truncating checkpoint folds the log into the
-/// database, and the close of that last connection removes the sidecars — a
-/// pooled dispose keeps the native handle and the sidecars alive — after which
-/// the target is observed exactly once more. Any other unreachable answer, and
-/// a recovery that still cannot connect, stop startup without changing the
-/// file.
+/// authorized first, from declarations alone. The database is then normalized
+/// to the rollback journal — see <see cref="NormalizeJournalMode"/> — before
+/// the target is observed without touching it: a missing file is created only
+/// by an explicit atomic preparation, and a present-but-unusable target is
+/// never repaired — with the one exception below. A target conflict on a file
+/// that provably exists is the crash-recovery shape: SQLite replays its
+/// write-ahead log on one <c>Pooling=false</c> open, one truncating checkpoint
+/// folds the log into the database, and the close of that last connection
+/// removes the sidecars — a pooled dispose keeps the native handle and the
+/// sidecars alive — after which the target is observed exactly once more. Any
+/// other unreachable answer, and a recovery that still cannot connect, stop
+/// startup without changing the file. Once the normalization runs first, that
+/// recovery path stays only for the ServiceMantle observation of a target this
+/// build no longer produces; its removal belongs to the shared-entrance work.
 /// </para>
 /// <para>
 /// The migration orchestration runs after the gate: it inspects the EF history
@@ -141,6 +145,17 @@ public static class LexarborDatabaseStartup
             throw Failed("The SQLite target preparation provider is unavailable.");
         }
 
+        // The rollback-journal normalization runs before the gate observes the
+        // target. A database still carrying the WAL header — an existing
+        // deployment of the releases that enabled it, or one restored from an
+        // old backup — is converted here, replaying any committed frames of a
+        // leftover write-ahead log into the file first. The placement before
+        // the observation is what keeps a 0.3.1-style header precheck, which
+        // refuses a clean WAL target on sight, able to observe the databases
+        // this build upgrades, and it survives the observation moving to a
+        // shared preparation entrance.
+        NormalizeJournalMode(databasePath, connectionString);
+
         await ObservePrepareOrRecoverAsync(preparationProvider, target, cancellationToken);
 
         var orchestrator = new DatabaseMigrationOrchestrator(
@@ -232,6 +247,100 @@ public static class LexarborDatabaseStartup
             || !cancellationToken.IsCancellationRequested)
         {
             throw Failed("The SQLite database target could not be observed.");
+        }
+    }
+
+    /// <summary>
+    /// Normalizes an existing database to the rollback journal, the one journal
+    /// mode this product runs. On a database still carrying the WAL header the
+    /// single <c>Pooling=false</c> open lets SQLite replay any committed frames
+    /// of a leftover <c>-wal</c> file, and the pragma performs the one
+    /// checkpoint that folds them into the database, switches the header, and
+    /// drops the sidecars when that last connection closes. On a
+    /// rollback-journal database the step is a no-op except for one probe
+    /// read, which replays a crash-leftover hot <c>-journal</c> back natively.
+    /// A missing file is skipped — only the gate's atomic preparation creates
+    /// it, already in the rollback mode. Any failure fails closed through
+    /// <see cref="Failed"/> without changing the file.
+    /// </summary>
+    private static void NormalizeJournalMode(string databasePath, string connectionString)
+    {
+        if (!File.Exists(databasePath))
+        {
+            return;
+        }
+
+        // The write-ahead mode used to fail a read-only mount implicitly —
+        // opening a WAL database there cannot create its shared-memory file.
+        // The rollback journal has no such artifact, so the same shape is
+        // refused explicitly: the normalization must be able to open the
+        // database for writing (the conversion itself, the executor's
+        // migrations, and every write request need it), and a read-only file
+        // or mount answers here instead of the service serving reads forever.
+        try
+        {
+            using var writability = new FileStream(
+                databasePath, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            throw Failed("The SQLite database could not be opened for writing.");
+        }
+
+        var normalization = new SqliteConnectionStringBuilder(connectionString)
+        {
+            DataSource = databasePath,
+            Pooling = false,
+            // ReadWrite, not the default ReadWriteCreate: this step never
+            // creates the file — a target that vanished between the check and
+            // the open is a failure for the caller to classify, and file
+            // creation stays the gate's alone.
+            Mode = SqliteOpenMode.ReadWrite
+        };
+        string? mode;
+        try
+        {
+            using var connection = new SqliteConnection(normalization.ToString());
+            connection.Open();
+            // One lightweight read first: a rollback crash leaves a hot
+            // -journal file, and SQLite replays it back only when a statement
+            // reads a page — the journal-mode pragma alone is a no-op on an
+            // already-rollback database and would leave the journal behind for
+            // the gate to observe as a conflict.
+            using var probe = connection.CreateCommand();
+            probe.CommandText = "SELECT count(*) FROM sqlite_master;";
+            probe.ExecuteScalar();
+            using var command = connection.CreateCommand();
+            // PRAGMA cannot be composed into a query, so it goes through the
+            // raw command. A conversion blocked by a concurrent holder answers
+            // with the unchanged mode instead of throwing, so the returned
+            // mode is the success proof.
+            command.CommandText = "PRAGMA journal_mode=DELETE;";
+            mode = command.ExecuteScalar()?.ToString();
+        }
+        catch (Exception exception) when (exception is SqliteException or InvalidOperationException)
+        {
+            throw Failed("The SQLite journal-mode normalization could not open the database.");
+        }
+
+        // A replayed hot journal can leave a zeroed -journal file behind: its
+        // content is already folded back into the database, but the gate's
+        // strict observation reads any leftover journal file as a conflict
+        // shape. Deleting is safe only because the probe read above succeeded
+        // — a journal that still needed replaying would have replayed there,
+        // or the step would already have failed closed.
+        try
+        {
+            File.Delete(databasePath + "-journal");
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            throw Failed("The SQLite journal-mode normalization could not remove a leftover journal file.");
+        }
+
+        if (!string.Equals(mode, "delete", StringComparison.OrdinalIgnoreCase))
+        {
+            throw Failed("The SQLite journal mode could not be normalized.");
         }
     }
 

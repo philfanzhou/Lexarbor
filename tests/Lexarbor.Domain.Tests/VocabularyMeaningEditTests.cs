@@ -77,7 +77,6 @@ public class VocabularyMeaningEditTests : TestBase
             var options = new DbContextOptionsBuilder<VocabularyDbContext>().UseSqlite($"Data Source={path};Pooling=False;Default Timeout=1").Options;
             await using var first = new VocabularyDbContext(options);
             await first.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
-            await first.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL", TestContext.Current.CancellationToken);
             await SeedAsync(first);
             await using var second = new VocabularyDbContext(options);
             if (secondKind == "edit") await second.VocabularyMeanings.FindAsync(["a"], TestContext.Current.CancellationToken);

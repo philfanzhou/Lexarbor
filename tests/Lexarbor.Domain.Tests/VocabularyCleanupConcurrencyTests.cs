@@ -156,23 +156,27 @@ public class VocabularyCleanupConcurrencyTests
     {
         await WithFileAsync(async options =>
         {
+            // Under the rollback journal the writer's commit queues behind the
+            // open reader's shared lock instead of passing beside it; the
+            // snapshot guarantee is the one that survives the journal switch —
+            // the preview answers from the state it opened with, and the
+            // writer still commits once the reader finishes.
             var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             await using var reader = new VocabularyDbContext(new DbContextOptionsBuilder<VocabularyDbContext>(options)
                 .AddInterceptors(new ReadBarrier(entered, release)).Options);
             await using var writer = new VocabularyDbContext(options);
             var preview = Service(reader).PreviewAsync("A", new("clear"), TestContext.Current.CancellationToken);
-            try
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+            var write = new UnitOfWork(writer).ExecuteInTransactionAsync(async () =>
             {
-                await entered.Task.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
-                await new UnitOfWork(writer).ExecuteInTransactionAsync(async () =>
-                {
-                    await writer.Database.ExecuteSqlRawAsync("DELETE FROM vocabulary_meaning WHERE book_id='A'", TestContext.Current.CancellationToken);
-                    return 0;
-                }).WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
-            }
-            finally { release.TrySetResult(); }
+                await writer.Database.ExecuteSqlRawAsync("DELETE FROM vocabulary_meaning WHERE book_id='A'", TestContext.Current.CancellationToken);
+                return 0;
+            });
+            Assert.False(write.IsCompleted);
+            release.TrySetResult();
             var result = await preview;
+            await write.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
             Assert.Equal((2, 3, 1), (result.AffectedWordCount, result.MeaningCount, result.OrphanWordCount));
             Assert.Equal(0, await writer.VocabularyMeanings.CountAsync(m => m.BookId == "A", TestContext.Current.CancellationToken));
         });
@@ -201,7 +205,6 @@ public class VocabularyCleanupConcurrencyTests
             await using (var setup = new VocabularyDbContext(options))
             {
                 await setup.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
-                await setup.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL", TestContext.Current.CancellationToken);
                 await SeedAsync(setup);
             }
             await action(options);

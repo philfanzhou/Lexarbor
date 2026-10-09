@@ -237,7 +237,7 @@ normalizedWord = word.Trim().ToLowerInvariant()
 - The same `VocabularyId`, `BookId`, normalized part of speech, and trimmed definition are treated as the same meaning.
 - A repeated import succeeds and reuses the existing meaning; when a new British phonetic, American phonetic, or example is supplied it is applied under the existing update semantics rather than inserting a duplicate row.
 - A SQLite deployment is limited to a single instance. A process-level write lock serializes every write, taken by both the transaction helper and the plain save so that no write path can bypass it, and the logical key's unique index over the stored generated columns is the database backstop. The lock is held per async flow, so a save nested inside a transaction joins the lock its caller holds rather than waiting on it.
-- The database runs in WAL mode, so a read never blocks a write. A write that still finds the database held by another connection answers 503 with `Retry-After`, not 409 and not 500: nothing is wrong with the request and retrying it works.
+- The database runs in the rollback journal mode, so a committing write briefly holds off concurrent readers — an accepted cost that shows only during a batch import. A write that still finds the database held by another connection answers 503 with `Retry-After`, not 409 and not 500: nothing is wrong with the request and retrying it works.
 - A unique constraint violation, a concurrent duplicate, or any other database consistency conflict answers 409.
 
 ### 8.3 Batch import
