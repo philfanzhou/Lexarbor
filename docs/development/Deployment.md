@@ -100,13 +100,19 @@ After upgrading, take ownership once before starting:
 
 ```bash
 sudo chown -R "$(id -u):$(id -g)" ./data
+chmod 700 ./data
 bash scripts/start.sh
 ```
 
-Skipping this leaves the application unable to open its own database, and it
-exits at startup with a permission error rather than starting in a degraded
-state. Deployments using a named or anonymous volume rather than a bind mount
-need no action.
+Skipping the ownership step leaves the application unable to open its own
+database, and it exits at startup with a permission error rather than starting
+in a degraded state. The `chmod` tightens the directory itself to owner-only:
+the root-key source refuses to resolve a key file under a directory with any
+group or other access bits, and a directory created by an earlier deployment or
+by hand may still be wider. `scripts/start.sh` performs this normalization on
+its own; it is listed for deployments that start the container some other way.
+Deployments using a named or anonymous volume rather than a bind mount need no
+action: the image ships `/app/data` with the required mode.
 
 ### Health status
 
@@ -216,10 +222,21 @@ The envelopes are protected by a **root key** with two sources, in this order:
 1. `DataProtection:RootKey` (container variable `LEXARBOR_DATA_PROTECTION_ROOT_KEY`),
    for deployments that inject secrets.
 2. Otherwise, a random root-key file created atomically on first start at
-   `data/data-protection-root-key` (directory 0700, file 0600, symbolic links
-   refused) and reused ever after — a single-container deployment stays
-   zero-configuration. `DataProtection:RootKeyFile` can point the file
-   elsewhere; the default is the `data/` path above.
+   `data/data-protection-root-key` and reused ever after — a single-container
+   deployment stays zero-configuration. `DataProtection:RootKeyFile` can point
+   the file elsewhere with a fully qualified path; the default is the `data/`
+   path above.
+
+The file is resolved through the ServiceMantle standard root-key source, which
+enforces a strict privacy contract on the whole path: the key file must be
+owner-only (0600 or 0400 on Unix), its parent directory must carry exactly the
+owner-only mode bits (0700 — the image ships `/app/data` this way and
+`scripts/start.sh` normalizes a bind-mounted directory before starting), every
+ancestor of the file must be a real directory (a path resolving through a
+symbolic link is refused), and the content must be the canonical 44-character
+Base64 form of 32 bytes — the exact shape the file was already generated in, so
+existing key files keep protecting their key rings. A directory or file that is
+wider than this contract stops startup with the fixed diagnostic below.
 
 Startup probes the repository with a non-sensitive Protect/Unprotect round-trip
 once the startup schema check has verified the database (after initialization,
@@ -853,19 +870,19 @@ runtime. The two signals are configured and enabled independently:
 | Configuration key | Container variable | Purpose |
 |---|---|---|
 | `Telemetry:Otlp:Traces:Enabled` | `LEXARBOR_TELEMETRY_OTLP_TRACES_ENABLED` | `true` enables trace export |
-| `Telemetry:Otlp:Traces:Endpoint` | `LEXARBOR_TELEMETRY_OTLP_TRACES_ENDPOINT` | HTTPS OTLP collector endpoint |
+| `Telemetry:Otlp:Traces:Endpoint` | `LEXARBOR_TELEMETRY_OTLP_TRACES_ENDPOINT` | OTLP collector endpoint (`http` or `https`) |
 | `Telemetry:Otlp:Traces:Protocol` | `LEXARBOR_TELEMETRY_OTLP_TRACES_PROTOCOL` | `Grpc` (default) or `HttpProtobuf` |
 | `Telemetry:Otlp:Traces:AuthenticationHeaderName` | `LEXARBOR_TELEMETRY_OTLP_TRACES_AUTHENTICATION_HEADER_NAME` | Header carrying the collector credential |
 | `Telemetry:Otlp:Metrics:Enabled` | `LEXARBOR_TELEMETRY_OTLP_METRICS_ENABLED` | `true` enables metric export |
-| `Telemetry:Otlp:Metrics:Endpoint` | `LEXARBOR_TELEMETRY_OTLP_METRICS_ENDPOINT` | HTTPS OTLP collector endpoint |
+| `Telemetry:Otlp:Metrics:Endpoint` | `LEXARBOR_TELEMETRY_OTLP_METRICS_ENDPOINT` | OTLP collector endpoint (`http` or `https`) |
 | `Telemetry:Otlp:Metrics:Protocol` | `LEXARBOR_TELEMETRY_OTLP_METRICS_PROTOCOL` | `Grpc` (default) or `HttpProtobuf` |
 | `Telemetry:Otlp:Metrics:AuthenticationHeaderName` | `LEXARBOR_TELEMETRY_OTLP_METRICS_AUTHENTICATION_HEADER_NAME` | Header carrying the collector credential |
 
-Endpoint rules: the collector endpoint must be HTTPS over a non-loopback host —
-a plain-HTTP endpoint stops startup — and may carry no query, fragment or user
-info. `Telemetry:Otlp:{Traces,Metrics}:AllowInsecureLoopbackForTesting`
-relaxes this for `127.0.0.1`/`[::1]` endpoints and exists for automated tests
-only.
+Endpoint rules: the collector endpoint must be an absolute `http` or `https`
+URI with a host, carrying no query, fragment or user info. The transport scheme
+is the deployment's decision: a plain-HTTP endpoint is accepted and belongs on a
+trusted network only. The `Telemetry:Otlp:{Traces,Metrics}:AllowInsecureLoopbackForTesting`
+key from earlier releases no longer exists; a leftover value is simply not read.
 
 The authentication **header value** never travels through configuration: set
 the header name with the keys above and provide the value as the environment

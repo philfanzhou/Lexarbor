@@ -81,6 +81,15 @@ public class DatabaseStartupGateTests
     {
         var keyRoot = Path.Combine(directory, "keys");
         Directory.CreateDirectory(keyRoot);
+        if (!OperatingSystem.IsWindows())
+        {
+            // The root-key source resolves the key file only under a
+            // directory with exactly the owner-only mode bits.
+            File.SetUnixFileMode(
+                keyRoot,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+
         return keyRoot;
     }
 

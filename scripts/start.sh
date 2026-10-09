@@ -48,7 +48,12 @@ add_configuration_override LEXARBOR_TELEMETRY_OTLP_METRICS_AUTHENTICATION_HEADER
 add_configuration_override LEXARBOR_DATA_PROTECTION_ROOT_KEY DataProtection__RootKey
 add_configuration_override LEXARBOR_INSTANCE_ID Service__InstanceId
 
+# The data directory must be owner-only: the ServiceMantle root-key source
+# refuses to resolve a key file under a directory with any group or other
+# access bits. A pre-existing directory from an earlier deployment may be
+# wider; this normalizes it once, before the container starts.
 mkdir -p "$DATA_DIR"
+chmod 700 "$DATA_DIR"
 docker network inspect "$NETWORK_NAME" >/dev/null 2>&1 || docker network create "$NETWORK_NAME"
 
 if docker container inspect "$CONTAINER_NAME" >/dev/null 2>&1; then

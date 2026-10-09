@@ -12,23 +12,35 @@ namespace Lexarbor.Service.Tests;
 
 /// <summary>
 /// The ServiceMantle EF Core Data Protection key repository: root-key
-/// resolution (injected value wins, otherwise an owner-only file created
-/// atomically under data/), keys stored as authenticated envelopes in the
-/// business database, fail-closed startup on a wrong root key, and the retired
-/// plaintext data/admin-keys directory being irrelevant.
+/// resolution through the shared standard source (injected value wins,
+/// otherwise an owner-only file created atomically under an owner-only
+/// directory, symbolic links refused, strict file format), a key file from
+/// before the switch still protecting the same ring, keys stored as
+/// authenticated envelopes in the business database, fail-closed startup on a
+/// wrong root key, and the retired plaintext data/admin-keys directory being
+/// irrelevant.
 /// </summary>
 public class DataProtectionKeyRepositoryTests : IDisposable
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
-    private readonly string _root = Path.Combine(Path.GetTempPath(), $"lexarbor-rootkey-{Guid.NewGuid():N}");
-    // Database files pass through the strict startup gate, so they live in the
-    // gate-safe directory rather than beside the root-key material.
+    // The shared root-key source refuses a key file whose path resolves
+    // through a symbolic link or whose directory is not exactly owner-only, so
+    // the key root is a gate-safe directory at 0700 — the shape a deployment's
+    // data/ directory has. Database files pass through the strict startup
+    // gate, so they live beside, not inside, the root-key material.
+    private readonly string _root = VocabularyWebApplicationFactory.CreateGateSafeDirectory(
+        $"lexarbor-rootkey-{Guid.NewGuid():N}");
     private readonly string _databaseRoot = VocabularyWebApplicationFactory.CreateGateSafeDirectory(
         $"lexarbor-rootkey-db-{Guid.NewGuid():N}");
 
     public DataProtectionKeyRepositoryTests()
     {
-        Directory.CreateDirectory(_root);
+        if (!OperatingSystem.IsWindows())
+        {
+            File.SetUnixFileMode(
+                _root,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
     }
 
     public void Dispose()
@@ -105,12 +117,132 @@ public class DataProtectionKeyRepositoryTests : IDisposable
     }
 
     [Fact]
+    public async Task LegacyGeneratedKeyFile_ProtectsTheSameKeyRingAcrossRestarts()
+    {
+        // The file shape the retired in-house implementation generated — one
+        // line of Base64 with a trailing newline, file 0600, directory 0700 —
+        // is exactly what the shared source reads, so a deployment upgraded
+        // with its existing key file resolves the same root key and the key
+        // ring survives: data written before the switch decrypts after it.
+        var keyFile = Path.Combine(_root, "root-key");
+        var legacyKey = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+        await File.WriteAllTextAsync(keyFile, legacyKey + "\n", Ct);
+        if (!OperatingSystem.IsWindows())
+        {
+            File.SetUnixFileMode(keyFile, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+
+        var database = Path.Combine(_databaseRoot, "legacy-key.db");
+        string handle;
+        await using (var first = new VocabularyWebApplicationFactory("Testing", true,
+                         keyContentRoot: _root, databasePath: database))
+        {
+            using var scope = first.Services.CreateScope();
+            handle = await scope.ServiceProvider.GetRequiredService<AdminSessionStore>().CreateAsync(new()
+            {
+                AccessToken = "synthetic-access-marker",
+                Issuer = VocabularyWebApplicationFactory.Issuer,
+                Subject = "subject",
+                DisplayName = "user",
+                Roles = ["admin"],
+                AccessTokenExpiresAt = DateTimeOffset.UtcNow.AddMinutes(10)
+            }, Ct);
+        }
+
+        await using (var second = new VocabularyWebApplicationFactory("Testing", true,
+                         keyContentRoot: _root, databasePath: database))
+        using (var scope = second.Services.CreateScope())
+        {
+            var recovered = await scope.ServiceProvider.GetRequiredService<AdminSessionStore>().ReadAsync(handle, Ct);
+            Assert.NotNull(recovered);
+        }
+    }
+
+    [Fact]
+    public void WideParentDirectory_IsRefused()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        // The stricter shared edge over the retired implementation: an
+        // existing directory with any group or other access bits stops
+        // resolution even when the key file itself is owner-only.
+        var keyFile = Path.Combine(_root, "data", "data-protection-root-key");
+        var keyDirectory = Path.GetDirectoryName(keyFile)!;
+        Directory.CreateDirectory(keyDirectory);
+        File.WriteAllText(keyFile, Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)));
+        File.SetUnixFileMode(keyFile, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        File.SetUnixFileMode(
+            keyDirectory,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
+                | UnixFileMode.GroupRead | UnixFileMode.GroupExecute);
+
+        var failure = Assert.Throws<InvalidOperationException>(() =>
+            DataProtectionRootKey.Resolve(
+                Configuration(new Dictionary<string, string?>()),
+                contentRootPath: _root));
+        Assert.Equal(DataProtectionRootKey.StartupFailureMessage, failure.Message);
+    }
+
+    [Fact]
+    public void OwnerExecutableKeyFile_IsRefused()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        // The second stricter shared edge: the key file mode must be exactly
+        // 0400 or 0600 — the retired implementation allowed an owner execute
+        // bit as long as group and other stayed out.
+        var keyFile = Path.Combine(_root, "data", "data-protection-root-key");
+        var keyDirectory = Path.GetDirectoryName(keyFile)!;
+        Directory.CreateDirectory(keyDirectory);
+        File.SetUnixFileMode(
+            keyDirectory,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        File.WriteAllText(keyFile, Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)));
+        File.SetUnixFileMode(
+            keyFile,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+
+        var failure = Assert.Throws<InvalidOperationException>(() =>
+            DataProtectionRootKey.Resolve(
+                Configuration(new Dictionary<string, string?>()),
+                contentRootPath: _root));
+        Assert.Equal(DataProtectionRootKey.StartupFailureMessage, failure.Message);
+    }
+
+    [Fact]
+    public void RelativeKeyFilePath_IsRefused()
+    {
+        // A custom key-file path must be fully qualified: the shared source
+        // resolves one canonical path and refuses anything relative, where the
+        // retired implementation resolved it against the working directory.
+        var failure = Assert.Throws<InvalidOperationException>(() =>
+            DataProtectionRootKey.Resolve(
+                Configuration(new Dictionary<string, string?> { ["DataProtection:RootKeyFile"] = "relative/root-key" }),
+                contentRootPath: _root));
+        Assert.Equal(DataProtectionRootKey.StartupFailureMessage, failure.Message);
+    }
+
+    [Fact]
     public void SymbolicLinkForTheKeyFile_IsRefused()
     {
         var target = Path.Combine(_root, "target-key");
         File.WriteAllText(target, "anything");
         var keyFile = Path.Combine(_root, "data", "data-protection-root-key");
-        Directory.CreateDirectory(Path.GetDirectoryName(keyFile)!);
+        var keyDirectory = Path.GetDirectoryName(keyFile)!;
+        Directory.CreateDirectory(keyDirectory);
+        if (!OperatingSystem.IsWindows())
+        {
+            File.SetUnixFileMode(
+                keyDirectory,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+
         File.CreateSymbolicLink(keyFile, target);
 
         var failure = Assert.Throws<InvalidOperationException>(() =>
@@ -129,7 +261,11 @@ public class DataProtectionKeyRepositoryTests : IDisposable
         }
 
         var keyFile = Path.Combine(_root, "data", "data-protection-root-key");
-        Directory.CreateDirectory(Path.GetDirectoryName(keyFile)!);
+        var keyDirectory = Path.GetDirectoryName(keyFile)!;
+        Directory.CreateDirectory(keyDirectory);
+        File.SetUnixFileMode(
+            keyDirectory,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         File.WriteAllText(keyFile, "group-readable-root-key");
         File.SetUnixFileMode(keyFile, UnixFileMode.UserRead | UnixFileMode.GroupRead | UnixFileMode.UserWrite);
 
@@ -139,7 +275,7 @@ public class DataProtectionKeyRepositoryTests : IDisposable
                 contentRootPath: _root));
 
         var emptyFile = Path.Combine(_root, "data", "empty");
-        Directory.CreateDirectory(Path.GetDirectoryName(emptyFile)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(emptyFile)!);  // same owner-only directory as above
         File.WriteAllText(emptyFile, "   ");
         File.SetUnixFileMode(emptyFile, UnixFileMode.UserRead | UnixFileMode.UserWrite);
         var failure = Assert.Throws<InvalidOperationException>(() =>

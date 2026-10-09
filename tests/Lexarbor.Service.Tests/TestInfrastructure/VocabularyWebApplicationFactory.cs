@@ -68,8 +68,21 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
         string? contentRootPath = null)
     {
         _ownsKeyContentRoot = keyContentRoot is null;
-        _keyContentRoot = keyContentRoot ?? Path.Combine(
-            Path.GetTempPath(), $"lexarbor-host-keys-{Guid.NewGuid():N}");
+        // The ServiceMantle root-key source refuses a key file whose path
+        // resolves through a symbolic link (Path.GetTempPath lives under /var
+        // on macOS) or whose directory is not exactly owner-only, so the
+        // factory-owned root uses the gate-safe directory with 0700 — the
+        // shape a deployment's data/ directory has.
+        // The mode normalization covers the factory-owned root only: an
+        // explicit keyContentRoot belongs to its caller — it may not even
+        // exist yet, in which case the root-key source itself creates the
+        // owner-only leaf directory.
+        _keyContentRoot = keyContentRoot ?? CreateGateSafeDirectory($"lexarbor-host-keys-{Guid.NewGuid():N}");
+        if (_ownsKeyContentRoot && !OperatingSystem.IsWindows())
+        {
+            File.SetUnixFileMode(_keyContentRoot,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
         _environment = environment;
         _useProductionDatabase = useProductionDatabase;
         _contentRootPath = contentRootPath;

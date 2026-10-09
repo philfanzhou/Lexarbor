@@ -288,8 +288,14 @@ public sealed class AdminSessionAuthenticationTests
     [Fact]
     public async Task Restart_RestoresHttpIdentity_AndMissingRingFailsClosed()
     {
-        var root = Path.Combine(Path.GetTempPath(), $"lexarbor-http-session-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(root);
+        var root = VocabularyWebApplicationFactory.CreateGateSafeDirectory(
+            $"lexarbor-http-session-{Guid.NewGuid():N}");
+        if (!OperatingSystem.IsWindows())
+        {
+            File.SetUnixFileMode(
+                root,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
         // The database passes through the strict startup gate, so it lives in
         // the gate-safe directory; the key ring keeps its own temp root.
         var databaseDirectory = VocabularyWebApplicationFactory.CreateGateSafeDirectory(
