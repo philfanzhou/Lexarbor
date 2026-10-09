@@ -428,10 +428,10 @@ public class DatabaseStartupGateTests
                 using var client = first.CreateClient();
             }
 
-            File.SetUnixFileMode(
-                database,
-                File.GetUnixFileMode(database) & ~UnixFileMode.UserWrite
-                    & ~UnixFileMode.GroupWrite & ~UnixFileMode.OtherWrite);
+            // FileAttributes.ReadOnly is the cross-platform way to strip the
+            // write permission bits on Unix, which is what the writability
+            // check must refuse.
+            File.SetAttributes(database, FileAttributes.ReadOnly);
 
             await using var second = CreateHost(database);
             var failure = Assert.Throws<InvalidOperationException>(() => second.CreateClient());
@@ -448,9 +448,7 @@ public class DatabaseStartupGateTests
             {
                 if (File.Exists(database))
                 {
-                    File.SetUnixFileMode(
-                        database,
-                        UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                    File.SetAttributes(database, FileAttributes.Normal);
                 }
             }
             catch (IOException)
