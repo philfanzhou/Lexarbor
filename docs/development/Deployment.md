@@ -531,7 +531,7 @@ HTTP routes use a separate `__Host-Lexarbor.Login.<state>` cookie for
 each transaction, with HttpOnly, Secure, SameSite=Lax, Path=/, no Domain and a
 five-minute lifetime (in the Testing HTTP test transport the same cookie is issued
 as `HttpTest-Lexarbor.Login.<state>` without Secure; see
-[private-network HTTP testing](#private-network-http-testing-testing-only)).
+[plain-HTTP deployments](#plain-http-deployments)).
 Parallel starts cannot overwrite a shared binding cookie.
 Callbacks validate unique fields and exact issuer before consuming state/browser
 binding; only one concurrent consumer succeeds, and the exact deadline is expired.
@@ -568,10 +568,8 @@ Before activation, register a Confidential SignaCore application, change its
 audience to PerApplication, register the exact callback, then enable Code with
 `openid`/`profile` and refresh disabled. The callback must be an ASCII HTTPS URI of
 at most 500 characters with path `/admin/auth/callback`, no userinfo or fragment.
-Only Development/Testing may use HTTP callbacks on numeric `127.0.0.1` or `[::1]`;
-`localhost` is not an HTTP callback. In the Testing environment an HTTP callback
-whose origin is in the [private-network HTTP test allowlist](#private-network-http-testing-testing-only)
-is also accepted. Use the exact registered URI, including any
+HTTP callbacks are accepted in every environment under the
+[current structural rules](#plain-http-deployments). Use the exact registered URI, including any
 query, without rewriting it. Behind a proxy, register the external HTTPS URL and
 configure the existing trusted-forwarding boundary.
 
@@ -620,11 +618,16 @@ Do not copy removed password-grant settings into the Code section.
 These independent overrides never rewrite a pre-existing `/app/data/appsettings.json`.
 Protect the secret as server configuration; never put it in frontend settings.
 Redirect URIs no longer accept a query string: the official SignaCore client
-validates `RedirectUri` and `PostLogoutRedirectUri` as absolute HTTPS URIs (or the
-explicit loopback form in Development and Testing) with a path and without a query,
-fragment or user info — a registered static query such as `?registered=1` stops
-startup and must be removed from the provider registration and the deployment
-configuration.
+validates `RedirectUri` and `PostLogoutRedirectUri` as absolute `http` or `https`
+URIs — equal inputs in every environment, no loopback exception or origin
+allowlist — with a path and without a query, fragment or user info; a registered
+static query such as `?registered=1` stops startup and must be removed from the
+provider registration and the deployment configuration. The cookie profile
+follows the redirect URI's scheme: an `https` redirect keeps the historical
+`__Host-Lexarbor.AdminSession` session cookie with `Secure` attributes, while a
+plain-`http` redirect issues every cookie without `Secure` and names the session
+cookie `Lexarbor.AdminSession` (see
+[plain-HTTP deployments](#plain-http-deployments)).
 Behind a proxy use the registered external HTTPS URI and trusted client-address
 forwarding; the callback is never inferred from untrusted request headers.
 
@@ -728,15 +731,13 @@ upstream session, so nothing may be inferred from it.
 To receive the browser back, set
 `AdminAuthentication:OidcCode:PostLogoutRedirectUri`
 (`LEXARBOR_OIDC_CODE_POST_LOGOUT_REDIRECT_URI`) to this deployment's exact
-`https://<external-host>/admin/auth/logout/return` URI and register the identical
+`<scheme>://<external-host>/admin/auth/logout/return` URI and register the identical
 URI as the application's post-logout URI in SignaCore; the provider matches it
-byte-for-byte with no normalization. Only an ASCII HTTPS URI of at most 500
-characters is accepted (HTTP only on numeric `127.0.0.1`/`[::1]` in
-Development/Testing, or on an origin in the
-[private-network HTTP test allowlist](#private-network-http-testing-testing-only)
-in Testing), its path must be `/admin/auth/logout/return`, and an optional
-registered static query must not repeat fields or contain `state`, which SignaCore
-appends. When the setting is absent or invalid, preparation proceeds without the
+byte-for-byte with no normalization. The value must be an absolute `http` or
+`https` URI whose path is exactly `/admin/auth/logout/return`, without a query,
+fragment or user info — the official client validates it at startup, and `state`,
+which SignaCore appends, never appears in the configured value. When the setting is
+absent, preparation proceeds without the
 return pair: SignaCore shows its own signed-out page and the browser does not come
 back to Lexarbor.
 
@@ -766,22 +767,40 @@ and when preparation fails the upstream session may survive until SignaCore's ow
 idle/absolute limits end it. A lost local revocation commit remains unknown and is
 never retried or compensated.
 
-## Private-network HTTP testing (Testing only)
+## Plain-HTTP deployments
 
-The Testing-only plain-HTTP transport for the hosted administrator login was
-removed with the migration to the official SignaCore client package (#209). The
-official client accepts an explicit loopback HTTP origin (`127.0.0.1` / `[::1]`)
-only in the Development and Testing environments, and every cookie it issues
-carries `Secure`. Deployments that previously reached the administration UI over
-a private-network plain HTTP origin must move to a loopback or HTTPS origin
-(browsers trust `localhost` for `Secure` cookies); the browser acceptance
-topology note also applies to
-[SignaCore#515](https://github.com/philfanzhou/SignaCore/issues/515).
+The hosted administrator login accepts plain-`http` redirect URIs again: the
+official SignaCore client (0.1.16) treats `http` and `https` redirect URIs as
+equal inputs in every environment — no environment name, loopback form or origin
+allowlist is involved — so an isolated test network that reaches the
+administration UI directly over HTTP needs zero extra configuration. Point
+`AdminAuthentication:OidcCode:RedirectUri` (and `PostLogoutRedirectUri`) at the
+exact registered `http://` origins and register the identical URIs in SignaCore as
+usual; the provider still matches them byte-for-byte.
 
-A leftover `AdminAuthentication:HttpTestOrigins` value — or the
-`LEXARBOR_HOSTED_LOGIN_HTTP_TEST_ORIGINS` variable — stops startup with a fixed
-English diagnostic naming the removal and the replacement; the setting is never
-silently ignored.
+The cookie set follows the redirect URI's scheme. An `https` redirect keeps the
+byte-for-byte historical contract: the `__Host-Lexarbor.AdminSession` session
+cookie and the `Secure` attribute on every hosted-login cookie. A plain-`http`
+redirect issues every cookie without `Secure` and names the session cookie
+`Lexarbor.AdminSession` — the `__Host-` prefix demands `Secure`, which a
+plain-HTTP deployment cannot set — with the one-time binding and logout-return
+cookies derived from that name. Handles, the protected payload format, the
+database and the Data Protection key ring are untouched, but the cookie names of
+the two profiles do not collide: switching a deployment between the schemes
+requires signing in once again.
+
+Plain HTTP provides no confidentiality or integrity: the one-time authorization
+code, the cookie handles and every response travel unencrypted on that network.
+Public deployments should use TLS — a deployment recommendation, not a code
+enforcement. An `http://` identity authority additionally keeps the existing
+`IdentityService:RequireHttpsMetadata` decision (required outside Development
+unless explicitly overridden); nothing here relaxes token validation.
+
+The retired Testing-only opt-in stays removed: a leftover
+`AdminAuthentication:HttpTestOrigins` value — or the
+`LEXARBOR_HOSTED_LOGIN_HTTP_TEST_ORIGINS` variable — still stops startup with a
+fixed English diagnostic; the capability above is the replacement and needs no
+setting at all.
 
 ## Logging
 
