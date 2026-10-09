@@ -192,8 +192,9 @@ check_catalog_is_empty() {
 }
 
 # Inspect metadata only; never print the root-key file's contents. The data
-# directory keeps whatever mode the mount or the image gave it; only the file
-# this deployment created is required to be owner-only.
+# directory must be owner-only: the ServiceMantle root-key source refuses a
+# key file under a directory with any group or other access bits, so the image
+# ships /app/data at 0700 and bind mounts must match.
 check_root_key_file() {
   local container_name="$1"
   docker exec "$container_name" sh -ec '
@@ -201,6 +202,7 @@ check_root_key_file() {
     test -f "$key"
     test "$(stat -c %a "$key")" = 600
     test "$(stat -c %u "$key")" = "$(id -u)"
+    test "$(stat -c %a /app/data)" = 700
     test ! -L "$key"
     test ! -L /app/data
   '
@@ -332,6 +334,7 @@ docker rm -f "$NAMED_CONTAINER" >/dev/null
 
 fresh_data="$TEST_ROOT/fresh"
 mkdir -p "$fresh_data"
+chmod 700 "$fresh_data"
 
 echo "Checking first-start configuration and database creation"
 start_bind_mounted_container "$FRESH_CONTAINER" "$fresh_data"
@@ -359,6 +362,7 @@ docker rm -f "$FRESH_CONTAINER" >/dev/null
 echo "Checking session schema and upgrading a pre-session database without rewriting vocabulary"
 upgrade_data="$TEST_ROOT/upgrade"
 mkdir -p "$upgrade_data"
+chmod 700 "$upgrade_data"
 cp "$fresh_data/appsettings.json" "$upgrade_data/appsettings.json"
 # Use SQLite backup so the stopped container's retained WAL is included consistently.
 python3 - "$fresh_data/vocabulary.db" "$upgrade_data/vocabulary.db" <<'PYSQL'
@@ -441,6 +445,7 @@ docker rm -f "$FAILURE_CONTAINER" >/dev/null
 echo "Checking a wrong root key fails startup without logging key material"
 wrong_key_data="$TEST_ROOT/wrong-key"
 mkdir -p "$wrong_key_data"
+chmod 700 "$wrong_key_data"
 cp "$fresh_data/appsettings.json" "$wrong_key_data/appsettings.json"
 cp "$fresh_data/vocabulary.db" "$wrong_key_data/vocabulary.db"
 # A fresh random root key does not match the database's existing key rows.
@@ -451,6 +456,7 @@ check_key_startup_rejected "$wrong_key_data" rw "$KEY_REPOSITORY_DIAGNOSTIC"
 echo "Checking a loose root-key file fails startup"
 loose_key_data="$TEST_ROOT/loose-key"
 mkdir -p "$loose_key_data"
+chmod 700 "$loose_key_data"
 cp "$fresh_data/appsettings.json" "$loose_key_data/appsettings.json"
 cp "$fresh_data/vocabulary.db" "$loose_key_data/vocabulary.db"
 cp "$fresh_data/data-protection-root-key" "$loose_key_data/data-protection-root-key"
@@ -459,6 +465,7 @@ check_key_startup_rejected "$loose_key_data" rw "$KEY_REPOSITORY_DIAGNOSTIC"
 
 existing_data="$TEST_ROOT/existing"
 mkdir -p "$existing_data"
+chmod 700 "$existing_data"
 cat > "$existing_data/appsettings.json" <<'JSON'
 {
   "Database": {

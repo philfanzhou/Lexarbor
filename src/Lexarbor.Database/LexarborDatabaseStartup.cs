@@ -25,8 +25,10 @@ namespace Lexarbor.Database;
 /// without touching it, creates a missing file only through the explicit
 /// atomic preparation, never repairs a present-but-unusable one, and then runs
 /// the migration orchestration. Lexarbor keeps two steps local, both ahead of
-/// the gate: the database directory is created exactly as the previous
-/// initializer did, and the database is normalized to the rollback journal —
+/// the gate: the database directory is created as the previous initializer
+/// did, owner-only on Unix so the strict root-key source accepts a fresh
+/// <c>data/</c> directory regardless of the process umask, and the database
+/// is normalized to the rollback journal —
 /// see <see cref="NormalizeJournalMode"/> — so the observation meets neither a
 /// WAL header nor a crash-leftover sidecar. The shared SQLite crash-recovery
 /// switch stays off: after that normalization nothing this build upgrades can
@@ -104,17 +106,33 @@ public static class LexarborDatabaseStartup
             connectionString);
 
         // The database directory is part of the deployment contract: the
-        // default `data/` directory is created on a first start exactly as the
-        // previous initializer did, so a fresh installation (a just-published
-        // output directory, an empty volume) starts instead of being rejected
-        // as an invalid target. Only the directory is created here; the file
-        // itself is still created solely by the atomic preparation below.
+        // default `data/` directory is created on a first start so a fresh
+        // installation (a just-published output directory, an empty volume)
+        // starts instead of being rejected as an invalid target. On Unix it
+        // is created with exactly the owner-only mode bits, not the process
+        // umask: this directory is also the parent of the Data Protection
+        // root-key file, whose strict shared source refuses a wider one, so a
+        // umask-022 first start would otherwise fail closed on its own fresh
+        // directory. Only the directory is created here; the file itself is
+        // still created solely by the atomic preparation below. A directory
+        // that already exists — including one a deployment deliberately left
+        // wider — is never re-chmod; the root-key source keeps refusing that
+        // shape.
         var databasePath = Path.GetFullPath(
             new SqliteConnectionStringBuilder(connectionString).DataSource);
         var directory = Path.GetDirectoryName(databasePath);
         if (!string.IsNullOrWhiteSpace(directory))
         {
-            Directory.CreateDirectory(directory);
+            if (OperatingSystem.IsWindows())
+            {
+                Directory.CreateDirectory(directory);
+            }
+            else
+            {
+                Directory.CreateDirectory(
+                    directory,
+                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            }
         }
 
         // The rollback-journal normalization runs before the gate observes the

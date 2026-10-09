@@ -50,8 +50,10 @@ COPY --from=backend-build /app/publish .
 # chown matters for a named or anonymous volume, which Docker initialises from
 # this directory's ownership; a host bind mount keeps the host's ownership
 # instead and is handled by running the container as the owning user, which is
-# what scripts/start.sh does.
-RUN mkdir -p /app/data && chown $APP_UID:$APP_UID /app/data
+# what scripts/start.sh does. The 0700 mode is part of the same contract: the
+# ServiceMantle root-key source refuses a key file under a directory with any
+# group or other access bits, so the image itself ships the directory private.
+RUN mkdir -p /app/data && chmod 700 /app/data && chown $APP_UID:$APP_UID /app/data
 VOLUME ["/app/data"]
 EXPOSE 5008
 
