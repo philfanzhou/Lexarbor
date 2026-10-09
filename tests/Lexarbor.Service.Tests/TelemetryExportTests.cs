@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
 using Lexarbor.Service.Tests.TestInfrastructure;
@@ -12,9 +13,11 @@ namespace Lexarbor.Service.Tests;
 /// <summary>
 /// The optional ServiceMantle OpenTelemetry integration: nothing is registered
 /// by default; enabling traces and metrics exports through OTLP with only the
-/// three service identity resource attributes; non-HTTPS endpoints refuse
-/// startup; the authentication value stays out of logs and exceptions; and the
-/// hosted-login callback and logout-return spans never carry code or state.
+/// three service identity resource attributes; the transport scheme is the
+/// deployment's decision while structurally unsafe endpoints refuse startup;
+/// the authentication behavior keeps its three-branch matrix over the shared
+/// fixed resolvers; and the hosted-login callback and logout-return spans never
+/// carry code or state.
 /// </summary>
 public class TelemetryExportTests
 {
@@ -39,11 +42,9 @@ public class TelemetryExportTests
         if (collector is not null)
         {
             configuration["Telemetry:Otlp:Traces:Endpoint"] = collector.BaseAddress + "v1/traces";
-            configuration["Telemetry:Otlp:Traces:AllowInsecureLoopbackForTesting"] = "true";
             configuration["Telemetry:Otlp:Metrics:Enabled"] = "true";
             configuration["Telemetry:Otlp:Metrics:Endpoint"] = collector.BaseAddress + "v1/metrics";
             configuration["Telemetry:Otlp:Metrics:Protocol"] = "HttpProtobuf";
-            configuration["Telemetry:Otlp:Metrics:AllowInsecureLoopbackForTesting"] = "true";
         }
         else
         {
@@ -83,15 +84,64 @@ public class TelemetryExportTests
     }
 
     [Fact]
-    public void NonHttpsEndpoint_RefusesStartupWithoutLeakingTheAuthorizationValue()
+    public async Task ConfiguredHeaderNamesWithEnvironmentValue_SendEachSignalItsHeader()
     {
+        // Branch two of the authentication matrix, and the reason the
+        // dispatching composite cannot be collapsed into one shared resolver:
+        // each signal may carry a different header name, and each query name
+        // must answer with the environment value under that exact name.
+        using var collector = new LoopbackCollector();
+        await using var factory = TelemetryFactory(collector, configuration =>
+        {
+            configuration["Telemetry:Otlp:Traces:AuthenticationHeaderName"] = "Authorization";
+            configuration["Telemetry:Otlp:Metrics:AuthenticationHeaderName"] = "X-Metrics-Token";
+            configuration["LEXARBOR_TELEMETRY_OTLP_AUTHORIZATION"] = "collector-secret-value";
+        });
+        using var client = factory.CreateClient();
+        using var response = await client.GetAsync("/health", Ct);
+        Assert.True(response.IsSuccessStatusCode);
+        await collector.WaitAsync();
+
+        Assert.Contains(collector.Requests, request =>
+            request.TryGetValue("Authorization", out var value)
+            && value == "collector-secret-value");
+        Assert.Contains(collector.Requests, request =>
+            request.TryGetValue("X-Metrics-Token", out var value)
+            && value == "collector-secret-value");
+    }
+
+    [Fact]
+    public async Task NoHeaderNameConfigured_ExportsWithoutAuthenticationHeader()
+    {
+        // Branch one of the authentication matrix: without a configured header
+        // name nothing is queried, and a present environment value alone never
+        // adds a header to the exports.
+        using var collector = new LoopbackCollector();
+        await using var factory = TelemetryFactory(collector, configuration =>
+        {
+            configuration["LEXARBOR_TELEMETRY_OTLP_AUTHORIZATION"] = "collector-secret-value";
+        });
+        using var client = factory.CreateClient();
+        using var response = await client.GetAsync("/health", Ct);
+        Assert.True(response.IsSuccessStatusCode);
+        await collector.WaitAsync();
+
+        Assert.DoesNotContain(collector.Requests, request => request.ContainsKey("Authorization"));
+    }
+
+    [Fact]
+    public void ConfiguredHeaderNameWithoutEnvironmentValue_FailsStartupClosed()
+    {
+        // Branch three of the authentication matrix: a configured header name
+        // whose environment value is absent refuses startup — never a silent
+        // export without authentication.
         Exception? failure = null;
         try
         {
             using var factory = TelemetryFactory(null, configuration =>
             {
-                configuration["Telemetry:Otlp:Traces:Endpoint"] = "http://collector.insecure.example";
                 configuration["Telemetry:Otlp:Traces:AuthenticationHeaderName"] = "Authorization";
+                configuration["LEXARBOR_TELEMETRY_OTLP_AUTHORIZATION"] = null;
             });
             using var client = factory.CreateClient();
         }
@@ -100,10 +150,47 @@ public class TelemetryExportTests
             failure = caught;
         }
 
-        // A non-HTTPS collector endpoint is a configuration error: the host
-        // refuses to start, and the failure carries no credential material.
         Assert.NotNull(failure);
-        Assert.DoesNotContain("collector.insecure.example", failure!.ToString(), StringComparison.Ordinal);
+        Assert.Contains("otlp.authentication_missing", failure!.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PlainHttpEndpoint_IsAcceptedAsADeploymentDecision()
+    {
+        // ServiceMantle 0.3.2 made the transport scheme the deployment's
+        // decision: http and https endpoints are both accepted, so a
+        // plain-HTTP collector endpoint no longer stops startup. Whether it
+        // should be used is the operator's call, not the library's.
+        using var factory = TelemetryFactory(null, configuration =>
+        {
+            configuration["Telemetry:Otlp:Traces:Endpoint"] = "http://collector.insecure.example";
+        });
+        using var client = factory.CreateClient();
+    }
+
+    [Fact]
+    public void EndpointWithUnsafeComponents_RefusesStartupWithoutEchoingTheEndpoint()
+    {
+        Exception? failure = null;
+        try
+        {
+            using var factory = TelemetryFactory(null, configuration =>
+            {
+                configuration["Telemetry:Otlp:Traces:Endpoint"] = "https://collector.example?ticket=secret";
+            });
+            using var client = factory.CreateClient();
+        }
+        catch (Exception caught)
+        {
+            failure = caught;
+        }
+
+        // The structural URI rules are unchanged: query, fragment, and
+        // user-info components refuse startup, and the fixed diagnostic
+        // carries no endpoint text.
+        Assert.NotNull(failure);
+        Assert.DoesNotContain("collector.example", failure!.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("secret", failure.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -172,15 +259,21 @@ public class TelemetryExportTests
     }
 
     /// <summary>
-    /// Receives OTLP HTTP/protobuf POSTs on loopback. Only the fact and size of
-    /// the export are asserted; the payload stays opaque bytes.
+    /// Receives OTLP HTTP/protobuf POSTs on loopback. Only the fact, size, and
+    /// header names/values of the export are asserted; the payload stays
+    /// opaque bytes.
     /// </summary>
     private sealed class LoopbackCollector : IDisposable
     {
         private readonly HttpListener _listener = new();
         private readonly Task _server;
+        private readonly ConcurrentBag<IReadOnlyDictionary<string, string>> _requests = [];
         private long _traceBytes;
         private long _metricBytes;
+
+        /// <summary>Every received request's headers, name/value pairs.</summary>
+        public IReadOnlyList<IReadOnlyDictionary<string, string>> Requests =>
+            [.. _requests];
 
         public LoopbackCollector()
         {
@@ -205,6 +298,17 @@ public class TelemetryExportTests
                             bytes = await body.ReadAsync(new byte[8192], Ct);
                             total += bytes;
                         }
+
+                        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                        foreach (var key in context.Request.Headers.AllKeys)
+                        {
+                            if (key is not null)
+                            {
+                                headers[key] = context.Request.Headers[key] ?? string.Empty;
+                            }
+                        }
+
+                        _requests.Add(headers);
 
                         if (context.Request.Url?.AbsolutePath.Contains("traces", StringComparison.Ordinal) == true)
                         {

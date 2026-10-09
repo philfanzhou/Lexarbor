@@ -853,25 +853,27 @@ runtime. The two signals are configured and enabled independently:
 | Configuration key | Container variable | Purpose |
 |---|---|---|
 | `Telemetry:Otlp:Traces:Enabled` | `LEXARBOR_TELEMETRY_OTLP_TRACES_ENABLED` | `true` enables trace export |
-| `Telemetry:Otlp:Traces:Endpoint` | `LEXARBOR_TELEMETRY_OTLP_TRACES_ENDPOINT` | HTTPS OTLP collector endpoint |
+| `Telemetry:Otlp:Traces:Endpoint` | `LEXARBOR_TELEMETRY_OTLP_TRACES_ENDPOINT` | OTLP collector endpoint (`http` or `https`) |
 | `Telemetry:Otlp:Traces:Protocol` | `LEXARBOR_TELEMETRY_OTLP_TRACES_PROTOCOL` | `Grpc` (default) or `HttpProtobuf` |
 | `Telemetry:Otlp:Traces:AuthenticationHeaderName` | `LEXARBOR_TELEMETRY_OTLP_TRACES_AUTHENTICATION_HEADER_NAME` | Header carrying the collector credential |
 | `Telemetry:Otlp:Metrics:Enabled` | `LEXARBOR_TELEMETRY_OTLP_METRICS_ENABLED` | `true` enables metric export |
-| `Telemetry:Otlp:Metrics:Endpoint` | `LEXARBOR_TELEMETRY_OTLP_METRICS_ENDPOINT` | HTTPS OTLP collector endpoint |
+| `Telemetry:Otlp:Metrics:Endpoint` | `LEXARBOR_TELEMETRY_OTLP_METRICS_ENDPOINT` | OTLP collector endpoint (`http` or `https`) |
 | `Telemetry:Otlp:Metrics:Protocol` | `LEXARBOR_TELEMETRY_OTLP_METRICS_PROTOCOL` | `Grpc` (default) or `HttpProtobuf` |
 | `Telemetry:Otlp:Metrics:AuthenticationHeaderName` | `LEXARBOR_TELEMETRY_OTLP_METRICS_AUTHENTICATION_HEADER_NAME` | Header carrying the collector credential |
 
-Endpoint rules: the collector endpoint must be HTTPS over a non-loopback host —
-a plain-HTTP endpoint stops startup — and may carry no query, fragment or user
-info. `Telemetry:Otlp:{Traces,Metrics}:AllowInsecureLoopbackForTesting`
-relaxes this for `127.0.0.1`/`[::1]` endpoints and exists for automated tests
-only.
+Endpoint rules: the collector endpoint must be an absolute `http` or `https`
+URI with a host, carrying no query, fragment or user info. The transport scheme
+is the deployment's decision: a plain-HTTP endpoint is accepted and belongs on a
+trusted network only. The `Telemetry:Otlp:{Traces,Metrics}:AllowInsecureLoopbackForTesting`
+key from earlier releases no longer exists; a leftover value is simply not read.
 
 The authentication **header value** never travels through configuration: set
 the header name with the keys above and provide the value as the environment
-variable `LEXARBOR_TELEMETRY_OTLP_AUTHORIZATION`. It is resolved at export
-time, is not written to the configuration snapshot, and does not appear in
-logs or exceptions.
+variable `LEXARBOR_TELEMETRY_OTLP_AUTHORIZATION`. It is read once at startup
+into the shared fixed resolver of each configured signal, is not written to the
+configuration snapshot, and does not appear in logs or exceptions. A configured
+header name without an environment value refuses startup with a fixed
+diagnostic instead of exporting silently without authentication.
 
 Delivery follows ServiceMantle's bounded semantics (queue size, batch delay
 and export timeout); delivery, retry and completeness are the SDK's
