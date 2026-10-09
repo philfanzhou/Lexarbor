@@ -1,7 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
 using Lexarbor.Service.Tests.TestInfrastructure;
-using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace Lexarbor.Service.Tests;
@@ -38,8 +37,8 @@ public class IdentityMetadataTrustTests
     public void HttpAuthorityInDevelopment_Starts()
     {
         // The Bearer surface's Development default still accepts a plain-HTTP
-        // authority; the hosted-login client itself never does (its loopback
-        // exception is narrower), so the login stays in optional mode here.
+        // authority; without login credentials the hosted login stays in its
+        // optional mode whatever the authority says.
         using var factory = new VocabularyWebApplicationFactory(
             "Development",
             includeAppCredentials: false,
@@ -57,22 +56,22 @@ public class IdentityMetadataTrustTests
     [Fact]
     public void HttpAuthorityOutsideDevelopment_StartsWhenTheOperatorAsksForIt()
     {
-        // The operator's escape hatch keeps serving the Bearer surface's metadata
-        // trust decision, but the hosted-login client itself never accepts a plain
-        // HTTP authority outside the loopback development/test origins: with login
-        // credentials configured, such an authority is now a startup failure.
-        Assert.True(Assert.ThrowsAny<Exception>(() =>
-        {
-            using var factory = CreateFactory(
-                "Production",
-                new Dictionary<string, string?>
-                {
-                    ["IdentityService:Authority"] = "http://identity.test",
-                    ["IdentityService:RequireHttpsMetadata"] = "false"
-                });
-            using var client = factory.CreateClient();
-            return client;
-        }) is OptionsValidationException or InvalidOperationException);
+        // The operator's escape hatch keeps deciding the Bearer surface's metadata
+        // trust, and the official client (0.1.16) treats http and https authorities
+        // as equal structural inputs in every environment — the removed transport
+        // gate used to fail this startup. With login credentials configured against
+        // a plain-HTTP authority the host now starts; the transport decision
+        // belongs to the deployment, not the code.
+        using var factory = CreateFactory(
+            "Production",
+            new Dictionary<string, string?>
+            {
+                ["IdentityService:Authority"] = "http://identity.test",
+                ["IdentityService:RequireHttpsMetadata"] = "false"
+            });
+        using var client = factory.CreateClient();
+
+        Assert.NotNull(client);
     }
 
     [Theory]

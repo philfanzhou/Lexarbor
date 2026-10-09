@@ -208,9 +208,14 @@ builder.Services.AddSignaCoreHostedLogin(login =>
     login.PostLogoutRedirectUri = string.IsNullOrWhiteSpace(code.PostLogoutRedirectUri)
         ? null
         : code.PostLogoutRedirectUri;
-    // Byte-for-byte the retired implementation's cookie name: existing handles and the
-    // protected payload format survive the migration and a rollback either way.
-    login.SessionCookieName = AdminSessionCookie.Name;
+    // The session cookie name follows the redirect URI's scheme, the same rule the
+    // official client applies to its whole cookie profile (0.1.16): an https redirect
+    // keeps the retired implementation's byte-for-byte name — existing handles and the
+    // protected payload format survive the upgrade and a rollback either way — while
+    // an http redirect drops the __Host- prefix a plain-HTTP deployment cannot satisfy
+    // (the prefix demands Secure), which the package's validator would otherwise
+    // refuse at startup.
+    login.SessionCookieName = AdminSessionCookie.ForRedirectUri(code.RedirectUri);
     // Hosted login stays optional at startup: an unconfigured deployment keeps serving its
     // public API, /admin/auth/start answers its historical 503, and a configured but illegal
     // value still fails startup — the package's missing-versus-illegal split.

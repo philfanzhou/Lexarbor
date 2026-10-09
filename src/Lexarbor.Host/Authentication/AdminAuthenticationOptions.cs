@@ -22,10 +22,11 @@ public sealed class AdminAuthenticationOptions
     /// <summary>
     /// Retained only as a compatibility tripwire. The Testing-only plain-HTTP transport
     /// for hosted administrator login was removed with the in-house implementation: the
-    /// official SignaCore client accepts an explicit loopback HTTP origin
-    /// (<c>127.0.0.1</c> / <c>[::1]</c>) in the Development and Testing environments only,
-    /// and every cookie it issues carries <c>Secure</c>. Any value left here fails startup
-    /// so an operator cannot believe the private-network plain-HTTP mode still exists. See
+    /// official SignaCore client accepts <c>http</c> and <c>https</c> redirect URIs
+    /// alike in every environment and derives every cookie's name suffix and Secure
+    /// attribute from the redirect URI's scheme, so no allowlist or other replacement
+    /// configuration is needed. Any value left here fails startup so an operator cannot
+    /// believe the removed opt-in mode still exists. See
     /// <c>docs/development/HostedLoginReleaseNotes.md</c> and Deployment.md.
     /// </summary>
     public string? HttpTestOrigins { get; set; }
@@ -33,8 +34,8 @@ public sealed class AdminAuthenticationOptions
     internal const string RemovedSettingFailureMessage =
         "AdminAuthentication:HttpTestOrigins no longer exists. The Testing-only plain-HTTP " +
         "transport for the hosted administrator login was removed together with the in-house " +
-        "implementation; the official SignaCore client accepts only an explicit loopback HTTP " +
-        "origin (127.0.0.1 or [::1]) in the Development and Testing environments and always " +
-        "issues Secure cookies. Remove the setting and serve test deployments over a loopback " +
-        "or HTTPS origin as documented in docs/development/Deployment.md.";
+        "implementation; the official SignaCore client accepts http and https redirect URIs " +
+        "alike in every environment and derives the cookie names and attributes from the " +
+        "redirect URI's scheme, so no replacement configuration is needed. Remove the " +
+        "setting; see docs/development/Deployment.md.";
 }

@@ -32,12 +32,41 @@ public static class AdminAuthenticationSource
 public static class AdminSessionCookie
 {
     /// <summary>
-    /// The opaque hosted-login session cookie. The name is byte-for-byte the one the
-    /// retired in-house implementation issued, so existing handles and protected
-    /// payloads keep authenticating across the migration (and across a rollback).
-    /// It is applied to the SignaCore client options at registration.
+    /// The opaque hosted-login session cookie of the HTTPS profile. The name is
+    /// byte-for-byte the one the retired in-house implementation issued, so existing
+    /// handles and protected payloads keep authenticating across the migration (and
+    /// across a rollback). It is applied to the SignaCore client options at
+    /// registration when the redirect URI is not plain HTTP.
     /// </summary>
     public const string Name = "__Host-Lexarbor.AdminSession";
+
+    /// <summary>
+    /// The session cookie of the plain-HTTP profile: the same name without the
+    /// <c>__Host-</c> prefix. The official client (0.1.16) derives its whole cookie
+    /// profile from the redirect URI's scheme and refuses a prefixed session-cookie
+    /// name against an <c>http</c> redirect URI — the prefix demands the Secure
+    /// attribute, which a plain-HTTP deployment cannot set.
+    /// </summary>
+    public const string PlainHttpName = "Lexarbor.AdminSession";
+
+    /// <summary>
+    /// The session cookie name for a configured redirect URI, by the same rule the
+    /// official client applies to its cookie profile: an absolute plain-<c>http</c>
+    /// redirect URI rides the plain-HTTP profile and drops the <c>__Host-</c> prefix;
+    /// everything else — <c>https</c>, or a blank redirect URI in the optional-login
+    /// mode — keeps the historical byte-for-byte name.
+    /// </summary>
+    public static string ForRedirectUri(string? redirectUri) =>
+        IsPlainHttpRedirect(redirectUri) ? PlainHttpName : Name;
+
+    /// <summary>
+    /// Whether the plain-HTTP cookie profile is active for this redirect URI — the
+    /// same input the official client's profile reads (an absolute <c>http</c> redirect
+    /// URI; illegal values fail its startup validation and never reach a request).
+    /// </summary>
+    internal static bool IsPlainHttpRedirect(string? redirectUri) =>
+        Uri.TryCreate(redirectUri, UriKind.Absolute, out var uri)
+        && uri.Scheme == Uri.UriSchemeHttp;
 
     /// <summary>
     /// The retired password-login JWT cookie. It stopped being authenticated when the
@@ -54,12 +83,22 @@ public static class AdminSessionCookie
         IsEssential = true
     };
 
+    /// <summary>
+    /// Deletes the session cookie the active profile actually issues — read from the
+    /// SignaCore client options, the single place the derived name exists — with the
+    /// attributes of that profile: a plain-HTTP deletion must not carry Secure, or a
+    /// real browser would refuse the header and keep the cookie. The retired
+    /// password-login cookie is deleted beside it.
+    /// </summary>
     public static void Clear(HttpContext context)
     {
-        context.Response.Cookies.Delete(Name, new CookieOptions
+        var login = context.RequestServices.GetRequiredService<
+            Microsoft.Extensions.Options.IOptionsMonitor<SignaCore.Client.AspNetCore.SignaCoreHostedLoginOptions>>()
+            .CurrentValue;
+        context.Response.Cookies.Delete(login.SessionCookieName, new CookieOptions
         {
             HttpOnly = true,
-            Secure = true,
+            Secure = !IsPlainHttpRedirect(login.RedirectUri),
             SameSite = SameSiteMode.Lax,
             Path = "/"
         });

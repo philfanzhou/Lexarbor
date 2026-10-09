@@ -117,11 +117,12 @@ public class AdminHostedLoginTests
     [InlineData("https://lexarbor.test/admin/auth/callback?state=bad")]
     [InlineData("https://lexarbor.test/admin/auth/callback?x=1&x=2")]
     [InlineData("https://lexarbor.test/admin/auth/callback#f")]
-    [InlineData("http://lexarbor.test/admin/auth/callback")]
     public async Task ConfiguredButIllegalRedirectUri_FailsStartup(string redirect)
     {
         // A configured but illegal protocol option is a startup failure — the official
         // validator's missing-versus-illegal split behind AllowUnconfiguredStartup.
+        // The plain-http form is no longer illegal (0.1.16 removed the transport
+        // gates); its topology is covered positively by AdminHostedLoginPlainHttpTests.
         using var f = new Fixture(new Dictionary<string, string?> { ["AdminAuthentication:OidcCode:RedirectUri"] = redirect }, expectStartupFailure: true);
         Assert.True(f.StartupFailed);
     }

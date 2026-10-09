@@ -26,6 +26,13 @@ public sealed class SignaCoreAuthorityStub(TimeProvider clock) : HttpMessageHand
     public static readonly string Code = WebEncoders.Base64UrlEncode(Encoding.ASCII.GetBytes("synthetic-code-marker-0123456789"));
     public static readonly string Handle = WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
 
+    /// <summary>The issuer this instance publishes and signs with: the default HTTPS
+    /// value, or a caller-supplied URI for a different topology (the plain-HTTP
+    /// profile test drives it with an http authority).</summary>
+    private string IssuerValue { get; } = Issuer;
+
+    public SignaCoreAuthorityStub(TimeProvider clock, string issuer) : this(clock) => IssuerValue = issuer;
+
     private readonly RSA _rsa = RSA.Create(2048);
 
     /// <summary>The authority's public signing key, for tests that point the host's
@@ -63,12 +70,12 @@ public sealed class SignaCoreAuthorityStub(TimeProvider clock) : HttpMessageHand
             if (DiscoveryFails) throw new HttpRequestException(Code);
             return Json(new
             {
-                issuer = Issuer,
+                issuer = IssuerValue,
                 authorization_endpoint = CrossOriginAuthorizationEndpoint
                     ? "https://evil.test/authorize"
-                    : Issuer + "/authorize",
-                token_endpoint = Issuer + "/token",
-                jwks_uri = Issuer + "/jwks"
+                    : IssuerValue + "/authorize",
+                token_endpoint = IssuerValue + "/token",
+                jwks_uri = IssuerValue + "/jwks"
             });
         }
         if (path == "/jwks")
@@ -211,30 +218,30 @@ public sealed class SignaCoreAuthorityStub(TimeProvider clock) : HttpMessageHand
         string value = defect switch
         {
             "evil-host" => "https://evil.test/oauth2/logout?logout_handle=" + Handle,
-            "wrong-port" => Issuer + ":843/oauth2/logout?logout_handle=" + Handle,
-            "wrong-path" => Issuer + "/other?logout_handle=" + Handle,
-            "no-query" => Issuer + "/oauth2/logout",
-            "bad-handle" => Issuer + "/oauth2/logout?logout_handle=sensitive-handle-marker",
-            "short-handle" => Issuer + "/oauth2/logout?logout_handle=abc",
-            "extra-query" => Issuer + "/oauth2/logout?logout_handle=" + Handle + "&x=1",
-            "duplicate-handle" => Issuer + "/oauth2/logout?logout_handle=" + Handle + "&logout_handle=" + Handle,
-            "fragment" => Issuer + "/oauth2/logout?logout_handle=" + Handle + "#f",
-            "userinfo" => "https://user@" + Issuer["https://".Length..] + "/oauth2/logout?logout_handle=" + Handle,
+            "wrong-port" => IssuerValue + ":843/oauth2/logout?logout_handle=" + Handle,
+            "wrong-path" => IssuerValue + "/other?logout_handle=" + Handle,
+            "no-query" => IssuerValue + "/oauth2/logout",
+            "bad-handle" => IssuerValue + "/oauth2/logout?logout_handle=sensitive-handle-marker",
+            "short-handle" => IssuerValue + "/oauth2/logout?logout_handle=abc",
+            "extra-query" => IssuerValue + "/oauth2/logout?logout_handle=" + Handle + "&x=1",
+            "duplicate-handle" => IssuerValue + "/oauth2/logout?logout_handle=" + Handle + "&logout_handle=" + Handle,
+            "fragment" => IssuerValue + "/oauth2/logout?logout_handle=" + Handle + "#f",
+            "userinfo" => "https://user@" + IssuerValue.Split("://", 2)[1] + "/oauth2/logout?logout_handle=" + Handle,
             "relative-evil-host" => "//evil.test/oauth2/logout?logout_handle=" + Handle,
             "relative-wrong-path" => "/other?logout_handle=" + Handle,
             "relative-extra-query" => "/oauth2/logout?logout_handle=" + Handle + "&x=1",
             "relative-bad-handle" => "/oauth2/logout?logout_handle=short",
             "relative-fragment" => "/oauth2/logout?logout_handle=" + Handle + "#f",
-            "http-scheme" => "http://" + Issuer["https://".Length..] + "/oauth2/logout?logout_handle=" + Handle,
+            "http-scheme" => "http://" + IssuerValue.Split("://", 2)[1] + "/oauth2/logout?logout_handle=" + Handle,
             "relative" => "/oauth2/logout?logout_handle=" + Handle,
-            _ => Issuer + "/oauth2/logout?logout_handle=" + Handle
+            _ => IssuerValue + "/oauth2/logout?logout_handle=" + Handle
         };
         return Json(new { logout_uri = value });
     }
 
     public Dictionary<string, object> AccessClaims(string? role = null) => new()
     {
-        ["iss"] = Issuer,
+        ["iss"] = IssuerValue,
         ["aud"] = "client-id",
         ["sub"] = "account-42",
         ["iat"] = NowSeconds() - 60,

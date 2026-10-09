@@ -248,12 +248,15 @@ Chromium treats `http://127.0.0.1` as a trustworthy origin, so the `Secure` and 
 
 A second matrix covered the Testing-only private-network HTTP transport (#214);
 it was removed with the migration to the official SignaCore client package
-(#209). The official client accepts only an explicit loopback HTTP origin
-(`127.0.0.1` / `[::1]`) in the Testing environment and always issues `Secure`
-cookies, so browser-level test deployments point the redirect and post-logout
-settings at a loopback or HTTPS origin; the service-level host tests exercise the
-same acceptance list against the loopback form. The removed setting
-(`AdminAuthentication:HttpTestOrigins`) now stops startup with a fixed
+(#209) and then restored by the package upgrade to 0.1.16, which treats `http`
+and `https` redirect URIs as equal inputs in every environment. Browser-level
+test deployments may point the redirect and post-logout settings at any exact
+registered origin — private-network plain HTTP included — with zero extra
+configuration; the service-level host tests pin the plain-HTTP topology in
+`AdminHostedLoginPlainHttpTests` (de-prefixed session cookie name, no `Secure`
+attribute anywhere, full login-to-logout chain) and the HTTPS profile in the
+other hosted-login suites. The removed setting
+(`AdminAuthentication:HttpTestOrigins`) still stops startup with a fixed
 diagnostic, and its automated coverage lives in
 `AdminHostedLoginMigrationTests`.
 

@@ -198,7 +198,7 @@ nothing:
   unique-local only), entry-for-entry compatible with SignaCore 0.1.13's
   `security.hosted_login_http_test_origins`. The full syntax, boundaries and the
   two-service relationship are documented in
-  [Deployment](Deployment.md#private-network-http-testing-testing-only).
+  [Deployment](Deployment.md#plain-http-deployments).
 - Enabled only when the actual host environment is exactly `Testing` and the parsed
   list is non-empty; a non-empty allowlist outside Testing stops startup with a
   diagnostic naming the setting. Missing or empty keeps the default HTTPS contract
@@ -275,12 +275,16 @@ Declared changes of the migration:
    test deployments use a loopback or HTTPS origin (browsers trust `localhost`).
    The upstream browser-acceptance topology note applies to
    [SignaCore#515](https://github.com/philfanzhou/SignaCore/issues/515).
+   *Reversed below by the 0.1.16 upgrade: private-network plain-HTTP browser
+   logins are back, zero-configuration.*
 4. **Redirect URIs no longer accept a query string.**
    `AdminAuthentication:OidcCode:RedirectUri` and
-   `PostLogoutRedirectUri` are validated by the package: absolute HTTPS (or
-   the explicit loopback form in Development/Testing), with a path and without
-   a query, fragment or user info. A registered static query such as
-   `?registered=1` must be removed from the deployment configuration.
+   `PostLogoutRedirectUri` are validated by the package: absolute URIs with a
+   path and without a query, fragment or user info (at 0.1.14 the scheme had to
+   be HTTPS, with an explicit loopback exception in Development/Testing; since
+   0.1.16 `http` and `https` are equal inputs — see below). A registered static
+   query such as `?registered=1` must be removed from the deployment
+   configuration.
 5. **The default return target of a plain start is `/`.** A
    `GET /admin/auth/start` without a `returnUrl` lands the completed sign-in on
    the application root (the package's fixed default) instead of `/#/books`;
@@ -305,3 +309,38 @@ Further behavioural notes of the package swap:
   members rejected, bounded bodies, future `iat` rejected).
 - The gated access token's `nbf` is accepted within the package's documented
   30-second fixed skew (`exp` is still exact); see the SignaCore README.
+
+## Plain-HTTP browser logins restored (0.1.16; #209)
+
+The upgrade to
+[`SignaCore.Client.AspNetCore` 0.1.16](https://www.nuget.org/packages/SignaCore.Client.AspNetCore)
+carries the upstream removal of every code-level HTTPS transport gate
+([SignaCore#566](https://github.com/philfanzhou/SignaCore/issues/566)): `http` and
+`https` redirect URIs are equal inputs in every environment — no environment
+privilege, loopback exception or origin allowlist — and declared change 3 of the
+migration above is reversed. Private-network plain-HTTP browser logins work again
+with zero configuration; serving public deployments over TLS stays the documented
+deployment recommendation (see
+[Deployment](Deployment.md#plain-http-deployments)), not a code enforcement.
+
+- The whole cookie set follows the redirect URI's scheme. An `https` redirect is
+  byte-for-byte unchanged: the `__Host-Lexarbor.AdminSession` session cookie, the
+  `__Secure-` derived names and the `Secure` attribute everywhere, so sessions
+  signed in before the upgrade keep authenticating — and keep authenticating
+  across a rollback.
+- A plain-`http` redirect names the session cookie `Lexarbor.AdminSession` (the
+  `__Host-` prefix demands `Secure`, which a plain-HTTP deployment cannot set —
+  the package's validator refuses that combination at startup) and issues every
+  cookie without `Secure`, the antiforgery cookie included, so the write model
+  works unmodified. The one-time binding and logout-return cookies derive from
+  the de-prefixed session name (`<session>-login-binding.<state>` and
+  `<session>-logout-return`).
+- Switching a deployment between the schemes requires signing in once: the two
+  profiles' cookie names do not collide, and handles, the protected payload
+  format, the database and the Data Protection key ring are untouched.
+- `AdminAuthentication:HttpTestOrigins` stays removed — the restored capability
+  needs no setting; a leftover value still stops startup with the fixed
+  diagnostic, now reworded to state that no replacement configuration exists.
+- `IdentityService:RequireHttpsMetadata` is unchanged: it remains this
+  repository's own deployment security default for the Bearer metadata channel
+  (explicit override, Development/Testing off, Production loopback exemption).

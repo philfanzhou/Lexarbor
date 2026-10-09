@@ -16,7 +16,7 @@
     <PackageVersion Include="ServiceMantle.Logging" Version="0.3.0" />
     <PackageVersion Include="ServiceMantle.Persistence.Relational" Version="0.3.0" />
     <PackageVersion Include="ServiceMantle.Web" Version="0.3.0" />
-    <PackageVersion Include="SignaCore.Client.AspNetCore" Version="0.1.14" />
+    <PackageVersion Include="SignaCore.Client.AspNetCore" Version="0.1.16" />
     <PackageVersion Include="xunit.v3" Version="4.0.1" />
   </ItemGroup>
 </Project>

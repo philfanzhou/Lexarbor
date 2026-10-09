@@ -37,20 +37,16 @@ public sealed class AdminSessionIdentityMiddleware(RequestDelegate next)
 
         // Logout is idempotent browser cleanup: both cookies are deleted on every logout
         // response, so a browser holding an unusable handle is cleaned up the same as a
-        // live one. The official handler's own session-cookie deletion (written only for
-        // a live revocation) carries the same name and path, so it replaces this entry
-        // instead of duplicating it; the storage-failure middleware's cleanup does too.
+        // live one. The deletion goes through AdminSessionCookie.Clear so it names and
+        // attributes the session cookie of the active profile (the derived name under a
+        // plain-HTTP redirect URI). The official handler's own session-cookie deletion
+        // (written only for a live revocation) carries the same name and path, so it
+        // replaces this entry instead of duplicating it; the storage-failure
+        // middleware's cleanup does too.
         if (HttpMethods.IsPost(context.Request.Method)
             && context.Request.Path.StartsWithSegments("/admin/auth/logout", StringComparison.OrdinalIgnoreCase))
         {
-            context.Response.Cookies.Delete(AdminSessionCookie.Name, new CookieOptions
-            {
-                HttpOnly = true,
-                Secure = true,
-                SameSite = SameSiteMode.Lax,
-                Path = "/"
-            });
-            context.Response.Cookies.Delete(AdminSessionCookie.LegacyJwtName, AdminSessionCookie.LegacyOptions());
+            AdminSessionCookie.Clear(context);
         }
 
         await next(context);

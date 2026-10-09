@@ -20,9 +20,10 @@ namespace Lexarbor.Service.Tests.TestInfrastructure;
 
 public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Program>
 {
-    // The official SignaCore client accepts an explicit loopback HTTP authority in the
-    // Testing environment but never a DNS name, so the fake identity host is addressed
-    // by its literal address.
+    // The fake identity host keeps its pre-migration loopback address: the loopback
+    // http issuer plus an https redirect is the HTTPS-profile regression baseline, and
+    // the official client (0.1.16) accepts http and https authorities alike, so the
+    // literal address is a topology choice, not a requirement.
     public const string Issuer = "http://127.0.0.1:8080";
     public const string Audience = "lexarbor";
     /// <summary>
