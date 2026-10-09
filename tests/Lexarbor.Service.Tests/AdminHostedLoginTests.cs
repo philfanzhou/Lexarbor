@@ -77,6 +77,39 @@ public class AdminHostedLoginTests
         f.AssertSafeLogs(t);
     }
 
+    [Fact]
+    public async Task InternalSignaCoreCalls_CarryTheRequestCorrelationId()
+    {
+        // The token exchange is the canonical internal service call: a request
+        // that arrives with a correlation id passes the very same id to
+        // SignaCore, so one id follows an administrator's sign-in across both
+        // logs. The id is log-correlation material only, exactly as documented.
+        using var f = new Fixture();
+        var t = await f.Start();
+        using var callback = await f.Send(f.Query(t), t.Cookie, correlationId: "correlation-marker-42");
+        Assert.Equal(HttpStatusCode.Redirect, callback.StatusCode);
+
+        Assert.Equal(1, f.TokenPosts);
+        Assert.Equal("correlation-marker-42", f.Authority.LastCorrelationId);
+    }
+
+    [Fact]
+    public async Task InternalSignaCoreCalls_WithoutInboundIdCarryTheAssignedOne()
+    {
+        // Without an inbound header the ServiceMantle middleware assigns one
+        // per request; the internal call still carries an id — the assigned
+        // one, the same value the response echoes back.
+        using var f = new Fixture();
+        var t = await f.Start();
+        using var callback = await f.Send(f.Query(t), t.Cookie);
+        Assert.Equal(HttpStatusCode.Redirect, callback.StatusCode);
+
+        Assert.Equal(1, f.TokenPosts);
+        var assigned = callback.Headers.GetValues("x-correlation-id").Single();
+        Assert.NotEmpty(assigned);
+        Assert.Equal(assigned, f.Authority.LastCorrelationId);
+    }
+
     [Theory]
     [InlineData(null, 302)]
     [InlineData("/books", 302)]
@@ -601,12 +634,15 @@ public class AdminHostedLoginTests
         {
             // The aborted request ends in its own cancellation.
         }
-        // The cancelled request reached the token endpoint at most once and consumed
-        // the pending sign-in on its way: the official one-transaction semantics.
-        Assert.Equal(1, f.TokenPosts);
+        // The cancelled request consumed its pending sign-in on the way — the
+        // official one-transaction semantics — and, since the correlation
+        // handler mounts ahead of the exchange client, an already-aborted
+        // request no longer even starts the token call: zero posts, at most
+        // once, and the pending is gone.
+        Assert.Equal(0, f.TokenPosts);
         using var replay = await f.Callback(t);
         Failure(replay, "sign_in_failed");
-        Assert.Equal(1, f.TokenPosts);
+        Assert.Equal(0, f.TokenPosts);
         f.AssertSafeLogs(t);
     }
 
@@ -705,9 +741,10 @@ public class AdminHostedLoginTests
         public string Query(Transaction t, string? error = null, string path = "/admin/auth/callback") => path + "?state=" + t.State + "&iss=" + Uri.EscapeDataString(SignaCoreAuthorityStub.Issuer)
             + (error is null ? "&code=" + SignaCoreAuthorityStub.Code : "&error=" + error);
         public Task<HttpResponseMessage> Callback(Transaction t, string extraCookie = "") => Send(Query(t), t.Cookie + (extraCookie.Length == 0 ? "" : "; " + extraCookie));
-        public Task<HttpResponseMessage> Send(string path, string cookie = "", string method = "GET", HttpContent? body = null, bool csrf = false)
+        public Task<HttpResponseMessage> Send(string path, string cookie = "", string method = "GET", HttpContent? body = null, bool csrf = false, string? correlationId = null)
         {
             var request = new HttpRequestMessage(new HttpMethod(method), path) { Content = body };
+            if (correlationId is not null) request.Headers.Add("x-correlation-id", correlationId);
             var cookies = new List<string>();
             if (cookie.Length > 0) cookies.Add(cookie);
             if (csrf)

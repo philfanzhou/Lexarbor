@@ -530,6 +530,13 @@ bash scripts/start.sh
 
 When hosted login fails, the browser lands on `/#/login?reason=canceled|denied|sign_in_failed|provider_unavailable` with a fixed classification; the Lexarbor log names the failing stage without tokens or provider bodies.
 
+Server-side calls to SignaCore — discovery, signing keys, the token exchange
+and the prepared-logout request — carry the administrator request's correlation
+id as an `x-correlation-id` header, so a sign-in or logout can be followed
+across both services' logs with one id. SignaCore should treat the header as
+log-correlation material only: it is caller-supplied, not authenticated, and
+must never be used for authorization, idempotency or replay decisions.
+
 ## Pending hosted-login transactions
 
 `PendingAdminLoginStore` is the singleton used by hosted login for one Host instance.
