@@ -58,6 +58,10 @@ public sealed class SignaCoreAuthorityStub(TimeProvider clock) : HttpMessageHand
     public Dictionary<string, string> TokenForm { get; private set; } = new();
     public Dictionary<string, string> LogoutForm { get; private set; } = new();
     public string? LastAuthorizationHeader { get; private set; }
+
+    /// <summary>The x-correlation-id of the last token or logout request, for
+    /// the outbound correlation-propagation assertions.</summary>
+    public string? LastCorrelationId { get; private set; }
     public string LastAccess { get; private set; } = string.Empty;
     public string LastId { get; private set; } = string.Empty;
 
@@ -107,6 +111,7 @@ public sealed class SignaCoreAuthorityStub(TimeProvider clock) : HttpMessageHand
     {
         Interlocked.Increment(ref _tokenPosts);
         LastAuthorizationHeader = request.Headers.Authorization?.ToString();
+        LastCorrelationId = request.Headers.TryGetValues("x-correlation-id", out var ids) ? ids.SingleOrDefault() : null;
         var form = (await request.Content!.ReadAsStringAsync(cancellationToken))
             .Split('&').Select(pair => pair.Split('=', 2))
             .ToDictionary(pair => System.Net.WebUtility.UrlDecode(pair[0]),
@@ -176,6 +181,7 @@ public sealed class SignaCoreAuthorityStub(TimeProvider clock) : HttpMessageHand
     {
         Interlocked.Increment(ref _logoutPosts);
         LastAuthorizationHeader = request.Headers.Authorization?.ToString();
+        LastCorrelationId = request.Headers.TryGetValues("x-correlation-id", out var ids) ? ids.SingleOrDefault() : null;
         var form = (await request.Content!.ReadAsStringAsync(cancellationToken))
             .Split('&').Select(pair => pair.Split('=', 2))
             .ToDictionary(pair => System.Net.WebUtility.UrlDecode(pair[0]),
