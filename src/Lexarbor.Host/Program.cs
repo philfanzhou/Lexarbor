@@ -497,11 +497,9 @@ static void MapOtlpSignal(IConfiguration section, ServiceMantle.Diagnostics.Expo
         signal.Endpoint = endpoint;
     }
 
-    if (bool.TryParse(section["AllowInsecureLoopbackForTesting"], out var loopback))
-    {
-        signal.AllowInsecureLoopbackForTesting = loopback;
-    }
-
+    // The transport scheme is the deployment's decision since ServiceMantle
+    // 0.3.2: http and https endpoints are both accepted, and the retired
+    // AllowInsecureLoopbackForTesting key is no longer read.
     signal.AuthenticationHeaderName = section["AuthenticationHeaderName"];
     if (Enum.TryParse<ServiceMantle.Diagnostics.Export.Otlp.OtlpProtocol>(section["Protocol"], ignoreCase: true, out var protocol))
     {
