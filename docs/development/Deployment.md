@@ -876,9 +876,11 @@ key from earlier releases no longer exists; a leftover value is simply not read.
 
 The authentication **header value** never travels through configuration: set
 the header name with the keys above and provide the value as the environment
-variable `LEXARBOR_TELEMETRY_OTLP_AUTHORIZATION`. It is resolved at export
-time, is not written to the configuration snapshot, and does not appear in
-logs or exceptions.
+variable `LEXARBOR_TELEMETRY_OTLP_AUTHORIZATION`. It is read once at startup
+into the shared fixed resolver of each configured signal, is not written to the
+configuration snapshot, and does not appear in logs or exceptions. A configured
+header name without an environment value refuses startup with a fixed
+diagnostic instead of exporting silently without authentication.
 
 Delivery follows ServiceMantle's bounded semantics (queue size, batch delay
 and export timeout); delivery, retry and completeness are the SDK's
