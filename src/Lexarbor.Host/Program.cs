@@ -234,6 +234,17 @@ builder.Services.AddOptions<SignaCoreHostedLoginOptions>()
             login.ResponseWriter = writer;
             login.PreSignInAuthorizationDecision = gate;
         });
+// The hosted-login client is the internal-service channel: its Discovery,
+// JWKS and token-endpoint calls all target SignaCore. The shared outbound
+// correlation handler is appended to the same named client the package
+// registered (named-client configuration stacks), so an internal call made
+// while serving a request carries that request's correlation id downstream —
+// with no request context it adds nothing. The bare health-check HttpClient
+// and the JwtBearer OIDC metadata backchannel are deliberately not mounted:
+// the former is a standalone process probing itself, the latter is
+// infrastructure metadata retrieval, neither an internal service call.
+builder.Services.AddHttpClient(SignaCoreHostedLoginDefaults.HttpClientName)
+    .AddServiceMantleCorrelationIdPropagation();
 
 builder.Services
     .AddAuthentication(AdminAuthenticationSource.PolicyScheme)
@@ -334,13 +345,15 @@ var useTrustedForwarding = networkOptions.IsConfigured || networkOptions.Forward
 // Data Protection keys, health endpoints) must be available in every
 // deployment, with or without a trusted proxy. Forwarded-header trust remains
 // the one capability that is added only when an operator configures it.
+var serviceId = ServiceId.Parse("lexarbor");
 var instanceIdText = builder.Configuration["Service:InstanceId"];
 InstanceId instanceId;
 if (string.IsNullOrEmpty(instanceIdText))
 {
     // An unset (or explicitly empty) instance id keeps the historical behavior
-    // of a fresh random id per start.
-    instanceId = InstanceId.Parse($"lexarbor-{Guid.NewGuid():N}");
+    // of a fresh random id per start: the shared factory emits the same
+    // "lexarbor-{guid:N}" shape the hand-written parse built.
+    instanceId = InstanceId.CreateRandom(serviceId);
 }
 else if (InstanceId.TryParse(instanceIdText, out var configuredInstanceId))
 {
@@ -361,7 +374,7 @@ else
 }
 
 var serviceMantle = builder.Services.AddServiceMantle(
-    ServiceId.Parse("lexarbor"),
+    serviceId,
     instanceId,
     serviceVersion: ApplicationVersion.Current);
 // Readiness is answered by the ServiceMantle health endpoints: one bounded,
@@ -497,11 +510,9 @@ static void MapOtlpSignal(IConfiguration section, ServiceMantle.Diagnostics.Expo
         signal.Endpoint = endpoint;
     }
 
-    if (bool.TryParse(section["AllowInsecureLoopbackForTesting"], out var loopback))
-    {
-        signal.AllowInsecureLoopbackForTesting = loopback;
-    }
-
+    // The transport scheme is the deployment's decision since ServiceMantle
+    // 0.3.2: http and https endpoints are both accepted, and the retired
+    // AllowInsecureLoopbackForTesting key is no longer read.
     signal.AuthenticationHeaderName = section["AuthenticationHeaderName"];
     if (Enum.TryParse<ServiceMantle.Diagnostics.Export.Otlp.OtlpProtocol>(section["Protocol"], ignoreCase: true, out var protocol))
     {
