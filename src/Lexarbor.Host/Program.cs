@@ -485,9 +485,16 @@ if (telemetryTracesEnabled || telemetryMetricsEnabled)
     }
 
     // The header name is configuration; the value comes from the environment
-    // only, through this resolver, and never reaches logs or exceptions.
+    // only — read once, at construction, into one shared fixed resolver per
+    // configured signal — and never reaches logs or exceptions. With the
+    // environment value absent every query answers false, which the runtime
+    // reports as its authentication_missing startup failure.
     builder.Services.AddSingleton<ServiceMantle.Diagnostics.IRemoteTelemetryAuthenticationResolver>(
-        new LexarborOtlpAuthenticationResolver());
+        new ConfiguredOtlpAuthenticationResolver(
+        [
+            builder.Configuration["Telemetry:Otlp:Traces:AuthenticationHeaderName"],
+            builder.Configuration["Telemetry:Otlp:Metrics:AuthenticationHeaderName"]
+        ]));
 }
 
 static void MapOtlpSignal(IConfiguration section, ServiceMantle.Diagnostics.Export.Otlp.OtlpSignalOptions signal)
