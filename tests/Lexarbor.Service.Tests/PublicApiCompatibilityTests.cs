@@ -103,6 +103,48 @@ public class PublicApiCompatibilityTests :
         }
     }
 
+    [Fact]
+    public async Task BookUnits_RemainAnonymousWithEnvelopeShape()
+    {
+        var data = await SeedCompleteBookAsync();
+        using var client = _factory.CreateClient();
+
+        var response = await client.GetAsync(
+            $"/api/vocabulary-books/{data.BookId}/units",
+            TestContext.Current.CancellationToken);
+
+        var document = await AssertPublicSuccessAsync(response);
+        using (document)
+        {
+            var units = document.RootElement.GetProperty("data").GetProperty("units");
+            Assert.Equal(JsonValueKind.Array, units.ValueKind);
+            Assert.All(units.EnumerateArray(), unit => Assert.Equal(
+                ["id", "meaningCount", "number", "title", "wordCount"],
+                unit.EnumerateObject().Select(property => property.Name).Order()));
+        }
+    }
+
+    [Fact]
+    public async Task BookEntries_RemainAnonymousWithEnvelopeShape()
+    {
+        var data = await SeedCompleteBookAsync();
+        using var client = _factory.CreateClient();
+
+        var response = await client.GetAsync(
+            $"/api/vocabulary-books/{data.BookId}/entries?page=1&size=20",
+            TestContext.Current.CancellationToken);
+
+        var document = await AssertPublicSuccessAsync(response);
+        using (document)
+        {
+            var result = document.RootElement.GetProperty("data");
+            Assert.Equal(JsonValueKind.Array, result.GetProperty("items").ValueKind);
+            Assert.True(result.TryGetProperty("totalCount", out _));
+            Assert.True(result.TryGetProperty("totalPage", out _));
+            Assert.True(result.TryGetProperty("wordCount", out _));
+        }
+    }
+
     private async Task<(string BookId, string WordId)> SeedCompleteBookAsync()
     {
         await using var scope = _factory.Services.CreateAsyncScope();

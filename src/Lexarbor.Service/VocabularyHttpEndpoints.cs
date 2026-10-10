@@ -47,6 +47,8 @@ public static partial class VocabularyHttpEndpoints
         apiGroup.MapGet("/vocabulary", SearchVocabulary);
         apiGroup.MapPost("/vocabulary/question", GetQuestion);
         apiGroup.MapGet("/vocabulary-books/all", GetAllBooks);
+        apiGroup.MapGet("/vocabulary-books/{bookId}/units", GetPublicBookUnits);
+        apiGroup.MapGet("/vocabulary-books/{bookId}/entries", GetPublicBookEntries);
 
         var adminGroup = app.MapGroup("/admin")
             .RequireAuthorization(AdminEndpointAuthorization.PolicyName);
@@ -381,6 +383,67 @@ public static partial class VocabularyHttpEndpoints
         var books = await bookService.GetAllAsync();
         var result = new VocabularyBookListResponse();
         result.Books.AddRange(books.Select(book => book.ToDto()));
+        return VocabularyHttpResponse.Ok(result);
+    }
+
+    // The two anonymous book-browse routes. They expose an enabled book's
+    // units and entries to callers without administrator credentials — the
+    // catalogue, search, and detail routes already expose the same data less
+    // directly — and answer a missing book 404 and a disabled one 422 exactly
+    // like the public detail route, so a disabled book's contents stay
+    // unreadable rather than merely unlisted.
+    private static async Task<IResult> GetPublicBookUnits(
+        string bookId,
+        VocabularyPublicQueryService queryService,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(bookId))
+        {
+            return VocabularyHttpResponse.BadRequest("Book ID is required.");
+        }
+
+        var units = await queryService.GetUnitsAsync(bookId, cancellationToken);
+        var result = new VocabularyPublicUnitListResponse();
+        result.Units.AddRange(units.Units.Select(unit => new VocabularyPublicUnitDto(
+            unit.Id, unit.Number, unit.Title, unit.WordCount, unit.MeaningCount)));
+        return VocabularyHttpResponse.Ok(result);
+    }
+
+    private static async Task<IResult> GetPublicBookEntries(
+        string bookId,
+        [FromQuery] string? unitId,
+        [FromQuery] int? page,
+        [FromQuery] int? size,
+        VocabularyPublicQueryService queryService,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(bookId))
+        {
+            return VocabularyHttpResponse.BadRequest("Book ID is required.");
+        }
+
+        var paging = NormalizePaging(page, size);
+        var entries = await queryService.GetEntriesAsync(
+            bookId, unitId, paging.Page, paging.Size, cancellationToken);
+        var result = new VocabularyPublicEntryPageResponse
+        {
+            TotalPage = entries.TotalPage,
+            TotalCount = entries.TotalCount,
+            WordCount = entries.WordCount
+        };
+        result.Items.AddRange(entries.Items.Select(entry => new VocabularyPublicEntryDto(
+            entry.WordId,
+            entry.Word,
+            entry.NormalizedWord,
+            entry.PhoneticUk,
+            entry.PhoneticUs,
+            entry.MeaningId,
+            entry.PartOfSpeech,
+            entry.Meaning,
+            entry.MeaningKey,
+            entry.Example,
+            entry.Positions.Select(position => new VocabularyPublicEntryPositionDto(
+                position.UnitId, position.UnitNumber, position.Section, position.EntryKind)).ToList())));
         return VocabularyHttpResponse.Ok(result);
     }
 

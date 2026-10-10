@@ -150,16 +150,23 @@ Logout depends on that header when it is cookie-authenticated; the hosted login 
 
 ### 6.1 Public business endpoints
 
-The following existing endpoints remain anonymously accessible:
+The following endpoints are anonymously accessible:
 
 ```text
 GET  /api/vocabulary/{wordId}
 GET  /api/vocabulary
 POST /api/vocabulary/question
 GET  /api/vocabulary-books/all
+GET  /api/vocabulary-books/{bookId}/units
+GET  /api/vocabulary-books/{bookId}/entries?unitId&page&size
 ```
 
-No administrator cookie or new service-to-service authentication is introduced for them here. Should service-to-service authentication be needed later, the real callers should be confirmed first and a separate credential designed.
+The last two are the book-browse endpoints of §6.3, added for server-side
+callers that organize study data around a book's units and need the entry list
+of a book or unit without administrator credentials. No administrator cookie
+or new service-to-service authentication is introduced for them here. Should
+service-to-service authentication be needed later, the real callers should be
+confirmed first and a separate credential designed.
 
 ### 6.2 Administration endpoints
 
@@ -188,6 +195,63 @@ DELETE /admin/vocabulary-books/{bookId}/meanings/{meaningId}/positions/{unitId}?
 DELETE /admin/vocabulary-books/{bookId}/units/{unitId}
 DELETE /admin/vocabulary-books/{id}
 ```
+
+### 6.3 Anonymous book browsing
+
+The two browse endpoints expose an **enabled** book's structure to anonymous
+callers. A missing book answers 404 and a disabled one 422, the same answers
+the public detail route gives, so neither the units nor the entries of a
+disabled book are ever listed. A `unitId` that does not exist, or belongs to
+another book, answers the same 404 — distinguishing the two would leak that
+the other book has the id. Both responses use the shared success envelope,
+and both run inside one read snapshot per request.
+
+`GET /api/vocabulary-books/{bookId}/units` returns
+`{ "units": [ { "id", "number", "title", "wordCount", "meaningCount" } ] }`
+ordered by `number` ascending; a book with no units answers an empty array.
+The counts are per distinct meaning and per distinct word of the unit — a
+meaning that holds two places of the unit, Section A and Section B or the
+word and phrase kinds of one place, counts once — the same counting the
+administration unit-content route reports.
+
+`GET /api/vocabulary-books/{bookId}/entries?unitId=&page=&size=` pages over
+meanings. Without a `unitId` the scope is every meaning of the book and each
+entry's `positions` lists all of the meaning's places in the book — a meaning
+assigned to no unit is in scope, sorts last, and carries an empty array. With
+a `unitId` only meanings assigned to that unit are in scope and `positions`
+lists only that unit's places. Each item is one meaning:
+
+```text
+wordId, word, normalizedWord, phoneticUk, phoneticUs,
+meaningId, partOfSpeech, meaning, meaningKey, example,
+positions: [ { unitId, unitNumber, section, entryKind } ]
+```
+
+`section` and `entryKind` are null when the place is unsectioned or
+unclassified. `normalizedWord` is `lower(trim(word))` and `meaningKey` is
+`lower(trim(meaning))` — the same equivalence rule question generation uses —
+so a caller can compare entries across books by these keys without
+renormalizing them; both should be treated as opaque.
+
+The page order is a total order computed on the database side, so it is
+stable across pages of one traversal: entries sort by the smallest place the
+meaning holds in the scope (unit number, then Section A before B before
+none), then by `normalizedWord`, `wordId`, and `meaningId`, and entries with
+no place in the scope sort last. Positions within one entry sort by unit
+number, unit id, then the section and entry kind ordinals. Paging follows the
+shared rules of §11 (defaults 1/20, `size` at most 100, invalid parameters
+400). The response is
+`{ "items", "totalCount", "totalPage", "wordCount" }`, where `totalCount`
+counts meanings in the scope and `wordCount` the distinct words behind them.
+
+Consistency holds within a single request only: the snapshot makes the
+totals and the page content describe the same instant, but two requests can
+straddle an administrator's import or edit, so a caller paging through must
+deduplicate by `meaningId`. Neither id is guaranteed to survive an
+administrative deletion. The endpoints add no authentication, so exposing
+`/api` to a public network means the enabled vocabulary can be enumerated
+efficiently — something the existing search and detail routes already allow,
+only more slowly.
 
 ## 7. Data relationships and the initial SQLite migration
 
@@ -256,7 +320,7 @@ Each entry may carry an optional `unitId` naming an existing unit of the same bo
 - `Status=true` means enabled and `Status=false` means disabled.
 - The administration list contains both enabled and disabled books.
 - `GET /api/vocabulary-books/all` returns enabled books only.
-- Once a book is disabled, the public vocabulary detail and question endpoints no longer return its meanings.
+- Once a book is disabled, the public vocabulary detail and question endpoints no longer return its meanings, and the public book-browse endpoints answer 422 rather than listing its units or entries.
 - An administrator can still view a disabled book and its words, so it can be restored or maintained.
 - Deleting a non-existent book answers 404.
 - A book with no related meanings may be hard deleted.
@@ -296,6 +360,7 @@ The window can come back short -- the book may genuinely be near the end of its 
 - Keyword matching is case-insensitive. It uses SQLite's `LIKE`, whose default case folding covers ASCII, which is the same folding `lower()` gives the normalization and question queries. `%`, `_`, and the escape character are escaped in the keyword and matched literally, so a keyword can never widen its own search. Case outside ASCII is not folded: `CAFÉ` does not find `café`. Folding the rest of Unicode would need FTS5 or an ICU build and is not done.
 - Categories, education levels, grades, and grades by education level perform their filtering and deduplication on the database side.
 - The words in a book are paged like the other two list endpoints, and selected on the database side by asking whether any meaning links the word to the book. That cannot produce a duplicate, so it needs no `DISTINCT` over whole rows and neither of the temp B-trees the previous join required. The endpoint used to return every word in the book in one response, with no ceiling a caller could set and none the server imposed.
+- The public book-browse entries endpoint filters, orders, counts, and pages on the database side too, in one read snapshot per request. Its total order — smallest place in scope, then normalized spelling and ids, unplaced meanings last — is what makes a traversal's pages stable, and only the current page's positions are loaded, in one batched read.
 - The detail response orders a word's meanings by part of speech and then by definition, both ordinally. The order is total and identical on every host; ordering by the default string comparer would have made it a property of the server's locale.
 - An administration query may reach disabled books; a public query can only read through an enabled book's relationships.
 

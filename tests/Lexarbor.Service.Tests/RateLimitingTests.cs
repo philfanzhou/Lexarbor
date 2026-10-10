@@ -107,6 +107,24 @@ public class RateLimitingTests
     }
 
     [Fact]
+    public async Task PublicApi_BookBrowseRoutes_AreMeteredByThePublicApiPolicy()
+    {
+        using var factory = CreateFactory(publicApiPermits: 2);
+        using var client = CreateClient(factory);
+
+        // The browse routes are anonymous reads like the catalogue route, so
+        // they draw on the same per-address budget rather than a separate one.
+        Assert.NotEqual(HttpStatusCode.TooManyRequests,
+            (await GetAsync(client, "/api/vocabulary-books/some-book/units", ClientA)).StatusCode);
+        Assert.NotEqual(HttpStatusCode.TooManyRequests,
+            (await GetAsync(client, "/api/vocabulary-books/some-book/entries", ClientA)).StatusCode);
+
+        await AssertProblemAsync(await GetAsync(client, "/api/vocabulary-books/some-book/units", ClientA));
+        Assert.NotEqual(HttpStatusCode.TooManyRequests,
+            (await GetAsync(client, "/api/vocabulary-books/some-book/units", ClientB)).StatusCode);
+    }
+
+    [Fact]
     public async Task AdminEndpoints_AreNotRateLimited()
     {
         using var factory = CreateFactory(loginPermits: 1, publicApiPermits: 1);
