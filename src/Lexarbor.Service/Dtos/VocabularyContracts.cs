@@ -80,6 +80,55 @@ public class VocabularyBookListResponse
 }
 
 /// <summary>
+/// One unit of an enabled book, as <c>GET /api/vocabulary-books/{bookId}/units</c>
+/// reports it. The counts are per distinct meaning and word, matching the
+/// administrative unit-content counts.
+/// </summary>
+public record VocabularyPublicUnitDto(string Id, int Number, string? Title, int WordCount, int MeaningCount);
+
+/// <summary>Unit list response of the anonymous book-browse endpoint.</summary>
+public class VocabularyPublicUnitListResponse
+{
+    public List<VocabularyPublicUnitDto> Units { get; set; } = new();
+}
+
+/// <summary>
+/// One place an entry holds inside the requested scope; <c>Section</c> and
+/// <c>EntryKind</c> are null when the place is unsectioned or unclassified.
+/// </summary>
+public record VocabularyPublicEntryPositionDto(string UnitId, int UnitNumber, string? Section, string? EntryKind);
+
+/// <summary>
+/// One meaning as <c>GET /api/vocabulary-books/{bookId}/entries</c> reports
+/// it. <c>NormalizedWord</c> and <c>MeaningKey</c> are the server's
+/// <c>lower(trim(...))</c> comparison keys and should be treated as opaque.
+/// </summary>
+public record VocabularyPublicEntryDto(
+    string WordId,
+    string Word,
+    string NormalizedWord,
+    string? PhoneticUk,
+    string? PhoneticUs,
+    string MeaningId,
+    string? PartOfSpeech,
+    string Meaning,
+    string MeaningKey,
+    string? Example,
+    List<VocabularyPublicEntryPositionDto> Positions);
+
+/// <summary>
+/// One page of entries: <c>TotalCount</c> counts meanings in the scope and
+/// <c>WordCount</c> the distinct words behind them.
+/// </summary>
+public class VocabularyPublicEntryPageResponse
+{
+    public List<VocabularyPublicEntryDto> Items { get; set; } = new();
+    public int TotalPage { get; set; }
+    public int TotalCount { get; set; }
+    public int WordCount { get; set; }
+}
+
+/// <summary>
 /// Boolean response.
 /// </summary>
 public class BoolResponse

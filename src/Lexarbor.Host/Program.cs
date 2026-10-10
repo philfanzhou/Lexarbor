@@ -140,6 +140,8 @@ builder.Services.AddScoped<VocabularyWordEditService>();
 builder.Services.AddScoped<VocabularyMeaningEditService>();
 builder.Services.AddScoped<IVocabularyAdminQueryRepository, VocabularyAdminQueryRepository>();
 builder.Services.AddScoped<VocabularyAdminQueryService>();
+builder.Services.AddScoped<IVocabularyPublicQueryRepository, VocabularyPublicQueryRepository>();
+builder.Services.AddScoped<VocabularyPublicQueryService>();
 builder.Services.AddScoped<IVocabularyCleanupRepository, VocabularyCleanupRepository>();
 builder.Services.AddScoped<VocabularyCleanupService>();
 builder.Services.AddScoped<VocabularyDomainService>();

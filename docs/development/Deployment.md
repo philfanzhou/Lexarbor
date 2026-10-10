@@ -933,6 +933,18 @@ conservative backoff suggestion, preserving any shared header. Concurrent traffi
 can still exhaust the quota when the suggested delay ends. This is neither a
 distributed limiter nor a WAF or DDoS defense; configuration is fixed at startup.
 
+A server-side consumer that pages through the anonymous book-browse or
+vocabulary routes calls from one address on a schedule of its own, so its
+legitimate traffic can reach the public ceiling before any browser does. Size
+`RateLimits:PublicApi:PermitLimit` for that caller's expected rate — for a
+container deployment the environment variable
+`RateLimits__PublicApi__PermitLimit` overrides it without editing
+`appsettings.json`. The limit stays per client address, but the raised ceiling
+is one shared setting, so it applies to every anonymous caller of `/api`, not
+only the consumer it was sized for: raising it beyond the default is
+appropriate only for an intranet deployment where `/api` is not reachable by
+untrusted clients.
+
 | Configuration key | Default | Purpose |
 |---|---|---|
 | `RateLimits:AdminLogin:PermitLimit` | `10` | Login attempts per window, per client address |
