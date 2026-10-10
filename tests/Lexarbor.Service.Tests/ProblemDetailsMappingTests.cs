@@ -278,7 +278,8 @@ public class ProblemDetailsMappingTests
         public Task UpdateAsync(VocabularyModel model) => throw Unused();
         public Task<List<VocabularyModel>> GetRandomByBookExceptAsync(
             string bookId, string excludeVocabularyId, string excludeWord,
-            string excludeEquivalentMeaning, int count) => throw Unused();
+            string excludeEquivalentMeaning, int count,
+            VocabularyDistractorScope? scope = null) => throw Unused();
 
         private static NotSupportedException Unused() => new();
     }
@@ -300,7 +301,8 @@ public class ProblemDetailsMappingTests
         public Task UpdateAsync(VocabularyModel model) => throw Unused();
         public Task<List<VocabularyModel>> GetRandomByBookExceptAsync(
             string bookId, string excludeVocabularyId, string excludeWord,
-            string excludeEquivalentMeaning, int count) => throw Unused();
+            string excludeEquivalentMeaning, int count,
+            VocabularyDistractorScope? scope = null) => throw Unused();
 
         private static NotSupportedException Unused() => new();
     }

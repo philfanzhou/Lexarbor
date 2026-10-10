@@ -299,7 +299,8 @@ public class AdminSecurityResponseHeaderTests
         public Task UpdateAsync(Lexarbor.Domain.Models.VocabularyModel model) => throw Unused();
         public Task<List<Lexarbor.Domain.Models.VocabularyModel>> GetRandomByBookExceptAsync(
             string bookId, string excludeVocabularyId, string excludeWord,
-            string excludeEquivalentMeaning, int count) => throw Unused();
+            string excludeEquivalentMeaning, int count,
+            Lexarbor.Domain.Repositories.VocabularyDistractorScope? scope = null) => throw Unused();
 
         private static NotSupportedException Unused() => new();
     }

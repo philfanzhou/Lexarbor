@@ -325,10 +325,36 @@ public class VocabularyDomainService
         return (existingVocabulary, existingMeaning, meaningCreated);
     }
 
+    /// <param name="meaningId">
+    /// The meaning the question is about. Must be one of the word's meanings in
+    /// the book; anything else answers the same NotFound the word's lack of any
+    /// meaning there does. Null draws one at random.
+    /// </param>
+    /// <param name="unitId">
+    /// Narrows the distractor queries to candidates assigned to this unit of
+    /// the book. The unit must exist and belong to the book — a unit of another
+    /// book is indistinguishable from a missing one, so neither leaks that the
+    /// other book has it — and the meaning being asked about is not required to
+    /// sit in it. A unit with too few candidates answers the same business rule
+    /// failure the book itself would; the caller decides whether to retry
+    /// without it.
+    /// </param>
+    /// <param name="sameEntryKind">
+    /// Narrows the distractor queries to candidates of the asked meaning's own
+    /// entry kind. The kind is read from the meaning's positions in the same
+    /// scope <paramref name="unitId"/> would use — that unit, or the whole book
+    /// — and one <c>phrase</c> position anywhere in the scope makes the target a
+    /// phrase, with everything else (unclassified positions included) a word. A
+    /// phrase question then draws only phrase distractors and a word question
+    /// excludes every phrase.
+    /// </param>
     public async Task<VocabularyQuestionModel> CreateQuestionAsync(
         string wordId,
         string bookId,
-        bool chineseToEnglish)
+        bool chineseToEnglish,
+        string? meaningId = null,
+        string? unitId = null,
+        bool sameEntryKind = false)
     {
         var (word, meanings) = await GetDetailAsync(wordId, bookId);
         if (meanings.Count == 0)
@@ -344,7 +370,57 @@ public class VocabularyDomainService
         // later senses could never be the subject of a question in either
         // direction. Which one is asked is now a property of the draw, and the
         // exclusions below all key off the definition that was drawn.
-        var correctMeaning = meanings[Random.Shared.Next(meanings.Count)];
+        VocabularyMeaningModel correctMeaning;
+        if (string.IsNullOrWhiteSpace(meaningId))
+        {
+            correctMeaning = meanings[Random.Shared.Next(meanings.Count)];
+        }
+        else
+        {
+            // The list already holds exactly the word's meanings in this book,
+            // so a meaning id from anywhere else — another word, another book —
+            // fails this lookup and is reported exactly like the word having no
+            // meaning in the book at all.
+            correctMeaning = meanings.FirstOrDefault(item => item.Id == meaningId)
+                ?? throw new ResourceNotFoundException(
+                    "Vocabulary meaning was not found in the requested book.");
+        }
+
+        VocabularyDistractorScope? scope = null;
+        if (!string.IsNullOrWhiteSpace(unitId) || sameEntryKind)
+        {
+            var normalizedUnitId = NullIfWhiteSpace(unitId);
+            if (normalizedUnitId != null)
+            {
+                var unit = await _unitRepository.GetByIdAsync(normalizedUnitId)
+                    ?? throw new ResourceNotFoundException(
+                        "Unit was not found in the requested vocabulary book.");
+                if (unit.BookId != bookId)
+                {
+                    // The same answer a missing unit gets, so the id of another
+                    // book's unit reveals nothing about that book.
+                    throw new ResourceNotFoundException(
+                        "Unit was not found in the requested vocabulary book.");
+                }
+            }
+
+            bool? phraseOnly = null;
+            if (sameEntryKind)
+            {
+                // The kind is a property of a position, so it is read from the
+                // target meaning's positions in the scope the distractors will
+                // be drawn from: the unit when one was named, the whole book
+                // otherwise. A meaning with no position in the scope is
+                // unclassified there and asked as a word.
+                var positions = await _membershipRepository.GetByMeaningIdAsync(correctMeaning.Id);
+                phraseOnly = (normalizedUnitId == null
+                        ? positions
+                        : positions.Where(position => position.UnitId == normalizedUnitId))
+                    .Any(position => position.EntryKind == "phrase");
+            }
+
+            scope = new VocabularyDistractorScope(normalizedUnitId, phraseOnly);
+        }
 
         List<VocabularyQuestionOptionModel> options;
         string questionText;
@@ -359,13 +435,28 @@ public class VocabularyDomainService
                 wordId,
                 word.Word,
                 correctMeaning.Meaning,
-                3);
+                3,
+                scope);
             questionText = correctMeaning.Meaning;
             options =
             [
-                new VocabularyQuestionOptionModel { Text = word.Word, IsCorrect = true },
+                new VocabularyQuestionOptionModel
+                {
+                    Text = word.Word,
+                    IsCorrect = true,
+                    WordId = word.Id,
+                    MeaningId = correctMeaning.Id
+                },
                 .. distractors.Select(item =>
-                    new VocabularyQuestionOptionModel { Text = item.Word, IsCorrect = false })
+                    new VocabularyQuestionOptionModel
+                    {
+                        Text = item.Word,
+                        IsCorrect = false,
+                        WordId = item.Id,
+                        // A distractor here is a word the query happened to pick;
+                        // no single meaning of it stands for the option.
+                        MeaningId = null
+                    })
             ];
         }
         else
@@ -375,20 +466,25 @@ public class VocabularyDomainService
                     bookId,
                     wordId,
                     correctMeaning.Meaning,
-                    3);
+                    3,
+                    scope);
             questionText = word.Word;
             options =
             [
                 new VocabularyQuestionOptionModel
                 {
                     Text = correctMeaning.Meaning,
-                    IsCorrect = true
+                    IsCorrect = true,
+                    WordId = word.Id,
+                    MeaningId = correctMeaning.Id
                 },
                 .. distractors.Select(item =>
                     new VocabularyQuestionOptionModel
                     {
                         Text = item.Meaning,
-                        IsCorrect = false
+                        IsCorrect = false,
+                        WordId = item.VocabularyId,
+                        MeaningId = item.Id
                     })
             ];
         }
@@ -407,6 +503,9 @@ public class VocabularyDomainService
         return new VocabularyQuestionModel
         {
             Word = questionText,
+            WordId = word.Id,
+            MeaningId = correctMeaning.Id,
+            ChineseToEnglish = chineseToEnglish,
             Options = options
         };
     }

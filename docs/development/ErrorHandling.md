@@ -9,10 +9,10 @@ HTTP services must use the standard HTTP status codes:
 | `400 Bad Request` | The request, its JSON, or its paging parameters are invalid | A required field is empty, size exceeds 100 |
 | `401 Unauthorized` | Login failed, or the JWT is missing or invalid | Anonymous access to an administration endpoint |
 | `403 Forbidden` | Authenticated but without the administrator role, or a cookie write request without the same-origin header | An ordinary Identity user reaching an administration endpoint |
-| `404 Not Found` | The requested resource does not exist | The word, meaning, or book does not exist |
+| `404 Not Found` | The requested resource does not exist | The word, meaning, or book does not exist; a question's `meaningId` or `unitId` that names nothing in the requested book |
 | `413 Payload Too Large` | The request body exceeds the route's size limit | A batch import body over 1 MiB |
 | `409 Conflict` | A uniqueness, ownership, or deletion conflict | Deleting a book that still has meanings |
-| `422 Unprocessable Entity` | A business precondition is not met | The book is disabled, too few question candidates |
+| `422 Unprocessable Entity` | A business precondition is not met | The book is disabled, too few question candidates in the book or in the requested unit and entry kind |
 | `429 Too Many Requests` | An anonymous endpoint exceeded the ceiling for that client address | Login brute force, one address hammering the public API |
 | `500 Internal Server Error` | An internal service error | A database failure, an unexpected error |
 | `502 Bad Gateway` | Identity is unreachable or its response is invalid | The administrator login proxy failed |

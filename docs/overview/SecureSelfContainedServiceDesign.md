@@ -329,10 +329,18 @@ Each entry may carry an optional `unitId` naming an existing unit of the same bo
 
 ## 10. Question generation
 
-`POST /api/vocabulary/question` keeps its request and response DTOs and generates a four-option question by these rules:
+`POST /api/vocabulary/question` generates a four-option question. A request that carries only `wordId` and `bookId` — with `chineseToEnglish` optional as before — is answered exactly as it always was: the meaning is drawn at random, the distractors come from the whole book, and the response carries the fields it carried. Three further optional request fields narrow that, each usable on its own:
+
+- `meaningId` names the meaning to ask about. It must be one of the word's meanings in the book; anything else — another word's meaning, the same word's meaning in another book — answers the same 404 the word's having no meaning in the book answers.
+- `unitId` draws the distractors only from candidates assigned to that unit of the book. A unit that does not exist, or belongs to another book, answers 404 with the same message either way, so the id of another book's unit reveals nothing. A unit with too few candidates answers the same 422 the book itself would; the endpoint never falls back to the wider book, because the caller is the one who knows whether widening is acceptable. The asked meaning itself is not required to sit in the unit.
+- `sameEntryKind` (default false) draws the distractors only from candidates of the asked meaning's own entry kind. The kind is read from the meaning's positions in the same scope `unitId` names — that unit, or the whole book when no unit was named — and one `phrase` position anywhere in the scope makes the target a phrase; everything else, unclassified positions included, is a word. A phrase question then offers only phrase distractors and a word question excludes every phrase: a phrase option next to a word stem gives the answer away. Nothing is ever inferred from the entry's text, so an unclassified target is asked as a word.
+
+The response keeps `word` and `options[].meaning` / `options[].isCorrect` with their meanings unchanged and adds: top-level `wordId`, `meaningId` (the meaning actually asked) and `chineseToEnglish` (the direction actually drawn when the request left it to the server); and `wordId` / `meaningId` on every option. An English-to-Chinese option is one meaning of one word and carries both ids; a Chinese-to-English option is a word, and only its correct one names the asked meaning — the distractor words carry `meaningId: null`, because no single meaning of such a word stands for the option. The endpoint stays anonymous and still returns `isCorrect`; a caller who quizzes a learner through it must call it server-side and keep the answer there, which is the arrangement the consuming trainer already requires.
+
+The rules of generation:
 
 1. The target book must exist and be enabled.
-2. The target word must exist and must have at least one meaning in the target book. "The current meaning" below is drawn at random from those meanings. The request carries no way to name one, so taking the first instead would leave every sense but one unaskable: a word with a noun and a verb definition in the same book could only ever be asked about the noun.
+2. The target word must exist and must have at least one meaning in the target book. "The current meaning" below is the request's `meaningId` when it named one, and otherwise drawn at random from those meanings. The request's other ways to name one leave nothing unaskable: a word with a noun and a verb definition in the same book can be asked about either in either direction.
 3. Chinese to English:
    - the stem is the current meaning;
    - the correct answer is the current word;
@@ -344,12 +352,14 @@ Each entry may carry an optional `unitId` naming an existing unit of the same bo
 5. Candidates are deduplicated by `VocabularyId`, so each distractor word contributes at most one option.
 6. The repository query first excludes the current word and everything equivalent to the correct answer -- the answer text itself, and in the Chinese-to-English direction any other word sharing the stem's definition -- then deduplicates by normalized option text, and only then randomly limits the result to three distractors. Equivalence is `lower(trim(...))` on both sides in both directions.
 7. A question is generated only when three distinct valid distractors are obtained; limiting before deduplicating, which would falsely report too few candidates, is not allowed.
-8. Too few candidates answers 422 with a short business error.
+8. Too few candidates answers 422 with a short business error — also when the shortage is the unit's or the kind filter's doing.
 9. The four final options are shuffled.
 
-The repository samples candidates rather than sorting the book. Every vocabulary id is a v4 GUID, so id order is already an arbitrary, uniform shuffle: the query starts at a random point in that order and reads a bounded window forward, wrapping to the start if the probe landed near the end. An index answers both, so the cost of a question does not depend on the size of the book it was asked about.
+The unit and entry-kind filters are conditions on the candidate's positions in `vocabulary_meaning_unit`, appended as the same `EXISTS (...)` subqueries to **every** query shape the distractor draw uses — the random window, its wrap-around read, and the exhaustive fallback, in both directions. They are bound as switch parameters of one constant SQL text: with both off, the appended conditions are vacuously true and the query answers exactly what it did before the scope existed. The common invariants therefore hold on all of those paths alike — no option names the target word or an equivalent spelling, no distractor carries an equivalent definition, no word contributes two options, and a shortfall answers 422 rather than four-minus-one options. A Chinese-to-English candidate qualifies for the unit filter when any of its meanings in the book holds a position of the unit; an English-to-Chinese candidate must hold that position itself, because its options are meanings. The kind filter reads a candidate's kind from the same scope the unit filter names, and the word direction matches a word's positions through its meanings rather than per meaning row, so excluding phrases cannot be dodged by a word that also carries an unclassified meaning.
 
-The window can come back short -- the book may genuinely be near the end of its candidates, or the drawn words may all have been ineligible. Because a short result is what produces the 422 in rule 8, the repository then runs the exhaustive `random()`-and-window-function query it used to run on its own. That keeps 422 meaning "this book cannot produce a question" rather than "the sample was unlucky", at the cost of one slow query in exactly the case where the fast one proved nothing.
+The repository samples candidates rather than sorting the book. Every vocabulary id is a v4 GUID, so id order is already an arbitrary, uniform shuffle: the query starts at a random point in that order and reads a bounded window forward, wrapping to the start if the probe landed near the end. An index answers both, so the cost of a question does not depend on the size of the book it was asked about. The scope filters join the same plan: the membership rows are looked up by their composite primary key, and the book-wide kind read — the one shape with no leading unit column — is answered by SQLite's automatic index over the membership table, measured at the same cost as the unscoped draw on a 20 000-word book.
+
+The window can come back short -- the book may genuinely be near the end of its candidates, or the drawn words may all have been ineligible. Because a short result is what produces the 422 in rule 8, the repository then runs the exhaustive `random()`-and-window-function query it used to run on its own. That keeps 422 meaning "this book cannot produce a question" rather than "the sample was unlucky", at the cost of one slow query in exactly the case where the fast one proved nothing. Under a scope the exhaustive query keeps the same filters, so its answer widens nothing either.
 
 ## 11. Queries and paging
 
@@ -497,6 +507,11 @@ The existing features, fields, and Vite build of book management and word import
 - The distractor exclusions follow the sense that was drawn, not the first one.
 - Data from different books never pollutes another book.
 - Fewer than three valid distractor words answers 422.
+- Naming a `meaningId` asks that meaning in both directions; a meaning of another word, or of the same word in another book, answers the same 404 as a word with no meaning in the book.
+- A `unitId` draws every distractor from that unit, in both directions; a missing unit and another book's unit both answer 404, and a unit with too few candidates answers 422 without falling back to the book.
+- With `sameEntryKind`, a phrase target draws only phrase distractors and a word target excludes every phrase; an unclassified target is asked as a word, and one phrase position in the scope — the unit, or the book — makes the target a phrase.
+- The unit and kind filters hold the common invariants on every query path: the random window, its wrap-around, and the exhaustive fallback, in both directions, including the crowded-out windows that force the fallback.
+- The response reports `wordId`, `meaningId` and `chineseToEnglish` at the top level and both ids on every option; Chinese-to-English distractors carry `meaningId: null`, and a request without the new fields still answers four options with exactly one correct.
 
 ### 15.4 HTTP and error handling
 

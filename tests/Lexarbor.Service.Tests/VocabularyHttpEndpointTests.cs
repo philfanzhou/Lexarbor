@@ -497,7 +497,8 @@ public class VocabularyHttpEndpointTests :
             string excludeVocabularyId,
             string excludeWord,
             string excludeEquivalentMeaning,
-            int count) => throw Unused();
+            int count,
+            VocabularyDistractorScope? scope = null) => throw Unused();
 
         private static NotSupportedException Unused() => new();
     }

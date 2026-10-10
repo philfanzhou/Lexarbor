@@ -84,6 +84,39 @@ public class PublicApiCompatibilityTests :
     }
 
     [Fact]
+    public async Task Question_WithoutScopeFields_AnswersFourOptionsWithOneCorrect()
+    {
+        var data = await SeedCompleteBookAsync();
+        using var client = _factory.CreateClient();
+
+        // The request a caller sent before the scope fields existed: the
+        // direction falls to the server's draw and the answer still holds four
+        // distinct options with exactly one correct one.
+        var response = await client.PostAsJsonAsync(
+            "/api/vocabulary/question",
+            new { wordId = data.WordId, bookId = data.BookId },
+            TestContext.Current.CancellationToken);
+
+        var document = await AssertPublicSuccessAsync(response);
+        using (document)
+        {
+            var options = document.RootElement.GetProperty("data").GetProperty("options");
+            Assert.Equal(4, options.GetArrayLength());
+            Assert.Equal(4, options.EnumerateArray()
+                .Select(option => option.GetProperty("meaning").GetString())
+                .Distinct()
+                .Count());
+            var correct = 0;
+            foreach (var option in options.EnumerateArray())
+            {
+                correct += option.GetProperty("isCorrect").GetBoolean() ? 1 : 0;
+            }
+
+            Assert.Equal(1, correct);
+        }
+    }
+
+    [Fact]
     public async Task Books_RemainsAnonymousWithExistingEnvelopeShape()
     {
         using var client = _factory.CreateClient();
