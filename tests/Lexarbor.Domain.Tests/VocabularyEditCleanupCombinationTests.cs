@@ -22,9 +22,11 @@ namespace Lexarbor.Domain.Tests;
 public class VocabularyEditCleanupCombinationTests
 {
     private static VocabularyMeaningEditService Meanings(VocabularyDbContext db) =>
-        new(new VocabularyRepository(db), new VocabularyBookRepository(db), new VocabularyMeaningRepository(db), new UnitOfWork(db));
+        new(new VocabularyRepository(db), new VocabularyBookRepository(db), new VocabularyMeaningRepository(db),
+            new VocabularyMeaningUnitRepository(db), new UnitOfWork(db));
     private static VocabularyWordEditService Words(VocabularyDbContext db) =>
-        new(new VocabularyRepository(db), new VocabularyWordEditRepository(db), new UnitOfWork(db));
+        new(new VocabularyRepository(db), new VocabularyWordEditRepository(db), new VocabularyMeaningRepository(db),
+            new VocabularyMeaningUnitRepository(db), new UnitOfWork(db));
 
     [Theory]
     [InlineData("removeMeaning", true, false)]

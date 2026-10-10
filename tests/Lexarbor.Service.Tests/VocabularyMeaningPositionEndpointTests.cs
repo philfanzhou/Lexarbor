@@ -71,6 +71,24 @@ public class VocabularyMeaningPositionEndpointTests
         Assert.Equal([("u1", "A", "phrase"), ("u1", "A", "word"), ("u1", "B", "phrase"), ("u2", "", "phrase")], await PositionsAsync(factory));
     }
 
+    [Fact]
+    public async Task MoveToPhrase_MeaningWithPartOfSpeech_Returns400WithoutWrites()
+    {
+        await using var factory = new VocabularyWebApplicationFactory();
+        await SeedAsync(factory);
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+            await db.VocabularyMeanings.Where(item => item.Id == "m")
+                .ExecuteUpdateAsync(setters => setters.SetProperty(item => item.PartOfSpeech, "v."), TestContext.Current.CancellationToken);
+        }
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", factory.CreateToken("admin"));
+        using var response = await client.PutAsync(Path, Json("""{"from":{"unitId":"u1","section":"A","entryKind":"word"},"to":{"unitId":"u2","section":"A","entryKind":"phrase"}}"""), TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal([("u1", "A", "phrase"), ("u1", "A", "word"), ("u1", "B", "phrase"), ("u2", "", "phrase")], await PositionsAsync(factory));
+    }
+
     [Theory]
     [InlineData("/admin/vocabulary-books/missing/meanings/m/positions")]
     [InlineData("/admin/vocabulary-books/B/meanings/m/positions")]

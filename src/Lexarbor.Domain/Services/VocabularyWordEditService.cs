@@ -4,7 +4,8 @@ using Lexarbor.Domain.Repositories;
 namespace Lexarbor.Domain.Services;
 
 public sealed class VocabularyWordEditService(IVocabularyRepository words,
-    IVocabularyWordEditRepository edits, IUnitOfWork unitOfWork)
+    IVocabularyWordEditRepository edits, IVocabularyMeaningRepository meanings,
+    IVocabularyMeaningUnitRepository positions, IUnitOfWork unitOfWork)
 {
     public async Task ReplaceAsync(string wordId, string? word, string? phoneticUk, string? phoneticUs,
         CancellationToken cancellationToken = default)
@@ -20,18 +21,50 @@ public sealed class VocabularyWordEditService(IVocabularyRepository words,
                 ?? throw new ResourceNotFoundException("Vocabulary word was not found.");
             if (await edits.HasOtherNormalizedWordAsync(normalized, wordId))
                 throw new ConflictException("A vocabulary word with the same normalized value already exists.");
+            var newPhoneticUk = Optional(phoneticUk);
+            var newPhoneticUs = Optional(phoneticUs);
+            var addsUk = IsNewValue(newPhoneticUk, current.PhoneticUk);
+            var addsUs = IsNewValue(newPhoneticUs, current.PhoneticUs);
+            if ((addsUk || addsUs) && await IsUsedOnlyAsPhraseAsync(wordId))
+                throw new DomainValidationException(
+                    $"Words used only as phrases must not include {(addsUk ? "phoneticUk" : "phoneticUs")}.");
             // The submitted spelling is the display value: an explicit edit is
             // the one path allowed to correct casing, because it is confined to
             // the row whose normalized key is unchanged. Imports never rewrite
             // display spelling; equivalence stays keyed on the normalized form.
             current.Word = word.Trim();
-            current.PhoneticUk = Optional(phoneticUk);
-            current.PhoneticUs = Optional(phoneticUs);
+            current.PhoneticUk = newPhoneticUk;
+            current.PhoneticUs = newPhoneticUs;
             current.UpdatedAt = DateTimeOffset.UtcNow;
             await words.UpdateAsync(current);
             return await unitOfWork.SaveChangesAsync();
         });
     }
+
+    /// <summary>
+    /// A phrase carries no phonetics. Phonetics live on the spelling every
+    /// position shares, so they are refused only when every position of the
+    /// spelling is a phrase; a spelling with no position at all, or with a
+    /// word or unclassified position, keeps them.
+    /// </summary>
+    private async Task<bool> IsUsedOnlyAsPhraseAsync(string wordId)
+    {
+        var any = false;
+        foreach (var meaning in await meanings.GetByVocabularyIdAsync(wordId))
+        {
+            foreach (var position in await positions.GetByMeaningIdAsync(meaning.Id))
+            {
+                if (position.EntryKind != "phrase") return false;
+                any = true;
+            }
+        }
+
+        return any;
+    }
+
+    // An unchanged value is kept so that existing data stays editable.
+    private static bool IsNewValue(string? requested, string? current) =>
+        requested != null && !string.Equals(requested, current, StringComparison.Ordinal);
 
     private static string? Optional(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

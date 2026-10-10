@@ -177,6 +177,7 @@ function editPosition(meaning: AdminMeaning, unit: NonNullable<AdminMeaning['uni
     meaningId: meaning.id,
     word: detail.value?.word ?? '',
     meaning: meaning.meaning,
+    partOfSpeech: meaning.partOfSpeech ?? null,
     sourceNumber: unit.number,
     sourceTitle: unit.title,
     from: {
@@ -284,6 +285,17 @@ function sharedConfirmMessage() {
   return `拼写与音标在各教材间共用，保存后会影响引用该单词的全部教材（含停用）：${names}。`
 }
 
+/** Mirrors the server: phonetics are refused only when every position of the spelling is a phrase. */
+function usedOnlyAsPhrase(word: AdminWordDetail) {
+  const units = word.meanings.flatMap(meaning => meaning.units ?? [])
+  return units.length > 0 && units.every(unit => unit.entryKind === 'phrase')
+}
+
+/** An unchanged value is kept so that existing data stays editable. */
+function isNewValue(requested: string | null, current: string | null | undefined) {
+  return requested !== null && requested !== (current ?? null)
+}
+
 /**
  * Maps a refused save. A definite refusal keeps the draft with a reason; 409
  * and 404 additionally offer an explicit reload. An answer that never arrived
@@ -325,6 +337,13 @@ async function saveShared() {
   const word = sharedForm.word.trim()
   if (!word) {
     sharedError.value = '请输入单词拼写'
+    return
+  }
+
+  if (usedOnlyAsPhrase(target) &&
+    (isNewValue(blankToNull(sharedForm.phoneticUk), target.phoneticUk) ||
+      isNewValue(blankToNull(sharedForm.phoneticUs), target.phoneticUs))) {
+    sharedError.value = '这个拼写只用作短语，短语不填写音标'
     return
   }
 
@@ -414,6 +433,11 @@ async function saveMeaning(meaning: AdminMeaning) {
     partOfSpeech: blankToNull(edit.draft.partOfSpeech),
     meaning: definition,
     example: blankToNull(edit.draft.example)
+  }
+  if (meaning.units?.some(unit => unit.entryKind === 'phrase') &&
+    isNewValue(payload.partOfSpeech?.toLowerCase() ?? null, meaning.partOfSpeech)) {
+    edit.error = '这条释义有短语位置，短语不填写词性'
+    return
   }
 
   const current = generation

@@ -303,6 +303,11 @@ public class VocabularyBookUnitDomainService
                 return 0;
             if (await _membershipRepository.ExistsAsync(targetUnit, meaning, targetSection, targetKind))
                 throw new ConflictException("Target vocabulary meaning position already exists.");
+            // A phrase carries no part of speech. Positions that are already
+            // phrases are existing data and keep moving as they are.
+            if (targetKind == "phrase" && sourceKind != "phrase" &&
+                !string.IsNullOrWhiteSpace((await _meaningRepository.GetByIdAsync(meaning))?.PartOfSpeech))
+                throw new DomainValidationException("Phrase positions must not use a meaning with partOfSpeech.");
 
             await _membershipRepository.DeleteAsync(sourceUnit, meaning, sourceSection, sourceKind);
             await _membershipRepository.AddAsync(new VocabularyMeaningUnitModel

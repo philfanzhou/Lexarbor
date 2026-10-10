@@ -68,6 +68,45 @@ public class VocabularyBookUnitTests : TestBase
     }
 
     [Fact]
+    public async Task PhrasePositions_RejectMeaningsWithPartOfSpeech()
+    {
+        var book = await CreateBookAsync();
+        var unit = await _service.CreateAsync(book.Id, 1, null);
+        var (_, tagged) = await _importService.AddOrUpdateAsync(
+            new VocabularyModel { Word = "give up" },
+            new VocabularyMeaningModel { BookId = book.Id, PartOfSpeech = "v.", Meaning = "quit" });
+        await _service.AssignMeaningAsync(unit.Id, tagged.Id, "A", "word");
+
+        var move = await Assert.ThrowsAsync<DomainValidationException>(() => _service.MovePositionAsync(book.Id,
+            tagged.Id, unit.Id, "A", "word", unit.Id, "A", "phrase", TestContext.Current.CancellationToken));
+        Assert.Equal("Phrase positions must not use a meaning with partOfSpeech.", move.Message);
+        Assert.True(await _meaningUnitRepository.ExistsAsync(unit.Id, tagged.Id, "A", "word"));
+        Assert.False(await _meaningUnitRepository.ExistsAsync(unit.Id, tagged.Id, "A", "phrase"));
+
+        // A position that is already a phrase keeps moving as one.
+        await _meaningUnitRepository.AddAsync(new VocabularyMeaningUnitModel
+        {
+            UnitId = unit.Id,
+            MeaningId = tagged.Id,
+            BookId = book.Id,
+            Section = "B",
+            EntryKind = "phrase"
+        });
+        await _unitOfWork.SaveChangesAsync(TestContext.Current.CancellationToken);
+        await _service.MovePositionAsync(book.Id, tagged.Id, unit.Id, "B", "phrase",
+            unit.Id, null, "phrase", TestContext.Current.CancellationToken);
+        Assert.True(await _meaningUnitRepository.ExistsAsync(unit.Id, tagged.Id, null, "phrase"));
+
+        var (_, plain) = await _importService.AddOrUpdateAsync(
+            new VocabularyModel { Word = "look after" },
+            new VocabularyMeaningModel { BookId = book.Id, Meaning = "care for" });
+        await _service.AssignMeaningAsync(unit.Id, plain.Id, "A", "word");
+        await _service.MovePositionAsync(book.Id, plain.Id, unit.Id, "A", "word",
+            unit.Id, "A", "phrase", TestContext.Current.CancellationToken);
+        Assert.True(await _meaningUnitRepository.ExistsAsync(unit.Id, plain.Id, "A", "phrase"));
+    }
+
+    [Fact]
     public async Task ExactPositionOwnershipValidationAndCancellation_LeaveSourceUntouched()
     {
         var book = await CreateBookAsync();

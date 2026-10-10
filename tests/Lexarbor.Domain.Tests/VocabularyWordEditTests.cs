@@ -13,7 +13,8 @@ namespace Lexarbor.Domain.Tests;
 public class VocabularyWordEditTests : TestBase
 {
     private static VocabularyWordEditService Service(VocabularyDbContext db) =>
-        new(new VocabularyRepository(db), new VocabularyWordEditRepository(db), new UnitOfWork(db));
+        new(new VocabularyRepository(db), new VocabularyWordEditRepository(db), new VocabularyMeaningRepository(db),
+            new VocabularyMeaningUnitRepository(db), new UnitOfWork(db));
 
     [Theory]
     [InlineData(null, " ")]
@@ -168,6 +169,35 @@ public class VocabularyWordEditTests : TestBase
             release.TrySetResult();
             foreach (var suffix in new[] { "", "-wal", "-shm" }) File.Delete(path + suffix);
         }
+    }
+
+    [Fact]
+    public async Task PhraseOnlySpelling_RejectsNewPhoneticsButKeepsExistingOnes()
+    {
+        await SeedAsync(_dbContext);
+        _dbContext.VocabularyBookUnits.Add(new VocabularyBookUnitEntity { Id = "u", BookId = "A", Number = 1 });
+        _dbContext.VocabularyMeaningUnits.Add(new VocabularyMeaningUnitEntity { UnitId = "u", MeaningId = "a", BookId = "A", EntryKind = "phrase" });
+        await _dbContext.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var before = JsonSerializer.Serialize(await _dbContext.Vocabularies.AsNoTracking().ToListAsync(TestContext.Current.CancellationToken));
+
+        var uk = await Assert.ThrowsAsync<DomainValidationException>(() => Service(_dbContext).ReplaceAsync("w", "original", "new-uk", "old-us", TestContext.Current.CancellationToken));
+        Assert.Equal("Words used only as phrases must not include phoneticUk.", uk.Message);
+        var us = await Assert.ThrowsAsync<DomainValidationException>(() => Service(_dbContext).ReplaceAsync("w", "original", "old-uk", "new-us", TestContext.Current.CancellationToken));
+        Assert.Equal("Words used only as phrases must not include phoneticUs.", us.Message);
+        Assert.Equal(before, JsonSerializer.Serialize(await _dbContext.Vocabularies.AsNoTracking().ToListAsync(TestContext.Current.CancellationToken)));
+
+        // Existing phonetics stay editable, and clearing them is allowed.
+        await Service(_dbContext).ReplaceAsync("w", "Original", " old-uk ", "old-us", TestContext.Current.CancellationToken);
+        await Service(_dbContext).ReplaceAsync("w", "original", null, " ", TestContext.Current.CancellationToken);
+        var cleared = await _dbContext.Vocabularies.AsNoTracking().SingleAsync(v => v.Id == "w", TestContext.Current.CancellationToken);
+        Assert.Null(cleared.PhoneticUk);
+        Assert.Null(cleared.PhoneticUs);
+
+        // A word or unclassified position of the same spelling keeps phonetics editable.
+        _dbContext.VocabularyMeaningUnits.Add(new VocabularyMeaningUnitEntity { UnitId = "u", MeaningId = "a", BookId = "A", Section = "A" });
+        await _dbContext.SaveChangesAsync(TestContext.Current.CancellationToken);
+        await Service(_dbContext).ReplaceAsync("w", "original", "uk", "us", TestContext.Current.CancellationToken);
+        Assert.Equal("uk", (await _dbContext.Vocabularies.AsNoTracking().SingleAsync(v => v.Id == "w", TestContext.Current.CancellationToken)).PhoneticUk);
     }
 
     private static async Task WriteAsync(VocabularyDbContext db, string kind, string value, CancellationToken cancellationToken)

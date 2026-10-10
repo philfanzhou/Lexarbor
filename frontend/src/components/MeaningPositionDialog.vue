@@ -14,6 +14,8 @@ export interface PositionTarget {
   meaningId: string
   word: string
   meaning: string
+  /** The meaning's part of speech; a meaning with one cannot become a phrase. */
+  partOfSpeech?: string | null
   from: AdminMeaningPositionKey
   sourceNumber: number
   sourceTitle?: string | null
@@ -76,6 +78,10 @@ async function submit() {
   const to = { ...destination.value }
   error.value = ''
   reloadHint.value = false
+  if (mode.value === 'move' && to.entryKind === 'phrase' && from.entryKind !== 'phrase' && selected.partOfSpeech?.trim()) {
+    error.value = '这条释义带词性，短语不填写词性；请先在释义编辑中清空词性再改成短语。'
+    return
+  }
   saving.value = true
   try {
     if (mode.value === 'move') await moveAdminMeaningPosition(selected.bookId, selected.meaningId, { from, to })

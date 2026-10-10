@@ -150,6 +150,30 @@ public class VocabularyWordEditEndpointTests
         finally { foreach (var suffix in new[] { "", "-wal", "-shm" }) File.Delete(path + suffix); }
     }
 
+    [Fact]
+    public async Task NewPhoneticsOnPhraseOnlyWord_Returns400WithoutWrites()
+    {
+        await using var factory = new VocabularyWebApplicationFactory();
+        using var client = factory.CreateClient();
+        await SeedAsync(factory.Services);
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+            db.VocabularyBooks.Add(new VocabularyBookEntity { Id = "A", BookName = "A", Status = true });
+            db.VocabularyMeanings.Add(new VocabularyMeaningEntity { Id = "a", VocabularyId = "w", BookId = "A", Meaning = "leave" });
+            db.VocabularyBookUnits.Add(new VocabularyBookUnitEntity { Id = "u", BookId = "A", Number = 1 });
+            db.VocabularyMeaningUnits.Add(new VocabularyMeaningUnitEntity { UnitId = "u", MeaningId = "a", BookId = "A", EntryKind = "phrase" });
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+        Authenticate(client, factory, false, "admin");
+        using var response = await PutAsync(client, """{"word":"original","phoneticUk":"uk","phoneticUs":"changed"}""");
+        await FailureAsync(response, HttpStatusCode.BadRequest);
+        Assert.Equal("original|uk|us", await StateAsync(factory.Services));
+        using var unchanged = await PutAsync(client, """{"word":"Original","phoneticUk":"uk","phoneticUs":null}""");
+        Assert.Equal(HttpStatusCode.OK, unchanged.StatusCode);
+        Assert.Equal("Original|uk|", await StateAsync(factory.Services));
+    }
+
     private static void Authenticate(HttpClient client, VocabularyWebApplicationFactory factory, bool cookie, string role)
     {
         // The retired JWT cookie authenticates nothing; the cookie variant now uses a
