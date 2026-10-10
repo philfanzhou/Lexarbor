@@ -531,6 +531,108 @@ public class VocabularyBatchImportTests : TestBase
             VocabularyDomainService.ValidateBatchEntry(vocabulary, vocabularyMeaning, unitId, section, entryKind));
     }
 
+    [Theory]
+    [InlineData("/ˈteɪk/", null, null, "Phrase entries must not include phoneticUk.")]
+    [InlineData(null, "/ˈteɪk/", null, "Phrase entries must not include phoneticUs.")]
+    [InlineData(null, null, "phr.", "Phrase entries must not include partOfSpeech.")]
+    // Checked in the order phoneticUk, phoneticUs, partOfSpeech; one message per entry.
+    [InlineData("/uk/", "/us/", "phr.", "Phrase entries must not include phoneticUk.")]
+    [InlineData(" ", "/us/", "phr.", "Phrase entries must not include phoneticUs.")]
+    [InlineData("", "\t", " phr. ", "Phrase entries must not include partOfSpeech.")]
+    // Blank values count as absent.
+    [InlineData("", " ", " \t ", null)]
+    [InlineData(null, null, null, null)]
+    public void ValidateBatchEntry_PhraseEntries_RejectPhoneticsAndPartOfSpeech(
+        string? phoneticUk,
+        string? phoneticUs,
+        string? partOfSpeech,
+        string? expected)
+    {
+        var (vocabulary, vocabularyMeaning, _, _, _) = Entry(
+            "take off",
+            "起飞",
+            partOfSpeech: partOfSpeech,
+            phoneticUk: phoneticUk,
+            phoneticUs: phoneticUs,
+            example: "The plane takes off at noon.",
+            unitId: "unit-1",
+            entryKind: " phrase ");
+
+        Assert.Equal(
+            expected,
+            VocabularyDomainService.ValidateBatchEntry(vocabulary, vocabularyMeaning, "unit-1", null, " phrase "));
+    }
+
+    [Theory]
+    [InlineData("unit-1", "word")]
+    [InlineData("unit-1", null)]
+    [InlineData(null, null)]
+    public void ValidateBatchEntry_WordAndUnclassifiedEntries_AcceptPhoneticsAndPartOfSpeech(
+        string? unitId,
+        string? entryKind)
+    {
+        var (vocabulary, vocabularyMeaning, _, _, _) = Entry(
+            "apple",
+            "苹果",
+            partOfSpeech: "n.",
+            phoneticUk: "/ˈæp.əl/",
+            phoneticUs: "/ˈæp.əl/",
+            unitId: unitId,
+            entryKind: entryKind);
+
+        Assert.Null(VocabularyDomainService.ValidateBatchEntry(vocabulary, vocabularyMeaning, unitId, null, entryKind));
+    }
+
+    [Fact]
+    public async Task ImportBatchAsync_PhraseWithPhoneticsOrPartOfSpeech_IsRejectedBeforeAnyWrite()
+    {
+        var book = await CreateBookAsync();
+        var unit = await CreateUnitAsync(book.Id, 1);
+        await _service.ImportBatchAsync(
+            book.Id,
+            [Entry("take", "拿", partOfSpeech: "v.", phoneticUk: "/teɪk/", phoneticUs: "/teɪk/", unitId: unit.Id, entryKind: "word")]);
+
+        // A valid entry ahead of the invalid phrase is not written either.
+        var error = await Assert.ThrowsAsync<DomainValidationException>(() => _service.ImportBatchAsync(
+            book.Id,
+            [
+                Entry("banana", "香蕉", unitId: unit.Id, entryKind: "word"),
+                Entry("take", "取", phoneticUk: "/teɪk off/", unitId: unit.Id, entryKind: "phrase")
+            ]));
+        Assert.Equal("Phrase entries must not include phoneticUk.", error.Message);
+        await Assert.ThrowsAsync<DomainValidationException>(() => _service.ImportBatchAsync(
+            book.Id,
+            [Entry("take off", "起飞", partOfSpeech: "phr.", unitId: unit.Id, entryKind: "phrase")]));
+
+        var word = Assert.Single(await _dbContext.Vocabularies.ToListAsync(TestContext.Current.CancellationToken));
+        Assert.Equal("/teɪk/", word.PhoneticUk);
+        Assert.Equal("/teɪk/", word.PhoneticUs);
+        Assert.Equal(1, await CountMeaningsAsync(book.Id));
+        Assert.Equal(1, await _dbContext.VocabularyMeaningUnits.CountAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task ImportBatchAsync_PhraseSharingAWordsSpelling_KeepsTheWordsPhonetics()
+    {
+        var book = await CreateBookAsync();
+        var unit = await CreateUnitAsync(book.Id, 1);
+
+        await _service.ImportBatchAsync(
+            book.Id,
+            [
+                Entry("record", "记录", partOfSpeech: "n.", phoneticUk: "/ˈrek.ɔːd/", phoneticUs: "/ˈrek.ɚd/", unitId: unit.Id, entryKind: "word"),
+                Entry("record", "创纪录", phoneticUk: " ", phoneticUs: "", partOfSpeech: "\t", example: "set a record", unitId: unit.Id, entryKind: "phrase")
+            ]);
+
+        var word = Assert.Single(await _dbContext.Vocabularies.ToListAsync(TestContext.Current.CancellationToken));
+        Assert.Equal("/ˈrek.ɔːd/", word.PhoneticUk);
+        Assert.Equal("/ˈrek.ɚd/", word.PhoneticUs);
+        var phraseMeaning = Assert.Single(
+            await _dbContext.VocabularyMeanings.Where(meaning => meaning.Meaning == "创纪录")
+                .ToListAsync(TestContext.Current.CancellationToken));
+        Assert.True(string.IsNullOrEmpty(phraseMeaning.PartOfSpeech));
+    }
+
     private VocabularyDomainService CreateService(IVocabularyMeaningRepository meaningRepository)
     {
         return new VocabularyDomainService(

@@ -596,6 +596,102 @@ public class VocabularyBatchImportEndpointTests :
         await AssertBookIsEmptyAsync(disabledBookId);
     }
 
+    // A phrase entry carries no phonetics and no part of speech: phonetics live
+    // on the spelling every book shares and the part of speech takes part in
+    // meaning matching. A violating phrase is reported per entry like every
+    // other entry error, and the batch writes nothing — not even the stored
+    // spelling's phonetics change.
+    [Fact]
+    public async Task PhraseWithPhoneticsOrPartOfSpeech_Returns400WithEntryErrorsAndWritesNothing()
+    {
+        var bookId = await CreateBookAsync();
+        var suffix = bookId[^8..];
+        var unitId = await CreateUnitAsync(bookId, 1);
+        using var client = CreateAdminClient();
+        var take = $"take{suffix}";
+        Assert.Equal(
+            (1, 1, 0),
+            Counts(await PostForDataAsync(
+                client,
+                Batch(bookId, Entry(take, "拿", phoneticUk: "/teɪk/", phoneticUs: "/teɪk-us/", partOfSpeech: "v.", unitId: unitId, entryKind: "word")))));
+
+        var response = await client.PostAsJsonAsync(
+            BatchPath,
+            Batch(
+                bookId,
+                Entry($"apple{suffix}", "苹果", phoneticUk: "/ˈæp.əl/", partOfSpeech: "n.", unitId: unitId, entryKind: "word"),
+                Entry(take, "取走", phoneticUk: "/other-uk/", unitId: unitId, entryKind: "phrase"),
+                Entry(take, "取走", phoneticUs: "/other-us/", unitId: unitId, entryKind: " phrase "),
+                Entry(take, "取走", partOfSpeech: "phr.", unitId: unitId, entryKind: "phrase"),
+                Entry($"blank{suffix}", "空白", phoneticUk: " ", phoneticUs: "", partOfSpeech: "\t", unitId: unitId, entryKind: "phrase"),
+                Entry($"cherry{suffix}", "樱桃", phoneticUs: "/ˈtʃer.i/", partOfSpeech: "n.", unitId: unitId)),
+            TestContext.Current.CancellationToken);
+
+        var envelope = await AssertFailureAsync(response, HttpStatusCode.BadRequest);
+        Assert.Equal("3 entries are invalid.", envelope.GetProperty("message").GetString());
+        var errors = envelope.GetProperty("errors").EnumerateArray().ToList();
+        Assert.Equal([1, 2, 3], errors.Select(error => error.GetProperty("index").GetInt32()));
+        Assert.Equal(
+            [
+                "Phrase entries must not include phoneticUk.",
+                "Phrase entries must not include phoneticUs.",
+                "Phrase entries must not include partOfSpeech."
+            ],
+            errors.Select(error => error.GetProperty("message").GetString()));
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var context = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+        var stored = await context.Vocabularies.SingleAsync(
+            word => word.Word == take,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(("/teɪk/", "/teɪk-us/"), (stored.PhoneticUk, stored.PhoneticUs));
+        Assert.Equal(1, await context.VocabularyMeanings.CountAsync(
+            meaning => meaning.BookId == bookId, TestContext.Current.CancellationToken));
+        Assert.Equal(1, await CountPositionsAsync(bookId));
+        await AssertWordAbsentAsync($"apple{suffix}");
+        await AssertWordAbsentAsync($"blank{suffix}");
+        await AssertWordAbsentAsync($"cherry{suffix}");
+    }
+
+    // A phrase without phonetics and part of speech shares the spelling of a
+    // word without touching the word's phonetics, and lands on a meaning with
+    // no part of speech.
+    [Fact]
+    public async Task PhraseSharingAWordsSpelling_LeavesTheWordsPhoneticsUnchanged()
+    {
+        var bookId = await CreateBookAsync();
+        var suffix = bookId[^8..];
+        var unitId = await CreateUnitAsync(bookId, 1);
+        using var client = CreateAdminClient();
+        var record = $"record{suffix}";
+
+        Assert.Equal(
+            (2, 2, 0),
+            Counts(await PostForDataAsync(
+                client,
+                Batch(
+                    bookId,
+                    Entry(record, "记录", phoneticUk: "/ˈrek.ɔːd/", phoneticUs: "/ˈrek.ɚd/", partOfSpeech: "n.", unitId: unitId, entryKind: "word"),
+                    Entry(record, "创纪录", example: "set a record", unitId: unitId, entryKind: "phrase")))));
+        Assert.Equal(
+            (1, 0, 1),
+            Counts(await PostForDataAsync(
+                client,
+                Batch(bookId, Entry(record, "创纪录", phoneticUk: " ", phoneticUs: "", partOfSpeech: " ", unitId: unitId, entryKind: "phrase")))));
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var context = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+        var stored = await context.Vocabularies.SingleAsync(
+            word => word.Word == record,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(("/ˈrek.ɔːd/", "/ˈrek.ɚd/"), (stored.PhoneticUk, stored.PhoneticUs));
+        var phraseMeaning = await context.VocabularyMeanings.SingleAsync(
+            meaning => meaning.BookId == bookId && meaning.Meaning == "创纪录",
+            TestContext.Current.CancellationToken);
+        Assert.True(string.IsNullOrEmpty(phraseMeaning.PartOfSpeech));
+        Assert.Equal(2, await CountPositionsAsync(bookId));
+    }
+
     private async Task<int> CountPositionsAsync(string bookId)
     {
         await using var scope = _factory.Services.CreateAsyncScope();
@@ -771,8 +867,9 @@ public class VocabularyBatchImportEndpointTests :
         string? example = null,
         string? unitId = null,
         string? section = null,
-        string? entryKind = null) =>
-        new { word, meaning, phoneticUk, partOfSpeech, example, unitId, section, entryKind };
+        string? entryKind = null,
+        string? phoneticUs = null) =>
+        new { word, meaning, phoneticUk, phoneticUs, partOfSpeech, example, unitId, section, entryKind };
 
     /// <summary>
     /// A valid one-entry batch padded with trailing whitespace, which JSON

@@ -34,7 +34,7 @@ Failures reach a caller in one of two shapes, depending on where they originate.
 - success: `{ "success": true, "data": value }` or `{ "success": true }`
 - failure: `{ "success": false, "message": "..." }`
 
-`POST /admin/vocabulary/batch` adds one field to its 400 answer for invalid entries: `errors`, a list of `{ "index": n, "message": "..." }` naming every invalid entry by its zero-based position. No other route returns `errors`. See [ADR-005](../adr/ADR-005-bulk-vocabulary-import.md).
+`POST /admin/vocabulary/batch` adds one field to its 400 answer for invalid entries: `errors`, a list of `{ "index": n, "message": "..." }` naming every invalid entry by its zero-based position. No other route returns `errors`. An entry whose `entryKind` is `phrase` and that carries a non-blank phonetic or part of speech is one such invalid entry, reported with `Phrase entries must not include phoneticUk.`, `Phrase entries must not include phoneticUs.`, or `Phrase entries must not include partOfSpeech.` for the first of those fields it carries. See [ADR-005](../adr/ADR-005-bulk-vocabulary-import.md).
 
 **Exception-generated failures** — an exception that escapes an endpoint and
 has not started writing the response — are answered by the ServiceMantle

@@ -71,6 +71,29 @@ const formatHints: Record<VocabularyFileFormat, { title: string; rules: string[]
     example: 'word | phonetic_uk | phonetic_us | part_of_speech | meaning | example | unit | section | entry_kind\napple | /ˈæp.əl/ | /ˈæp.əl/ | n. | 苹果 | I eat an apple. | 2 | A | word'
   }
 }
+/**
+ * The phrase mode's rules. A phrase has no phonetics and no part of speech
+ * (ADR-005), so the named formats list only the fields a phrase uses; TSV keeps
+ * the nine positions every file shares and says that columns 2-4 stay empty.
+ */
+const phraseRules: Record<VocabularyFileFormat, string[]> = {
+  tsv: [
+    '没有表头，每行一条，列之间用制表符（Tab）分隔',
+    '列的顺序与单词相同，固定为 9 列：第 1 列英文短语，第 2–4 列（英式音标、美式音标、词性）必须留空，第 5 列释义，可选的第 6 列例句、第 7 列单元编号、第 8 列分节（A/B）、第 9 列类别（phrase）',
+    '空行和 # 开头的行忽略'
+  ],
+  csv: [
+    '第一行为表头，可用的列名：word、meaning、example、unit、section、entry_kind',
+    '表头不区分大小写，顺序不限；word（英文短语）和 meaning 必填',
+    '只支持逗号分隔'
+  ],
+  json: [
+    '顶层是一个数组，每项是一个对象',
+    '字段名与 API 相同：word、meaning、example、unit、section、entryKind；word（英文短语）和 meaning 必填'
+  ],
+  xlsx: formatHints.xlsx.rules
+}
+const PHRASE_FIELDS_REASON = '短语不填写音标和词性'
 // A JSON row is numbered by its item in the array, not by a line.
 const positionLabels: Record<VocabularyInputFormat, string> = { tsv: '行号', csv: '行号', json: '序号' }
 
@@ -119,7 +142,9 @@ const selectedFormat = computed<VocabularyFileFormat>({
 const readingExcel = computed(() => excelFile.value !== undefined && excelFile.value.workbook === undefined)
 const formatHelp = computed(() => {
   const help = formatHints[selectedFormat.value]
-  if (mode.value === 'mixed') return help
+  if (mode.value === 'mixed') {
+    return { ...help, rules: [...help.rules, '类别为 phrase 的行不填写音标和词性，填写后该行无效'] }
+  }
   const word = mode.value === 'phrase' ? 'take off' : 'apple'
   const meaning = mode.value === 'phrase' ? '起飞' : '苹果'
   const examples: Record<VocabularyFileFormat, string> = {
@@ -128,7 +153,8 @@ const formatHelp = computed(() => {
     json: JSON.stringify([{ word, meaning }], null, 2),
     xlsx: `word | meaning\n${word} | ${meaning}`
   }
-  return { ...help, example: examples[selectedFormat.value] }
+  const rules = mode.value === 'phrase' ? phraseRules[selectedFormat.value] : help.rules
+  return { ...help, rules, example: examples[selectedFormat.value] }
 })
 const sheetNotice = computed(() => excelFile.value?.workbook?.notice)
 
@@ -169,6 +195,8 @@ function resolveAssignment(columns: string[]) {
   else if (rawKind && rawKind !== 'word' && rawKind !== 'phrase') reason = `类别应为 word 或 phrase：${rawKind}`
   else if (mode.value !== 'mixed' && rawKind && rawKind !== mode.value) reason = `文件类别 ${rawKind} 与当前模式不一致，请切换混合词汇模式`
   else if (entryKind && !hasUnit) reason = '有类别但未填写单元；统一模式可选择默认单元'
+  // The server rejects the same rows (ADR-005); columns 2-4 are the phonetics and part of speech.
+  else if (entryKind === 'phrase' && columns.slice(1, 4).some(value => (value ?? '').trim() !== '')) reason = PHRASE_FIELDS_REASON
   const unitText = unit === undefined ? rawUnit : unit.title ? `${unit.number} · ${unit.title}` : String(unit.number)
   return { unit, unitUnknown, unitText, unitFromDefault, section: rawSection || undefined, entryKind, kindFromDefault, reason }
 }
