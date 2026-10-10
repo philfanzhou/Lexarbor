@@ -993,8 +993,9 @@ public class VocabularyBatchImportEndpointTests :
             string bookId,
             string excludeVocabularyId,
             string excludeMeaning,
-            int count) =>
-            inner.GetRandomDistinctVocabularyExceptAsync(bookId, excludeVocabularyId, excludeMeaning, count);
+            int count,
+            VocabularyDistractorScope? scope = null) =>
+            inner.GetRandomDistinctVocabularyExceptAsync(bookId, excludeVocabularyId, excludeMeaning, count, scope);
         public Task UpdateAsync(VocabularyMeaningModel model) => inner.UpdateAsync(model);
         public Task DeleteAsync(string id) => inner.DeleteAsync(id);
         public Task DeleteByVocabularyIdAsync(string vocabularyId) => inner.DeleteByVocabularyIdAsync(vocabularyId);

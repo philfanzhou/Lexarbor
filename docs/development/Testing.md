@@ -94,6 +94,10 @@ checks them in real container logs while retaining health, non-root, and persist
 | Update with a non-existent ID | Returns NotFound and creates no new object |
 | Meaning ownership mismatch | Returns Conflict |
 | Question generation | Distractors come only from the same book, deduplicated by word |
+| Question scope: named meaning | Asks that meaning in both directions; a meaning of another word or another book answers 404 |
+| Question scope: unit distractors | Distractors come only from that unit; too few unit candidates answers 422; a missing unit and another book's unit both answer 404 |
+| Question scope: same entry kind | A phrase target draws only phrases and a word target excludes every phrase; unclassified is a word; one phrase position in scope is a phrase |
+| Question scope: query paths | The unit and kind filters hold the invariants on the random window, the wrap-around, and the exhaustive fallback |
 | Too few question candidates | Returns BusinessRuleException, which HTTP maps to 422 |
 | Batch import into an empty book, then resubmitted | Creates every entry, then reuses every entry; the counts say so |
 | Equivalent entries within one batch | Store one word and one meaning |

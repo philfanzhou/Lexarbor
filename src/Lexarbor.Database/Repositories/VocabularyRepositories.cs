@@ -209,10 +209,13 @@ public class VocabularyRepository : IVocabularyRepository
         string excludeVocabularyId,
         string excludeWord,
         string excludeEquivalentMeaning,
-        int count)
+        int count,
+        VocabularyDistractorScope? scope = null)
     {
         var normalizedExcludeWord = excludeWord.Trim().ToLowerInvariant();
         var normalizedExcludeMeaning = excludeEquivalentMeaning.Trim().ToLowerInvariant();
+        var unitId = scope?.UnitId;
+        var phraseOnly = scope?.PhraseOnly;
 
         var window = await ReadCandidateWindowAsync(
             bookId,
@@ -220,7 +223,9 @@ public class VocabularyRepository : IVocabularyRepository
             normalizedExcludeWord,
             normalizedExcludeMeaning,
             RandomCandidateWindow.NewProbe(),
-            RandomCandidateWindow.SizeFor(count));
+            RandomCandidateWindow.SizeFor(count),
+            unitId,
+            phraseOnly);
         if (window.Count < count)
         {
             // The probe landed near the end of the id space. Wrapping to the
@@ -234,7 +239,9 @@ public class VocabularyRepository : IVocabularyRepository
                     normalizedExcludeWord,
                     normalizedExcludeMeaning,
                     string.Empty,
-                    RandomCandidateWindow.SizeFor(count)),
+                    RandomCandidateWindow.SizeFor(count),
+                    unitId,
+                    phraseOnly),
                 entity => entity.Id);
         }
 
@@ -269,6 +276,26 @@ public class VocabularyRepository : IVocabularyRepository
                         AND synonym.book_id = {bookId}
                         AND lower(trim(synonym.meaning)) = {normalizedExcludeMeaning}
                   )
+                  AND ({unitId} IS NULL OR EXISTS (
+                      SELECT 1
+                      FROM vocabulary_meaning AS scoped_meaning
+                      INNER JOIN vocabulary_meaning_unit AS scoped_unit
+                          ON scoped_unit.meaning_id = scoped_meaning.id
+                      WHERE scoped_meaning.book_id = {bookId}
+                        AND scoped_meaning.vocabulary_id = v.id
+                        AND scoped_unit.unit_id = {unitId}
+                  ))
+                  AND ({phraseOnly} IS NULL OR EXISTS (
+                      SELECT 1
+                      FROM vocabulary_meaning AS scoped_meaning
+                      INNER JOIN vocabulary_meaning_unit AS scoped_unit
+                          ON scoped_unit.meaning_id = scoped_meaning.id
+                      WHERE scoped_meaning.book_id = {bookId}
+                        AND scoped_meaning.vocabulary_id = v.id
+                        AND ({unitId} IS NOT NULL AND scoped_unit.unit_id = {unitId}
+                             OR {unitId} IS NULL)
+                        AND scoped_unit.entry_kind = 'phrase'
+                  ) = ({phraseOnly} = 1))
                 GROUP BY lower(trim(v.word))
                 ORDER BY random()
                 LIMIT {count}
@@ -284,13 +311,30 @@ public class VocabularyRepository : IVocabularyRepository
     /// id order. The filtering is identical to the exhaustive query above; only
     /// the amount of the book it touches differs.
     /// </summary>
+    /// <param name="unitId">
+    /// With <paramref name="phraseOnly"/>, the two switch parameters of the
+    /// distractor scope. Both null — the request named no scope — leaves every
+    /// added condition vacuously true, so the query answers exactly what it did
+    /// before the scope existed. They are bound as one constant SQL text rather
+    /// than spliced, so the six distractor query shapes stay six and the scope
+    /// cannot change the shape it rides on.
+    /// </param>
+    /// <param name="phraseOnly">
+    /// The entry-kind filter of the scope. Its subquery reads the candidate
+    /// word's kind from the same scope the unit filter names — that unit, or
+    /// the whole book when no unit was named — and one phrase position there
+    /// makes the word a phrase. The comparison against the parameter keeps
+    /// phrase words when it is 1 and drops them when it is 0.
+    /// </param>
     private Task<List<VocabularyEntity>> ReadCandidateWindowAsync(
         string bookId,
         string excludeVocabularyId,
         string normalizedExcludeWord,
         string normalizedExcludeMeaning,
         string probe,
-        int limit)
+        int limit,
+        string? unitId = null,
+        bool? phraseOnly = null)
     {
         return _context.Vocabularies
             .FromSqlInterpolated($"""
@@ -309,6 +353,26 @@ public class VocabularyRepository : IVocabularyRepository
                                 AND synonym.book_id = {bookId}
                                 AND lower(trim(synonym.meaning)) = {normalizedExcludeMeaning}
                           )
+                          AND ({unitId} IS NULL OR EXISTS (
+                              SELECT 1
+                              FROM vocabulary_meaning AS scoped_meaning
+                              INNER JOIN vocabulary_meaning_unit AS scoped_unit
+                                  ON scoped_unit.meaning_id = scoped_meaning.id
+                              WHERE scoped_meaning.book_id = {bookId}
+                                AND scoped_meaning.vocabulary_id = m.vocabulary_id
+                                AND scoped_unit.unit_id = {unitId}
+                          ))
+                          AND ({phraseOnly} IS NULL OR EXISTS (
+                              SELECT 1
+                              FROM vocabulary_meaning AS scoped_meaning
+                              INNER JOIN vocabulary_meaning_unit AS scoped_unit
+                                  ON scoped_unit.meaning_id = scoped_meaning.id
+                              WHERE scoped_meaning.book_id = {bookId}
+                                AND scoped_meaning.vocabulary_id = m.vocabulary_id
+                                AND ({unitId} IS NOT NULL AND scoped_unit.unit_id = {unitId}
+                                     OR {unitId} IS NULL)
+                                AND scoped_unit.entry_kind = 'phrase'
+                          ) = ({phraseOnly} = 1))
                         GROUP BY m.vocabulary_id
                         ORDER BY m.vocabulary_id
                         LIMIT {limit}
@@ -573,16 +637,21 @@ public class VocabularyMeaningRepository : IVocabularyMeaningRepository
         string bookId,
         string excludeVocabularyId,
         string excludeMeaning,
-        int count)
+        int count,
+        VocabularyDistractorScope? scope = null)
     {
         var normalizedExcludeMeaning = excludeMeaning.Trim().ToLowerInvariant();
+        var unitId = scope?.UnitId;
+        var phraseOnly = scope?.PhraseOnly;
 
         var window = await ReadCandidateWindowAsync(
             bookId,
             excludeVocabularyId,
             normalizedExcludeMeaning,
             RandomCandidateWindow.NewProbe(),
-            RandomCandidateWindow.SizeFor(count));
+            RandomCandidateWindow.SizeFor(count),
+            unitId,
+            phraseOnly);
         if (CountDistinctVocabulary(window) < count)
         {
             window = RandomCandidateWindow.Merge(
@@ -592,7 +661,9 @@ public class VocabularyMeaningRepository : IVocabularyMeaningRepository
                     excludeVocabularyId,
                     normalizedExcludeMeaning,
                     string.Empty,
-                    RandomCandidateWindow.SizeFor(count)),
+                    RandomCandidateWindow.SizeFor(count),
+                    unitId,
+                    phraseOnly),
                 meaning => meaning.Id);
         }
 
@@ -616,6 +687,20 @@ public class VocabularyMeaningRepository : IVocabularyMeaningRepository
                     WHERE m.book_id = {bookId}
                       AND m.vocabulary_id <> {excludeVocabularyId}
                       AND lower(trim(m.meaning)) <> {normalizedExcludeMeaning}
+                      AND ({unitId} IS NULL OR EXISTS (
+                          SELECT 1
+                          FROM vocabulary_meaning_unit AS scoped_unit
+                          WHERE scoped_unit.meaning_id = m.id
+                            AND scoped_unit.unit_id = {unitId}
+                      ))
+                      AND ({phraseOnly} IS NULL OR EXISTS (
+                          SELECT 1
+                          FROM vocabulary_meaning_unit AS scoped_unit
+                          WHERE scoped_unit.meaning_id = m.id
+                            AND ({unitId} IS NOT NULL AND scoped_unit.unit_id = {unitId}
+                                 OR {unitId} IS NULL)
+                            AND scoped_unit.entry_kind = 'phrase'
+                      ) = ({phraseOnly} = 1))
                 ),
                 distinct_meaning AS (
                     SELECT
@@ -652,12 +737,26 @@ public class VocabularyMeaningRepository : IVocabularyMeaningRepository
     /// Reads every definition of the words in one window of the book. The window
     /// is bounded, so this is a handful of rows rather than the whole book.
     /// </summary>
+    /// <param name="unitId">
+    /// With <paramref name="phraseOnly"/>, the two switch parameters of the
+    /// distractor scope, spelled the same way the word direction spells them:
+    /// both null leaves the added conditions vacuously true, and the constant
+    /// SQL text means the scope narrows this query without reshaping it.
+    /// </param>
+    /// <param name="phraseOnly">
+    /// The entry-kind filter of the scope. The candidates of this direction are
+    /// meanings, so the kind is read straight off each candidate's own
+    /// positions — scoped to the unit when one was named, to the meaning's book
+    /// otherwise, which the membership's foreign keys already confine it to.
+    /// </param>
     private Task<List<VocabularyMeaningEntity>> ReadCandidateWindowAsync(
         string bookId,
         string excludeVocabularyId,
         string normalizedExcludeMeaning,
         string probe,
-        int limit)
+        int limit,
+        string? unitId = null,
+        bool? phraseOnly = null)
     {
         return _context.VocabularyMeanings
             .FromSqlInterpolated($"""
@@ -670,11 +769,39 @@ public class VocabularyMeaningRepository : IVocabularyMeaningRepository
                         WHERE candidate.book_id = {bookId}
                           AND candidate.vocabulary_id >= {probe}
                           AND candidate.vocabulary_id <> {excludeVocabularyId}
+                          AND ({unitId} IS NULL OR EXISTS (
+                              SELECT 1
+                              FROM vocabulary_meaning_unit AS scoped_unit
+                              WHERE scoped_unit.meaning_id = candidate.id
+                                AND scoped_unit.unit_id = {unitId}
+                          ))
+                          AND ({phraseOnly} IS NULL OR EXISTS (
+                              SELECT 1
+                              FROM vocabulary_meaning_unit AS scoped_unit
+                              WHERE scoped_unit.meaning_id = candidate.id
+                                AND ({unitId} IS NOT NULL AND scoped_unit.unit_id = {unitId}
+                                     OR {unitId} IS NULL)
+                                AND scoped_unit.entry_kind = 'phrase'
+                          ) = ({phraseOnly} = 1))
                         GROUP BY candidate.vocabulary_id
                         ORDER BY candidate.vocabulary_id
                         LIMIT {limit}
                     )
                   AND lower(trim(m.meaning)) <> {normalizedExcludeMeaning}
+                  AND ({unitId} IS NULL OR EXISTS (
+                      SELECT 1
+                      FROM vocabulary_meaning_unit AS scoped_unit
+                      WHERE scoped_unit.meaning_id = m.id
+                        AND scoped_unit.unit_id = {unitId}
+                  ))
+                  AND ({phraseOnly} IS NULL OR EXISTS (
+                      SELECT 1
+                      FROM vocabulary_meaning_unit AS scoped_unit
+                      WHERE scoped_unit.meaning_id = m.id
+                        AND ({unitId} IS NOT NULL AND scoped_unit.unit_id = {unitId}
+                             OR {unitId} IS NULL)
+                        AND scoped_unit.entry_kind = 'phrase'
+                  ) = ({phraseOnly} = 1))
                 """)
             .AsNoTracking()
             .ToListAsync();

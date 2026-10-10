@@ -4,6 +4,28 @@ using Lexarbor.Domain.Models;
 
 namespace Lexarbor.Domain.Repositories;
 
+/// <summary>
+/// The unit and entry-kind narrowing a question's distractor queries can be
+/// asked to apply. A null <see cref="UnitId"/> means distractors come from the
+/// whole book; a null <see cref="PhraseOnly"/> means the entry kind is not
+/// filtered at all.
+/// </summary>
+/// <param name="unitId">
+/// Only candidates assigned to this unit of the book. A word qualifies in the
+/// Chinese-to-English direction when any of its meanings in the book holds a
+/// position of the unit; a meaning qualifies in the English-to-Chinese
+/// direction when it holds a position of the unit itself.
+/// </param>
+/// <param name="phraseOnly">
+/// How the entry-kind filter selects candidates. The kind of a candidate is
+/// read from the same scope the unit filter would use — the unit when
+/// <see cref="UnitId"/> names one, the whole book otherwise — and a candidate
+/// that holds one <c>phrase</c> position there is a phrase. True keeps only
+/// phrase candidates, false keeps only word candidates (unclassified ones
+/// included), null keeps both.
+/// </param>
+public sealed record VocabularyDistractorScope(string? UnitId, bool? PhraseOnly);
+
 public interface IVocabularyRepository
 {
     Task<VocabularyModel?> GetByIdAsync(string id);
@@ -23,7 +45,8 @@ public interface IVocabularyRepository
         string excludeVocabularyId,
         string excludeWord,
         string excludeEquivalentMeaning,
-        int count);
+        int count,
+        VocabularyDistractorScope? scope = null);
 }
 
 public interface IVocabularyBookRepository
@@ -59,7 +82,8 @@ public interface IVocabularyMeaningRepository
         string bookId,
         string excludeVocabularyId,
         string excludeMeaning,
-        int count);
+        int count,
+        VocabularyDistractorScope? scope = null);
     Task AddAsync(VocabularyMeaningModel model);
     Task UpdateAsync(VocabularyMeaningModel model);
     Task DeleteAsync(string id);

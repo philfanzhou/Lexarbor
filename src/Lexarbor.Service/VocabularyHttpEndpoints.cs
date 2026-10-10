@@ -258,16 +258,29 @@ public static partial class VocabularyHttpEndpoints
 
         var chineseToEnglish =
             request.ChineseToEnglish ?? Random.Shared.Next(2) == 0;
+        // Blank optional identifiers count as absent, so a caller cannot ask
+        // for the meaning or unit named "".
         var question = await vocabularyService.CreateQuestionAsync(
             request.WordId,
             request.BookId,
-            chineseToEnglish);
+            chineseToEnglish,
+            string.IsNullOrWhiteSpace(request.MeaningId) ? null : request.MeaningId.Trim(),
+            string.IsNullOrWhiteSpace(request.UnitId) ? null : request.UnitId.Trim(),
+            request.SameEntryKind == true);
 
-        var response = new QuestionResponse { Word = question.Word };
+        var response = new QuestionResponse
+        {
+            Word = question.Word,
+            WordId = question.WordId,
+            MeaningId = question.MeaningId,
+            ChineseToEnglish = question.ChineseToEnglish
+        };
         response.Options.AddRange(question.Options.Select(option => new OptionDto
         {
             Meaning = option.Text,
-            IsCorrect = option.IsCorrect
+            IsCorrect = option.IsCorrect,
+            WordId = option.WordId,
+            MeaningId = option.MeaningId
         }));
         return VocabularyHttpResponse.Ok(response);
     }

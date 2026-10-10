@@ -704,8 +704,9 @@ public class VocabularyBatchImportTests : TestBase
             string bookId,
             string excludeVocabularyId,
             string excludeMeaning,
-            int count) =>
-            inner.GetRandomDistinctVocabularyExceptAsync(bookId, excludeVocabularyId, excludeMeaning, count);
+            int count,
+            VocabularyDistractorScope? scope = null) =>
+            inner.GetRandomDistinctVocabularyExceptAsync(bookId, excludeVocabularyId, excludeMeaning, count, scope);
         public Task AddAsync(VocabularyMeaningModel model) => inner.AddAsync(model);
         public Task UpdateAsync(VocabularyMeaningModel model) => inner.UpdateAsync(model);
         public Task DeleteAsync(string id) => inner.DeleteAsync(id);

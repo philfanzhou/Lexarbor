@@ -231,23 +231,66 @@ public class SearchRequest
     public int Size { get; set; }
 }
 
+/// <summary>
+/// Body of <c>POST /api/vocabulary/question</c>. The three optional fields can
+/// each be sent on its own; leaving all of them out keeps the behaviour the
+/// endpoint always had.
+/// </summary>
 public class GetQuestionRequest
 {
     public string WordId { get; set; } = string.Empty;
     public string BookId { get; set; } = string.Empty;
     public bool? ChineseToEnglish { get; set; }
+
+    /// <summary>
+    /// The meaning the question is about. Must be one of the word's meanings in
+    /// the book; anything else answers 404. Omitted, the meaning is drawn at
+    /// random as before.
+    /// </summary>
+    public string? MeaningId { get; set; }
+
+    /// <summary>
+    /// Draws the distractors only from candidates assigned to this unit of the
+    /// book. A missing unit, or one of another book, answers 404; a unit with
+    /// too few candidates answers 422 rather than falling back to the book.
+    /// </summary>
+    public string? UnitId { get; set; }
+
+    /// <summary>
+    /// Draws the distractors only from candidates of the asked meaning's own
+    /// entry kind. Omitted — or false — mixes kinds as before.
+    /// </summary>
+    public bool? SameEntryKind { get; set; }
 }
 
+/// <summary>
+/// One generated question. The ids let a server-side caller record which word
+/// and meaning was asked and which word the learner chose, and
+/// <c>chineseToEnglish</c> reports the direction that was actually drawn when
+/// the request left it to the server.
+/// </summary>
 public class QuestionResponse
 {
     public string Word { get; set; } = string.Empty;
+    public string WordId { get; set; } = string.Empty;
+    public string MeaningId { get; set; } = string.Empty;
+    public bool ChineseToEnglish { get; set; }
     public List<OptionDto> Options { get; set; } = new();
 }
 
+/// <summary>
+/// One option of a question. <c>wordId</c> and <c>meaningId</c> name what the
+/// option was taken from: an English-to-Chinese option is one meaning of one
+/// word and carries both, while a Chinese-to-English option is a word whose
+/// distractor rows carry no single meaning, so their <c>meaningId</c> is null
+/// and only the correct one names the asked meaning.
+/// </summary>
 public class OptionDto
 {
     public string Meaning { get; set; } = string.Empty;
     public bool IsCorrect { get; set; }
+    public string WordId { get; set; } = string.Empty;
+    public string? MeaningId { get; set; }
 }
 
 public class SearchBookRequest
