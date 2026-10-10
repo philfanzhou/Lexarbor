@@ -156,6 +156,7 @@ The following endpoints are anonymously accessible:
 GET  /api/vocabulary/{wordId}
 GET  /api/vocabulary
 POST /api/vocabulary/question
+POST /api/vocabulary/questions
 GET  /api/vocabulary-books/all
 GET  /api/vocabulary-books/{bookId}/units
 GET  /api/vocabulary-books/{bookId}/entries?unitId&page&size
@@ -167,6 +168,11 @@ of a book or unit without administrator credentials. No administrator cookie
 or new service-to-service authentication is introduced for them here. Should
 service-to-service authentication be needed later, the real callers should be
 confirmed first and a separate credential designed.
+
+`POST /api/vocabulary/questions` is the batch form of the single question
+route, described with the rest of question generation in §10; it is anonymous
+like every route in this group and costs one request of the same `PublicApi`
+rate-limit budget however many questions it carries.
 
 ### 6.2 Administration endpoints
 
@@ -337,6 +343,8 @@ Each entry may carry an optional `unitId` naming an existing unit of the same bo
 
 The response keeps `word` and `options[].meaning` / `options[].isCorrect` with their meanings unchanged and adds: top-level `wordId`, `meaningId` (the meaning actually asked) and `chineseToEnglish` (the direction actually drawn when the request left it to the server); and `wordId` / `meaningId` on every option. An English-to-Chinese option is one meaning of one word and carries both ids; a Chinese-to-English option is a word, and only its correct one names the asked meaning — the distractor words carry `meaningId: null`, because no single meaning of such a word stands for the option. The endpoint stays anonymous and still returns `isCorrect`; a caller who quizzes a learner through it must call it server-side and keep the answer there, which is the arrangement the consuming trainer already requires.
 
+`POST /api/vocabulary/questions` asks up to 50 of those questions in one round trip: `{ "items": [ <single-question request>, ... ] }`, every item normalized and answered exactly as `POST /api/vocabulary/question` answers the same request — the same direction draw, the same blank-identifier handling, the same 404 and 422 conditions, through the same domain method. One item's failure never fails the batch: whenever the body itself is acceptable the batch answers 200 with `{ "results": [ { "index", "question" } | { "index", "error": { "status", "message" } } ] }`, one row per item in request order, where an item that misses `wordId` or `bookId` reports the 400 message the single endpoint's own envelope carries and a 404 or 422 item reports the status and message the single endpoint's exception mapping answers the same request with — so a caller retries a failed item exactly as it would retry a single request. The body is read by the endpoint itself, like a batch import, and carries the same 1 MiB ceiling: over it 413, a body that is not JSON 400, an empty `items` array or more than 50 items 400. The items run one after another — SQLite serves one connection — and a cancelled request stops before the next item rather than answering items nobody will read. One batch is one request of the `PublicApi` rate limit, whatever its item count, which is the point: a study session that would otherwise spend dozens of anonymous requests and their quota spends one. Nothing else is promised — the distractors of two items in one batch may repeat each other, each item reads its own snapshot, and the options still carry `isCorrect`, so the server-side-and-keep-the-answer arrangement of the single endpoint applies to the batch unchanged.
+
 The rules of generation:
 
 1. The target book must exist and be enabled.
@@ -395,7 +403,7 @@ Status code conventions:
 | 403 | Authenticated but not an administrator |
 | 404 | The word, meaning, or book does not exist |
 | 409 | A unique constraint, a related deletion, or another data conflict |
-| 413 | A request body over the route's size limit, such as a batch import over 1 MiB |
+| 413 | A request body over the route's size limit, such as a batch import or question batch over 1 MiB |
 | 422 | A business precondition such as a disabled book or too few question candidates |
 | 500 | An unexpected exception |
 | 502 | Identity is unreachable or returned an invalid response |

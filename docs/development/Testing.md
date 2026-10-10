@@ -155,6 +155,8 @@ checks them in real container logs while retaining health, non-root, and persist
 | Unexpected exception | 500 with the generic message, leaking no internal exception |
 | Batch import, every row of the ADR-005 model | The documented status, envelope, and `errors`, with the database unchanged on every rejection |
 | Batch import body over 1 MiB | 413 envelope on a Kestrel-hosted factory, with `Content-Length` and chunked; TestServer does not enforce the limit |
+| Batch question generation | Mixed valid, blank-field, 404, and 422 items answer 200 with one per-item result in request order, each error carrying the status and message the single endpoint answers the same request with |
+| Batch question body ceilings | An empty or missing `items` array and more than 50 items answer 400; a body that is not JSON answers 400; a body over 1 MiB answers 413 on a Kestrel-hosted factory, with the at-limit body still answering per item |
 
 ### Rate limiting
 
@@ -163,6 +165,7 @@ checks them in real container logs while retaining health, non-root, and persist
 | Login beyond the permit limit | 429 Problem Details with fixed title/code, correlation id and positive `Retry-After` |
 | One address exhausts the login limit | Another address is still admitted |
 | Public `/api/*` beyond the permit limit | 429, unknown `/api/*` routes included |
+| A question batch | One request of the `PublicApi` budget however many items it carries; two fifty-item batches still fit a two-permit window |
 | Administration endpoints | Never rate limited |
 | `X-Forwarded-For` with no trusted proxy | Ignored, so a caller cannot mint its own partition |
 | `X-Forwarded-For` from a trusted proxy | Partitions on the real client address |
@@ -303,6 +306,10 @@ The 20,000-word fixture captures actual EF SQL and EXPLAIN output in test output
 ## Public book browsing verification
 
 `PublicBookBrowseEndpointTests` covers the two anonymous browse routes against real SQLite: the unit list comes back ordered by unit number with per-distinct-meaning and per-distinct-word counts that match the administration unit-content route (a meaning holding Section A under both entry kinds, or Section B and no section, counts once), a book without units answers an empty array, and the entries route's total order — smallest place in scope by unit number then Section A/B/none, then normalized spelling and ids, unplaced meanings last — is verified by walking a multi-page traversal of cross-unit, cross-section, and same-spelling-polysemy data and matching the concatenation against the unpaginated order with no overlap or gap. Whole-book scope includes an unassigned meaning with empty `positions` last; unit scope lists only that unit's meanings and only its places; empty-string section and entry-kind sentinels serialize as null; `normalizedWord` and `meaningKey` fold case and trim the ends while `word` and `meaning` stay as stored. Failures answer through the shared mapping: missing book 404, disabled book 422 on both routes, a unit of another book the same 404 as a missing one, invalid paging 400, defaults 1/20. `PublicApiCompatibilityTests` pins the anonymous access and envelope shape of both routes, and `RateLimitingTests` pins that they draw on the shared `PublicApi` budget.
+
+## Batch question generation verification
+
+`VocabularyQuestionBatchEndpointTests` covers `POST /api/vocabulary/questions`: a five-item batch mixing a scoped valid item, a blank-field item, a 404 item, an unscoped valid item, and a disabled-book item answers 200 with five results whose `index` rows follow the request order, and each failing item's `error.status` and `error.message` are compared against the single endpoint's live response to the very same request body — the envelope message for the 400, the Problem Details title for the 404 and 422 — so the per-item contract cannot drift from the single one. The ceilings answer through the envelope: an empty or missing `items` array and a 51st item answer 400 while exactly 50 items answer 200 with 50 ordered results, a body that is not JSON answers 400, and a padded body over 1 MiB answers 413 on a Kestrel-hosted factory with both `Content-Length` and chunked transfer, with the at-limit body still answering per item. A gated book repository holds the first item's database read, the request is then cancelled and the gate released: the caller observes the cancellation and the counter shows the two remaining items never started. `PublicApiCompatibilityTests` pins the route's anonymous access and envelope shape, and `RateLimitingTests` pins that one batch costs one `PublicApi` request however many items it carries.
 
 ## Scoped cleanup verification
 
