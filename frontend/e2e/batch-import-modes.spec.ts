@@ -405,3 +405,88 @@ test('a slow file read blocks writes and cannot replace the file selected after 
   // Polled for the same reason as the mixed-mode tests above.
   await expect.poll(() => payloads).toEqual([{ bookId: 'book-a', entries: [{ word: 'new file', meaning: 'new', unitId: 'unit-2', entryKind: 'phrase' }] }])
 })
+
+// A phrase has no phonetics and no part of speech (ADR-005): the server
+// rejects such entries, so the preview stops them first, in every format.
+type FieldRow = { word: string; phoneticUk?: string; phoneticUs?: string; partOfSpeech?: string; meaning: string; unit?: string; entryKind?: string }
+async function inputWithFields(page: Page, format: Format, data: FieldRow[]) {
+  const header = ['word', 'phonetic_uk', 'phonetic_us', 'part_of_speech', 'meaning', 'unit', 'entry_kind']
+  const cells = data.map(row => [row.word, row.phoneticUk ?? '', row.phoneticUs ?? '', row.partOfSpeech ?? '', row.meaning, row.unit ?? '', row.entryKind ?? ''])
+  if (format === 'xlsx') {
+    await page.locator('.batch-file-input').setInputFiles({ name: 'vocabulary.xlsx', mimeType: 'application/octet-stream', buffer: Buffer.from(simpleWorkbook(header, cells)) })
+  } else {
+    const text = format === 'json' ? JSON.stringify(data) : format === 'tsv'
+      ? data.map(row => [row.word, row.phoneticUk ?? '', row.phoneticUs ?? '', row.partOfSpeech ?? '', row.meaning, '', row.unit ?? '', '', row.entryKind ?? ''].join('\t')).join('\n')
+      : [header.join(','), ...cells.map(row => row.join(','))].join('\n')
+    await page.locator('.batch-file-input').setInputFiles({ name: `vocabulary.${format}`, mimeType: 'text/plain', buffer: Buffer.from(text) })
+  }
+  await expect(preview(page)).toHaveCount(data.length)
+}
+const phraseFieldsReason = '短语不填写音标和词性'
+const formatTitles: Record<Format, string> = { tsv: 'TSV：制表符分隔', csv: 'CSV：逗号分隔', json: 'JSON：对象数组', xlsx: 'Excel：.xlsx 工作簿' }
+const formatHelp = (page: Page) => page.locator('.batch-help')
+
+for (const format of ['tsv', 'csv', 'json', 'xlsx'] as const) {
+  test(`${format}: phrase mode documents only phrase fields and blocks phrase rows with phonetics or part of speech`, async ({ page }) => {
+    let posts = 0
+    await page.route('**/admin/vocabulary/batch', route => { posts++; return json(route, {}) })
+    await setup(page, '/import/batch/phrases')
+    await pick(page, '.batch-book-select', 'Book A')
+    await pick(page, '.batch-default-unit', '第 2 单元 Two')
+    await inputWithFields(page, format, [
+      { word: 'take off', meaning: 'leave' },
+      { word: 'take off', phoneticUk: '/teɪk ɒf/', meaning: 'leave' },
+      { word: 'take off', phoneticUs: '/teɪk ɔːf/', meaning: 'leave' },
+      { word: 'take off', partOfSpeech: 'phr.', meaning: 'leave' },
+      { word: 'take off', partOfSpeech: 'v.', meaning: 'leave', unit: '5', entryKind: 'phrase' }
+    ])
+    await expect(formatHelp(page).locator('.batch-help__title').first()).toHaveText(formatTitles[format])
+    const rules = formatHelp(page).locator('.batch-help__list').first()
+    const example = formatHelp(page).locator('.batch-help__example')
+    for (const field of ['phonetic_uk', 'phonetic_us', 'part_of_speech', 'phoneticUk', 'phoneticUs', 'partOfSpeech']) {
+      await expect(rules).not.toContainText(field)
+      await expect(example).not.toContainText(field)
+    }
+    if (format === 'tsv') {
+      await expect(rules).toContainText('第 2–4 列（英式音标、美式音标、词性）必须留空')
+      await expect(example).toHaveText('take off\t\t\t\t起飞')
+      await expect(page.getByRole('textbox', { name: '导入数据' })).toHaveAttribute('placeholder', 'take off\t\t\t\t起飞')
+    } else {
+      await expect(rules).not.toContainText('音标')
+      await expect(rules).not.toContainText('词性')
+      await expect(rules).toContainText(format === 'json' ? 'word、meaning、example、unit、section、entryKind' : format === 'xlsx' ? '列名和规则与 CSV 相同' : 'word、meaning、example、unit、section、entry_kind')
+    }
+    await expect(preview(page).nth(0)).not.toContainText(phraseFieldsReason)
+    for (const index of [1, 2, 3, 4]) await expect(preview(page).nth(index)).toContainText(phraseFieldsReason)
+    await expect(page.locator('.batch-summary')).toContainText('无效 4 条')
+    await expect(submit(page)).toBeDisabled()
+    await submit(page).click({ force: true })
+    expect(posts).toBe(0)
+  })
+
+  test(`${format}: mixed mode blocks only phrase rows with phonetics or part of speech`, async ({ page }) => {
+    const payloads: unknown[] = []
+    await page.route('**/admin/vocabulary/batch', route => { payloads.push(route.request().postDataJSON()); return json(route, { success: true, data: { total: 3, created: 3, reused: 0 } }) })
+    await setup(page)
+    await pick(page, '.batch-book-select', 'Book A')
+    const word: FieldRow = { word: 'apple', phoneticUk: '/ˈæp.əl/', phoneticUs: '/ˈæp.əl/', partOfSpeech: 'n.', meaning: 'fruit', unit: '2', entryKind: 'word' }
+    const unclassified: FieldRow = { word: 'banana', phoneticUs: '/bəˈnæn.ə/', partOfSpeech: 'n.', meaning: 'fruit' }
+    const phrase: FieldRow = { word: 'take off', meaning: 'leave', unit: '5', entryKind: 'phrase' }
+    await inputWithFields(page, format, [word, { ...phrase, phoneticUk: '/teɪk/' }, unclassified, { ...phrase, partOfSpeech: 'phr.' }, phrase])
+    await expect(formatHelp(page).locator('.batch-help__list').first()).toContainText('类别为 phrase 的行不填写音标和词性')
+    for (const index of [0, 2, 4]) await expect(preview(page).nth(index)).not.toContainText(phraseFieldsReason)
+    for (const index of [1, 3]) await expect(preview(page).nth(index)).toContainText(phraseFieldsReason)
+    await expect(submit(page)).toBeDisabled()
+    await submit(page).click({ force: true })
+    expect(payloads).toHaveLength(0)
+
+    await inputWithFields(page, format, [word, unclassified, phrase])
+    await expect(submit(page)).toBeEnabled()
+    await submit(page).click()
+    await expect.poll(() => payloads).toEqual([{ bookId: 'book-a', entries: [
+      { word: 'apple', phoneticUk: '/ˈæp.əl/', phoneticUs: '/ˈæp.əl/', partOfSpeech: 'n.', meaning: 'fruit', unitId: 'unit-2', entryKind: 'word' },
+      { word: 'banana', phoneticUs: '/bəˈnæn.ə/', partOfSpeech: 'n.', meaning: 'fruit' },
+      { word: 'take off', meaning: 'leave', unitId: 'unit-5', entryKind: 'phrase' }
+    ] }])
+  })
+}

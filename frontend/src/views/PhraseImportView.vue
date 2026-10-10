@@ -18,10 +18,7 @@ const unitsLoading = ref(false)
 const submitting = ref(false)
 const error = ref('')
 const success = ref('')
-const form = ref({
-  bookId: '', unitId: '', section: '', word: '', phoneticUk: '', phoneticUs: '',
-  partOfSpeech: '', meaning: '', example: ''
-})
+const form = ref({ bookId: '', unitId: '', section: '', word: '', meaning: '', example: '' })
 let unitGeneration = 0
 let bookGeneration = 0
 let alive = true
@@ -31,11 +28,10 @@ const rules: FormRules = {
   word: [{ required: true, whitespace: true, message: '请输入英文短语', trigger: 'blur' }],
   meaning: [{ required: true, whitespace: true, message: '请输入释义', trigger: 'blur' }]
 }
-const partOfSpeechOptions = ['n.', 'v.', 'adj.', 'adv.', 'prep.', 'conj.', 'pron.', 'int.', 'art.']
 
 function clearContent(clearFeedback = true) {
   if (submitting.value) return
-  Object.assign(form.value, { word: '', meaning: '', phoneticUk: '', phoneticUs: '', partOfSpeech: '', example: '' })
+  Object.assign(form.value, { word: '', meaning: '', example: '' })
   formRef.value?.clearValidate()
   if (clearFeedback) { error.value = ''; success.value = ''; unknownResult.value = false }
 }
@@ -114,9 +110,7 @@ async function submit() {
       entries: [{
         word: snapshot.word.trim(), meaning: snapshot.meaning.trim(), unitId: snapshot.unitId,
         section: snapshot.section || undefined, entryKind: 'phrase',
-        phoneticUk: snapshot.phoneticUk.trim() || undefined,
-        phoneticUs: snapshot.phoneticUs.trim() || undefined,
-        partOfSpeech: snapshot.partOfSpeech.trim() || undefined, example: snapshot.example.trim() || undefined
+        example: snapshot.example.trim() || undefined
       }]
     })
     if (!alive) return
@@ -188,19 +182,7 @@ onMounted(() => { void loadBooks() })
           <el-form-item label="英文短语" prop="word"><el-input v-model="form.word" placeholder="如：take off" /></el-form-item>
         </section>
         <section class="phrase-import__group">
-          <h2>发音</h2>
-          <div class="phrase-import__columns">
-            <el-form-item label="英式音标"><el-input v-model="form.phoneticUk" /></el-form-item>
-            <el-form-item label="美式音标"><el-input v-model="form.phoneticUs" /></el-form-item>
-          </div>
-        </section>
-        <section class="phrase-import__group">
           <h2>释义与例句</h2>
-          <el-form-item label="词性">
-            <el-select v-model="form.partOfSpeech" filterable allow-create default-first-option clearable placeholder="选择或输入词性">
-              <el-option v-for="pos in partOfSpeechOptions" :key="pos" :label="pos" :value="pos" />
-            </el-select>
-          </el-form-item>
           <el-form-item label="释义" prop="meaning"><el-input v-model="form.meaning" placeholder="如：起飞" /></el-form-item>
           <el-form-item label="例句"><el-input v-model="form.example" type="textarea" :rows="3" /></el-form-item>
         </section>
@@ -222,6 +204,4 @@ onMounted(() => { void loadBooks() })
 .phrase-import__form :deep(.el-select) { width: 100%; }
 .phrase-import__group + .phrase-import__group, .phrase-import__actions { padding-top: var(--lx-space-4); border-top: 1px solid var(--lx-color-border-light); }
 .phrase-import__group h2 { margin: 0 0 var(--lx-space-3); font-size: var(--lx-font-size-md); }
-.phrase-import__columns { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--lx-space-4); }
-@media (min-width: 1024px) { .phrase-import__columns { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 </style>

@@ -34,6 +34,12 @@ test('submits one explicit phrase position and reports created or reused', async
     return json(route, { success: true, data: { total: 1, created: created ? 1 : 0, reused: created ? 0 : 1 } })
   })
   await open(page)
+  // A phrase has no phonetics and no part of speech, so the form offers neither.
+  const form = page.locator('.phrase-import__form')
+  await expect(form.getByRole('heading', { name: '释义与例句' })).toBeVisible()
+  await expect(form.getByRole('heading', { name: '发音' })).toHaveCount(0)
+  for (const label of ['英式音标', '美式音标', '词性']) await expect(form.locator('.el-form-item__label', { hasText: label })).toHaveCount(0)
+  await expect(form.locator('.el-form-item__label')).toHaveText(['教材', '单元', '分节', '类别', '英文短语', '释义', '例句'])
   await page.getByRole('button', { name: '新增短语' }).click()
   await expect(page.getByRole('alert')).toContainText('请选择教材和单元')
   expect(bodies).toHaveLength(0)
@@ -45,6 +51,7 @@ test('submits one explicit phrase position and reports created or reused', async
   await page.getByRole('button', { name: '新增短语' }).click()
   await expect(page.getByRole('status')).toContainText('已新增短语词义')
   expect(bodies).toEqual([{ bookId: 'book-a', entries: [{ word: 'take off', meaning: '起飞', unitId: 'unit-a', section: 'A', entryKind: 'phrase' }] }])
+  for (const field of ['phoneticUk', 'phoneticUs', 'partOfSpeech']) expect(Object.keys((bodies[0] as { entries: object[] }).entries[0])).not.toContain(field)
 
   created = false
   await page.getByPlaceholder('如：take off').fill('take off')

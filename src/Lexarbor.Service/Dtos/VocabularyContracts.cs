@@ -149,7 +149,8 @@ public class VocabularyBatchEntryDto
     /// or <c>phrase</c> after trimming, case significant — <c>Word</c> is
     /// invalid. Requires <c>unitId</c>, because the kind is a property of an
     /// assignment's position; a blank value is unclassified, and nothing is
-    /// ever inferred from the entry's text.
+    /// ever inferred from the entry's text. A <c>phrase</c> entry must leave
+    /// <c>phoneticUk</c>, <c>phoneticUs</c> and <c>partOfSpeech</c> blank.
     /// </summary>
     public string? EntryKind { get; set; }
 }

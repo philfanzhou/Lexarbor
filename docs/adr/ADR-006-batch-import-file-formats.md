@@ -45,6 +45,8 @@ The shared batch component has three routes: `/import/batch` (mixed, the compati
 
 The default unit lists only the current book's existing units and clears when changing books; mixed mode never uses it. Unknown nonblank numbers (`02`, `Unit 2`, or absent numbers) remain errors. Sections have no page default and require a final valid unit. The preview shows raw and final kind/unit values with file/page source, and the request is built from that same resolved preview, retaining duplicate row order and server `errors[].index` mapping. Category summaries count input rows, while API `created`/`reused` count meanings.
 
+The format help follows the mode. In phrase mode it lists only the fields a phrase uses — `word`, `meaning`, `example`, `unit`, `section`, and `entry_kind` (`entryKind` in JSON) — and its examples carry no phonetics or part of speech; TSV keeps the nine column positions every file shares and says that columns 2–4 stay empty, with the example `take off`, four tabs, `起飞`. In mixed mode the help is unchanged apart from one added rule: a row whose kind is `phrase` carries no phonetics or part of speech. Word mode keeps the full field list.
+
 Pure word or phrase files may omit kind and unit when their corresponding mode and a default unit are selected. Mixed files keep their row-level `entry_kind`/`entryKind` and `unit` values, including legacy unclassified/unassigned rows. Mode/default changes invalidate server errors and result notices without changing raw text or workbooks. In-flight writes freeze mode/default and the final request. No parsing rejection, worker bound, API, authentication, storage, migration, or existing-position behavior changes. The hosted-login return allowlist is unchanged: authenticated new deep links retain mode on refresh, but unauthenticated new routes return through the default login target; navigation after login selects them.
 
 ### Choosing the format
@@ -109,6 +111,7 @@ Every format also carries the optional classification of the entry at that assig
 - In mixed mode, a blank value is unclassified, and an input without the kind column or field at all parses and submits exactly as before: its entries carry no `entryKind`.
 - A kind requires the final unit, because it is a property of an assignment's position: a kind without a unit number classifies nothing, and the row is invalid with that reason (`有类别但未填写单元`) rather than being sent for the server to refuse.
 - The resolved kind is sent as the entry's `entryKind`, only when the row carries one; the server re-validates it under [ADR-005](./ADR-005-bulk-vocabulary-import.md).
+- A row whose final kind is `phrase` — a `phrase` value in the file, or a blank kind resolved to `phrase` in phrase mode — must leave the phonetics and the part of speech empty: TSV columns 2–4, the CSV and Excel `phonetic_uk`, `phonetic_us`, and `part_of_speech` columns, and the JSON `phoneticUk`, `phoneticUs`, and `partOfSpeech` fields. Otherwise the row is invalid with the reason `短语不填写音标和词性`, after any unit, section, or kind reason, and the batch cannot be submitted; the server refuses the same entries under [ADR-005](./ADR-005-bulk-vocabulary-import.md#phrase-entries-carry-no-phonetics-or-part-of-speech). Word and unclassified rows are unaffected. Added on 2026-10-10 ([issue #234](https://github.com/philfanzhou/Lexarbor/issues/234)).
 
 ### CSV
 

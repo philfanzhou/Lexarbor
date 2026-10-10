@@ -88,7 +88,12 @@ public class VocabularyDomainService
     /// is valid only together with the entry's unit reference: a section
     /// without a unit names a place of nothing. An entry kind is valid only
     /// together with one too: the kind is a property of an assignment's
-    /// position, so a kind without a unit classifies nothing.
+    /// position, so a kind without a unit classifies nothing. A phrase entry
+    /// carries no phonetics and no part of speech: phonetics are stored on the
+    /// spelling every book shares, so a phrase's value would overwrite a word's,
+    /// and the part of speech takes part in meaning matching, so a phrase given
+    /// one would split into a second meaning. Whitespace-only values count as
+    /// absent.
     /// </summary>
     public static string? ValidateBatchEntry(
         VocabularyModel word,
@@ -129,6 +134,24 @@ public class VocabularyDomainService
         if (normalizedEntryKind != null && string.IsNullOrWhiteSpace(unitId))
         {
             return "EntryKind requires a unitId.";
+        }
+
+        if (normalizedEntryKind == "phrase")
+        {
+            if (!string.IsNullOrWhiteSpace(word.PhoneticUk))
+            {
+                return "Phrase entries must not include phoneticUk.";
+            }
+
+            if (!string.IsNullOrWhiteSpace(word.PhoneticUs))
+            {
+                return "Phrase entries must not include phoneticUs.";
+            }
+
+            if (!string.IsNullOrWhiteSpace(meaning.PartOfSpeech))
+            {
+                return "Phrase entries must not include partOfSpeech.";
+            }
         }
 
         return null;
