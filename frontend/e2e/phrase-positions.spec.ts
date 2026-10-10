@@ -193,19 +193,34 @@ for (const action of ['remove', 'word']) {
 }
 
 for (const width of [1440, 768]) {
-  test(`phonetics, scrollable actions, focus and axe at ${width}px`, async ({ page }) => {
+  test(`columns, scrollable actions, focus and axe at ${width}px`, async ({ page }) => {
     const { default: AxeBuilder } = await import('@axe-core/playwright')
     await page.setViewportSize({ width, height: 1000 })
     await base(page)
-    await page.route(/\/phrase-positions/, route => json(route, { success: true, data: { items: [{ ...position, phoneticUk: '/teɪk/', partOfSpeech: null }], totalCount: 1, totalPage: 1 } }))
-    await page.route('**/admin/vocabulary/word-a', route => json(route, { success: true, data: { id: 'word-a', word: 'take off', phoneticUk: null, phoneticUs: null, books: [], meanings: [] } }))
+    await page.route(/\/phrase-positions/, route => json(route, { success: true, data: { items: [{ ...position, phoneticUk: '/teɪk ɒf/', phoneticUs: '/teɪk ɔːf/', partOfSpeech: 'phr.' }], totalCount: 1, totalPage: 1 } }))
+    await page.route('**/admin/vocabulary/word-a', route => json(route, { success: true, data: {
+      id: 'word-a', word: 'take off', phoneticUk: '/teɪk ɒf/', phoneticUs: '/teɪk ɔːf/',
+      books: [{ id: book.id, bookName: book.bookName, status: false }],
+      meanings: [{ id: 'meaning-a', vocabularyId: 'word-a', bookId: book.id,
+        partOfSpeech: 'phr.', meaning: 'leave', example: null, units: [{ unitId: 'unit-a', number: 2, title: 'Two', section: 'A', entryKind: 'phrase' }] }]
+    } }))
     await page.goto('/#/phrases')
     await choose(page, '.phrase-positions__book', 'Phrase Book（停用）')
-    await expect(page.getByText('/teɪk/', { exact: true })).toBeVisible()
-    await expect(page.locator('.el-table__body .cell').filter({ hasText: /^—$/ })).toHaveCount(2)
+    const table = page.locator('.phrase-positions .el-table')
+    await expect(table.getByText('take off', { exact: true })).toBeVisible()
+    const headers = (await table.locator('.el-table__header-wrapper th').allInnerTexts()).map(text => text.trim())
+    expect(headers).toEqual(['单元', '分节', '短语', '释义', '操作'])
+    for (const hidden of ['英式音标', '美式音标', '词性', '/teɪk ɒf/', '/teɪk ɔːf/', 'phr.']) {
+      await expect(table.getByText(hidden)).toHaveCount(0)
+    }
+    await expect(table.locator('.el-table-fixed-column--right').first()).toBeVisible()
     const detail = page.getByRole('button', { name: '详情', exact: true })
     await detail.focus(); await page.keyboard.press('Enter')
-    await expect(page.getByRole('dialog')).toBeVisible()
+    const drawer = page.getByRole('dialog')
+    await expect(drawer).toBeVisible()
+    await expect(drawer.locator('.word-detail__phonetics')).toContainText('英 /teɪk ɒf/')
+    await expect(drawer.locator('.word-detail__phonetics')).toContainText('美 /teɪk ɔːf/')
+    await expect(drawer.locator('.word-detail__meaning-line').filter({ hasText: 'leave' })).toContainText('phr.')
     await page.keyboard.press('Escape')
     await expect(detail).toBeFocused()
     await expect(page.getByRole('dialog')).toBeHidden()
