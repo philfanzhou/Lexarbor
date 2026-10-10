@@ -86,9 +86,13 @@ public class VocabularyBookUnitTests : TestBase
         // A position that is already a phrase keeps moving as one.
         await _meaningUnitRepository.AddAsync(new VocabularyMeaningUnitModel
         {
-            UnitId = unit.Id, MeaningId = tagged.Id, BookId = book.Id, Section = "B", EntryKind = "phrase"
+            UnitId = unit.Id,
+            MeaningId = tagged.Id,
+            BookId = book.Id,
+            Section = "B",
+            EntryKind = "phrase"
         });
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.SaveChangesAsync(TestContext.Current.CancellationToken);
         await _service.MovePositionAsync(book.Id, tagged.Id, unit.Id, "B", "phrase",
             unit.Id, null, "phrase", TestContext.Current.CancellationToken);
         Assert.True(await _meaningUnitRepository.ExistsAsync(unit.Id, tagged.Id, null, "phrase"));

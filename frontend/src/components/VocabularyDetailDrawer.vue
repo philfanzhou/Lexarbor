@@ -285,12 +285,6 @@ function sharedConfirmMessage() {
   return `拼写与音标在各教材间共用，保存后会影响引用该单词的全部教材（含停用）：${names}。`
 }
 
-/**
- * Maps a refused save. A definite refusal keeps the draft with a reason; 409
- * and 404 additionally offer an explicit reload. An answer that never arrived
- * (no response) has an unknown outcome: the current detail is re-read and null
- * is returned because the re-read already reset the form.
- */
 /** Mirrors the server: phonetics are refused only when every position of the spelling is a phrase. */
 function usedOnlyAsPhrase(word: AdminWordDetail) {
   const units = word.meanings.flatMap(meaning => meaning.units ?? [])
@@ -302,6 +296,12 @@ function isNewValue(requested: string | null, current: string | null | undefined
   return requested !== null && requested !== (current ?? null)
 }
 
+/**
+ * Maps a refused save. A definite refusal keeps the draft with a reason; 409
+ * and 404 additionally offer an explicit reload. An answer that never arrived
+ * (no response) has an unknown outcome: the current detail is re-read and null
+ * is returned because the re-read already reset the form.
+ */
 function describeSaveFailure(
   error: unknown,
   goneMessage: string
