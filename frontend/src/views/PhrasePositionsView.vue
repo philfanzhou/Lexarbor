@@ -214,10 +214,7 @@ onBeforeUnmount(() => { requestId += 1; unitRequestId += 1; bookRequestId += 1; 
           <el-table-column label="单元" min-width="130"><template #default="{ row }">第 {{ row.number }} 单元 {{ row.title }}</template></el-table-column>
           <el-table-column label="分节" min-width="100"><template #default="{ row }">{{ row.section ?? '未分节' }}</template></el-table-column>
           <el-table-column prop="word" label="短语" min-width="160" />
-          <el-table-column label="英式音标" min-width="130"><template #default="{ row }">{{ row.phoneticUk || '—' }}</template></el-table-column>
-          <el-table-column label="美式音标" min-width="130"><template #default="{ row }">{{ row.phoneticUs || '—' }}</template></el-table-column>
-          <el-table-column label="词性" min-width="100"><template #default="{ row }">{{ row.partOfSpeech || '—' }}</template></el-table-column>
-          <el-table-column prop="meaning" label="释义" min-width="180" />
+          <el-table-column prop="meaning" label="释义" min-width="280" />
           <el-table-column label="操作" width="230" fixed="right">
             <template #default="{ row }">
               <el-button link type="primary" @click="openDetail(row, $event)">详情</el-button>
