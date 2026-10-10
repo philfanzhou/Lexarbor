@@ -20,6 +20,13 @@ public static partial class VocabularyHttpEndpoints
     /// </summary>
     public const long MaxBatchRequestBytes = 1024 * 1024;
 
+    /// <summary>
+    /// The most questions one batch request may ask for. Every item runs its
+    /// own queries against the one SQLite connection, so this is what bounds
+    /// how long a single anonymous request holds the database busy.
+    /// </summary>
+    public const int MaxQuestionBatchItems = 50;
+
     /// <param name="publicApiRateLimitPolicy">
     /// Name of the rate limit policy to apply to the anonymous <c>/api</c> group,
     /// or null to apply none. Passed in rather than named here because the ceiling
@@ -46,6 +53,8 @@ public static partial class VocabularyHttpEndpoints
         apiGroup.MapGet("/vocabulary/{wordId}", GetVocabulary);
         apiGroup.MapGet("/vocabulary", SearchVocabulary);
         apiGroup.MapPost("/vocabulary/question", GetQuestion);
+        apiGroup.MapPost("/vocabulary/questions", CreateQuestions)
+            .WithMetadata(new RequestSizeLimitAttribute(MaxBatchRequestBytes));
         apiGroup.MapGet("/vocabulary-books/all", GetAllBooks);
         apiGroup.MapGet("/vocabulary-books/{bookId}/units", GetPublicBookUnits);
         apiGroup.MapGet("/vocabulary-books/{bookId}/entries", GetPublicBookEntries);
@@ -283,6 +292,117 @@ public static partial class VocabularyHttpEndpoints
             MeaningId = option.MeaningId
         }));
         return VocabularyHttpResponse.Ok(response);
+    }
+
+    // The body is read here for the same reason ImportVocabularyBatch reads
+    // its own: an over-limit body must reach the envelope's 413 and a malformed
+    // one its 400, not the framework's bare answers.
+    private static async Task<IResult> CreateQuestions(
+        HttpRequest httpRequest,
+        VocabularyDomainService vocabularyService)
+    {
+        CreateQuestionsRequest? request = null;
+        if (httpRequest.HasJsonContentType())
+        {
+            try
+            {
+                request = await httpRequest.ReadFromJsonAsync<CreateQuestionsRequest>(
+                    httpRequest.HttpContext.RequestAborted);
+            }
+            catch (JsonException)
+            {
+                request = null;
+            }
+        }
+
+        if (request == null)
+        {
+            return VocabularyHttpResponse.BadRequest("The request body is not valid JSON.");
+        }
+
+        if (request.Items == null || request.Items.Count == 0)
+        {
+            return VocabularyHttpResponse.BadRequest("At least one item is required.");
+        }
+
+        if (request.Items.Count > MaxQuestionBatchItems)
+        {
+            return VocabularyHttpResponse.BadRequest(
+                $"A batch can contain at most {MaxQuestionBatchItems} items.");
+        }
+
+        var results = new List<QuestionBatchResultDto>(request.Items.Count);
+        for (var index = 0; index < request.Items.Count; index++)
+        {
+            // SQLite serves one connection, so the items run one after another;
+            // a cancelled request stops here rather than answering the
+            // remaining items nobody will read.
+            httpRequest.HttpContext.RequestAborted.ThrowIfCancellationRequested();
+
+            var item = request.Items[index];
+            if (item == null || string.IsNullOrWhiteSpace(item.WordId) ||
+                string.IsNullOrWhiteSpace(item.BookId))
+            {
+                results.Add(ItemError(index, StatusCodes.Status400BadRequest,
+                    "WordId and BookId are required."));
+                continue;
+            }
+
+            try
+            {
+                // The same normalization the single-question endpoint applies,
+                // so an item answers exactly what that endpoint answers the
+                // same request: the direction is drawn when the item left it
+                // unset, and blank optional identifiers count as absent.
+                var chineseToEnglish =
+                    item.ChineseToEnglish ?? Random.Shared.Next(2) == 0;
+                var question = await vocabularyService.CreateQuestionAsync(
+                    item.WordId,
+                    item.BookId,
+                    chineseToEnglish,
+                    string.IsNullOrWhiteSpace(item.MeaningId) ? null : item.MeaningId.Trim(),
+                    string.IsNullOrWhiteSpace(item.UnitId) ? null : item.UnitId.Trim(),
+                    item.SameEntryKind == true);
+
+                var response = new QuestionResponse
+                {
+                    Word = question.Word,
+                    WordId = question.WordId,
+                    MeaningId = question.MeaningId,
+                    ChineseToEnglish = question.ChineseToEnglish
+                };
+                response.Options.AddRange(question.Options.Select(option => new OptionDto
+                {
+                    Meaning = option.Text,
+                    IsCorrect = option.IsCorrect,
+                    WordId = option.WordId,
+                    MeaningId = option.MeaningId
+                }));
+                results.Add(new QuestionBatchResultDto { Index = index, Question = response });
+            }
+            // One item's 404 or 422 — the same conditions the single endpoint
+            // maps through the global exception middleware, reported with the
+            // same status and message that middleware answers, so a caller can
+            // treat an item's error exactly like a failed single request.
+            catch (ResourceNotFoundException)
+            {
+                results.Add(ItemError(index, StatusCodes.Status404NotFound,
+                    "The requested resource was not found."));
+            }
+            catch (BusinessRuleException)
+            {
+                results.Add(ItemError(index, StatusCodes.Status422UnprocessableEntity,
+                    "The request violates a business rule."));
+            }
+        }
+
+        return VocabularyHttpResponse.Ok(new CreateQuestionsResponse { Results = results });
+
+        static QuestionBatchResultDto ItemError(int index, int status, string message) => new()
+        {
+            Index = index,
+            Error = new QuestionBatchErrorDto { Status = status, Message = message }
+        };
     }
 
     private static async Task<IResult> AddBook(

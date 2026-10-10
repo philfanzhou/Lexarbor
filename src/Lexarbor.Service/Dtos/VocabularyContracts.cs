@@ -264,6 +264,47 @@ public class GetQuestionRequest
 }
 
 /// <summary>
+/// Body of <c>POST /api/vocabulary/questions</c>: several single-question
+/// requests in one round trip. Each item is normalized, answered, and — when
+/// it fails — reported on its own, exactly as <see cref="GetQuestionRequest"/>
+/// describes for the single-question endpoint.
+/// </summary>
+public class CreateQuestionsRequest
+{
+    public List<GetQuestionRequest?>? Items { get; set; }
+}
+
+/// <summary>
+/// One row of the batch response, in request order: either the generated
+/// question or the error that took its place.
+/// </summary>
+public class CreateQuestionsResponse
+{
+    public List<QuestionBatchResultDto> Results { get; set; } = new();
+}
+
+/// <summary>
+/// One item's outcome, at its zero-based <c>index</c> in <c>items</c>. Exactly
+/// one of <see cref="Question"/> and <see cref="Error"/> is set.
+/// </summary>
+public class QuestionBatchResultDto
+{
+    public int Index { get; set; }
+    public QuestionResponse? Question { get; set; }
+    public QuestionBatchErrorDto? Error { get; set; }
+}
+
+/// <summary>
+/// The failure one item reports: the status and message the single-question
+/// endpoint answers the same request body with.
+/// </summary>
+public class QuestionBatchErrorDto
+{
+    public int Status { get; set; }
+    public string Message { get; set; } = string.Empty;
+}
+
+/// <summary>
 /// One generated question. The ids let a server-side caller record which word
 /// and meaning was asked and which word the learner chose, and
 /// <c>chineseToEnglish</c> reports the direction that was actually drawn when

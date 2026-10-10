@@ -125,6 +125,26 @@ public class RateLimitingTests
     }
 
     [Fact]
+    public async Task PublicApi_QuestionBatch_ConsumesOneRequestOfThePublicApiPolicy()
+    {
+        using var factory = CreateFactory(publicApiPermits: 2);
+        using var client = CreateClient(factory);
+
+        // However many items a batch carries, it is one anonymous request and
+        // one unit of the quota — the whole reason the endpoint exists. With
+        // two permits, two full fifty-item batches still fit; a metering that
+        // counted per item would refuse the second one.
+        Assert.NotEqual(HttpStatusCode.TooManyRequests,
+            (await PostQuestionBatchAsync(client, ClientA)).StatusCode);
+        Assert.NotEqual(HttpStatusCode.TooManyRequests,
+            (await PostQuestionBatchAsync(client, ClientA)).StatusCode);
+
+        await AssertProblemAsync(await PostQuestionBatchAsync(client, ClientA));
+        Assert.NotEqual(HttpStatusCode.TooManyRequests,
+            (await PostQuestionBatchAsync(client, ClientB)).StatusCode);
+    }
+
+    [Fact]
     public async Task AdminEndpoints_AreNotRateLimited()
     {
         using var factory = CreateFactory(loginPermits: 1, publicApiPermits: 1);
@@ -495,6 +515,25 @@ public class RateLimitingTests
         string clientAddress)
     {
         return GetAsync(client, "/api/vocabulary-books/all", clientAddress);
+    }
+
+    private static Task<HttpResponseMessage> PostQuestionBatchAsync(
+        HttpClient client,
+        string clientAddress)
+    {
+        // Full-size batches of ids that answer no question: the per-item
+        // outcomes are irrelevant here, only how many quota units one batch
+        // costs.
+        var items = Enumerable.Range(0, Lexarbor.Service.VocabularyHttpEndpoints.MaxQuestionBatchItems)
+            .Select(_ => new { wordId = "missing", bookId = "missing" });
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/vocabulary/questions")
+        {
+            Content = JsonContent.Create(new { items })
+        };
+        request.Headers.Add(
+            VocabularyWebApplicationFactory.ClientAddressHeader,
+            clientAddress);
+        return client.SendAsync(request, TestContext.Current.CancellationToken);
     }
 
     private static Task<HttpResponseMessage> GetAsync(

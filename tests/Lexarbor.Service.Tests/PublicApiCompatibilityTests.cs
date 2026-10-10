@@ -117,6 +117,38 @@ public class PublicApiCompatibilityTests :
     }
 
     [Fact]
+    public async Task QuestionBatch_RemainsAnonymousWithEnvelopeShape()
+    {
+        var data = await SeedCompleteBookAsync();
+        using var client = _factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync(
+            "/api/vocabulary/questions",
+            new
+            {
+                items = new[]
+                {
+                    new { wordId = data.WordId, bookId = data.BookId, chineseToEnglish = true }
+                }
+            },
+            TestContext.Current.CancellationToken);
+
+        var document = await AssertPublicSuccessAsync(response);
+        using (document)
+        {
+            // One row per item, in request order, carrying the same question
+            // shape the single endpoint answers with.
+            var results = document.RootElement.GetProperty("data").GetProperty("results");
+            Assert.Equal(JsonValueKind.Array, results.ValueKind);
+            var row = Assert.Single(results.EnumerateArray());
+            Assert.Equal(0, row.GetProperty("index").GetInt32());
+            var question = row.GetProperty("question");
+            Assert.True(question.TryGetProperty("word", out _));
+            Assert.Equal(4, question.GetProperty("options").GetArrayLength());
+        }
+    }
+
+    [Fact]
     public async Task Books_RemainsAnonymousWithExistingEnvelopeShape()
     {
         using var client = _factory.CreateClient();
