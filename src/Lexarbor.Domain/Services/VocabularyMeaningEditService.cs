@@ -4,7 +4,7 @@ using Lexarbor.Domain.Repositories;
 namespace Lexarbor.Domain.Services;
 
 public sealed class VocabularyMeaningEditService(IVocabularyRepository words, IVocabularyBookRepository books,
-    IVocabularyMeaningRepository meanings, IUnitOfWork unitOfWork)
+    IVocabularyMeaningRepository meanings, IVocabularyMeaningUnitRepository positions, IUnitOfWork unitOfWork)
 {
     public async Task ReplaceAsync(string bookId, string wordId, string meaningId, string? partOfSpeech,
         string? meaning, string? example, CancellationToken cancellationToken = default)
@@ -21,6 +21,13 @@ public sealed class VocabularyMeaningEditService(IVocabularyRepository words, IV
                 ?? throw new ResourceNotFoundException("Vocabulary meaning was not found.");
             if (current.BookId != bookId || current.VocabularyId != wordId)
                 throw new ConflictException("Vocabulary meaning does not belong to the requested book and word.");
+            // A phrase carries no part of speech. An unchanged value is kept so
+            // that existing data stays editable; only a new one is rejected.
+            if (normalizedPartOfSpeech.Length > 0 &&
+                !string.Equals(normalizedPartOfSpeech, current.PartOfSpeech, StringComparison.Ordinal) &&
+                (await positions.GetByMeaningIdAsync(meaningId)).Any(position =>
+                    position.EntryKind == "phrase"))
+                throw new DomainValidationException("Meanings with a phrase position must not include partOfSpeech.");
             var equivalent = await meanings.GetEquivalentAsync(wordId, bookId, normalizedPartOfSpeech, normalizedMeaning);
             if (equivalent != null && equivalent.Id != meaningId)
                 throw new ConflictException("An equivalent vocabulary meaning already exists.");

@@ -54,7 +54,17 @@ Added on 2026-10-10 ([issue #234](https://github.com/philfanzhou/Lexarbor/issues
 
 An entry whose `entryKind` is `phrase` after trimming is therefore invalid when `phoneticUk`, `phoneticUs`, or `partOfSpeech` is non-blank after trimming. The checks run in that order after every other entry check, and the first field that fails names the message: `Phrase entries must not include phoneticUk.`, `Phrase entries must not include phoneticUs.`, or `Phrase entries must not include partOfSpeech.`. A blank or whitespace-only value counts as absent and is accepted. Entries with `entryKind` `word` or no `entryKind` are unaffected. The rule lives in the shared entry check, so every caller of the route — the administration UI's pages and scripts alike — and any direct caller of the domain service get the same answer.
 
-This tightens the contract: a request that used to succeed with such a phrase entry now answers 400 and writes nothing. A script calling the route directly removes those fields from phrase entries or sends them blank. Stored data is not migrated or cleaned: phonetics already on a shared word row and parts of speech already on meanings stay as they are. The rule covers this route only — editing a word's phonetics, editing a meaning's part of speech, and changing a position's kind are separate routes this rule does not restrict. Because meaning matching includes the part of speech, a phrase entry no longer reuses a stored meaning that has a part of speech; it stores a meaning without one. A word or unclassified entry with the same spelling and definition but a part of speech still stores a meaning separate from the phrase's.
+This tightens the contract: a request that used to succeed with such a phrase entry now answers 400 and writes nothing. A script calling the route directly removes those fields from phrase entries or sends them blank. Stored data is not migrated or cleaned: phonetics already on a shared word row and parts of speech already on meanings stay as they are. The edit routes follow the same rule; see the next section. Because meaning matching includes the part of speech, a phrase entry no longer reuses a stored meaning that has a part of speech; it stores a meaning without one. A word or unclassified entry with the same spelling and definition but a part of speech still stores a meaning separate from the phrase's.
+
+### Edit routes give phrases no phonetics or part of speech
+
+Added on 2026-10-10 ([issue #237](https://github.com/philfanzhou/Lexarbor/issues/237)). The three edit routes that could still give a phrase phonetics or a part of speech refuse a new value with 400 `vocabulary.validation` and write nothing:
+
+- `PUT /admin/vocabulary-books/{bookId}/meanings/{meaningId}/positions` refuses to turn a word or unclassified position into a phrase position when the meaning has a part of speech. A position that is already a phrase keeps moving as one.
+- `PUT /admin/vocabulary-books/{bookId}/words/{wordId}/meanings/{meaningId}` refuses a part of speech on a meaning that holds a phrase position.
+- `PUT /admin/vocabulary/{wordId}` refuses phonetics on a spelling whose every position is a phrase. A spelling with no position, or with a word or unclassified position, keeps editable phonetics, because they are shared with that word.
+
+Only a new value is refused: a submitted value equal to the stored one, and a blank value that clears it, are accepted, so data stored before this rule stays editable and is not cleaned. The administration UI checks the same conditions before it sends anything and names the reason.
 
 ### A batch is atomic
 

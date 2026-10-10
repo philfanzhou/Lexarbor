@@ -13,7 +13,8 @@ namespace Lexarbor.Domain.Tests;
 public class VocabularyMeaningEditTests : TestBase
 {
     private static VocabularyMeaningEditService Service(VocabularyDbContext db) => new(new VocabularyRepository(db),
-        new VocabularyBookRepository(db), new VocabularyMeaningRepository(db), new UnitOfWork(db));
+        new VocabularyBookRepository(db), new VocabularyMeaningRepository(db), new VocabularyMeaningUnitRepository(db),
+        new UnitOfWork(db));
 
     [Theory]
     [InlineData(null, " ", true)]
@@ -34,6 +35,30 @@ public class VocabularyMeaningEditTests : TestBase
         Assert.True(current.UpdatedAt > current.CreatedAt);
         Assert.Equal(words, JsonSerializer.Serialize(await _dbContext.Vocabularies.AsNoTracking().ToListAsync(TestContext.Current.CancellationToken)));
         Assert.Equal(others, JsonSerializer.Serialize(await _dbContext.VocabularyMeanings.AsNoTracking().Where(m => m.Id != "a").ToListAsync(TestContext.Current.CancellationToken)));
+    }
+
+    [Fact]
+    public async Task PhrasePosition_RejectsNewPartOfSpeechButKeepsExistingOne()
+    {
+        await SeedAsync(_dbContext);
+        _dbContext.VocabularyBookUnits.Add(new VocabularyBookUnitEntity { Id = "u", BookId = "B", Number = 1 });
+        _dbContext.VocabularyMeaningUnits.Add(new VocabularyMeaningUnitEntity { UnitId = "u", MeaningId = "b", BookId = "B", EntryKind = "phrase" });
+        _dbContext.VocabularyMeaningUnits.Add(new VocabularyMeaningUnitEntity { UnitId = "u", MeaningId = "b", BookId = "B", Section = "A", EntryKind = "word" });
+        await _dbContext.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var before = JsonSerializer.Serialize(await _dbContext.VocabularyMeanings.AsNoTracking().ToListAsync(TestContext.Current.CancellationToken));
+
+        var error = await Assert.ThrowsAsync<DomainValidationException>(() => Service(_dbContext).ReplaceAsync("B", "w", "b", " v. ", "meaning-b", "b", TestContext.Current.CancellationToken));
+        Assert.Equal("Meanings with a phrase position must not include partOfSpeech.", error.Message);
+        Assert.Equal(before, JsonSerializer.Serialize(await _dbContext.VocabularyMeanings.AsNoTracking().ToListAsync(TestContext.Current.CancellationToken)));
+
+        await Service(_dbContext).ReplaceAsync("B", "w", "b", " ", "changed", "b", TestContext.Current.CancellationToken);
+        Assert.Equal("changed", (await _dbContext.VocabularyMeanings.AsNoTracking().SingleAsync(m => m.Id == "b", TestContext.Current.CancellationToken)).Meaning);
+
+        // Existing data stays editable: an unchanged part of speech is kept.
+        await _dbContext.Database.ExecuteSqlRawAsync("UPDATE vocabulary_meaning SET part_of_speech = 'n.' WHERE id = 'b'", TestContext.Current.CancellationToken);
+        _dbContext.ChangeTracker.Clear();
+        await Service(_dbContext).ReplaceAsync("B", "w", "b", "n.", "again", null, TestContext.Current.CancellationToken);
+        Assert.Equal("n.", (await _dbContext.VocabularyMeanings.AsNoTracking().SingleAsync(m => m.Id == "b", TestContext.Current.CancellationToken)).PartOfSpeech);
     }
 
     [Theory]

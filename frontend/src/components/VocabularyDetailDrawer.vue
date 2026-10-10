@@ -177,6 +177,7 @@ function editPosition(meaning: AdminMeaning, unit: NonNullable<AdminMeaning['uni
     meaningId: meaning.id,
     word: detail.value?.word ?? '',
     meaning: meaning.meaning,
+    partOfSpeech: meaning.partOfSpeech ?? null,
     sourceNumber: unit.number,
     sourceTitle: unit.title,
     from: {
@@ -290,6 +291,17 @@ function sharedConfirmMessage() {
  * (no response) has an unknown outcome: the current detail is re-read and null
  * is returned because the re-read already reset the form.
  */
+/** Mirrors the server: phonetics are refused only when every position of the spelling is a phrase. */
+function usedOnlyAsPhrase(word: AdminWordDetail) {
+  const units = word.meanings.flatMap(meaning => meaning.units ?? [])
+  return units.length > 0 && units.every(unit => unit.entryKind === 'phrase')
+}
+
+/** An unchanged value is kept so that existing data stays editable. */
+function isNewValue(requested: string | null, current: string | null | undefined) {
+  return requested !== null && requested !== (current ?? null)
+}
+
 function describeSaveFailure(
   error: unknown,
   goneMessage: string
@@ -325,6 +337,13 @@ async function saveShared() {
   const word = sharedForm.word.trim()
   if (!word) {
     sharedError.value = '请输入单词拼写'
+    return
+  }
+
+  if (usedOnlyAsPhrase(target) &&
+    (isNewValue(blankToNull(sharedForm.phoneticUk), target.phoneticUk) ||
+      isNewValue(blankToNull(sharedForm.phoneticUs), target.phoneticUs))) {
+    sharedError.value = '这个拼写只用作短语，短语不填写音标'
     return
   }
 
@@ -414,6 +433,11 @@ async function saveMeaning(meaning: AdminMeaning) {
     partOfSpeech: blankToNull(edit.draft.partOfSpeech),
     meaning: definition,
     example: blankToNull(edit.draft.example)
+  }
+  if (meaning.units?.some(unit => unit.entryKind === 'phrase') &&
+    isNewValue(payload.partOfSpeech?.toLowerCase() ?? null, meaning.partOfSpeech)) {
+    edit.error = '这条释义有短语位置，短语不填写词性'
+    return
   }
 
   const current = generation

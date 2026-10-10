@@ -64,6 +64,28 @@ public class VocabularyMeaningEditEndpointTests
         Assert.Equal("original|n.|example", await StateAsync(factory.Services));
     }
 
+    [Fact]
+    public async Task NewPartOfSpeechOnPhrasePosition_Returns400WithoutWrites()
+    {
+        await using var factory = new VocabularyWebApplicationFactory();
+        using var client = factory.CreateClient();
+        await SeedAsync(factory.Services);
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+            db.VocabularyBookUnits.Add(new VocabularyBookUnitEntity { Id = "u", BookId = "A", Number = 1 });
+            db.VocabularyMeaningUnits.Add(new VocabularyMeaningUnitEntity { UnitId = "u", MeaningId = "a", BookId = "A", EntryKind = "phrase" });
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+        Authenticate(client, factory, false, "admin");
+        using var response = await PutAsync(client, """{"meaning":"changed","partOfSpeech":"v.","example":null}""");
+        await FailureAsync(response, HttpStatusCode.BadRequest);
+        Assert.Equal("original|n.|example", await StateAsync(factory.Services));
+        using var unchanged = await PutAsync(client, """{"meaning":"changed","partOfSpeech":"n.","example":null}""");
+        Assert.Equal(HttpStatusCode.OK, unchanged.StatusCode);
+        Assert.Equal("changed|n.|", await StateAsync(factory.Services));
+    }
+
     [Theory]
     [InlineData("anonymous", 401)]
     [InlineData("student", 403)]

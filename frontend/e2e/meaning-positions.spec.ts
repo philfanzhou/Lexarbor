@@ -15,8 +15,8 @@ const initial: Place[] = [
 const json = (route: Route, data: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(data) })
 const same = (a: Place, b: Place) => a.unitId === b.unitId && a.section === b.section && a.entryKind === b.entryKind
 
-async function setup(page: Page) {
-  const places = initial.map(item => ({ ...item }))
+async function setup(page: Page, partOfSpeech: string | null = null, start: Place[] = initial) {
+  const places = start.map(item => ({ ...item }))
   const writes: Array<{ method: string; url: string; body?: unknown; csrf: string | undefined }> = []
   let moveStatus = 200
   let unitsStatus = 200
@@ -36,13 +36,13 @@ async function setup(page: Page) {
     return json(route, { success: true, data: { items: filtered.map(place => ({
       ...place, bookId: book.id, meaningId: 'meaning-a', number: units.find(unit => unit.id === place.unitId)?.number,
       title: units.find(unit => unit.id === place.unitId)?.title, wordId: 'word-a', word: 'take off',
-      phoneticUk: null, phoneticUs: null, partOfSpeech: 'v.', meaning: 'leave', example: null
+      phoneticUk: null, phoneticUs: null, partOfSpeech, meaning: 'leave', example: null
     })), totalCount: filtered.length, totalPage: filtered.length ? 1 : 0 } })
   })
   await page.route('**/admin/vocabulary/word-a', route => json(route, { success: true, data: {
     id: 'word-a', word: 'take off', phoneticUk: null, phoneticUs: null,
     books: [{ id: book.id, bookName: book.bookName, status: book.status }],
-    meanings: [{ id: 'meaning-a', vocabularyId: 'word-a', bookId: book.id, partOfSpeech: 'v.', meaning: 'leave', example: null,
+    meanings: [{ id: 'meaning-a', vocabularyId: 'word-a', bookId: book.id, partOfSpeech, meaning: 'leave', example: null,
       units: places.map(place => ({ ...place, number: units.find(unit => unit.id === place.unitId)?.number, title: units.find(unit => unit.id === place.unitId)?.title })) }]
   } }))
   await page.route('**/admin/vocabulary-books/book-a/meanings/meaning-a/positions**', async route => {
@@ -168,6 +168,51 @@ test('drawer manages word and unclassified positions, moves units and removes on
     { unitId: 'unit-b', section: 'A', entryKind: 'phrase' }
   ])
   await expect(drawer).toContainText('leave')
+})
+
+test('a meaning with a part of speech cannot become a phrase position', async ({ page }) => {
+  const state = await setup(page, 'v.')
+  await page.locator('.phrase-positions .el-table').getByRole('button', { name: '详情' }).click()
+  const drawer = page.getByRole('dialog', { name: '单词详情' })
+  const dialog = page.getByRole('dialog', { name: '管理单元位置' })
+  await drawer.getByRole('button', { name: '调整位置：单元 1 B word' }).click()
+  await dialog.locator('.el-form-item').filter({ hasText: '目标类别' }).locator('.el-select').click()
+  await page.locator('.el-select-dropdown__item:visible').filter({ hasText: '短语' }).click()
+  await dialog.getByRole('button', { name: '保存位置' }).click()
+  await expect(dialog).toContainText('短语不填写词性')
+  expect(state.writes).toHaveLength(0)
+
+  // A position that is already a phrase keeps moving as one.
+  await dialog.getByRole('button', { name: '取消' }).click()
+  await drawer.getByRole('button', { name: '调整位置：单元 1 A phrase' }).click()
+  await dialog.locator('.el-form-item').filter({ hasText: '目标分节' }).locator('.el-select').click()
+  await page.locator('.el-select-dropdown__item:visible').filter({ hasText: 'Section B' }).click()
+  await dialog.getByRole('button', { name: '保存位置' }).click()
+  await expect(dialog).toBeHidden()
+  expect(state.writes).toHaveLength(1)
+})
+
+test('phrase meanings and phrase-only spellings refuse new part of speech and phonetics before any write', async ({ page }) => {
+  await setup(page, null, [initial[0]])
+  const edits: string[] = []
+  page.on('request', request => {
+    if (request.method() === 'PUT' && /\/admin\/vocabulary(-books\/[^/]+\/words)?\//.test(new URL(request.url()).pathname)) edits.push(request.url())
+  })
+  await page.locator('.phrase-positions .el-table').getByRole('button', { name: '详情' }).click()
+  const drawer = page.getByRole('dialog', { name: '单词详情' })
+
+  const group = drawer.locator('.word-detail__group', { hasText: 'Disabled Book' })
+  await group.getByRole('button', { name: '编辑', exact: true }).click()
+  await group.getByRole('textbox', { name: '词性' }).fill('n.')
+  await group.getByRole('button', { name: '保存本条释义' }).click()
+  await expect(group).toContainText('短语不填写词性')
+
+  await drawer.getByRole('button', { name: '编辑拼写与音标' }).click()
+  await drawer.getByRole('textbox', { name: '英式音标' }).fill('/teɪk ɒf/')
+  await drawer.getByRole('button', { name: '保存拼写与音标' }).click()
+  await expect(drawer).toContainText('短语不填写音标')
+  await expect(page.locator('.el-message-box')).toHaveCount(0)
+  expect(edits).toHaveLength(0)
 })
 
 test('network outcome is unknown and triggers a fresh read without replay', async ({ page }) => {
