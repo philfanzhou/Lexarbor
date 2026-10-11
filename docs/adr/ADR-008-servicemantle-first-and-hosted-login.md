@@ -9,7 +9,7 @@
 
 Lexarbor 的方向调整为：**ServiceMantle 已有的通用能力不在本仓库重复实现，已有的重复或近似实现替换为 ServiceMantle；管理员登录只使用 SignaCore 托管登录页。**
 
-ADR-001 记录了可插拔密码代理登录（`Oidc` 密码授权与 `Gateway` 两种提供者），其前提是 Lexarbor 自己渲染登录表单并经手管理员密码。ADR-007 暂缓了 ServiceMantle 管理会话的迁移，但只比较了会话契约本身，没有回答"哪些通用能力应该反过来改用 ServiceMantle 的实现"。托管登录（[HostedAdminLogin.cs](../../src/Lexarbor.Host/Authentication/HostedAdminLogin.cs)、[#164](https://github.com/philfanzhou/Lexarbor/issues/164)、[#155](https://github.com/philfanzhou/Lexarbor/issues/155)）交付后，密码代理模式已成冗余路径。本 ADR 为上述方向提供统一依据。
+ADR-001 记录了可插拔密码代理登录（`Oidc` 密码授权与 `Gateway` 两种提供者），其前提是 Lexarbor 自己渲染登录表单并经手管理员密码。ADR-007 暂缓了 ServiceMantle 管理会话的迁移，但只比较了会话契约本身，没有回答"哪些通用能力应该反过来改用 ServiceMantle 的实现"。托管登录（[HostedAdminLogin.cs](https://github.com/philfanzhou/Lexarbor/blob/e12a572/src/Lexarbor.Host/Authentication/HostedAdminLogin.cs)、[#164](https://github.com/philfanzhou/Lexarbor/issues/164)、[#155](https://github.com/philfanzhou/Lexarbor/issues/155)）交付后，密码代理模式已成冗余路径。本 ADR 为上述方向提供统一依据。
 
 对照的上游文档：
 
