@@ -39,6 +39,274 @@ namespace Lexarbor.Database.Migrations
                     b.ToTable("admin_session");
                 });
 
+            modelBuilder.Entity("Lexarbor.Database.Entities.AudioAssetEntity", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Bucket")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("bucket");
+
+                    b.Property<long>("ByteLength")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("byte_length");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("content_type");
+
+                    b.Property<long>("CreatedAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("created_at_unix_ms");
+
+                    b.Property<long?>("FirstPublishedAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("first_published_at_unix_ms");
+
+                    b.Property<string>("ObjectKey")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("object_key");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("sha256");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Bucket", "ObjectKey")
+                        .IsUnique();
+
+                    b.ToTable("audio_asset", t =>
+                        {
+                            t.HasCheckConstraint("CK_audio_asset_content_type", "content_type = 'audio/mpeg'");
+
+                            t.HasCheckConstraint("CK_audio_asset_location", "length(bucket) > 0 AND length(object_key) > 0");
+
+                            t.HasCheckConstraint("CK_audio_asset_sha256", "length(sha256) = 64 AND sha256 NOT GLOB '*[^0-9a-f]*'");
+
+                            t.HasCheckConstraint("CK_audio_asset_size", "byte_length > 0");
+
+                            t.HasCheckConstraint("CK_audio_asset_times", "created_at_unix_ms >= 0 AND (first_published_at_unix_ms IS NULL OR first_published_at_unix_ms >= created_at_unix_ms)");
+                        });
+                });
+
+            modelBuilder.Entity("Lexarbor.Database.Entities.AudioUploadOperationEntity", b =>
+                {
+                    b.Property<string>("IdempotencyKey")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("idempotency_key");
+
+                    b.Property<string>("AssetId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("asset_id");
+
+                    b.Property<int>("CleanupAttempts")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("cleanup_attempts");
+
+                    b.Property<string>("CleanupLastErrorCode")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("cleanup_last_error_code");
+
+                    b.Property<long?>("CleanupLeaseExpiresAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("cleanup_lease_expires_at_unix_ms");
+
+                    b.Property<long>("CleanupLeaseFence")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("cleanup_lease_fence");
+
+                    b.Property<string>("CleanupLeaseOwner")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("cleanup_lease_owner");
+
+                    b.Property<long?>("CleanupNextAttemptAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("cleanup_next_attempt_at_unix_ms");
+
+                    b.Property<long?>("CleanupObservedAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("cleanup_observed_at_unix_ms");
+
+                    b.Property<string>("CleanupReturnState")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("cleanup_return_state");
+
+                    b.Property<long?>("CompletedAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("completed_at_unix_ms");
+
+                    b.Property<long>("CreatedAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("created_at_unix_ms");
+
+                    b.Property<string>("ExpectedAssetId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("expected_asset_id");
+
+                    b.Property<string>("Locale")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("locale");
+
+                    b.Property<string>("MeaningId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("meaning_id");
+
+                    b.Property<string>("Producer")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("producer");
+
+                    b.Property<string>("ReceiptAssetId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("receipt_asset_id");
+
+                    b.Property<string>("ReceiptErrorCode")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("receipt_error_code");
+
+                    b.Property<string>("ReceiptSourceRevision")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("receipt_source_revision");
+
+                    b.Property<int?>("ReceiptStatusCode")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("receipt_status_code");
+
+                    b.Property<string>("RequestFingerprint")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("request_fingerprint");
+
+                    b.Property<string>("SourceRevision")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("source_revision");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("state");
+
+                    b.Property<long>("UpdatedAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("updated_at_unix_ms");
+
+                    b.Property<long?>("UploadLeaseExpiresAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("upload_lease_expires_at_unix_ms");
+
+                    b.Property<long>("UploadLeaseFence")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("upload_lease_fence");
+
+                    b.Property<string>("UploadLeaseOwner")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("upload_lease_owner");
+
+                    b.Property<string>("Voice")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("voice");
+
+                    b.Property<string>("WordId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("word_id");
+
+                    b.HasKey("IdempotencyKey");
+
+                    b.HasIndex("AssetId")
+                        .IsUnique();
+
+                    b.HasIndex("State", "CleanupNextAttemptAtUnixMs");
+
+                    b.HasIndex("State", "UploadLeaseExpiresAtUnixMs");
+
+                    b.ToTable("audio_upload_operation", t =>
+                        {
+                            t.HasCheckConstraint("CK_audio_upload_operation_cleanup_lease", "state != 'CleanupClaimed' OR (cleanup_lease_owner IS NOT NULL AND cleanup_lease_expires_at_unix_ms IS NOT NULL AND cleanup_lease_fence > 0 AND cleanup_return_state IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_audio_upload_operation_cleanup_return", "cleanup_return_state IS NULL OR cleanup_return_state IN ('Abandoned', 'CleanupObserved')");
+
+                            t.HasCheckConstraint("CK_audio_upload_operation_fences", "upload_lease_fence >= 0 AND cleanup_lease_fence >= 0 AND cleanup_attempts >= 0");
+
+                            t.HasCheckConstraint("CK_audio_upload_operation_fingerprint", "length(request_fingerprint) = 64 AND request_fingerprint NOT GLOB '*[^0-9a-f]*'");
+
+                            t.HasCheckConstraint("CK_audio_upload_operation_key", "length(idempotency_key) = 36 AND substr(idempotency_key, 9, 1) = '-' AND substr(idempotency_key, 14, 1) = '-' AND substr(idempotency_key, 19, 1) = '-' AND substr(idempotency_key, 24, 1) = '-' AND length(replace(idempotency_key, '-', '')) = 32 AND replace(idempotency_key, '-', '') NOT GLOB '*[^0-9a-f]*'");
+
+                            t.HasCheckConstraint("CK_audio_upload_operation_locale", "locale IN ('en-GB', 'en-US')");
+
+                            t.HasCheckConstraint("CK_audio_upload_operation_receipt", "(state IN ('Reserved', 'Transferring') AND receipt_status_code IS NULL AND receipt_asset_id IS NULL AND receipt_source_revision IS NULL AND receipt_error_code IS NULL AND completed_at_unix_ms IS NULL) OR (state = 'Succeeded' AND receipt_status_code IS NOT NULL AND receipt_status_code = 200 AND receipt_asset_id IS NOT NULL AND receipt_source_revision IS NOT NULL AND completed_at_unix_ms IS NOT NULL AND receipt_asset_id = asset_id AND receipt_source_revision = source_revision AND receipt_error_code IS NULL) OR (state IN ('Abandoned', 'CleanupClaimed', 'CleanupObserved') AND receipt_status_code IS NOT NULL AND receipt_status_code IN (404, 409, 503) AND receipt_asset_id IS NULL AND receipt_source_revision IS NULL AND completed_at_unix_ms IS NOT NULL AND receipt_error_code IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_audio_upload_operation_revision", "length(source_revision) = 64 AND source_revision NOT GLOB '*[^0-9a-f]*'");
+
+                            t.HasCheckConstraint("CK_audio_upload_operation_state", "state IN ('Reserved', 'Transferring', 'Succeeded', 'Abandoned', 'CleanupClaimed', 'CleanupObserved')");
+
+                            t.HasCheckConstraint("CK_audio_upload_operation_times", "created_at_unix_ms >= 0 AND updated_at_unix_ms >= created_at_unix_ms");
+
+                            t.HasCheckConstraint("CK_audio_upload_operation_upload_lease", "state NOT IN ('Reserved', 'Transferring') OR (upload_lease_owner IS NOT NULL AND upload_lease_expires_at_unix_ms IS NOT NULL AND upload_lease_fence > 0)");
+                        });
+                });
+
+            modelBuilder.Entity("Lexarbor.Database.Entities.VocabularyAudioBindingEntity", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AssetId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("asset_id");
+
+                    b.Property<string>("Locale")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("locale");
+
+                    b.Property<string>("MeaningId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("meaning_id");
+
+                    b.Property<string>("SourceRevision")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("source_revision");
+
+                    b.Property<string>("WordId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("word_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AssetId");
+
+                    b.HasIndex("MeaningId", "Locale")
+                        .IsUnique()
+                        .HasFilter("meaning_id IS NOT NULL");
+
+                    b.HasIndex("MeaningId", "WordId");
+
+                    b.HasIndex("WordId", "Locale")
+                        .IsUnique()
+                        .HasFilter("meaning_id IS NULL");
+
+                    b.ToTable("vocabulary_audio_binding", t =>
+                        {
+                            t.HasCheckConstraint("CK_vocabulary_audio_binding_locale", "locale IN ('en-GB', 'en-US')");
+
+                            t.HasCheckConstraint("CK_vocabulary_audio_binding_revision", "length(source_revision) = 64 AND source_revision NOT GLOB '*[^0-9a-f]*'");
+                        });
+                });
+
             modelBuilder.Entity("Lexarbor.Database.Entities.VocabularyBookEntity", b =>
                 {
                     b.Property<string>("Id")
@@ -237,6 +505,9 @@ namespace Lexarbor.Database.Migrations
                     b.HasIndex("Id", "BookId")
                         .IsUnique();
 
+                    b.HasIndex("Id", "VocabularyId")
+                        .IsUnique();
+
                     b.HasIndex("VocabularyId", "BookId", "NormalizedPartOfSpeech", "NormalizedMeaning")
                         .IsUnique();
 
@@ -419,6 +690,36 @@ namespace Lexarbor.Database.Migrations
 
                             t.HasCheckConstraint("ck_service_audit_logs_target_type_length", "target_type IS NULL OR octet_length(target_type) <= 800");
                         });
+                });
+
+            modelBuilder.Entity("Lexarbor.Database.Entities.AudioUploadOperationEntity", b =>
+                {
+                    b.HasOne("Lexarbor.Database.Entities.AudioAssetEntity", null)
+                        .WithMany()
+                        .HasForeignKey("AssetId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Lexarbor.Database.Entities.VocabularyAudioBindingEntity", b =>
+                {
+                    b.HasOne("Lexarbor.Database.Entities.AudioAssetEntity", null)
+                        .WithMany()
+                        .HasForeignKey("AssetId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Lexarbor.Database.Entities.VocabularyEntity", null)
+                        .WithMany()
+                        .HasForeignKey("WordId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Lexarbor.Database.Entities.VocabularyMeaningEntity", null)
+                        .WithMany()
+                        .HasForeignKey("MeaningId", "WordId")
+                        .HasPrincipalKey("Id", "VocabularyId")
+                        .OnDelete(DeleteBehavior.Cascade);
                 });
 
             modelBuilder.Entity("Lexarbor.Database.Entities.VocabularyBookUnitEntity", b =>

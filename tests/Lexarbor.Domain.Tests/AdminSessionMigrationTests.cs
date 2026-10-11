@@ -30,7 +30,9 @@ public sealed class AdminSessionMigrationTests : IDisposable
             INSERT INTO vocabulary_meaning_unit VALUES ('unit', 'meaning', 'book', 'A', 'phrase');
             """, Ct);
         var before = await VocabularySnapshot(context);
-        await context.Database.MigrateAsync(Ct);
+        // Verify this migration's promise independently of later additions
+        // such as audio's new composite ownership index.
+        await context.GetService<IMigrator>().MigrateAsync("20260930015239_AddAdminSessions", Ct);
         Assert.Equal(before, await VocabularySnapshot(context));
         Assert.Empty(await context.AdminSessions.ToListAsync(Ct));
         Assert.False(context.Database.HasPendingModelChanges());

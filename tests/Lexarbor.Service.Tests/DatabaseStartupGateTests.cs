@@ -6,6 +6,8 @@ using Lexarbor.Database.Entities;
 using Lexarbor.Service.Tests.TestInfrastructure;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using ServiceMantle.Migration;
@@ -251,28 +253,16 @@ public class DatabaseStartupGateTests
         var keyRoot = CreateSharedKeyRoot(directory);
         try
         {
-            string lastMigration;
             await using (var first = CreateHost(database, keyRoot))
             {
                 using var client = first.CreateClient();
                 await using var scope = first.Services.CreateAsyncScope();
                 var context = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
-                lastMigration = context.Database.GetMigrations().Order().Last();
-            }
-
-            // Rewind to a pending state: the newest migration's table is gone
-            // and its history row with it, so the re-run has real work to do.
-            var lastMigrationTable = lastMigration.EndsWith("AddServiceAuditLogs", StringComparison.Ordinal)
-                ? "service_audit_logs"
-                : "service_data_protection_keys";
-            await using (var raw = new SqliteConnection($"Data Source={database};Pooling=False"))
-            {
-                await raw.OpenAsync(Ct);
-                await ExecuteAsync(raw, $"DROP TABLE \"{lastMigrationTable}\";", Ct);
-                await ExecuteAsync(
-                    raw,
-                    $"DELETE FROM \"__EFMigrationsHistory\" WHERE \"MigrationId\" = '{lastMigration}';",
-                    Ct);
+                var migrations = context.Database.GetMigrations().Order().ToArray();
+                // Rewind with the real Down migration. A migration can add
+                // several tables/indexes, so deleting one guessed table does
+                // not produce a valid older schema.
+                await context.GetService<IMigrator>().MigrateAsync(migrations[^2], Ct);
             }
 
             var executions = 0;

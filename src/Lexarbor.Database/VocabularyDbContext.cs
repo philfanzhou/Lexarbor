@@ -17,11 +17,16 @@ public class VocabularyDbContext : DbContext
     public DbSet<VocabularyBookUnitEntity> VocabularyBookUnits { get; set; } = null!;
     public DbSet<VocabularyMeaningUnitEntity> VocabularyMeaningUnits { get; set; } = null!;
 
+    public DbSet<AudioAssetEntity> AudioAssets { get; set; } = null!;
+    public DbSet<VocabularyAudioBindingEntity> VocabularyAudioBindings { get; set; } = null!;
+    public DbSet<AudioUploadOperationEntity> AudioUploadOperations { get; set; } = null!;
+
     public DbSet<AdminSessionEntity> AdminSessions { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        AudioModelConfiguration.Configure(modelBuilder);
         // Data Protection keys live in the business database as authenticated
         // envelopes (sm:v1:) scoped to the lexarbor service id, replacing the
         // former plaintext file ring under data/admin-keys.
@@ -100,6 +105,7 @@ public class VocabularyDbContext : DbContext
             // by the primary key on id, so this constrains nothing the rows do not
             // already satisfy.
             entity.HasIndex(e => new { e.Id, e.BookId }).IsUnique();
+            entity.HasIndex(e => new { e.Id, e.VocabularyId }).IsUnique();
         });
 
         modelBuilder.Entity<VocabularyBookUnitEntity>(entity =>

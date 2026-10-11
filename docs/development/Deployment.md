@@ -1053,3 +1053,27 @@ The administration frontend is the dependent UI for this API: 教材管理 offer
 Take a consistent SQLite backup using the backup procedure above before destructive maintenance. Code rollback removes the API but does not restore deleted records: restore the pre-operation backup for recovery. Roll back dependent UI before the API. No configuration, schema migration, new persistent table, or volume change is required.
 
 Recheck the current scope and exact book name before delete. Preview is only an estimate and concurrent imports can change final counts. If the connection drops or the response is lost, query current state before deciding on another operation. In particular, repeating clear can erase newly imported data. There is no automatic retry, idempotency key or undo; disconnecting after admission does not cancel an already committed write.
+
+
+## Audio schema upgrade and rollback
+
+The audio reference-model migration is additive and enables no audio endpoint or
+object-store access. It adds independent asset and recovery tables, word/meaning
+bindings and a composite ownership index; existing vocabulary, authentication,
+audit and Data Protection rows remain unchanged. See the
+[audio database model](../database/README.md#audio-reference-model) for constraints,
+source revisions and read consistency.
+
+Back up the SQLite database before upgrading. When audio object storage is later
+enabled, also retain an independent backup of its private bucket; previously
+published objects must survive replacement or unlinking to keep historical
+SQLite backups useful. The new migration and its Down never access S3.
+
+The existing startup gate refuses an image that does not know this migration.
+Directly switching to an older image while retaining the newer migration history
+therefore stops with `migration.version_too_new`. To return to the previous schema,
+stop audio activity, back up SQLite and the audio bucket, explicitly migrate Down
+to `20261001125645_AddServiceAuditLogs` with the current tooling, and then deploy
+the matching old image. Down discards audio bindings and recovery metadata by
+removing only the three audio tables and their new ownership index. Keep the
+pre-Down database backup; do not delete any audio object as part of image rollback.
