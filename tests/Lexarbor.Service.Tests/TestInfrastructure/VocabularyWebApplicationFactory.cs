@@ -28,8 +28,7 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
     public const string Audience = "lexarbor";
     /// <summary>
     /// The retired password-login JWT cookie name. The cookie is no longer
-    /// authenticated; the constant remains for tests that prove exactly that and
-    /// for the logout cleanup assertions.
+    /// authenticated; the constant remains for tests that prove exactly that.
     /// </summary>
     public const string CookieName = "lexarborAdmin";
     public const string SigningSecret = "vocabulary-test-signing-key-2026-07-29";

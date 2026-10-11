@@ -462,7 +462,9 @@ are gone, together with the `LEXARBOR_OIDC_{TOKEN_ENDPOINT,CLIENT_ID,CLIENT_SECR
 `LEXARBOR_GATEWAY_*`, `LEXARBOR_ADMIN_AUTH_PROVIDER` and `LEXARBOR_COOKIE_SECURE`
 container variables. The old `lexarborAdmin` JWT cookie is not authenticated
 anymore (its lifetime was at most one hour, so every issued cookie has long
-expired naturally); logout and hosted sign-in still delete it from the browser.
+expired naturally); it is simply ignored — never read and never deleted — so in
+the extreme case of a browser that still carries one, the dead cookie remains as
+a harmless leftover.
 
 `AdminAuthentication:Provider` remains only as a tripwire: it must be unset or
 exactly `OidcCode`. Any other value — for example the removed `Oidc` or `Gateway`
@@ -707,8 +709,9 @@ prepared-logout `data.logoutUrl` as a
 top-level navigation, and renders the callback and logout-return `reason`
 values. There is no password form or method probe anymore and Lexarbor never
 receives a password. The retired `lexarborAdmin` JWT cookie from the removed modes is not
-force-logged-out — it is simply never authenticated, and its lifetime was at
-most one hour anyway; hosted sign-in and logout delete it from the browser.
+force-logged-out — it is simply never authenticated and never deleted, and its
+lifetime was at most one hour anyway; a browser that still carries one keeps a
+harmless leftover.
 To roll back, deploy an image that still contains the password proxy: the
 opaque-cookie sessions of this release keep working on the old image until
 their own exact access-token expiry while their logout degrades to local-only.

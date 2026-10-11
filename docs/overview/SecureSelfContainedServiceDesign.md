@@ -130,7 +130,7 @@ with status codes 401 and 403.
 ### 5.4 Logout and sessions
 
 - `GET /admin/auth/session` is protected by the `ServiceMantle.ManagementAdmin` policy and lets the frontend initialize its login state; its `{username, roles}` response is still built from the original sign-in claims, never from the mapped management identity.
-- `POST /admin/auth/logout` is callable anonymously, atomically revokes the presented session handle, and deletes both the session cookie and the retired `lexarborAdmin` cookie, so an expired or corrupted cookie can be cleared too.
+- `POST /admin/auth/logout` is callable anonymously, atomically revokes the presented session handle, and deletes the session cookie, so an expired or corrupted cookie can be cleared too. The retired `lexarborAdmin` cookie is not deleted: it is never read, never authenticated, and a browser that still carries one simply keeps a harmless leftover.
 - After logout the browser no longer carries a usable credential, and a further administration request answers 401.
 - The session ends at the access token's exact `exp`; there is no refresh token, so the browser cannot restore the session by itself.
 

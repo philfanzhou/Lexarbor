@@ -185,7 +185,7 @@ public sealed class AdminSessionAuthenticationTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Logout_RevokesCopiedHandleAndDeletesBothCookies_WhileBearerSurvives(bool bearer)
+    public async Task Logout_RevokesCopiedHandleAndDeletesSessionCookie_WhileBearerSurvives(bool bearer)
     {
         using var host = new VocabularyWebApplicationFactory();
         using var client = Client(host);
@@ -195,7 +195,7 @@ public sealed class AdminSessionAuthenticationTests
         if (bearer) Assert.Equal(HttpStatusCode.OK, (await Send(client, "POST", "/admin/vocabulary-books", cookies, token, csrf: true)).StatusCode);
         var logout = await Send(client, "POST", "/admin/auth/logout", cookies, token, csrf: true);
         Assert.Equal(HttpStatusCode.OK, logout.StatusCode);
-        AssertBothDeleted(logout.Headers.GetValues("Set-Cookie"));
+        AssertSessionCookieDeleted(logout.Headers.GetValues("Set-Cookie"));
         Assert.Equal(HttpStatusCode.Unauthorized, (await Send(client, "GET", "/admin/auth/session", Cookies(handle))).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await Send(client, "POST", "/admin/auth/logout", cookies, csrf: true)).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await Send(client, "POST", "/admin/auth/logout", csrf: true)).StatusCode);
@@ -226,7 +226,7 @@ public sealed class AdminSessionAuthenticationTests
         Assert.Equal(HttpStatusCode.Unauthorized, (await Send(client, "POST", "/admin/vocabulary-books", cookies)).StatusCode);
         var logout = await Send(client, "POST", "/admin/auth/logout", cookies, csrf: true);
         Assert.Equal(HttpStatusCode.OK, logout.StatusCode);
-        AssertBothDeleted(logout.Headers.GetValues("Set-Cookie"));
+        AssertSessionCookieDeleted(logout.Headers.GetValues("Set-Cookie"));
     }
 
     [Theory]
@@ -252,7 +252,7 @@ public sealed class AdminSessionAuthenticationTests
         {
             var response = await Send(client, "POST", path, Cookies(handle, host.CreateToken("admin")), csrf: true);
             Assert.Equal(status, (int)response.StatusCode);
-            AssertBothDeleted(response.Headers.GetValues("Set-Cookie"));
+            AssertSessionCookieDeleted(response.Headers.GetValues("Set-Cookie"));
             var body = await response.Content.ReadAsStringAsync(Ct);
             Assert.Contains(AdminSessionRepository.StorageFailureMessage, body);
             Assert.True(!body.Contains("synthetic-storage-secret", StringComparison.Ordinal));
@@ -337,14 +337,14 @@ public sealed class AdminSessionAuthenticationTests
         }
     }
 
-    private static void AssertBothDeleted(IEnumerable<string> cookies)
+    private static void AssertSessionCookieDeleted(IEnumerable<string> cookies)
     {
         var values = cookies.ToArray();
-        // Both names are deleted; the package's own session deletion may appear
-        // beside the middleware's, so the assertion is on the distinct names.
-        Assert.Equal(2, values.Select(value => value.Split('=')[0]).Distinct().Count());
-        foreach (var name in new[] { AdminSessionCookie.Name, VocabularyWebApplicationFactory.CookieName })
-            Assert.Contains(values, value => value.StartsWith(name + "=;", StringComparison.Ordinal) && value.Contains("expires=", StringComparison.OrdinalIgnoreCase) && value.Contains("path=/", StringComparison.OrdinalIgnoreCase));
+        // The session cookie is the only name deleted; the package's own session
+        // deletion may appear beside the middleware's, so the assertion is on the
+        // distinct names.
+        Assert.Single(values.Select(value => value.Split('=')[0]).Distinct());
+        Assert.Contains(values, value => value.StartsWith(AdminSessionCookie.Name + "=;", StringComparison.Ordinal) && value.Contains("expires=", StringComparison.OrdinalIgnoreCase) && value.Contains("path=/", StringComparison.OrdinalIgnoreCase));
     }
     private sealed class Clock : TimeProvider
     {

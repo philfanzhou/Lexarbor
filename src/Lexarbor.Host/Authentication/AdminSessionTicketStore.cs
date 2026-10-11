@@ -79,10 +79,6 @@ public sealed class AdminSessionTicketStore(
             .StageLoginSucceeded(http, accessPrincipal);
         var store = scope.ServiceProvider.GetRequiredService<AdminSessionStore>();
         var handle = await store.ReplaceAsync(oldKey, session, auditWrite, cancellationToken);
-        // Only a confirmed commit reaches here. Sign-in replaces every credential the
-        // browser may hold from a previous session, including the retired
-        // password-login JWT cookie.
-        http.Response.Cookies.Delete(AdminSessionCookie.LegacyJwtName, AdminSessionCookie.LegacyOptions());
         return handle;
     }
 

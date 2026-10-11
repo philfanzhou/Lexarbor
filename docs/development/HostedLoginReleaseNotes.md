@@ -19,8 +19,9 @@ forwards administrator passwords anywhere.
   diagnostic pointing at the migration steps in
   [Deployment](Deployment.md#administrator-sign-in-hosted-login-only).
 - The old `lexarborAdmin` JWT cookie is no longer authenticated. Its lifetime
-  was at most one hour, so every issued cookie has long expired naturally;
-  logout and hosted sign-in still delete it from the browser.
+  was at most one hour, so every issued cookie has long expired naturally; it
+  is simply ignored — never read and never deleted — and a browser that still
+  carries one keeps a harmless leftover.
 - `GET /admin/auth/method` no longer exists (#176). The administration UI
   offers the SignaCore navigation directly, and the deleted route is answered
   like any unknown `/admin/*` route: 401 for anonymous callers, 404 for
