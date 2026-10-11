@@ -69,26 +69,10 @@ public static class AdminSessionCookie
         && uri.Scheme == Uri.UriSchemeHttp;
 
     /// <summary>
-    /// The retired password-login JWT cookie. It stopped being authenticated when the
-    /// password proxy was removed; logout and sign-in keep deleting it so a browser
-    /// that still carries one is cleaned up at the first boundary event.
-    /// </summary>
-    public const string LegacyJwtName = "lexarborAdmin";
-
-    internal static CookieOptions LegacyOptions() => new()
-    {
-        HttpOnly = true,
-        SameSite = SameSiteMode.Strict,
-        Path = "/",
-        IsEssential = true
-    };
-
-    /// <summary>
     /// Deletes the session cookie the active profile actually issues — read from the
     /// SignaCore client options, the single place the derived name exists — with the
     /// attributes of that profile: a plain-HTTP deletion must not carry Secure, or a
-    /// real browser would refuse the header and keep the cookie. The retired
-    /// password-login cookie is deleted beside it.
+    /// real browser would refuse the header and keep the cookie.
     /// </summary>
     public static void Clear(HttpContext context)
     {
@@ -102,7 +86,6 @@ public static class AdminSessionCookie
             SameSite = SameSiteMode.Lax,
             Path = "/"
         });
-        context.Response.Cookies.Delete(LegacyJwtName, LegacyOptions());
     }
 }
 

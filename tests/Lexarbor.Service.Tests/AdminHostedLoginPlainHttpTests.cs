@@ -119,7 +119,6 @@ public class AdminHostedLoginPlainHttpTests
         Assert.Contains(Issuer + "/oauth2/logout?logout_handle=", await logout.Content.ReadAsStringAsync(Ct));
         var logoutCookies = logout.Headers.GetValues("Set-Cookie").ToArray();
         Assert.Contains(logoutCookies, c => c.StartsWith(AdminSessionCookie.PlainHttpName + "=;", StringComparison.Ordinal));
-        Assert.Contains(logoutCookies, c => c.StartsWith(VocabularyWebApplicationFactory.CookieName + "=;", StringComparison.Ordinal));
         Assert.Contains(logoutCookies, c => c.StartsWith(LogoutReturnCookieName + "=", StringComparison.Ordinal));
         Assert.DoesNotContain(logoutCookies, c => c.Contains("secure", StringComparison.OrdinalIgnoreCase));
 

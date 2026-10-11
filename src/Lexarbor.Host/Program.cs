@@ -750,8 +750,7 @@ app.UseRateLimiter();
 app.UseMiddleware<AdminSessionFailureMiddleware>();
 app.UseAuthentication();
 // The session-identity bridge: a hosted-login session principal receives its
-// ServiceMantle management identity here, and the retired password-login JWT cookie
-// is cleaned up at the hosted boundary events. Session-authenticated unsafe methods
+// ServiceMantle management identity here. Session-authenticated unsafe methods
 // carry the official antiforgery boundary inside the session scheme itself.
 app.UseMiddleware<AdminSessionIdentityMiddleware>();
 app.UseAuthorization();

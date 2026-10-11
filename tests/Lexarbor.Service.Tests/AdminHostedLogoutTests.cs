@@ -57,17 +57,16 @@ public class AdminHostedLogoutTests
         Assert.Equal("Basic " + Convert.ToBase64String(Encoding.UTF8.GetBytes(
             "client-id:" + SignaCoreAuthorityStub.Secret)), f.Authority.LastAuthorizationHeader);
         Assert.True(CanonicalState(f.LogoutForm["state"]));
-        // Both session cookies are deleted; the correlation cookie is HttpOnly,
+        // The session cookie is deleted; the correlation cookie is HttpOnly,
         // Secure, Lax, path-bound, five-minute and carries only the correlation id.
         var cookies = response.Headers.GetValues("Set-Cookie").ToArray();
-        // Three cookie names: the session and the retired password-login cookie are
-        // both deleted (the package's own session deletion may appear beside the
-        // middleware's), and the one-time correlation cookie is set.
+        // Two cookie names: the session cookie is deleted (the package's own
+        // session deletion may appear beside the middleware's), and the one-time
+        // correlation cookie is set.
         Assert.Equal(
-            new[] { AdminSessionCookie.Name, "__Secure-Lexarbor.AdminSession-logout-return", VocabularyWebApplicationFactory.CookieName }.OrderBy(name => name, StringComparer.Ordinal),
+            new[] { AdminSessionCookie.Name, "__Secure-Lexarbor.AdminSession-logout-return" }.OrderBy(name => name, StringComparer.Ordinal),
             cookies.Select(c => c.Split('=')[0]).Distinct().OrderBy(name => name, StringComparer.Ordinal));
         Assert.Contains(cookies, c => c.StartsWith(AdminSessionCookie.Name + "=;", StringComparison.Ordinal));
-        Assert.Contains(cookies, c => c.StartsWith(VocabularyWebApplicationFactory.CookieName + "=;", StringComparison.Ordinal));
         var (name, binding, raw) = LogoutReturnCookie(response);
         Assert.Equal(LogoutReturnCookieName, name);
         Assert.Contains("httponly", raw); Assert.Contains("secure", raw); Assert.Contains("samesite=lax", raw);
@@ -264,7 +263,7 @@ public class AdminHostedLogoutTests
         Assert.Equal("{\"success\":true}", await response.Content.ReadAsStringAsync(Ct));
         Assert.Equal("no-store", response.Headers.CacheControl!.ToString());
         Assert.Equal(0, f.LogoutPosts);
-        AssertBothSessionCookiesDeleted(response);
+        AssertSessionCookieDeleted(response);
         f.AssertSafeLogs();
     }
 
@@ -573,11 +572,10 @@ public class AdminHostedLogoutTests
         catch (FormatException) { return false; }
     }
 
-    private static void AssertBothSessionCookiesDeleted(HttpResponseMessage response)
+    private static void AssertSessionCookieDeleted(HttpResponseMessage response)
     {
         var cookies = response.Headers.GetValues("Set-Cookie").ToArray();
         Assert.Contains(cookies, c => c.StartsWith(AdminSessionCookie.Name + "=;", StringComparison.Ordinal));
-        Assert.Contains(cookies, c => c.StartsWith(VocabularyWebApplicationFactory.CookieName + "=;", StringComparison.Ordinal));
     }
 
     private static void ReturnSafety(HttpResponseMessage response)
