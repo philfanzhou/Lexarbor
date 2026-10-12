@@ -162,19 +162,21 @@ checks them in real container logs while retaining health, non-root, and persist
 
 | Scenario | Expectation |
 |------|------|
-| Login beyond the permit limit | 429 Problem Details with fixed title/code, correlation id and positive `Retry-After` |
+| Login beyond the permit limit with the policy explicitly enabled | 429 Problem Details with fixed title/code, correlation id and positive `Retry-After` |
 | One address exhausts the login limit | Another address is still admitted |
-| Public `/api/*` beyond the permit limit | 429, unknown `/api/*` routes included |
+| Public `/api/*` beyond the permit limit with the policy explicitly enabled | 429, unknown `/api/*` routes included |
 | A question batch | One request of the `PublicApi` budget however many items it carries; two fifty-item batches still fit a two-permit window |
 | Administration endpoints | Never rate limited |
 | `X-Forwarded-For` with no trusted proxy | Ignored, so a caller cannot mint its own partition |
 | `X-Forwarded-For` from a trusted proxy | Partitions on the real client address |
+| Built-in/type defaults, missing section or missing `Enabled` | Both policies are disabled; requests beyond the old quotas have no policy 429 or `Retry-After` |
 | A policy disabled by configuration | Every request is admitted |
+| New container, existing file, environment and command-line overrides | Disabled first-start defaults; explicit true/false overrides respected without rewriting an existing file |
 | Enabled permits outside 1..10000 or seconds outside 10..600 | Startup fails rather than the limit being clamped or dropped |
 
 Additional rate-limit regressions cover numeric boundary acceptance, disabled
-invalid values and policy independence, default quotas reaching the shared startup
-snapshot after late test-host configuration, separate policy/address buckets,
+invalid values and policy independence, explicitly enabled default quotas reaching
+the shared startup snapshot after late test-host configuration, separate policy/address buckets,
 IPv4-mapped and unknown-address buckets, concurrent admission without queueing,
 and shared rejection-write cancellation. The header adapter preserves an existing
 shared `Retry-After` and touches only product-policy 429 responses. Existing

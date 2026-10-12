@@ -12,7 +12,8 @@ public sealed class RateLimitOptions
 
     /// <summary>
     /// <c>GET /admin/auth/start</c> initiates hosted sign-in. The default
-    /// protects the identity provider while allowing ordinary login retries.
+    /// ceiling, when explicitly enabled, protects the identity provider while
+    /// allowing ordinary login retries.
     /// </summary>
     public RateLimitPolicyOptions AdminLogin { get; set; } = new()
     {
@@ -40,12 +41,11 @@ public sealed class RateLimitOptions
 public sealed class RateLimitPolicyOptions
 {
     /// <summary>
-    /// Set to false to remove the ceiling. Present so that turning a limit off is
-    /// a deliberate, greppable configuration value rather than something an
-    /// operator achieves by setting the permit count absurdly high; startup logs
-    /// a warning naming the policy, so a disabled limit cannot be a quiet state.
+    /// Disabled by default. Set to true to apply the configured ceiling; setting
+    /// false removes it without changing its numeric settings. Startup logs
+    /// a warning naming each disabled policy.
     /// </summary>
-    public bool Enabled { get; set; } = true;
+    public bool Enabled { get; set; }
 
     public int PermitLimit { get; set; }
 
