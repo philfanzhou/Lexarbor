@@ -11,21 +11,22 @@ namespace Lexarbor.Service;
 
 public static class AudioPublicPlaybackEndpoints
 {
-    public static void MapAudioPublicPlaybackEndpoints(this IEndpointRouteBuilder app, bool enabled,
+    public static void MapAudioPublicPlaybackEndpoints(this IEndpointRouteBuilder app,
         string? publicApiRateLimitPolicy = null)
     {
         var endpoint = app.MapGet("/api/vocabulary/{wordId}/audio", async (HttpContext context, string wordId,
             [FromQuery] string? bookId, [FromQuery] string? meaningId, [FromQuery] string? locale,
-            AudioPublicPlaybackService service, CancellationToken cancellationToken) =>
+            IAudioPlaybackOperationFactory operations, CancellationToken cancellationToken) =>
         {
             context.Response.Headers.CacheControl = "no-store";
             if (string.IsNullOrWhiteSpace(bookId)) return Error(400, "Book ID is required.");
             if (locale != null && locale is not ("en-GB" or "en-US")) return Error(400, "Audio locale must be en-GB or en-US.");
             if (meaningId != null && string.IsNullOrWhiteSpace(meaningId)) return Error(400, "Meaning ID is invalid.");
-            if (!enabled) return Error(503, "Audio storage is disabled.");
+            using var operation = await operations.AcquireAsync(cancellationToken);
+            if (!operation.Enabled) return Error(503, "Audio storage is disabled.");
             try
             {
-                var results = await service.GetAsync(bookId.Trim(), wordId, meaningId?.Trim(),
+                var results = await operation.Public.GetAsync(bookId.Trim(), wordId, meaningId?.Trim(),
                     locale == null ? null : AudioLocales.FromCode(locale), cancellationToken);
                 return VocabularyHttpResponse.Ok(new
                 {

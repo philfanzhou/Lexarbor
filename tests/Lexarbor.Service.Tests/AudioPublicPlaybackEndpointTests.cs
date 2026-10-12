@@ -6,6 +6,7 @@ using Lexarbor.Database.Entities;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 using Lexarbor.Domain.Services;
+using Lexarbor.Host.Audio;
 using Lexarbor.Service.Tests.TestInfrastructure;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
@@ -40,6 +41,10 @@ public sealed class AudioPublicPlaybackEndpointTests
             return OnSign?.Invoke(token) ?? Task.FromResult(new AudioPlaybackLink("https://audio.example.test/synthetic-signed-link",
                 new DateTimeOffset(2026, 10, 12, 12, 0, 0, TimeSpan.FromHours(8))));
         }
+    }
+    private sealed class StoreFactory(Store store) : IAudioObjectStoreFactory
+    {
+        public IAudioObjectStore Create(AudioOptions options) => store;
     }
     private sealed class Logs : ILoggerProvider
     {
@@ -82,7 +87,7 @@ public sealed class AudioPublicPlaybackEndpointTests
             App = Factory.WithWebHostBuilder(builder =>
             {
                 builder.ConfigureLogging(logging => logging.AddProvider(Logs));
-                builder.ConfigureServices(services => { services.RemoveAll<IAudioObjectStore>(); services.AddSingleton<IAudioObjectStore>(Store); });
+                builder.ConfigureServices(services => { services.RemoveAll<IAudioObjectStore>(); services.AddSingleton<IAudioObjectStore>(Store); services.RemoveAll<IAudioObjectStoreFactory>(); services.AddSingleton<IAudioObjectStoreFactory>(new StoreFactory(Store)); });
             });
             Client = App.CreateClient(new() { BaseAddress = new("https://localhost") });
             Client.DefaultRequestHeaders.Authorization = new("Bearer", Factory.CreateToken("admin"));

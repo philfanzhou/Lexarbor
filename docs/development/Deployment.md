@@ -1203,7 +1203,18 @@ old generation. This protects first-upload races within one host; it does not
 coordinate multiple hosts or direct database writes. Never delete records online
 to bypass this guard; destination migration is a separate operational task.
 
-Playback, metadata/unbinding and recovery integration remain staged, and no S3
+Administrator and public playback acquire one asynchronous operation reference
+before lookup and authorization. Enabled state, TTL, Stat and signing clients are
+consistent for the whole request, including both public accents. Closing audio
+rejects new playback with safe 503 while existing playback finishes; reopening
+works even if the Host originally started disabled. Credential or PublicEndpoint
+rotation leaves old requests on their old client and legal public path prefix.
+Cancellation or timeout stops waiting, but an uncooperative Stat/signing provider
+keeps its client until its actual call ends. Retain old remote credentials until
+old operations finish; issued URLs remain valid only as allowed by S3 and their
+expiry, and are not immediately revoked by disabling audio.
+
+Metadata/unbinding and recovery integration remain staged, and no S3
 settings save API is exposed yet. All remaining audio paths must use the manager
 before administrator S3 saves are enabled. Remote credentials being revoked can
 still make an older operation fail.

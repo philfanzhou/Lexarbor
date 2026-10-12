@@ -240,9 +240,52 @@ static async Task VerifyRuntimeUploadGenerationsAsync(AudioOptions initial, byte
         throw new InvalidOperationException("Historical audio records must reject destination changes.");
     }
     catch (ConfigurationChangeConflictException) { }
+    oldDb.VocabularyBooks.Add(new() { Id = "runtime-book", BookName = "Runtime", Status = true });
+    oldDb.VocabularyMeanings.Add(new() { Id = "runtime-meaning", VocabularyId = "runtime-word", BookId = "runtime-book", Meaning = "tone" });
+    await oldDb.SaveChangesAsync();
+    foreach (var publicAudio in new[] { false, true })
+    {
+        var playbackFactory = new PlaybackRotationProbeFactory(publicAudio ? 2 : 1);
+        using var playbackRuntime = new AudioRuntimeConfiguration(Options.Create(initial), playbackFactory);
+        using var previous = await new AudioPlaybackOperationFactory(playbackRuntime, new AudioReadRepository(oldDb),
+            new AudioReadRepository(oldDb)).AcquireAsync(default);
+        var pending = publicAudio ? previous.Public.GetAsync("runtime-book", "runtime-word", null, null, default)
+            : AdminResults(previous.Admin);
+        await playbackFactory.Stores[0].Started.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        var newPlaybackOptions = JsonSerializer.Deserialize<AudioOptions>(JsonSerializer.Serialize(rotated))!;
+        newPlaybackOptions.PublicEndpoint = initial.InternalEndpoint;
+        using (var candidate = await playbackRuntime.PrepareAsync(RuntimeConfig(newPlaybackOptions), default))
+        {
+            Require(candidate is not null, "Real playback credential/PublicEndpoint rotation must prepare.");
+            candidate!.Publish();
+        }
+        using var next = await new AudioPlaybackOperationFactory(playbackRuntime, new AudioReadRepository(newDb),
+            new AudioReadRepository(newDb)).AcquireAsync(default);
+        var currentResults = publicAudio ? await next.Public.GetAsync("runtime-book", "runtime-word", null, null, default)
+            : await AdminResults(next.Admin);
+        Require(!playbackFactory.Stores[0].Disposed, "Paused old real signatures must retain their client.");
+        playbackFactory.Stores[0].Finish.TrySetResult();
+        var previousResults = await pending;
+        using var http = new HttpClient();
+        foreach (var result in previousResults)
+        {
+            Require(result.Link!.Url.StartsWith(initial.PublicEndpoint, StringComparison.Ordinal), "All old accents must retain the proxy prefix.");
+            Require((await http.GetByteArrayAsync(result.Link.Url)).SequenceEqual(bytes), "Each old real signature must download the complete MP3.");
+        }
+        foreach (var result in currentResults)
+        {
+            Require(result.Link!.Url.StartsWith(newPlaybackOptions.PublicEndpoint, StringComparison.Ordinal), "New playback must use the new public endpoint.");
+            Require((await http.GetByteArrayAsync(result.Link.Url)).SequenceEqual(bytes), "Each new credential signature must download the complete MP3.");
+        }
+        previous.Dispose();
+        Require(playbackFactory.Stores[0].Disposed, "Old signing client disposes only after the playback operation ends.");
+    }
+    Console.WriteLine("Concurrent runtime playback generations passed.");
     foreach (var location in locations) await verifier.RemoveAsync(location, default);
     Console.WriteLine("Concurrent runtime upload generations passed.");
 }
+static async Task<IReadOnlyList<AudioPlaybackResult>> AdminResults(AudioPlaybackService playback)
+    => new[] { await playback.GetAsync("runtime-word", null, AudioLocale.EnGb, default) };
 static IConfiguration RuntimeConfig(AudioOptions options) => new ConfigurationBuilder()
     .AddJsonStream(new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(new { Audio = options }))).Build();
 
@@ -402,9 +445,13 @@ sealed class PlaybackProbeHost(WebApplication app, HttpClient client, PlaybackPr
         builder.Services.AddSingleton<IAudioPublicReadRepository>(repository);
         var store = new PlaybackProbeStore(objectStore);
         builder.Services.AddSingleton<IAudioObjectStore>(store);
-        builder.Services.AddSingleton(new AudioPlaybackSettings(60, 3));
-        builder.Services.AddScoped<AudioPlaybackService>();
-        builder.Services.AddScoped<AudioPublicPlaybackService>();
+        builder.Services.AddSingleton(new AudioRuntimeConfiguration(Options.Create(new AudioOptions
+        {
+            Enabled = true, InternalEndpoint = "http://127.0.0.1:9/", PublicEndpoint = "https://audio.example.test/",
+            AccessKey = "synthetic-probe-access", SecretKey = "synthetic-probe-secret", PlaybackTtlSeconds = 60,
+            OperationTimeoutSeconds = 3
+        }), new PlaybackProbeFactory(store)));
+        builder.Services.AddScoped<IAudioPlaybackOperationFactory, AudioPlaybackOperationFactory>();
         var app = builder.Build();
         app.Use(async (context, next) =>
         {
@@ -413,8 +460,8 @@ sealed class PlaybackProbeHost(WebApplication app, HttpClient client, PlaybackPr
             await next(context);
         });
         app.UseAuthorization();
-        app.MapAudioAdminPlaybackEndpoints(true);
-        app.MapAudioPublicPlaybackEndpoints(true);
+        app.MapAudioAdminPlaybackEndpoints();
+        app.MapAudioPublicPlaybackEndpoints();
         app.Use(async (context, next) =>
         {
             try { await next(context); }
@@ -504,5 +551,39 @@ sealed class RuntimeProbeStore(AudioOptions options, bool pause) : IAudioObjectS
     public Task<AudioObjectInfo?> StatAsync(AudioObjectLocation location, CancellationToken token) => _inner.StatAsync(location, token);
     public Task RemoveAsync(AudioObjectLocation location, CancellationToken token) => _inner.RemoveAsync(location, token);
     public Task<AudioPlaybackLink> GetPlaybackLinkAsync(AudioObjectLocation location, TimeSpan validity, CancellationToken token) => _inner.GetPlaybackLinkAsync(location, validity, token);
+    public void Dispose() { Disposed = true; _inner.Dispose(); }
+}
+
+sealed class PlaybackProbeFactory(IAudioObjectStore store) : IAudioObjectStoreFactory
+{
+    public IAudioObjectStore Create(AudioOptions options) => store;
+}
+
+sealed class PlaybackRotationProbeFactory(int pauseAt) : IAudioObjectStoreFactory
+{
+    public List<PlaybackRotationProbeStore> Stores { get; } = [];
+    public IAudioObjectStore Create(AudioOptions options)
+    {
+        var store = new PlaybackRotationProbeStore(options, Stores.Count == 0 ? pauseAt : 0);
+        Stores.Add(store); return store;
+    }
+}
+sealed class PlaybackRotationProbeStore(AudioOptions options, int pauseAt) : IAudioObjectStore, IDisposable
+{
+    private readonly S3AudioObjectStore _inner = new(Microsoft.Extensions.Options.Options.Create(options), TimeProvider.System);
+    private int _signs;
+    public bool Disposed { get; private set; }
+    public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public TaskCompletionSource Finish { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public async Task<AudioPlaybackLink> GetPlaybackLinkAsync(AudioObjectLocation location, TimeSpan validity, CancellationToken token)
+    {
+        if (Interlocked.Increment(ref _signs) == pauseAt)
+        { Started.TrySetResult(); await Finish.Task.WaitAsync(token); }
+        if (Disposed) throw new InvalidOperationException("Playback client was disposed before signing ended.");
+        return await _inner.GetPlaybackLinkAsync(location, validity, token);
+    }
+    public Task<AudioObjectInfo?> StatAsync(AudioObjectLocation location, CancellationToken token) => _inner.StatAsync(location, token);
+    public Task PutAsync(AudioObjectLocation location, Stream content, long length, string type, CancellationToken token) => throw new NotSupportedException();
+    public Task RemoveAsync(AudioObjectLocation location, CancellationToken token) => throw new NotSupportedException();
     public void Dispose() { Disposed = true; _inner.Dispose(); }
 }
