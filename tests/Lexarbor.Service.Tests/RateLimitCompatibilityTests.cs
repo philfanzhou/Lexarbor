@@ -26,7 +26,7 @@ public class RateLimitCompatibilityTests
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
-        builder.Services.Configure<RateLimitOptions>(_ => { });
+        builder.Services.Configure<RateLimitOptions>(options => { options.AdminLogin.Enabled = true; options.PublicApi.Enabled = true; });
         await using var app = builder.Build();
         app.UseRouting();
         app.UseLexarborRateLimitRetryAfter();

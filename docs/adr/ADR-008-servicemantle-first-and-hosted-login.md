@@ -87,3 +87,7 @@ ADR-001 记录了可插拔密码代理登录（`Oidc` 密码授权与 `Gateway` 
 
 - 后续实施 issue（#144、#174–#184）引用同一份能力映射与取舍理由，不再各自论证边界。
 - 本 ADR 不交付任何能力迁移，不改变任何运行时行为；每项兼容性变化由对应 issue 明确批准、验证并同步英文使用者文档。
+
+## 2026-10-12 amendment: online rate-limit switches
+
+The Host now always attaches the ServiceMantle named policies to their product routes and captures an immutable switch snapshot when a request enters the limit pipeline. A disabled switch bypasses that existing limiter; enabling again reuses its live per-address bucket. The package continues to own partitioning, sliding windows, and rejection bodies. Numeric policy parameters remain startup settings. Administrator GET/PUT and `/#/settings` use the shared persistent-file coordinator and revision; only switches are editable and deployment overrides remain read-only. This extends the earlier startup-only behavior without introducing a second configuration store or replacing ServiceMantle. See [System settings](../api/SystemSettings.md).

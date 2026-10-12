@@ -3,7 +3,7 @@ import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { EditPen, Notebook, Reading, Upload } from '@element-plus/icons-vue'
+import { EditPen, Notebook, Reading, Upload, Setting } from '@element-plus/icons-vue'
 import { currentUser, isAuthenticated, logout } from '@/services/authState'
 import { versionInfo, versionLabel, versionStatus } from '@/services/systemVersion'
 import { getApiError } from '@/services/apiError'
@@ -33,7 +33,8 @@ const navigation = [
       { to: '/import/batch/words', label: '批量单词导入', icon: Upload },
       { to: '/import/batch/phrases', label: '批量短语导入', icon: Upload }
     ]
-  }
+  },
+  { id: 'nav-group-system', title: '系统', links: [{ to: '/settings', label: '系统设置', icon: Setting }] }
 ]
 
 // The build-version detail: a small non-modal disclosure anchored to the

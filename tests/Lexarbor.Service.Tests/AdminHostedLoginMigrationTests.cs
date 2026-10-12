@@ -145,6 +145,15 @@ public class AdminHostedLoginMigrationTests
         Assert.Equal("/", callback.Headers.Location!.OriginalString);
     }
 
+    [Fact]
+    public async Task SettingsReturnTarget_CompletesHostedCallback()
+    {
+        using var f = new HostedLoginMigrationFixture();
+        var transaction = await f.Start("/settings");
+        using var callback = await f.Callback(transaction);
+        Assert.Equal("/#/settings", callback.Headers.Location!.OriginalString);
+    }
+
     private sealed class HostedLoginMigrationFixture : IDisposable
     {
         public VocabularyWebApplicationFactory Base { get; }

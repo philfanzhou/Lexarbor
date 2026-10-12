@@ -573,6 +573,7 @@ static void MapOtlpSignal(IConfiguration section, ServiceMantle.Diagnostics.Expo
 }
 
 serviceMantle.AddLexarborRateLimiting(builder.Configuration);
+builder.Services.AddSingleton<RateLimitRuntime>();
 
 var app = builder.Build();
 // Capture the initial file snapshot before accepting requests, including when no settings are read.
@@ -790,8 +791,8 @@ app.UseStaticFiles();
 // Ahead of authentication so a rejected caller costs a partition lookup rather
 // than a JWT validation, which for a cookie-bearing request can reach out to the
 // identity provider for signing keys.
-app.UseLexarborRateLimitRetryAfter();
-app.UseRateLimiter();
+app.UseSystemSettingsNoStore();
+app.UseLexarborRateLimiting();
 app.UseMiddleware<AdminSessionFailureMiddleware>();
 app.UseAuthentication();
 // The session-identity bridge: a hosted-login session principal receives its
@@ -809,6 +810,7 @@ app.UseAuthorization();
 var adminSurface = app.MapGroup(string.Empty).RequireServiceMantleSecurityResponseHeaders();
 adminSurface.MapAdminAuthEndpoints();
 adminSurface.MapSystemVersionEndpoints();
+adminSurface.MapSystemSettingsEndpoints();
 adminSurface.MapVocabularyWordEditEndpoints();
 adminSurface.MapVocabularyMeaningEditEndpoints();
 adminSurface.MapVocabularyBookUnitEndpoints();
@@ -820,9 +822,9 @@ adminSurface.MapAudioUnbindEndpoints(app.Services.GetRequiredService<IOptions<Au
 adminSurface.MapAudioAdminPlaybackEndpoints(app.Services.GetRequiredService<IOptions<AudioOptions>>().Value.Enabled);
 adminSurface.MapVocabularyCleanupEndpoints();
 app.MapAudioPublicPlaybackEndpoints(app.Services.GetRequiredService<IOptions<AudioOptions>>().Value.Enabled,
-    rateLimitOptions.PublicApi.Enabled ? RateLimitingExtensions.PublicApiPolicy : null);
+    RateLimitingExtensions.PublicApiPolicy);
 app.MapVocabularyHttpEndpoints(
-    rateLimitOptions.PublicApi.Enabled ? RateLimitingExtensions.PublicApiPolicy : null,
+    RateLimitingExtensions.PublicApiPolicy,
     static adminGroup => adminGroup.RequireServiceMantleSecurityResponseHeaders());
 // The ServiceMantle health endpoints are anonymous and unmetered: /health/live
 // answers liveness alone, /health/ready and /health project the readiness
@@ -843,14 +845,8 @@ var unknownApi = app.MapMethods(
         "/api/{**path}",
         allHttpMethods,
         () => VocabularyHttpResponse.NotFound("API endpoint was not found."));
-if (rateLimitOptions.PublicApi.Enabled)
-{
-    unknownApi.RequireRateLimiting(RateLimitingExtensions.PublicApiPolicy);
-}
-else
-{
-    unknownApi.DisableRateLimiting();
-}
+unknownApi.RequireRateLimiting(RateLimitingExtensions.PublicApiPolicy);
+
 adminSurface.MapMethods(
         "/admin/{**path}",
         allHttpMethods,

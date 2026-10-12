@@ -36,11 +36,35 @@ public static class RateLimitingExtensions
 
     private static void Apply(RateLimitPolicyOptions configured, SharedPolicy shared)
     {
-        if (configured.Enabled)
+        if (configured.Enabled || ValidNumbers(configured))
         {
             shared.PermitLimit = configured.PermitLimit;
             shared.Window = TimeSpan.FromSeconds(configured.WindowSeconds);
         }
+    }
+
+    public static bool ValidNumbers(RateLimitPolicyOptions policy) =>
+        policy.PermitLimit is >= 1 and <= 10000 && policy.WindowSeconds is >= 10 and <= 600;
+
+    public static IApplicationBuilder UseLexarborRateLimiting(this IApplicationBuilder app)
+    {
+        return app.UseWhen(context =>
+        {
+            var metadata = context.GetEndpoint()?.Metadata;
+            if (metadata?.GetMetadata<DisableRateLimitingAttribute>() is not null) return false;
+            var policy = metadata?.GetMetadata<EnableRateLimitingAttribute>()?.PolicyName;
+            var snapshot = context.RequestServices.GetRequiredService<RateLimitRuntime>().Current;
+            return policy switch
+            {
+                AdminLoginPolicy => snapshot.AdminLogin.Enabled,
+                PublicApiPolicy => snapshot.PublicApi.Enabled,
+                _ => true
+            };
+        }, branch =>
+        {
+            branch.UseLexarborRateLimitRetryAfter();
+            branch.UseRateLimiter();
+        });
     }
 
     public static IApplicationBuilder UseLexarborRateLimitRetryAfter(this IApplicationBuilder app)

@@ -32,6 +32,7 @@ const reasonNotice = computed(() => {
 // an unusable `redirect` is dropped — the backend then falls back to its own
 // default — instead of turning a top-level navigation into a bare 400.
 const hostedReturnRoutes = new Set([
+  '/settings',
   '/books',
   '/vocabulary',
   '/phrases',

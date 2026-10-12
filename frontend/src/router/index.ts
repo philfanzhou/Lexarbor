@@ -10,12 +10,14 @@ import ImportView from '@/views/ImportView.vue'
 import PhraseImportView from '@/views/PhraseImportView.vue'
 import LoginView from '@/views/LoginView.vue'
 import PhrasePositionsView from '@/views/PhrasePositionsView.vue'
+import SettingsView from '@/views/SettingsView.vue'
 import VocabularyView from '@/views/VocabularyView.vue'
 
 const routes: RouteRecordRaw[] = [
   { path: '/', redirect: '/books' },
   { path: '/login', name: 'login', component: LoginView, meta: { public: true } },
   { path: '/forbidden', name: 'forbidden', component: ForbiddenView, meta: { public: true } },
+  { path: '/settings', name: 'settings', component: SettingsView },
   { path: '/books', name: 'books', component: BooksView },
   { path: '/books/:bookId/words', name: 'book-words', component: BookWordsView },
   { path: '/vocabulary', name: 'vocabulary', component: VocabularyView },

@@ -47,6 +47,7 @@ public class PersistentConfigurationFileStore
         // Validate before touching a directory; a damaged file is never reset to defaults.
         Parse(bytes);
         ValidatePaths();
+        RejectReadOnlyTarget();
         if (OperatingSystem.IsWindows())
         {
             Directory.CreateDirectory(DirectoryPath);
@@ -62,6 +63,7 @@ public class PersistentConfigurationFileStore
             await WriteTemporaryAsync(temporaryPath, bytes, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             ValidatePaths();
+            RejectReadOnlyTarget();
             Replace(temporaryPath, overwrite);
             // No cancellation or fallible work after the commit point. The caller must
             // publish its already prepared runtime candidate even if the client disconnects.
@@ -99,6 +101,14 @@ public class PersistentConfigurationFileStore
     protected virtual void Replace(string temporaryPath, bool overwrite)
     {
         File.Move(temporaryPath, FilePath, overwrite);
+    }
+
+    private void RejectReadOnlyTarget()
+    {
+        // Atomic rename can otherwise replace a read-only file on Unix because
+        // directory write permission is sufficient. Honor the operator's file protection.
+        if (File.Exists(FilePath) && (File.GetAttributes(FilePath) & FileAttributes.ReadOnly) != 0)
+            throw new UnauthorizedAccessException(ConfigurationSaveResult.StorageFailureMessage);
     }
 
     private void ValidatePaths()
