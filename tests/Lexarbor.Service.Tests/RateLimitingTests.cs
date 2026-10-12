@@ -1,17 +1,19 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using Lexarbor.Host.RateLimiting;
 using Lexarbor.Service.Tests.TestInfrastructure;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using ServiceMantle.Web.RateLimiting;
 
 namespace Lexarbor.Service.Tests;
 
 /// <summary>
-/// The two anonymous surfaces are rate limited per client address. Every test
+/// When enabled, the two anonymous surfaces are limited per client address. Every test
 /// here sets a client address explicitly, because the interesting property is
 /// not that requests are refused but that they are refused per caller: a limit
 /// that turns out to be global is itself a way to lock the administrator out.
@@ -394,17 +396,54 @@ public class RateLimitingTests
     }
 
     [Fact]
-    public async Task DefaultPolicies_UseProductDefaultsAndFinalOptions()
+    public void PolicyTypes_DefaultToDisabledWithUnchangedQuotas()
+    {
+        Assert.False(new Lexarbor.Host.RateLimiting.RateLimitPolicyOptions().Enabled);
+        AssertProductDefaults(new RateLimitOptions());
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("{\"RateLimits\":{\"AdminLogin\":{},\"PublicApi\":{}}}")]
+    [InlineData("{\"RateLimits\":{\"AdminLogin\":{\"PermitLimit\":10,\"WindowSeconds\":300},\"PublicApi\":{\"PermitLimit\":300,\"WindowSeconds\":60}}}")]
+    public void MissingSectionOrEnabled_DefaultsToDisabled(string json)
+    {
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
+        var configuration = new ConfigurationBuilder().AddJsonStream(stream).Build();
+        var options = new RateLimitOptions();
+        configuration.GetSection(RateLimitOptions.SectionName).Bind(options);
+
+        AssertProductDefaults(options);
+    }
+
+    [Fact]
+    public async Task BuiltInDefaults_AdmitRequestsBeyondBothOldCeilings()
     {
         using var factory = new VocabularyWebApplicationFactory();
         using var client = CreateClient(factory);
         var options = factory.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<RateLimitOptions>>().Value;
-        Assert.True(options.AdminLogin.Enabled);
-        Assert.Equal(10, options.AdminLogin.PermitLimit);
-        Assert.Equal(300, options.AdminLogin.WindowSeconds);
-        Assert.True(options.PublicApi.Enabled);
-        Assert.Equal(300, options.PublicApi.PermitLimit);
-        Assert.Equal(60, options.PublicApi.WindowSeconds);
+        AssertProductDefaults(options);
+        foreach (var (path, permits) in new[] { ("/admin/auth/start", 10), ("/api/unknown", 300) })
+        {
+            for (var i = 0; i <= permits; i++)
+            {
+                using var response = await GetAsync(client, path, ClientA);
+                Assert.NotEqual(HttpStatusCode.TooManyRequests, response.StatusCode);
+                Assert.False(response.Headers.Contains("Retry-After"));
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ExplicitlyEnabledDefaults_KeepBothOldCeilings()
+    {
+        using var factory = new VocabularyWebApplicationFactory("Testing", true,
+            extraConfiguration: new Dictionary<string, string?>
+            {
+                ["RateLimits:AdminLogin:Enabled"] = "true",
+                ["RateLimits:PublicApi:Enabled"] = "true"
+            });
+        using var client = CreateClient(factory);
         foreach (var (path, permits, seconds) in new[] { ("/admin/auth/start", 10, 300), ("/api/unknown", 300, 60) })
         {
             for (var i = 0; i < permits; i++)
@@ -413,6 +452,16 @@ public class RateLimitingTests
             await AssertProblemAsync(response);
             Assert.Equal(seconds.ToString(), Assert.Single(response.Headers.GetValues("Retry-After")));
         }
+    }
+
+    private static void AssertProductDefaults(RateLimitOptions options)
+    {
+        Assert.False(options.AdminLogin.Enabled);
+        Assert.Equal(10, options.AdminLogin.PermitLimit);
+        Assert.Equal(300, options.AdminLogin.WindowSeconds);
+        Assert.False(options.PublicApi.Enabled);
+        Assert.Equal(300, options.PublicApi.PermitLimit);
+        Assert.Equal(60, options.PublicApi.WindowSeconds);
     }
 
     [Theory]
@@ -460,8 +509,10 @@ public class RateLimitingTests
     {
         var configuration = new Dictionary<string, string?>
         {
+            ["RateLimits:AdminLogin:Enabled"] = "true",
             ["RateLimits:AdminLogin:PermitLimit"] = loginPermits.ToString(),
             ["RateLimits:AdminLogin:WindowSeconds"] = "300",
+            ["RateLimits:PublicApi:Enabled"] = "true",
             ["RateLimits:PublicApi:PermitLimit"] = publicApiPermits.ToString(),
             ["RateLimits:PublicApi:WindowSeconds"] = "300"
         };

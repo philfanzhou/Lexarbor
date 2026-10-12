@@ -913,7 +913,9 @@ their URL query attributes redacted before export.
 
 ## Rate limits and client addresses
 
-The two anonymous surfaces carry a per-client-address ceiling. `GET /admin/auth/start`
+Both request ceilings are disabled by default, including when the `RateLimits`
+section or either `Enabled` value is missing. To apply a per-client-address
+ceiling, explicitly set that policy's `Enabled=true`. `GET /admin/auth/start`
 initiates the browser-bound hosted login, so without one it is a way to aim traffic
 at the identity provider from an address the provider attributes to Lexarbor. The
 `/api/*` routes are metered far more loosely, only to stop one caller
@@ -936,9 +938,18 @@ conservative backoff suggestion, preserving any shared header. Concurrent traffi
 can still exhaust the quota when the suggested delay ends. This is neither a
 distributed limiter nor a WAF or DDoS defense; configuration is fixed at startup.
 
+A new container copies these disabled defaults into `/app/data/appsettings.json`.
+Upgrades never overwrite an existing file: explicit `true` or `false` values
+remain effective, with environment variables and then command-line arguments
+taking precedence. For example, `RateLimits__AdminLogin__Enabled=true` and
+`RateLimits__PublicApi__Enabled=true` enable both policies without editing the
+file. Disabling them does not promise unlimited throughput and does not disable
+the separate audio upload admission limits (default 2 concurrent, 8 queued).
+
 A server-side consumer that pages through the anonymous book-browse or
 vocabulary routes calls from one address on a schedule of its own, so its
-legitimate traffic can reach the public ceiling before any browser does. Size
+legitimate traffic can reach the public ceiling before any browser does. When the
+public policy is enabled, size
 `RateLimits:PublicApi:PermitLimit` for that caller's expected rate — for a
 container deployment the environment variable
 `RateLimits__PublicApi__PermitLimit` overrides it without editing
@@ -952,10 +963,10 @@ untrusted clients.
 |---|---|---|
 | `RateLimits:AdminLogin:PermitLimit` | `10` | Login attempts per window, per client address |
 | `RateLimits:AdminLogin:WindowSeconds` | `300` | Login window length |
-| `RateLimits:AdminLogin:Enabled` | `true` | Set to `false` to remove the login ceiling |
+| `RateLimits:AdminLogin:Enabled` | `false` | Set to `true` to apply the login ceiling |
 | `RateLimits:PublicApi:PermitLimit` | `300` | Anonymous `/api/*` requests per window, per client address |
 | `RateLimits:PublicApi:WindowSeconds` | `60` | Public API window length |
-| `RateLimits:PublicApi:Enabled` | `true` | Set to `false` to remove the public API ceiling |
+| `RateLimits:PublicApi:Enabled` | `false` | Set to `true` to apply the public API ceiling |
 
 Enabled policies require `PermitLimit` in `1..10000` and `WindowSeconds` in
 `10..600`. Out-of-range settings fail startup without clamping. Disabled policies
@@ -967,8 +978,8 @@ return, administrator business routes, health and the SPA remain unmetered.
 Upgrade deployments with enabled settings outside those bounds before starting
 the new version. Rolling back application code restores fixed windows, the old
 429 envelope and the original numeric range. No database migration or data rewrite
-is involved; defaults, route names, authentication and persistent directories stay
-unchanged.
+is involved; numeric defaults, route names, authentication and persistent directories
+stay unchanged.
 
 ### Behind a reverse proxy
 

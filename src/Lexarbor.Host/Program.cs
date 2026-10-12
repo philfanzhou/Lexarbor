@@ -663,7 +663,7 @@ void LogRateLimit(string name, RateLimitPolicyOptions policy)
     }
     else
     {
-        app.Logger.LogWarning("Rate limit for {Policy} is disabled by configuration", name);
+        app.Logger.LogWarning("Rate limit for {Policy} is disabled (default or configuration)", name);
     }
 }
 

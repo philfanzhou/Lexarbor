@@ -345,7 +345,77 @@ test -s "$fresh_data/vocabulary.db"
 check_catalog_is_empty "$FRESH_CONTAINER"
 cmp --silent src/Lexarbor.Host/appsettings.json "$fresh_data/appsettings.json"
 docker exec "$FRESH_CONTAINER" sh -c 'sha256sum /app/data/data-protection-root-key' >"$TEST_ROOT/original-key-hashes"
+
+echo "Checking new-container request ceilings default to disabled"
+jq --exit-status '.RateLimits.AdminLogin.Enabled == false and .RateLimits.PublicApi.Enabled == false' \
+  "$fresh_data/appsettings.json" >/dev/null
+fresh_port="$(docker port "$FRESH_CONTAINER" 5008/tcp | head -n 1 | awk -F: '{print $NF}')"
+for path_and_count in 'admin/auth/start 11' 'api/does-not-exist 301'; do
+  read -r probe_path probe_count <<<"$path_and_count"
+  for _ in $(seq 1 "$probe_count"); do
+    probe_status="$(curl --silent --show-error --dump-header "$TEST_ROOT/rate-headers" --output /dev/null --write-out '%{http_code}' \
+      "http://127.0.0.1:${fresh_port}/${probe_path}")"
+    test "$probe_status" != 429
+    ! grep -qi '^Retry-After:' "$TEST_ROOT/rate-headers"
+  done
+done
 docker rm -f "$FRESH_CONTAINER" >/dev/null
+
+# Both explicit values must survive upgrade, and higher-priority overrides must
+# not modify the operator's file. Tiny quotas make both policies observable.
+echo "Checking persisted request switches and environment/argument precedence"
+rate_data="$TEST_ROOT/rate-limits"
+mkdir -p "$rate_data"
+chmod 700 "$rate_data"
+for probe_mode in file environment arguments; do
+  for login_enabled in true false; do
+    if [[ "$login_enabled" == true ]]; then public_enabled=false; else public_enabled=true; fi
+    jq --argjson login "$login_enabled" --argjson public "$public_enabled" \
+      '.RateLimits.AdminLogin = {Enabled:$login, PermitLimit:1, WindowSeconds:300} | .RateLimits.PublicApi = {Enabled:$public, PermitLimit:1, WindowSeconds:300}' \
+      src/Lexarbor.Host/appsettings.json >"$rate_data/appsettings.json"
+    cp "$rate_data/appsettings.json" "$TEST_ROOT/rate-before.json"
+    probe_env=()
+    probe_args=()
+    if [[ "$probe_mode" != file ]]; then
+      probe_env=(--env "RateLimits__AdminLogin__Enabled=$public_enabled" --env "RateLimits__PublicApi__Enabled=$login_enabled")
+    fi
+    if [[ "$probe_mode" == environment ]]; then
+      expected_login="$public_enabled"
+      expected_public="$login_enabled"
+    else
+      expected_login="$login_enabled"
+      expected_public="$public_enabled"
+    fi
+    if [[ "$probe_mode" == arguments ]]; then
+      probe_args=(--RateLimits:AdminLogin:Enabled "$login_enabled" --RateLimits:PublicApi:Enabled "$public_enabled")
+    fi
+    docker run --detach --name "$EXISTING_CONTAINER" \
+      --user "$(id -u):$(id -g)" --volume "$rate_data:/app/data" \
+      --publish 127.0.0.1::5008 "${probe_env[@]}" "$IMAGE_NAME" "${probe_args[@]}" >/dev/null
+    wait_for_health "$EXISTING_CONTAINER"
+    probe_port="$(docker port "$EXISTING_CONTAINER" 5008/tcp | head -n 1 | awk -F: '{print $NF}')"
+    for policy in login public; do
+      if [[ "$policy" == login ]]; then
+        probe_path=admin/auth/start; expected_enabled="$expected_login"
+      else
+        probe_path=api/does-not-exist; expected_enabled="$expected_public"
+      fi
+      for attempt in 1 2; do
+        probe_status="$(curl --silent --show-error --dump-header "$TEST_ROOT/rate-headers" --output /dev/null --write-out '%{http_code}' \
+          "http://127.0.0.1:${probe_port}/${probe_path}")"
+        if [[ "$expected_enabled" == true && "$attempt" == 2 ]]; then
+          test "$probe_status" = 429
+          grep -qi '^Retry-After:' "$TEST_ROOT/rate-headers"
+        else
+          test "$probe_status" != 429
+          ! grep -qi '^Retry-After:' "$TEST_ROOT/rate-headers"
+        fi
+      done
+    done
+    cmp --silent "$TEST_ROOT/rate-before.json" "$rate_data/appsettings.json"
+    docker rm -f "$EXISTING_CONTAINER" >/dev/null
+  done
+done
 
 echo "Checking keys survive container recreation with the same data mount"
 start_bind_mounted_container "$FRESH_CONTAINER" "$fresh_data"
