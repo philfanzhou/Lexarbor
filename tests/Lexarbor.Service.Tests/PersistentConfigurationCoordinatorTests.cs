@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using System.Text.Json.Nodes;
 using Lexarbor.Host.Configuration;
 using Microsoft.Extensions.Configuration;
@@ -390,6 +391,109 @@ public sealed class PersistentConfigurationCoordinatorTests : IDisposable
         Assert.True((await coordinator.ReadAsync(Ct)).StorageAvailable);
         Assert.Equal(existing ? ConfigurationValueSource.File : ConfigurationValueSource.Default,
             (await coordinator.ReadAsync(Ct)).Sources["Audio:Enabled"].Source);
+    }
+
+    [Theory]
+    [InlineData("utf-8")]
+    [InlineData("utf-16-le")]
+    [InlineData("utf-16-be")]
+    [InlineData("utf-32-le")]
+    [InlineData("utf-32-be")]
+    public async Task BomPersistentFile_HostStartsReadsSavesAndRestarts(string encoding)
+    {
+        Directory.CreateDirectory(DataPath);
+        var bytes = EncodeWithBom("{/* operator comment */\"Unknown\":{\"Value\":\"保留🌳\"},\"Audio\":{\"Enabled\":false,},}", encoding);
+        File.WriteAllBytes(FilePath, bytes);
+        var snapshot = new PersistentConfigurationFileStore(_root).Read();
+        Assert.Equal(bytes, snapshot.Bytes);
+        Assert.Equal("保留🌳", snapshot.Document!["Unknown"]!["Value"]!.GetValue<string>());
+
+        using (var factory = new TestInfrastructure.VocabularyWebApplicationFactory("Testing", true, contentRootPath: _root))
+        {
+            var configuration = factory.Services.GetRequiredService<IConfiguration>();
+            Assert.False(configuration.GetValue<bool>("Audio:Enabled"));
+            var coordinator = factory.Services.GetRequiredService<PersistentConfigurationCoordinator>();
+            var read = await coordinator.ReadAsync(Ct);
+            Assert.True(read.StorageAvailable);
+            Assert.Equal(ConfigurationValueSource.File, read.Sources["Audio:Enabled"].Source);
+            Assert.Equal(ConfigurationSaveStatus.Success,
+                (await coordinator.SaveAsync(read.Revision, Switch("RateLimits:PublicApi:Enabled", true), Prepare, Ct)).Status);
+        }
+
+        using var restarted = new TestInfrastructure.VocabularyWebApplicationFactory("Testing", true, contentRootPath: _root);
+        var restartedConfiguration = restarted.Services.GetRequiredService<IConfiguration>();
+        Assert.True(restartedConfiguration.GetValue<bool>("RateLimits:PublicApi:Enabled"));
+        Assert.False(restartedConfiguration.GetValue<bool>("Audio:Enabled"));
+        Assert.Equal("保留🌳", restartedConfiguration["Unknown:Value"]);
+        Assert.True((await restarted.Services.GetRequiredService<PersistentConfigurationCoordinator>().ReadAsync(Ct)).StorageAvailable);
+    }
+
+    [Theory]
+    [InlineData("utf-8")]
+    [InlineData("utf-16-le")]
+    [InlineData("utf-16-be")]
+    [InlineData("utf-32-le")]
+    [InlineData("utf-32-be")]
+    public async Task BomTemplate_FirstSavePreservesOtherFieldsAndRestartLoadsIt(string encoding)
+    {
+        File.WriteAllBytes(Path.Combine(_root, "appsettings.json"),
+            EncodeWithBom("{\"Unknown\":\"保留🌳\",\"Audio\":{\"SecretKey\":\"synthetic-retained\"}}", encoding));
+        var coordinator = Create();
+        var read = await coordinator.ReadAsync(Ct);
+        Assert.False(File.Exists(FilePath));
+        Assert.Equal(ConfigurationSaveStatus.Success,
+            (await coordinator.SaveAsync(read.Revision, Switch("Audio:Enabled", false), Prepare, Ct)).Status);
+        var restarted = Builder().Build();
+        Assert.False(restarted.GetValue<bool>("Audio:Enabled"));
+        Assert.Equal("保留🌳", restarted["Unknown"]);
+        Assert.Equal("synthetic-retained", restarted["Audio:SecretKey"]);
+        Assert.True((await Create().ReadAsync(Ct)).StorageAvailable);
+        AssertOwnerOnly();
+    }
+
+    [Theory]
+    [InlineData("utf-8")]
+    [InlineData("utf-16-le")]
+    [InlineData("utf-16-be")]
+    [InlineData("utf-32-le")]
+    [InlineData("utf-32-be")]
+    public void BomMalformedDuplicateOrConflictingJson_IsStillSafelyRejected(string encoding)
+    {
+        foreach (var json in new[] { "[]", "{broken", "{\"Audio\":{},\"audio\":{}}", "{\"A\":{\"B\":1},\"A:B\":2}", "{\"A\":1,\"A:B\":2}" })
+        {
+            var exception = Assert.Throws<IOException>(() => PersistentConfigurationFileStore.Parse(EncodeWithBom(json, encoding)));
+            Assert.Equal(ConfigurationSaveResult.StorageFailureMessage, exception.Message);
+        }
+    }
+
+    [Fact]
+    public async Task EncodingOnlyDiskChange_ConflictsWithoutReplacingOriginalBytes()
+    {
+        const string json = "{\"Audio\":{\"Enabled\":false}}";
+        Directory.CreateDirectory(DataPath);
+        File.WriteAllBytes(FilePath, EncodeWithBom(json, "utf-8"));
+        var coordinator = Create();
+        var revision = (await coordinator.ReadAsync(Ct)).Revision;
+        var changedBytes = EncodeWithBom(json, "utf-16-le");
+        File.WriteAllBytes(FilePath, changedBytes);
+        Assert.Equal(ConfigurationSaveStatus.Conflict,
+            (await coordinator.SaveAsync(revision, Switch("Audio:Enabled", true), Prepare, Ct)).Status);
+        Assert.Equal(changedBytes, File.ReadAllBytes(FilePath));
+        Assert.NotEqual(revision, (await coordinator.ReadAsync(Ct)).Revision);
+    }
+
+    internal static byte[] EncodeWithBom(string json, string encoding)
+    {
+        Encoding encoder = encoding switch
+        {
+            "utf-8" => new UTF8Encoding(encoderShouldEmitUTF8Identifier: true),
+            "utf-16-le" => new UnicodeEncoding(bigEndian: false, byteOrderMark: true),
+            "utf-16-be" => new UnicodeEncoding(bigEndian: true, byteOrderMark: true),
+            "utf-32-le" => new UTF32Encoding(bigEndian: false, byteOrderMark: true),
+            "utf-32-be" => new UTF32Encoding(bigEndian: true, byteOrderMark: true),
+            _ => throw new ArgumentOutOfRangeException(nameof(encoding))
+        };
+        return [.. encoder.GetPreamble(), .. encoder.GetBytes(json)];
     }
 
     private sealed class FaultStore(string root, string phase, CancellationTokenSource cancellation) : PersistentConfigurationFileStore(root)

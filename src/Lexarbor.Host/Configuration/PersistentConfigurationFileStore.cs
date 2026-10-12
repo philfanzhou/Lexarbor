@@ -135,15 +135,20 @@ public class PersistentConfigurationFileStore
     {
         try
         {
+            // Match the JSON configuration provider's BOM detection and text decoding.
+            // ReadDocument keeps the original bytes for disk-change comparisons.
+            using var stream = new MemoryStream(bytes);
+            using var reader = new StreamReader(stream);
+            var json = reader.ReadToEnd();
             var options = new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true };
-            using var document = JsonDocument.Parse(bytes, options);
+            using var document = JsonDocument.Parse(json, options);
             if (document.RootElement.ValueKind != JsonValueKind.Object)
             {
                 throw new JsonException();
             }
             var leaves = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             Visit(document.RootElement, "", leaves);
-            return JsonNode.Parse(bytes, documentOptions: options)!.AsObject();
+            return JsonNode.Parse(json, documentOptions: options)!.AsObject();
         }
         catch (JsonException)
         {

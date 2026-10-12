@@ -358,6 +358,10 @@ write/rename failure cleanup, and cancellation before/after the commit point.
 Two child processes exit immediately before/after rename, and the parent verifies
 the complete old/new file and startup's exclusion of stranded temporary files.
 A restart test also verifies that the original IConfiguration is not hot-reloaded.
+BOM regression cases cover UTF-8, UTF-16 LE/BE and UTF-32 LE/BE persistent files
+through host startup, save and restart, plus first-save templates and bootstrap
+byte preservation. Malformed/duplicate/conflicting JSON remains rejected after
+decoding; an encoding-only disk edit still invalidates the shared revision.
 Unix permission/link tests apply on Unix; this repository's container CI runs them
 as an unprivileged user.
 

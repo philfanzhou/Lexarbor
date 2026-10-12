@@ -160,6 +160,9 @@ connection strings from the effective configuration. A first save uses the
 built-in template, or an empty JSON object when the template is absent. If the
 file or directory disappears during this process, the last valid complete file
 snapshot is used instead, retaining other settings and saved S3 credentials.
+Existing files and templates accept UTF-8, including a BOM, and BOM-marked UTF-16
+LE/BE or UTF-32 LE/BE, matching the .NET JSON configuration provider. Settings
+saves serialize the complete document as UTF-8 without a BOM.
 Unknown sections and keys are preserved by JSON meaning; original formatting is
 not preserved. Settings modules prepare and validate a complete candidate before
 saving, and publish their runtime snapshot only after the file commit succeeds.
