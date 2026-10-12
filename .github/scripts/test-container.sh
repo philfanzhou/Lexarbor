@@ -341,6 +341,7 @@ start_bind_mounted_container "$FRESH_CONTAINER" "$fresh_data"
 check_runs_unprivileged "$FRESH_CONTAINER"
 check_root_key_file "$FRESH_CONTAINER"
 test -s "$fresh_data/appsettings.json"
+test "$(docker exec "$FRESH_CONTAINER" stat -c '%a' /app/data/appsettings.json)" = 600
 test -s "$fresh_data/vocabulary.db"
 check_catalog_is_empty "$FRESH_CONTAINER"
 cmp --silent src/Lexarbor.Host/appsettings.json "$fresh_data/appsettings.json"

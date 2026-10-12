@@ -8,6 +8,7 @@ using Lexarbor.Domain.Services;
 using Lexarbor.Host;
 using Lexarbor.Host.Audio;
 using Lexarbor.Host.Authentication;
+using Lexarbor.Host.Configuration;
 using Lexarbor.Host.RateLimiting;
 using Lexarbor.Service;
 using Microsoft.AspNetCore.Authentication;
@@ -44,23 +45,24 @@ if (args.Contains(HealthCheckCommand.Argument))
 var builder = WebApplication.CreateBuilder(args);
 
 PersistentConfigurationFile? persistentConfiguration = null;
-if (PersistentConfigurationBootstrapper.IsRunningInContainer())
+var configurationStore = new PersistentConfigurationFileStore(builder.Environment.ContentRootPath);
+var runningInContainer = PersistentConfigurationBootstrapper.IsRunningInContainer();
+if (runningInContainer)
 {
-    persistentConfiguration = PersistentConfigurationBootstrapper.EnsureFile(
-        builder.Environment.ContentRootPath);
-    builder.Configuration.AddJsonFile(
-        persistentConfiguration.Path,
-        optional: false,
-        reloadOnChange: false);
-
-    // Keep the standard .NET precedence: explicit deployment settings override
-    // the persisted file, and the persisted file overrides the image defaults.
-    builder.Configuration.AddEnvironmentVariables();
-    if (args.Length > 0)
-    {
-        builder.Configuration.AddCommandLine(args);
-    }
+    persistentConfiguration = PersistentConfigurationBootstrapper.EnsureFile(builder.Environment.ContentRootPath);
 }
+// Validate safely before the JSON provider can report raw malformed configuration.
+configurationStore.Read();
+builder.Configuration.AddJsonFile(configurationStore.FilePath, optional: !runningInContainer, reloadOnChange: false);
+// Keep deployment precedence in every environment: defaults < data file < environment < arguments.
+builder.Configuration.AddEnvironmentVariables();
+if (args.Length > 0)
+{
+    builder.Configuration.AddCommandLine(args);
+}
+builder.Services.AddSingleton(configurationStore);
+builder.Services.AddSingleton(provider => new PersistentConfigurationCoordinator(
+    (IConfigurationRoot)provider.GetRequiredService<IConfiguration>(), configurationStore));
 
 // HTTP listen port is hardcoded to 5008 (not configurable via ASPNETCORE_URLS).
 // Host port mapping is controlled by scripts/start.sh: -p ${Port}:5008.
@@ -573,6 +575,8 @@ static void MapOtlpSignal(IConfiguration section, ServiceMantle.Diagnostics.Expo
 serviceMantle.AddLexarborRateLimiting(builder.Configuration);
 
 var app = builder.Build();
+// Capture the initial file snapshot before accepting requests, including when no settings are read.
+app.Services.GetRequiredService<PersistentConfigurationCoordinator>();
 
 
 

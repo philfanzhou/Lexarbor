@@ -1,3 +1,5 @@
+using Lexarbor.Host.Configuration;
+
 namespace Lexarbor.Host;
 
 public static class PersistentConfigurationBootstrapper
@@ -15,61 +17,29 @@ public static class PersistentConfigurationBootstrapper
     public static PersistentConfigurationFile EnsureFile(string contentRootPath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(contentRootPath);
-
+        var store = new PersistentConfigurationFileStore(contentRootPath);
+        var existing = store.Read();
+        if (existing.Document is not null)
+        {
+            return new PersistentConfigurationFile(store.FilePath, false);
+        }
         var templatePath = Path.Combine(contentRootPath, FileName);
         if (!File.Exists(templatePath))
         {
-            throw new FileNotFoundException(
-                "The built-in appsettings.json template was not found.",
-                templatePath);
+            throw new FileNotFoundException("The built-in appsettings.json template was not found.", templatePath);
         }
-
-        var dataDirectory = Path.Combine(contentRootPath, "data");
-        var destinationPath = Path.Combine(dataDirectory, FileName);
-        // The data directory is the parent of the Data Protection root-key
-        // file, which the shared root-key source accepts only under a
-        // directory with exactly the owner-only mode bits on Unix. It is
-        // created that way — not with the process umask — so a first start
-        // whose data directory does not pre-exist (the image ships /app/data
-        // at 0700; a custom content root may not) still starts. An existing
-        // directory is never re-chmod; a deliberately wider one stays refused
-        // by the root-key source.
-        if (OperatingSystem.IsWindows())
-        {
-            Directory.CreateDirectory(dataDirectory);
-        }
-        else
-        {
-            Directory.CreateDirectory(
-                dataDirectory,
-                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-        }
-
-        if (File.Exists(destinationPath))
-        {
-            return new PersistentConfigurationFile(destinationPath, false);
-        }
-
-        var temporaryPath = Path.Combine(
-            dataDirectory,
-            $".{FileName}.{Guid.NewGuid():N}.tmp");
+        store.ReadTemplate();
         try
         {
-            File.Copy(templatePath, temporaryPath, overwrite: false);
-            try
-            {
-                File.Move(temporaryPath, destinationPath, overwrite: false);
-                return new PersistentConfigurationFile(destinationPath, true);
-            }
-            catch (IOException) when (File.Exists(destinationPath))
-            {
-                // Another process may have initialized the shared directory first.
-                return new PersistentConfigurationFile(destinationPath, false);
-            }
+            // Preserve the image template bytes and create the credential file at 0600.
+            store.CommitBytesAsync(File.ReadAllBytes(templatePath), CancellationToken.None, overwrite: false)
+                .GetAwaiter().GetResult();
+            return new PersistentConfigurationFile(store.FilePath, true);
         }
-        finally
+        catch (IOException) when (store.Read().Document is not null)
         {
-            File.Delete(temporaryPath);
+            // Another bootstrapper won the create-only rename. Do not overwrite it.
+            return new PersistentConfigurationFile(store.FilePath, false);
         }
     }
 }

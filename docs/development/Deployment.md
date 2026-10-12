@@ -147,6 +147,57 @@ On the first container startup, Lexarbor copies the image's built-in `appsetting
 
 Therefore the persistent file controls normal deployments, while an explicit environment variable remains available for secret injection or an emergency override. When `/app/data` is not bound to a host directory or named volume, Docker's image-declared anonymous volume still lets the application run, but a newly created container will not automatically reuse that data.
 
+### Persistent settings writes
+
+The Host loads `<contentRoot>/data/appsettings.json` in every environment with the
+same precedence shown above. Outside a container this file is optional: startup
+and reading settings do not create it. Container first-start bootstrap continues
+to copy the image template. No temporary `.appsettings.json.*.tmp` file is loaded.
+
+The Host settings coordinator writes only fixed allowed fields in the shared
+file; it does not write environment values, authentication secrets or database
+connection strings from the effective configuration. A first save uses the
+built-in template, or an empty JSON object when the template is absent. If the
+file or directory disappears during this process, the last valid complete file
+snapshot is used instead, retaining other settings and saved S3 credentials.
+Existing files and templates accept UTF-8, including a BOM, and BOM-marked UTF-16
+LE/BE or UTF-32 LE/BE, matching the .NET JSON configuration provider. Settings
+saves serialize the complete document as UTF-8 without a BOM.
+Unknown sections and keys are preserved by JSON meaning; original formatting is
+not preserved. Settings modules prepare and validate a complete candidate before
+saving, and publish their runtime snapshot only after the file commit succeeds.
+This infrastructure alone does not add settings routes or change existing
+startup-only authentication, database or other configuration automatically.
+
+New data directories use Unix mode `0700`; new configuration and same-directory
+temporary files use `0600`. Existing directories retain their ownership and
+permissions. The service's existing non-root user must be able to create and
+rename files in that directory; a readable but read-only mount can still start
+and serve normal business, but cannot save settings. Keep any existing
+credential-bearing file owner-only too. Files and directory paths containing
+symbolic links, malformed/non-object JSON, duplicate keys (case-insensitive),
+and conflicting colon-delimited configuration keys are refused. Damaged files
+are never silently replaced with defaults.
+
+All modules share one in-process lock and an opaque strong revision. Missing,
+malformed or stale revisions and edits to environment/command-line-covered
+fields are rejected before writing. A successful save flushes a temporary file
+and atomically renames it over the target. Cancellation before that commit keeps
+the original file and runtime snapshot; disconnecting after it still completes
+runtime publication. After an interrupted process, restart reads either the
+complete old or complete new file. Stranded temporary files may be removed while
+the host is stopped. This does not promise durability against every hardware
+failure, and does not support multiple hosts writing this file.
+
+For manual configuration changes, stop the host, edit the complete file, and
+restart. A disk edit detected while the host is running changes the revision and
+blocks online saves until restart, preserving the operator's edit and the
+startup validation boundary. Online manual editing racing an unlocked rename
+is unsupported. For a permission, disk or JSON failure, fix the file/directory
+and reread settings; the old runtime snapshot remains in use. Recover a missing
+file by a valid settings save in the running process, or restore the complete
+configuration file before starting a new process.
+
 ## Service identity
 
 | Environment variable | Configuration key | Default | Purpose |
