@@ -43,7 +43,15 @@ public class UnitOfWork : IUnitOfWork
     public Task<T> ExecuteInTransactionAsync<T>(Func<Task<T>> action) =>
         ExecuteInTransactionAsync(action, CancellationToken.None);
 
-    public async Task<T> ExecuteInTransactionAsync<T>(Func<Task<T>> action, CancellationToken cancellationToken)
+    public Task<T> ExecuteInTransactionAsync<T>(Func<Task<T>> action, CancellationToken cancellationToken) =>
+        ExecuteTransactionAsync(action, cancellationToken, false);
+
+    // Audio operations honour cancellation while queued, then finish the short
+    // database commit just like existing vocabulary services once admitted.
+    internal Task<T> ExecuteAdmittedTransactionAsync<T>(Func<Task<T>> action, CancellationToken cancellationToken) =>
+        ExecuteTransactionAsync(action, cancellationToken, true);
+
+    private async Task<T> ExecuteTransactionAsync<T>(Func<Task<T>> action, CancellationToken cancellationToken, bool finishAfterAdmission)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (HoldsWriteLock.Value)
@@ -55,6 +63,7 @@ public class UnitOfWork : IUnitOfWork
         }
 
         await WriteLock.WaitAsync(cancellationToken);
+        if (finishAfterAdmission) cancellationToken = CancellationToken.None;
         HoldsWriteLock.Value = true;
         try
         {
