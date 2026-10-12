@@ -28,6 +28,29 @@ public sealed class AudioOptions
     public int RecoveryMaxRetrySeconds { get; set; } = 3600;
     public int RecoveryRecheckSeconds { get; set; } = 86400;
 
+    internal AudioOptions Copy() => new()
+    {
+        Enabled = Enabled,
+        InternalEndpoint = InternalEndpoint,
+        PublicEndpoint = PublicEndpoint,
+        AccessKey = AccessKey,
+        SecretKey = SecretKey,
+        Region = Region,
+        Bucket = Bucket,
+        KeyPrefix = KeyPrefix,
+        PlaybackTtlSeconds = PlaybackTtlSeconds,
+        MaxUploadBytes = MaxUploadBytes,
+        MaxConcurrentUploads = MaxConcurrentUploads,
+        MaxQueuedUploads = MaxQueuedUploads,
+        OperationTimeoutSeconds = OperationTimeoutSeconds,
+        RecoveryBatchSize = RecoveryBatchSize,
+        RecoveryIntervalSeconds = RecoveryIntervalSeconds,
+        RecoveryLeaseSeconds = RecoveryLeaseSeconds,
+        RecoveryRetrySeconds = RecoveryRetrySeconds,
+        RecoveryMaxRetrySeconds = RecoveryMaxRetrySeconds,
+        RecoveryRecheckSeconds = RecoveryRecheckSeconds,
+    };
+
     public bool IsValid() => !Enabled ||
         (ValidEndpoint(InternalEndpoint, false) && ValidEndpoint(PublicEndpoint, true)
         && !string.IsNullOrWhiteSpace(AccessKey) && !string.IsNullOrWhiteSpace(SecretKey)
@@ -75,6 +98,9 @@ public static class AudioServiceCollectionExtensions
             .Validate(options => options.IsValid(), AudioOptions.ConfigurationFailure)
             .ValidateOnStart();
         services.AddSingleton<Lexarbor.Domain.Repositories.IAudioObjectStore, S3AudioObjectStore>();
+        // Internal only until every audio entry point uses an operation reference.
+        services.AddSingleton<IAudioObjectStoreFactory, S3AudioObjectStoreFactory>();
+        services.AddSingleton<AudioRuntimeConfiguration>();
         return services;
     }
 }

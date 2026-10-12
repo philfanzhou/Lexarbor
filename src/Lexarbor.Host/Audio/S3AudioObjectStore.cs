@@ -21,29 +21,50 @@ public sealed class S3AudioObjectStore : IAudioObjectStore, IDisposable
     private readonly IMinioClient? _internal;
     private readonly IMinioClient? _public;
     private readonly string _publicPrefix = "";
+    private int _disposed;
 
     public S3AudioObjectStore(IOptions<AudioOptions> options, TimeProvider time)
     {
-        _options = options.Value;
+        _options = options.Value.Copy();
         _time = time;
         if (!_options.IsValid()) throw new InvalidOperationException(AudioOptions.ConfigurationFailure);
         if (!_options.Enabled) return;
         var internalUri = new Uri(_options.InternalEndpoint);
         var publicUri = new Uri(_options.PublicEndpoint);
         _publicPrefix = publicUri.AbsolutePath.TrimEnd('/');
-        _internal = CreateClient(internalUri);
-        _public = CreateClient(new Uri(publicUri.GetLeftPart(UriPartial.Authority)));
+        try
+        {
+            _internal = CreateClient(internalUri);
+            _public = CreateClient(new Uri(publicUri.GetLeftPart(UriPartial.Authority)));
+        }
+        catch (Exception)
+        {
+            Dispose();
+            throw new InvalidOperationException(AudioOptions.ConfigurationFailure);
+        }
     }
 
-    private IMinioClient CreateClient(Uri endpoint) => new MinioClient()
-        .WithEndpoint(endpoint.Host, endpoint.Port)
-        .WithSSL(endpoint.Scheme == "https")
-        .WithCredentials(_options.AccessKey, _options.SecretKey)
-        .WithRegion(_options.Region)
-        .WithTimeout(_options.OperationTimeoutSeconds * 1000)
+    private IMinioClient CreateClient(Uri endpoint)
+    {
         // A dedicated client avoids HttpClientFactory request logging of signed URLs.
-        .WithHttpClient(new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }), true)
-        .Build();
+        var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false });
+        try
+        {
+            return new MinioClient()
+                .WithEndpoint(endpoint.Host, endpoint.Port)
+                .WithSSL(endpoint.Scheme == "https")
+                .WithCredentials(_options.AccessKey, _options.SecretKey)
+                .WithRegion(_options.Region)
+                .WithTimeout(_options.OperationTimeoutSeconds * 1000)
+                .WithHttpClient(http, true)
+                .Build();
+        }
+        catch
+        {
+            http.Dispose();
+            throw;
+        }
+    }
 
     public Task PutAsync(AudioObjectLocation location, Stream content, long byteLength, string contentType,
         CancellationToken cancellationToken)
@@ -143,7 +164,10 @@ public sealed class S3AudioObjectStore : IAudioObjectStore, IDisposable
 
     public void Dispose()
     {
-        _internal?.Dispose();
-        _public?.Dispose();
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        try { _internal?.Dispose(); }
+        catch (Exception) { /* Do not retain SDK diagnostics. */ }
+        try { _public?.Dispose(); }
+        catch (Exception) { /* Do not retain SDK diagnostics. */ }
     }
 }
