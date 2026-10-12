@@ -1,15 +1,22 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Lexarbor.Database;
 using Lexarbor.Database.Entities;
 using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 using Lexarbor.Domain.Services;
+using Lexarbor.Host.Audio;
+using Lexarbor.Host.Configuration;
 using Lexarbor.Service.Tests.TestInfrastructure;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Moq;
@@ -20,13 +27,19 @@ public sealed class AudioUploadEndpointTests
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
     private static byte[] Mp3 => File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Fixtures/tone.mp3"));
-    private sealed class Store : IAudioObjectStore
+    private sealed class Store : IAudioObjectStore, IDisposable
     {
         public int Calls;
+        public int Disposals;
+        public AudioOptions Options = new();
+        public readonly List<AudioObjectLocation> Locations = [];
+        public void Dispose() => Interlocked.Increment(ref Disposals);
         public Func<CancellationToken, Task>? BeforePut;
         public readonly Dictionary<string, byte[]> Objects = [];
         public async Task PutAsync(AudioObjectLocation location, Stream stream, long length, string type, CancellationToken token)
         {
+            lock (Locations) Locations.Add(location);
+            Assert.Equal(0, Disposals);
             Interlocked.Increment(ref Calls);
             if (BeforePut != null) await BeforePut(token);
             using var bytes = new MemoryStream(); await stream.CopyToAsync(bytes, token);
@@ -36,14 +49,28 @@ public sealed class AudioUploadEndpointTests
         public Task RemoveAsync(AudioObjectLocation location, CancellationToken token) => throw new NotImplementedException();
         public Task<AudioPlaybackLink> GetPlaybackLinkAsync(AudioObjectLocation location, TimeSpan ttl, CancellationToken token) => throw new NotImplementedException();
     }
+    private sealed class TestStoreFactory(Store store) : IAudioObjectStoreFactory
+    {
+        public List<Store> Stores { get; } = [];
+        public IAudioObjectStore Create(AudioOptions options)
+        {
+            var result = Stores.Count == 0 ? store : new Store();
+            result.Options = options;
+            Stores.Add(result);
+            return result;
+        }
+    }
     private sealed class Host : IAsyncDisposable
     {
         public readonly Store Store = new();
         public readonly VocabularyWebApplicationFactory Factory;
+        public readonly TestStoreFactory Stores;
+        public AudioRuntimeConfiguration Runtime => App.Services.GetRequiredService<AudioRuntimeConfiguration>();
         public readonly WebApplicationFactory<Program> App;
         public readonly HttpClient Client;
-        public Host(bool enabled = true, long maxBytes = 5 * 1024 * 1024, int concurrency = 2, int queue = 8, int timeout = 60, TimeProvider? clock = null, string? crash = null)
+        public Host(bool enabled = true, long maxBytes = 5 * 1024 * 1024, int concurrency = 2, int queue = 8, int timeout = 60, TimeProvider? clock = null, string? crash = null, Func<CancellationToken, Task>? beforeReserve = null, Func<CancellationToken, Task>? beforeRead = null)
         {
+            Stores = new(Store);
             Factory = new("Testing", true, extraConfiguration: new Dictionary<string, string?>
             {
                 ["Audio:Enabled"] = enabled.ToString(),
@@ -59,31 +86,54 @@ public sealed class AudioUploadEndpointTests
             App = Factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
             {
                 services.RemoveAll<IAudioObjectStore>(); services.AddSingleton<IAudioObjectStore>(Store);
+                services.RemoveAll<IAudioObjectStoreFactory>(); services.AddSingleton<IAudioObjectStoreFactory>(Stores);
                 if (clock != null) { services.RemoveAll<TimeProvider>(); services.AddSingleton(clock); }
-                if (crash != null)
+                if (beforeRead != null) services.AddSingleton<IStartupFilter>(new ReadBarrier(beforeRead));
+                if (crash != null || beforeReserve != null)
                 {
                     services.RemoveAll<IAudioUploadRepository>();
-                    services.AddScoped(provider => FaultRepository(provider.GetRequiredService<VocabularyDbContext>(), crash));
+                    services.AddScoped(provider => FaultRepository(provider.GetRequiredService<VocabularyDbContext>(), crash, beforeReserve));
                 }
             }));
             Client = App.CreateClient(new() { BaseAddress = new("https://localhost") });
             Client.DefaultRequestHeaders.Authorization = new("Bearer", Factory.CreateToken("admin"));
         }
-        private static IAudioUploadRepository FaultRepository(VocabularyDbContext db, string crash)
+        private static IAudioUploadRepository FaultRepository(VocabularyDbContext db, string? crash, Func<CancellationToken, Task>? beforeReserve)
         {
             var actual = new AudioUploadRepository(db);
             var mock = new Mock<IAudioUploadRepository>();
             mock.Setup(repo => repo.ReserveAsync(It.IsAny<AudioUploadRequest>(), It.IsAny<string>(), It.IsAny<long>(), It.IsAny<long>(), It.IsAny<CancellationToken>()))
-                .Returns((AudioUploadRequest request, string owner, long now, long expires, CancellationToken token) => actual.ReserveAsync(request, owner, now, expires, token));
+                .Returns(async (AudioUploadRequest request, string owner, long now, long expires, CancellationToken token) =>
+                {
+                    if (beforeReserve != null) await beforeReserve(token);
+                    return await actual.ReserveAsync(request, owner, now, expires, token);
+                });
             mock.Setup(repo => repo.BeginTransferAsync(It.IsAny<string>(), It.IsAny<AudioLease>(), It.IsAny<long>(), It.IsAny<CancellationToken>()))
                 .Returns((string key, AudioLease lease, long now, CancellationToken token) => actual.BeginTransferAsync(key, lease, now, token));
             mock.Setup(repo => repo.CompleteAsync(It.IsAny<string>(), It.IsAny<AudioLease>(), It.IsAny<long>(), It.IsAny<CancellationToken>()))
                 .Returns(async (string key, AudioLease lease, long now, CancellationToken token) =>
                 {
+                    if (crash == null) return await actual.CompleteAsync(key, lease, now, token);
                     if (crash == "after-commit") await actual.CompleteAsync(key, lease, now, token);
                     throw new IOException("Injected process/response loss.");
                 });
+            mock.Setup(repo => repo.AbandonAsync(It.IsAny<string>(), It.IsAny<AudioLease>(), It.IsAny<long>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .Returns((string key, AudioLease lease, long now, int status, string error, CancellationToken token) => actual.AbandonAsync(key, lease, now, status, error, token));
+            mock.Setup(repo => repo.GetAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .Returns((string key, CancellationToken token) => actual.GetAsync(key, token));
+            mock.Setup(repo => repo.ExpireAsync(It.IsAny<string>(), It.IsAny<long>(), It.IsAny<CancellationToken>()))
+                .Returns((string key, long now, CancellationToken token) => actual.ExpireAsync(key, now, token));
             return mock.Object;
+        }
+        public async Task PublishAsync(Action<AudioOptions> change)
+        {
+            var options = Runtime.CopyCurrentOptions();
+            change(options);
+            var configuration = new ConfigurationBuilder().AddJsonStream(new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(
+                new { Audio = options }))).Build();
+            using var candidate = await Runtime.PrepareAsync(configuration, Ct);
+            Assert.NotNull(candidate);
+            candidate.Publish();
         }
         public async Task SeedAsync()
         {
@@ -101,6 +151,34 @@ public sealed class AudioUploadEndpointTests
             return AudioSelectionService.Select(snapshot, AudioLocales.FromCode(locale)).SourceRevision;
         }
         public async ValueTask DisposeAsync() { Client.Dispose(); await App.DisposeAsync(); await Factory.DisposeAsync(); }
+    }
+    private sealed class ReadBarrier(Func<CancellationToken, Task> pause) : IStartupFilter
+    {
+        public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
+        {
+            app.Use(async (context, invoke) =>
+            {
+                if (context.Request.Method == "PUT" && context.Request.Path.Value!.Contains("/audio/", StringComparison.Ordinal))
+                    context.Request.Body = new PausedReadStream(context.Request.Body, pause);
+                await invoke();
+            });
+            next(app);
+        };
+    }
+    private sealed class PausedReadStream(Stream inner, Func<CancellationToken, Task> pause) : Stream
+    {
+        private bool _paused;
+        public override bool CanRead => true; public override bool CanSeek => false; public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken token = default)
+        {
+            if (!_paused) { _paused = true; await pause(token); }
+            return await inner.ReadAsync(buffer, token);
+        }
+        public override void Flush() => throw new NotSupportedException(); public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException(); public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
     private static MultipartFormDataContent Body(string revision, string? expected = "", byte[]? bytes = null, bool includeExpected = true)
     {
@@ -450,6 +528,230 @@ public sealed class AudioUploadEndpointTests
         public override void Flush() => throw new NotSupportedException(); public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
         public override void SetLength(long value) => throw new NotSupportedException(); public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
         protected override void Dispose(bool disposing) { if (disposing) stream.Dispose(); base.Dispose(disposing); }
+    }
+
+    [Theory]
+    [InlineData("parse")]
+    [InlineData("reserve")]
+    [InlineData("put")]
+    public async Task RotationAtEveryUploadBoundary_UsesOneGenerationAndRejectsDestinationChange(string phase)
+    {
+        var arrived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls = 0;
+        async Task Pause(CancellationToken token)
+        {
+            if (Interlocked.Increment(ref calls) == 1) { arrived.TrySetResult(); await release.Task.WaitAsync(token); }
+        }
+        await using var host = new Host(beforeReserve: phase == "reserve" ? Pause : null, beforeRead: phase == "parse" ? Pause : null);
+        await host.SeedAsync();
+        if (phase == "put") host.Store.BeforePut = Pause;
+        var old = Put(host, await host.Revision());
+        await arrived.Task.WaitAsync(TimeSpan.FromSeconds(10), Ct);
+        var before = host.Runtime.CopyCurrentOptions();
+        await Assert.ThrowsAsync<ConfigurationChangeConflictException>(() => host.PublishAsync(options => options.Bucket = "next-bucket"));
+        Assert.Equal(before.Bucket, host.Runtime.CopyCurrentOptions().Bucket);
+        await host.PublishAsync(options =>
+        {
+            options.AccessKey = "synthetic-next-access";
+            options.SecretKey = "synthetic-next-secret";
+            options.PublicEndpoint = "https://new.example.test/media/";
+        });
+        Assert.Equal(0, host.Store.Disposals);
+        using var newer = await Put(host, await host.Revision("en-US"), path: "/admin/vocabulary/w/audio/en-US");
+        await Asset(newer);
+        var newStore = host.Stores.Stores.Last();
+        Assert.Equal("synthetic-next-secret", newStore.Options.SecretKey);
+        Assert.Equal("synthetic", host.Store.Options.SecretKey);
+        Assert.Equal("https://new.example.test/media/", newStore.Options.PublicEndpoint);
+        // This write succeeds while storage/parse is paused: no long SQLite transaction.
+        using (var scope = host.App.Services.CreateScope())
+            await scope.ServiceProvider.GetRequiredService<VocabularyDbContext>().Vocabularies.Where(word => word.Id == "other")
+                .ExecuteUpdateAsync(set => set.SetProperty(word => word.Word, "During rotation"), Ct);
+        release.TrySetResult();
+        using var prior = await old;
+        await Asset(prior);
+        Assert.Equal(1, host.Store.Calls);
+        Assert.Equal(1, host.Store.Disposals);
+        Assert.All(host.Store.Locations, location => Assert.Equal(host.Store.Options.Bucket, location.Bucket));
+        Assert.All(newStore.Locations, location => Assert.Equal(newStore.Options.Bucket, location.Bucket));
+        using var final = host.App.Services.CreateScope();
+        var db = final.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+        Assert.Equal(2, await db.AudioAssets.CountAsync(Ct));
+        Assert.All(await db.AudioAssets.ToListAsync(Ct), asset => Assert.Equal(before.Bucket, asset.Bucket));
+    }
+
+    [Fact]
+    public async Task InitiallyDisabled_CanEnableAndDisableWhileOldUploadCompletes()
+    {
+        await using var host = new Host(enabled: false); await host.SeedAsync();
+        using var disabled = await Put(host, await host.Revision());
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, disabled.StatusCode);
+        await host.PublishAsync(options => options.Enabled = true);
+        var oldStore = host.Stores.Stores.Last();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        oldStore.BeforePut = async token => { started.TrySetResult(); await finish.Task.WaitAsync(token); };
+        var old = Put(host, await host.Revision());
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(10), Ct);
+        await host.PublishAsync(options => options.Enabled = false);
+        using var rejected = await Put(host, await host.Revision("en-US"), path: "/admin/vocabulary/w/audio/en-US");
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, rejected.StatusCode);
+        Assert.Equal(0, oldStore.Disposals);
+        finish.TrySetResult();
+        using var response = await old;
+        await Asset(response);
+        Assert.Equal(1, oldStore.Disposals);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CancelledOrTimedOutParsing_ReleasesReferenceWithoutReservation(bool timeout)
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var host = new Host(timeout: 1, beforeRead: async token =>
+        { started.TrySetResult(); await Task.Delay(Timeout.Infinite, token); });
+        await host.SeedAsync();
+        using var cancel = new CancellationTokenSource();
+        var request = Put(host, await host.Revision(), token: cancel.Token);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(10), Ct);
+        if (timeout) { using var response = await request; Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode); }
+        else { cancel.Cancel(); await Assert.ThrowsAnyAsync<OperationCanceledException>(() => request); }
+        // The reference is released by the server finally, which can lag client cancellation.
+        for (var attempt = 0; ; attempt++)
+        {
+            try { await host.PublishAsync(options => options.Bucket = "next-bucket"); break; }
+            catch (ConfigurationChangeConflictException) when (attempt < 100) { await Task.Delay(10, Ct); }
+        }
+        Assert.Equal("next-bucket", host.Runtime.CopyCurrentOptions().Bucket);
+        using var scope = host.App.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+        Assert.Empty(await db.AudioAssets.ToListAsync(Ct));
+        Assert.Empty(await db.AudioUploadOperations.ToListAsync(Ct));
+    }
+
+    [Fact]
+    public async Task NonCooperativeTimedOutPut_KeepsClientUntilActualProviderCompletion()
+    {
+        await using var host = new Host(timeout: 1); await host.SeedAsync();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var ended = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        host.Store.BeforePut = async _ =>
+        {
+            started.TrySetResult(); await finish.Task;
+            ended.TrySetResult(); throw new IOException("synthetic provider completion");
+        };
+        var request = Put(host, await host.Revision());
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(10), Ct);
+        await host.PublishAsync(options => options.SecretKey = "synthetic-next-secret");
+        using var response = await request;
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        Assert.Equal(0, host.Store.Disposals);
+        await Assert.ThrowsAsync<ConfigurationChangeConflictException>(() => host.PublishAsync(options => options.Bucket = "next-bucket"));
+        finish.TrySetResult(); await ended.Task.WaitAsync(TimeSpan.FromSeconds(10), Ct);
+        for (var i = 0; i < 100 && host.Store.Disposals == 0; i++) await Task.Delay(10, Ct);
+        Assert.Equal(1, host.Store.Disposals);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task UnboundHistoricalOrUnpublishedAsset_RejectsDestinationInProductionGuard(bool published)
+    {
+        await using var host = new Host(); await host.SeedAsync();
+        using (var scope = host.App.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+            db.AudioAssets.Add(new()
+            {
+                Id = Guid.NewGuid().ToString(),
+                Bucket = "lexarbor-audio",
+                ObjectKey = $"audio/{Guid.NewGuid():N}.mp3",
+                Sha256 = new string('a', 64),
+                ByteLength = Mp3.Length,
+                CreatedAtUnixMs = 1,
+                FirstPublishedAtUnixMs = published ? 2 : null
+            });
+            await db.SaveChangesAsync(Ct);
+            Assert.Empty(await db.VocabularyAudioBindings.ToListAsync(Ct));
+        }
+        await Assert.ThrowsAsync<ConfigurationChangeConflictException>(() => host.PublishAsync(options => options.KeyPrefix = "new/"));
+        Assert.Equal("audio/", host.Runtime.CopyCurrentOptions().KeyPrefix);
+        Assert.Equal(1, host.Stores.Stores.Last().Disposals);
+        Assert.Equal(0, host.Store.Calls);
+    }
+
+    [Fact]
+    public async Task DestinationCommittedBeforeFirstUpload_ReservesAndPutsAtNewLocation()
+    {
+        await using var host = new Host(); await host.SeedAsync();
+        await host.PublishAsync(options =>
+        {
+            options.InternalEndpoint = "http://127.0.0.1:19/";
+            options.Bucket = "new-bucket";
+            options.KeyPrefix = "new/";
+        });
+        using var response = await Put(host, await host.Revision());
+        await Asset(response);
+        var store = host.Stores.Stores.Last();
+        Assert.Equal("http://127.0.0.1:19/", store.Options.InternalEndpoint);
+        var location = Assert.Single(store.Locations);
+        Assert.Equal("new-bucket", location.Bucket);
+        Assert.StartsWith("new/", location.Key);
+        using var scope = host.App.Services.CreateScope();
+        var asset = await scope.ServiceProvider.GetRequiredService<VocabularyDbContext>().AudioAssets.SingleAsync(Ct);
+        Assert.Equal(location.Bucket, asset.Bucket);
+        Assert.Equal(location.Key, asset.ObjectKey);
+    }
+
+    [Fact]
+    public async Task InitiallyDisabled_ValidOfflineAdvancedAdmissionLimitsSurviveEnablement()
+    {
+        await using var host = new Host(enabled: false, concurrency: 3, queue: 0); await host.SeedAsync();
+        await host.PublishAsync(options => options.Enabled = true);
+        var admission = host.App.Services.GetRequiredService<AudioUploadAdmission>();
+        using var one = await admission.EnterAsync(Ct);
+        using var two = await admission.EnterAsync(Ct);
+        using var three = await admission.EnterAsync(Ct);
+        Assert.NotNull(one); Assert.NotNull(two); Assert.NotNull(three);
+        using var extra = await Put(host, await host.Revision());
+        Assert.Equal(HttpStatusCode.TooManyRequests, extra.StatusCode);
+    }
+
+    [Fact]
+    public async Task HostAdmission_RemainsSharedAcrossGenerationsWithTwoActiveAndEightQueued()
+    {
+        await using var host = new Host(); await host.SeedAsync();
+        var admission = host.App.Services.GetRequiredService<AudioUploadAdmission>();
+        var arrivals = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var active = 0;
+        host.Store.BeforePut = async token => { if (Interlocked.Increment(ref active) == 2) arrivals.TrySetResult(); await release.Task.WaitAsync(token); };
+        var revision = await host.Revision();
+        var first = Put(host, revision);
+        var second = Put(host, revision);
+        await arrivals.Task.WaitAsync(TimeSpan.FromSeconds(10), Ct);
+        var queued = new List<Task<IDisposable?>>();
+        // Take request references from successive generations while all generations use the same admission.
+        var references = new List<AudioOperationReference>();
+        for (var i = 0; i < 8; i++)
+        {
+            await host.PublishAsync(options => options.SecretKey = $"synthetic-secret-{i}");
+            references.Add(await host.Runtime.AcquireAsync(Ct));
+            Assert.Same(admission, host.App.Services.GetRequiredService<AudioUploadAdmission>());
+            queued.Add(admission.EnterAsync(Ct));
+        }
+        using var excess = await Put(host, revision);
+        Assert.Equal(HttpStatusCode.TooManyRequests, excess.StatusCode);
+        Assert.Equal("1", excess.Headers.RetryAfter!.ToString());
+        Assert.Equal(2, host.Store.Calls);
+        release.TrySetResult();
+        using var one = await first; using var two = await second;
+        Assert.Equal(new[] { 200, 409 }, new[] { (int)one.StatusCode, (int)two.StatusCode }.Order().ToArray());
+        foreach (var waiting in queued) { using var permit = await waiting; Assert.NotNull(permit); }
+        foreach (var reference in references) reference.Dispose();
     }
 
     [Fact]

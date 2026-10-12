@@ -100,6 +100,7 @@ public static class AudioServiceCollectionExtensions
         services.AddSingleton<Lexarbor.Domain.Repositories.IAudioObjectStore, S3AudioObjectStore>();
         // Internal only until every audio entry point uses an operation reference.
         services.AddSingleton<IAudioObjectStoreFactory, S3AudioObjectStoreFactory>();
+        services.AddSingleton<IAudioDestinationRecords, AudioDestinationRecords>();
         services.AddSingleton<AudioRuntimeConfiguration>();
         return services;
     }

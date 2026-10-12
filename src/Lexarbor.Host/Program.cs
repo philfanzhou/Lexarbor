@@ -147,24 +147,17 @@ builder.Services.AddScoped<VocabularyAdminQueryService>();
 builder.Services.AddScoped<IAudioReadRepository, AudioReadRepository>();
 builder.Services.AddScoped<AudioAdminQueryService>();
 builder.Services.AddScoped<IAudioUploadRepository, AudioUploadRepository>();
+builder.Services.AddScoped<IAudioRecordExistenceRepository, AudioRecordExistenceRepository>();
+builder.Services.AddScoped<IAudioUploadOperationFactory, AudioUploadOperationFactory>();
 builder.Services.AddSingleton(provider =>
 {
     var options = provider.GetRequiredService<IOptions<AudioOptions>>().Value;
-    return new AudioUploadSettings(options.Enabled, options.Bucket, options.KeyPrefix, options.OperationTimeoutSeconds);
+    // Keep valid offline limits even when initially disabled. Invalid unused values
+    // must not construct an invalid semaphore or timeout before later validation.
+    return new AudioUploadAdmission(options.MaxConcurrentUploads is >= 1 and <= 8 ? options.MaxConcurrentUploads : 2,
+        options.MaxQueuedUploads is >= 0 and <= 8 ? options.MaxQueuedUploads : 8,
+        TimeSpan.FromSeconds(options.OperationTimeoutSeconds is >= 1 and <= 120 ? options.OperationTimeoutSeconds : 60));
 });
-builder.Services.AddSingleton(provider =>
-{
-    var options = provider.GetRequiredService<IOptions<AudioOptions>>().Value;
-    return new AudioUploadHttpSettings(options.Enabled, options.MaxUploadBytes, options.OperationTimeoutSeconds);
-});
-builder.Services.AddSingleton(provider =>
-{
-    var options = provider.GetRequiredService<IOptions<AudioOptions>>().Value;
-    // Disabled configuration may contain arbitrary unused limits; do not construct an invalid semaphore.
-    return new AudioUploadAdmission(options.Enabled ? options.MaxConcurrentUploads : 2,
-        options.Enabled ? options.MaxQueuedUploads : 8, TimeSpan.FromSeconds(options.Enabled ? options.OperationTimeoutSeconds : 60));
-});
-builder.Services.AddScoped<AudioUploadService>();
 builder.Services.AddScoped<AudioUnbindService>();
 builder.Services.AddSingleton(provider =>
 {

@@ -302,6 +302,129 @@ public sealed class AudioRuntimeConfigurationTests : IDisposable
         Assert.False(reference.Snapshot.Enabled);
     }
 
+    [Fact]
+    public async Task DestinationCommitFirst_BlocksAcquisitionUntilNewGenerationAndReleasesCancelledWaiter()
+    {
+        var options = AudioStorageTests.ValidOptions();
+        var records = new DestinationRecords();
+        var checking = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var checkedRecords = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        records.Check = async token => { checking.TrySetResult(); await checkedRecords.Task.WaitAsync(token); return false; };
+        var factory = new StoreFactory();
+        using var runtime = new AudioRuntimeConfiguration(Options.Create(options), factory, records);
+        var committing = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var commit = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var coordinator = Coordinator(options, new DestinationFileStore(_root, committing, commit));
+        var save = Save(coordinator, runtime, new() { ["Audio:Bucket"] = "new-bucket", ["Audio:KeyPrefix"] = "new/" });
+        await checking.Task.WaitAsync(_ct);
+        var operation = runtime.AcquireAsync(_ct);
+        Assert.False(operation.IsCompleted);
+        using var cancellation = new CancellationTokenSource();
+        var cancelledWaiter = runtime.AcquireAsync(cancellation.Token);
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelledWaiter);
+        checkedRecords.TrySetResult();
+        await committing.Task.WaitAsync(_ct);
+        Assert.False(operation.IsCompleted);
+        commit.TrySetResult();
+        Assert.Equal(ConfigurationSaveStatus.Success, (await save).Status);
+        using var reference = await operation;
+        Assert.Equal("new-bucket", reference.Snapshot.Bucket);
+        Assert.Equal("new/", reference.Snapshot.KeyPrefix);
+        Assert.Equal("new-bucket", factory.Stores.Last().Options.Bucket);
+        Assert.Contains("new-bucket", File.ReadAllText(FilePath));
+        Assert.Equal(1, factory.Stores[0].DisposeCount);
+    }
+
+    [Theory]
+    [InlineData("active")]
+    [InlineData("retired")]
+    [InlineData("records")]
+    public async Task DestinationRejected_DoesNotChangeFileGenerationOrLocation(string kind)
+    {
+        var options = AudioStorageTests.ValidOptions();
+        var factory = new StoreFactory();
+        var records = new DestinationRecords { Check = _ => Task.FromResult(kind == "records") };
+        using var runtime = new AudioRuntimeConfiguration(Options.Create(options), factory, records);
+        var coordinator = Coordinator(options);
+        using var active = kind is "active" or "retired" ? runtime.Acquire() : null;
+        if (kind == "retired") Assert.Equal(ConfigurationSaveStatus.Success,
+            (await Save(coordinator, runtime, new() { ["Audio:SecretKey"] = "synthetic-next-secret" })).Status);
+        var bytes = File.ReadAllBytes(FilePath);
+        var oldOptions = runtime.CopyCurrentOptions();
+        long generation;
+        using (var current = runtime.Acquire()) generation = current.Snapshot.Generation;
+        foreach (var field in new[] { "Audio:Bucket", "Audio:InternalEndpoint", "Audio:KeyPrefix" })
+        {
+            var value = field switch { "Audio:Bucket" => "new-bucket", "Audio:InternalEndpoint" => "https://new.example.test/", _ => "new/" };
+            Assert.Equal(ConfigurationSaveStatus.ResourceConflict, (await Save(coordinator, runtime, new() { [field] = value })).Status);
+            Assert.Equal(bytes, File.ReadAllBytes(FilePath));
+            using var current = runtime.Acquire();
+            Assert.Equal(generation, current.Snapshot.Generation);
+            Assert.Equal(oldOptions.Bucket, current.Snapshot.Bucket);
+            Assert.Equal(oldOptions.InternalEndpoint, current.Snapshot.InternalEndpoint);
+            Assert.Equal(oldOptions.KeyPrefix, current.Snapshot.KeyPrefix);
+            Assert.Equal(1, factory.Stores.Last().DisposeCount);
+        }
+    }
+
+    [Theory]
+    [InlineData("invalid")]
+    [InlineData("construct")]
+    [InlineData("records-failure")]
+    [InlineData("cancel-check")]
+    [InlineData("write")]
+    [InlineData("replace")]
+    [InlineData("cancel-before")]
+    public async Task FailedDestinationPreparationOrCommit_ReleasesGateAndKeepsOldFile(string phase)
+    {
+        var options = AudioStorageTests.ValidOptions();
+        var factory = new StoreFactory();
+        using var cancellation = new CancellationTokenSource();
+        var records = new DestinationRecords
+        {
+            Check = token =>
+        {
+            if (phase == "records-failure") throw new IOException("synthetic-secret-marker");
+            if (phase == "cancel-check") { cancellation.Cancel(); token.ThrowIfCancellationRequested(); }
+            return Task.FromResult(false);
+        }
+        };
+        using var runtime = new AudioRuntimeConfiguration(Options.Create(options), factory, records);
+        var coordinator = Coordinator(options, new FaultStore(_root, phase, cancellation));
+        var bytes = File.ReadAllBytes(FilePath);
+        long generation;
+        using (var initial = runtime.Acquire()) generation = initial.Snapshot.Generation;
+        factory.ThrowOnCreate = phase == "construct";
+        var result = default(ConfigurationSaveResult);
+        Func<Task> save = async () => result = await coordinator.SaveAsync((await coordinator.ReadAsync(_ct)).Revision,
+            new Dictionary<string, JsonNode?> { ["Audio:Bucket"] = phase == "invalid" ? "synthetic-invalid-SECRET" : "new-bucket" },
+            runtime.PrepareAsync, cancellation.Token);
+        if (phase is "cancel-check" or "cancel-before") await Assert.ThrowsAnyAsync<OperationCanceledException>(save);
+        else await save();
+        using var current = await runtime.AcquireAsync(_ct).WaitAsync(TimeSpan.FromSeconds(5), _ct);
+        Assert.Equal(generation, current.Snapshot.Generation);
+        Assert.Equal(bytes, File.ReadAllBytes(FilePath));
+        if (result is not null) Assert.Equal(phase is "write" or "replace" ? ConfigurationSaveStatus.StorageFailure : ConfigurationSaveStatus.InvalidCandidate, result.Status);
+        Assert.All(factory.Stores.Skip(1), store => Assert.Equal(1, store.DisposeCount));
+        Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(FilePath)!, "*.tmp"));
+    }
+
+    private sealed class DestinationRecords : IAudioDestinationRecords
+    {
+        public Func<CancellationToken, Task<bool>> Check { get; set; } = _ => Task.FromResult(false);
+        public Task<bool> HasAnyAsync(CancellationToken cancellationToken) => Check(cancellationToken);
+    }
+    private sealed class DestinationFileStore(string root, TaskCompletionSource started, TaskCompletionSource finish) : PersistentConfigurationFileStore(root)
+    {
+        protected override async Task WriteTemporaryAsync(string path, byte[] bytes, CancellationToken cancellationToken)
+        {
+            started.TrySetResult();
+            await finish.Task.WaitAsync(cancellationToken);
+            await base.WriteTemporaryAsync(path, bytes, cancellationToken);
+        }
+    }
+
     private async Task HoldOperation(AudioOperationReference reference, Store store)
     {
         using (reference)

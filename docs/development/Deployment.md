@@ -1183,10 +1183,30 @@ run outside the short reference/publication lock. A failed or cancelled
 pre-commit candidate leaves the previous generation intact; cancellation after
 file commit cannot prevent publication. Already issued URLs are not revoked.
 
-This internal foundation does not yet change audio HTTP entry points or the
-recovery worker and adds no S3 settings save API. The remaining audio integration
-and destination-change guard must be completed before administrator S3 saves are
-enabled. Remote credentials being revoked can still make an older operation fail.
+Conditional upload now acquires one operation reference before admission and body
+parsing: HTTP size/timeout limits, reservation bucket/prefix and the object client
+use that same generation until completion or cancellation. Initially disabled
+hosts can upload after an internal enablement; closing audio rejects new uploads
+with 503 while old uploads finish. All generations share the startup admission
+instance, including valid advanced limits configured while disabled. A timed-out
+provider call that ignores cancellation retains its client until it actually ends.
+
+Internal destination changes (`InternalEndpoint`, `Bucket`, `KeyPrefix`) reserve a
+short coordination gate before reading **any** asset or upload-operation record.
+Published, historical, unbound, unpublished and cleanup records all prevent a
+change, as do active references from current or retired generations. Rejection
+returns a safe internal conflict for the future settings API to map to 409, without
+changing the file, generation or historical locations. New operations wait for a
+permitted destination commit (or discard); the short state lock is not held during
+SQLite reads, file IO or S3 calls. Failed/cancelled commits release waiters onto the
+old generation. This protects first-upload races within one host; it does not
+coordinate multiple hosts or direct database writes. Never delete records online
+to bypass this guard; destination migration is a separate operational task.
+
+Playback, metadata/unbinding and recovery integration remain staged, and no S3
+settings save API is exposed yet. All remaining audio paths must use the manager
+before administrator S3 saves are enabled. Remote credentials being revoked can
+still make an older operation fail.
 
 Provision a separate **private** audio bucket and credentials limited to reading, writing and deleting known audio objects in that bucket/prefix. Do not use the image bucket, grant global bucket-list permissions, or reuse image-cleanup rules. The adapter rejects other buckets and keys: an accepted key consists of the configured prefix followed by a lowercase random UUID without separators and `.mp3`. SHA-256 belongs to the upload's independently computed content hash; an S3 ETag is not a SHA-256 hash. Changing buckets or key prefixes requires an explicit data migration; historical object locations are not silently rewritten.
 

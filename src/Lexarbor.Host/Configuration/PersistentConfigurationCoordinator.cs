@@ -6,13 +6,15 @@ using Microsoft.Extensions.Configuration.Json;
 namespace Lexarbor.Host.Configuration;
 
 public enum ConfigurationValueSource { Default, File, Environment, CommandLine }
-public enum ConfigurationSaveStatus { Success, MissingRevision, InvalidRevision, Conflict, Overridden, InvalidCandidate, StorageFailure }
+public enum ConfigurationSaveStatus { Success, MissingRevision, InvalidRevision, Conflict, Overridden, InvalidCandidate, StorageFailure, ResourceConflict }
 public sealed record ConfigurationFieldSource(ConfigurationValueSource Source, bool Editable);
 public sealed record ConfigurationReadResult(string Revision, IReadOnlyDictionary<string, ConfigurationFieldSource> Sources, bool StorageAvailable);
 public sealed record ConfigurationSaveResult(ConfigurationSaveStatus Status, string? Revision = null, IReadOnlyList<string>? OverriddenFields = null)
 {
     public const string StorageFailureMessage = "Persistent configuration is unavailable.";
 }
+
+public sealed class ConfigurationChangeConflictException() : Exception("Existing audio requires a separate storage migration.");
 
 /// <summary>The module owns validation and supplies a non-throwing, synchronous publication.</summary>
 public sealed class PreparedConfigurationChange(Action publish, Action? discard = null) : IDisposable
@@ -171,6 +173,10 @@ public sealed class PersistentConfigurationCoordinator
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 throw;
+            }
+            catch (ConfigurationChangeConflictException)
+            {
+                return new(ConfigurationSaveStatus.ResourceConflict);
             }
             catch (Exception)
             {

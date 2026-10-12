@@ -4,6 +4,7 @@ using Lexarbor.Database;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 using Lexarbor.Domain.Services;
+using Lexarbor.Host.Audio;
 using Lexarbor.Service.Tests.TestInfrastructure;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
@@ -31,6 +32,10 @@ public sealed class AudioUnbindEndpointTests
         public Task<AudioObjectInfo?> StatAsync(AudioObjectLocation location, CancellationToken token) => throw new InvalidOperationException("Delete must not call S3.");
         public Task<AudioPlaybackLink> GetPlaybackLinkAsync(AudioObjectLocation location, TimeSpan ttl, CancellationToken token) => throw new InvalidOperationException("Delete must not call S3.");
     }
+    private sealed class StoreFactory(Store store) : IAudioObjectStoreFactory
+    {
+        public IAudioObjectStore Create(AudioOptions options) => store;
+    }
     private sealed class Host : IAsyncDisposable
     {
         public readonly Store Store = new();
@@ -50,6 +55,7 @@ public sealed class AudioUnbindEndpointTests
             App = Factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
             {
                 services.RemoveAll<IAudioObjectStore>(); services.AddSingleton<IAudioObjectStore>(Store);
+                services.RemoveAll<IAudioObjectStoreFactory>(); services.AddSingleton<IAudioObjectStoreFactory>(new StoreFactory(Store));
             }));
             Client = App.CreateClient(new() { BaseAddress = new("https://localhost") });
             Client.DefaultRequestHeaders.Authorization = new("Bearer", Factory.CreateToken("admin"));
