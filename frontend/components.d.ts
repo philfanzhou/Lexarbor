@@ -33,6 +33,7 @@ declare module 'vue' {
     PageHeader: typeof import('./src/components/PageHeader.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+    VocabularyAudioPreview: typeof import('./src/components/VocabularyAudioPreview.vue')['default']
     VocabularyBookUnitDialog: typeof import('./src/components/VocabularyBookUnitDialog.vue')['default']
     VocabularyCleanupDialog: typeof import('./src/components/VocabularyCleanupDialog.vue')['default']
     VocabularyDetailDrawer: typeof import('./src/components/VocabularyDetailDrawer.vue')['default']
