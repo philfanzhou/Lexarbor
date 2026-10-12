@@ -142,6 +142,8 @@ builder.Services.AddScoped<VocabularyWordEditService>();
 builder.Services.AddScoped<VocabularyMeaningEditService>();
 builder.Services.AddScoped<IVocabularyAdminQueryRepository, VocabularyAdminQueryRepository>();
 builder.Services.AddScoped<VocabularyAdminQueryService>();
+builder.Services.AddScoped<IAudioReadRepository, AudioReadRepository>();
+builder.Services.AddScoped<AudioAdminQueryService>();
 builder.Services.AddScoped<IVocabularyPublicQueryRepository, VocabularyPublicQueryRepository>();
 builder.Services.AddScoped<VocabularyPublicQueryService>();
 builder.Services.AddScoped<IVocabularyCleanupRepository, VocabularyCleanupRepository>();
@@ -771,6 +773,7 @@ adminSurface.MapVocabularyMeaningEditEndpoints();
 adminSurface.MapVocabularyBookUnitEndpoints();
 adminSurface.MapVocabularyMeaningPositionEndpoints();
 adminSurface.MapVocabularyAdminQueryEndpoints();
+adminSurface.MapAudioAdminQueryEndpoints(app.Services.GetRequiredService<IOptions<AudioOptions>>().Value.Enabled);
 adminSurface.MapVocabularyCleanupEndpoints();
 app.MapVocabularyHttpEndpoints(
     rateLimitOptions.PublicApi.Enabled ? RateLimitingExtensions.PublicApiPolicy : null,

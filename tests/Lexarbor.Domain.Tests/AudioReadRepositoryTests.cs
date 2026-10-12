@@ -128,6 +128,64 @@ public sealed class AudioReadRepositoryTests
     }
 
     [Fact]
+    public async Task TargetPage_ConcurrentCommitKeepsInputsBindingsAndCountInOneSnapshot()
+    {
+        using var file = new AudioTestDatabase();
+        await using (var seed = file.Open())
+        {
+            await seed.Database.MigrateAsync(Token); await AudioTestDatabase.SeedAsync(seed); await BindAllAsync(seed);
+            await seed.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL", Token);
+        }
+        var interceptor = new ChangeAfterWordRead(file);
+        await using var db = file.Open(interceptor);
+        var repository = new AudioReadRepository(db);
+        var query = new AudioTargetQuery(null, AudioLocale.EnGb, AudioContentStatus.Ready, 1, 20);
+        var first = await repository.SearchTargetsAsync(query, Token);
+        Assert.True(interceptor.Changed);
+        Assert.Equal(2, first.TotalCount);
+        Assert.All(first.Items, item => Assert.Equal("uk", item.Selection.Input.Phonetic));
+        var second = await repository.SearchTargetsAsync(query, Token);
+        Assert.Equal(1, second.TotalCount);
+        Assert.Equal("meaning", second.Items[0].MeaningId);
+        Assert.Equal("concurrent-uk", second.Items[0].Selection.Input.Phonetic);
+        using var cancelled = new CancellationTokenSource(); cancelled.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => repository.SearchTargetsAsync(query, cancelled.Token));
+        Assert.Equal(4, await db.VocabularyAudioBindings.CountAsync(Token));
+        Assert.Empty(db.ChangeTracker.Entries());
+    }
+
+    [Fact]
+    public async Task TargetPage_CancelledBetweenQueries_ReleasesSnapshotAndDoesNotWrite()
+    {
+        using var file = new AudioTestDatabase();
+        await using (var seed = file.Open())
+        {
+            await seed.Database.MigrateAsync(Token); await AudioTestDatabase.SeedAsync(seed); await BindAllAsync(seed);
+        }
+        using var cancelled = CancellationTokenSource.CreateLinkedTokenSource(Token);
+        await using var db = file.Open(new CancelAfterWordRead(cancelled));
+        var repository = new AudioReadRepository(db);
+        var query = new AudioTargetQuery(null, null, null, 1, 20);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => repository.SearchTargetsAsync(query, cancelled.Token));
+        Assert.Equal(6, (await repository.SearchTargetsAsync(query, Token)).TotalCount);
+        Assert.Equal(4, await db.AudioAssets.CountAsync(Token));
+        Assert.Equal(4, await db.VocabularyAudioBindings.CountAsync(Token));
+        Assert.Equal(0, await db.AudioUploadOperations.CountAsync(Token));
+        Assert.Null(db.Database.CurrentTransaction);
+        Assert.Empty(db.ChangeTracker.Entries());
+    }
+
+    private sealed class CancelAfterWordRead(CancellationTokenSource cancelled) : DbCommandInterceptor
+    {
+        public override ValueTask<DbDataReader> ReaderExecutedAsync(DbCommand command, CommandExecutedEventData eventData,
+            DbDataReader result, CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.Contains("FROM \"vocabulary\" AS", StringComparison.Ordinal)) cancelled.Cancel();
+            return ValueTask.FromResult(result);
+        }
+    }
+
+    [Fact]
     public async Task CleanupSql_CascadesOnlyBindingsAndKeepsResourceRecoveryRecords()
     {
         using var file = new AudioTestDatabase(); await using var db = file.Open();
