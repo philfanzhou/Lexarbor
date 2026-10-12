@@ -1170,8 +1170,9 @@ When `Audio:Enabled=true`, invalid local settings fail startup with a fixed Engl
 
 The [conditional upload API](../api/Audio.md#conditional-mp3-upload) enforces these upload and queue settings without changing existing global rate limits. Total multipart overhead is bounded to 64 KiB. Admission occurs before body reading; a full queue or timed-out wait returns 429 with Retry-After. Body reads and object transfers each have the operation timeout. Publication requires a valid five-minute database lease; network IO runs outside SQLite write transactions. Failed/cancelled transfers retain their known object location and immutable failure receipt for the recovery worker. Use HTTPS for production endpoints. Credentials stay in the host and must never be copied into browser configuration or logs. Environment overrides retain the existing precedence, and `start.sh` forwards these values without rewriting the persisted configuration or changing `/app/data` ownership/permissions.
 
-The Host also provides an internal runtime-generation manager for the staged online
-settings implementation. It prepares a full locally validated configuration and
+The Host provides a runtime-generation manager used by the
+[administrator S3 settings API](../api/SystemSettings.md#audio-storage-s3).
+It prepares a full locally validated configuration and
 clients without probing S3, then publishes only after the shared configuration
 coordinator commits the file. An operation reference holds one credential-free
 snapshot and its matching object store; retired clients are released after the
@@ -1186,7 +1187,7 @@ file commit cannot prevent publication. Already issued URLs are not revoked.
 Conditional upload now acquires one operation reference before admission and body
 parsing: HTTP size/timeout limits, reservation bucket/prefix and the object client
 use that same generation until completion or cancellation. Initially disabled
-hosts can upload after an internal enablement; closing audio rejects new uploads
+hosts can upload after an administrator settings save; closing audio rejects new uploads
 with 503 while old uploads finish. All generations share the startup admission
 instance, including valid advanced limits configured while disabled. A timed-out
 provider call that ignores cancellation retains its client until it actually ends.
@@ -1195,7 +1196,7 @@ Internal destination changes (`InternalEndpoint`, `Bucket`, `KeyPrefix`) reserve
 short coordination gate before reading **any** asset or upload-operation record.
 Published, historical, unbound, unpublished and cleanup records all prevent a
 change, as do active references from current or retired generations. Rejection
-returns a safe internal conflict for the future settings API to map to 409, without
+returns a safe 409 from the settings API, without
 changing the file, generation or historical locations. New operations wait for a
 permitted destination commit (or discard); the short state lock is not held during
 SQLite reads, file IO or S3 calls. Failed/cancelled commits release waiters onto the
@@ -1223,14 +1224,15 @@ does not release the destination guard. Failed configuration preparation or file
 commit preserves the enabled state and all bindings.
 
 Recovery now also uses the runtime manager. An initially disabled worker waits
-for internal enablement instead of exiting. Each bounded batch acquires one
+for an enabled settings publication instead of exiting. Each bounded batch acquires one
 configuration/client reference; disablement prevents subsequent batches and
 re-enablement wakes recovery. A batch already started uses its old generation
 through every Delete and Stat. Non-cooperative provider calls retain the old
 client even after batch timeout or host cancellation, until actual IO ends.
 Enabled credential rotations do not skip the configured batch interval; retry,
-lease/fence and never-published-only cleanup semantics remain unchanged. No S3
-settings save API is exposed yet. Keep old remote credentials valid until all
+lease/fence and never-published-only cleanup semantics remain unchanged.
+S3 configuration can be saved through the protected settings API without restart.
+Keep old remote credentials valid until all
 old operations end; revocation can still make an older operation fail.
 
 Provision a separate **private** audio bucket and credentials limited to reading, writing and deleting known audio objects in that bucket/prefix. Do not use the image bucket, grant global bucket-list permissions, or reuse image-cleanup rules. The adapter rejects other buckets and keys: an accepted key consists of the configured prefix followed by a lowercase random UUID without separators and `.mp3`. SHA-256 belongs to the upload's independently computed content hash; an S3 ETag is not a SHA-256 hash. Changing buckets or key prefixes requires an explicit data migration; historical object locations are not silently rewritten.

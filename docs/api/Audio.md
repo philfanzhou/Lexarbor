@@ -6,8 +6,8 @@ The administrator API provides metadata, conditional MP3 uploads, conditional lo
 
 Conditional uploads use the internal Host runtime configuration manager. One
 operation reference covers multipart parsing limits, domain reservation parameters
-and the matching object client. Enabling internally after an initially disabled
-startup permits uploads; disabling rejects new uploads with 503 while requests
+and the matching object client. Enabling through the administrator settings API
+after an initially disabled startup permits uploads; disabling rejects new uploads with 503 while requests
 already started keep their old generation. Credential/PublicEndpoint rotation
 changes subsequent uploads, and the shared host admission quota remains unchanged.
 Cancellation/timeout releases the request reference; a provider still finishing an
@@ -16,9 +16,10 @@ ignored cancellation retains its client until actual completion.
 The internal destination guard rejects changes to InternalEndpoint/Bucket/KeyPrefix
 when any asset/upload record or active operation exists, including unbound history
 and cleanup state. It serializes first operation acquisition with destination
-commit, without holding the state lock during S3 or database IO. This adds no new
-S3 settings endpoint. Background recovery waits while disabled, including after
-initially disabled startup. Internal enablement wakes a bounded batch. Each batch
+commit, without holding the state lock during S3 or database IO. The protected
+[S3 settings API](SystemSettings.md#audio-storage-s3) maps this guard to 409.
+Background recovery waits while disabled, including after
+initially disabled startup. A saved enablement wakes a bounded batch. Each batch
 holds one configuration/client generation; disabling prevents new batches while
 an already started batch finishes on its old generation. Delete/Stat providers
 that ignore cancellation retain their client until actual completion. Recovery
@@ -208,11 +209,13 @@ Callers handle 400/404/422/429/503, expired links and normal media failures, and
 
 Playback holds one runtime configuration for its full authorization, selection,
 Stat and signing sequence; a public request asking for both accents uses the same
-configuration for both. Internal enablement works after a disabled startup, and
+configuration for both. Administrator enablement works after a disabled startup, and
 closing audio returns the existing safe 503 for new playback. Requests already
 holding a configuration finish on that configuration, including its TTL and public
 path prefix. A cancelled or timed-out provider that has not actually ended retains
 its client until completion. Credential/PublicEndpoint rotation does not immediately
 revoke issued URLs; remote credential validity and URL expiry still apply. Advanced
-TTL and timeout settings remain restart-only. The S3 administrator save API is still
-staged until the remaining audio paths have been integrated.
+TTL and timeout settings remain restart-only. The administrator S3 settings API
+commits and publishes complete candidates
+without restart; its schema, credential operations and save errors are documented
+in [System settings](SystemSettings.md#audio-storage-s3).

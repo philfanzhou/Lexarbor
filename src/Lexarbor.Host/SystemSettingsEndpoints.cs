@@ -26,6 +26,9 @@ public static class SystemSettingsEndpoints
             .WithMetadata(new SettingsMetadata());
         group.MapGet("", ReadAsync);
         group.MapPut("", SaveAsync);
+        AudioStorageSettingsEndpoints.Map(app.MapGroup("/admin/system/settings/audio-storage")
+            .RequireAuthorization(ManagementAuthorizationDefaults.AdminPolicyName)
+            .WithMetadata(new SettingsMetadata()));
     }
 
     private static async Task<IResult> ReadAsync(HttpContext context, PersistentConfigurationCoordinator coordinator, RateLimitRuntime runtime)

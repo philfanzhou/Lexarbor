@@ -110,11 +110,14 @@ public sealed class PersistentConfigurationCoordinator
         }
     }
 
+    // allowEmptyFields is reserved for a validated explicit keep when every module
+    // field is deployment-locked; it must not turn an empty HTTP body into a save.
     public async Task<ConfigurationSaveResult> SaveAsync(
         string? revision,
         IReadOnlyDictionary<string, JsonNode?> fields,
         Func<IConfiguration, CancellationToken, Task<PreparedConfigurationChange?>> prepare,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool allowEmptyFields = false)
     {
         if (revision is null)
         {
@@ -124,7 +127,7 @@ public sealed class PersistentConfigurationCoordinator
         {
             return new(ConfigurationSaveStatus.InvalidRevision);
         }
-        if (fields.Count == 0 || fields.Keys.Any(key => !AllowedFields.Contains(key))
+        if ((!allowEmptyFields && fields.Count == 0) || fields.Keys.Any(key => !AllowedFields.Contains(key))
             || fields.Keys.Distinct(StringComparer.OrdinalIgnoreCase).Count() != fields.Count
             || fields.Any(field => !ValidField(field.Key, field.Value)))
         {
