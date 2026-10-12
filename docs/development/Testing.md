@@ -324,3 +324,19 @@ The 20,000-word file-rollback-journal test verifies real preview/commit counts, 
 `VocabularyEditCleanupCombinationTests` drives the W/M full-replacement edits and the C cleanup commands over one shared file-rollback-journal dataset in both orders, per the parent model's end-to-end scenario 6. A meaning edit followed by any of the four actions deletes the current edited row — the preview and the commit both resolve R against it — while the disabled book's rows stay byte-for-byte, the shared word survives through B, the historical orphan is untouched, and `PRAGMA foreign_key_check` ends empty. Cleanup first makes the later meaning/word edit 404 on the removed ids with no revival and no partial write, and the surviving ownership rules (409 on another book's meaning) stay intact. A word edit followed by removeWords still counts and deletes the current collections; removing a word's last reference makes the later word edit 404, and the still-referenced shared word stays editable. Independent-context tests hold one write inside its transaction while the other operation waits on the shared write lock, checking that either order converges on the same terminal state with no partial write, no dangling reference, and no other book's data touched.
 
 `VocabularyEditCleanupCombinationEndpointTests` repeats the combination on one real pipeline instance with bearer administration auth: a meaning PUT followed by preview and commit removes the edited row and answers 404 on the removed id; cleanup first refuses later meaning/word PUTs without writes; a word PUT followed by clear keeps the disabled book's reference and the edited shared fields while the exclusive word goes; clear first leaves the still-referenced shared word editable. The cleanup browser specification adds the frontend leg: one meaning is edited as a full replacement and then deleted through the same drawer, with the deletion request carrying the same book, word, and meaning ids and the detail and list refreshing after each commit.
+
+## Audio storage verification
+
+`AudioStorageTests` verifies default-disabled and old configuration behavior, safe rejection of invalid enabled configuration, private resource boundaries, TTL/size/concurrency/queue/timeout limits, public signing without network access, cancellation, and continued health and vocabulary APIs when S3 is offline. Storage tests use synthetic credentials only.
+
+Run the real private SeaweedFS S3 integration after installing the frontend's existing Playwright dependencies:
+
+```bash
+npm ci --prefix frontend
+(cd frontend && npx playwright install chromium)
+bash .github/scripts/test-audio-storage.sh
+```
+
+The script uses SeaweedFS 4.00 and Minio .NET 7.0.0, a new private test bucket, synthetic bucket-scoped and denied credentials, a unique disposable container, and dynamic loopback ports. The setup identity exists only in this test container to provision its bucket; the application does not create or list buckets. A local proxy preserves signed Host and strips `/s3/`. The real host adapter uploads a generated MP3 tone and checks Stat, original download bytes, MIME, 206 Range, unsigned and denied access, expired and renewed signatures, cancellation and controlled deletion. An offset test clock produces an actually expired signature without an idle wait; S3 validates it. Chromium decodes the downloaded file, rather than treating arbitrary bytes as playable audio. No ffmpeg or TTS tool is needed. CI runs this as `Private audio storage integration`.
+
+The script removes only its own container/anonymous volumes, proxy process and temporary files. It needs Docker, Python 3, .NET 10, Node.js and Chromium; it never accesses production S3, image buckets or shared data directories. It does not certify all browsers, arbitrary proxy configurations, or future audio HTTP routes. Container/startup changes also require the standard image build and `test-container.sh` checks.

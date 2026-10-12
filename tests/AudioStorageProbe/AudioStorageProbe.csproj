@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Lexarbor.Host/Lexarbor.Host.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Fixtures/tone.mp3" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
