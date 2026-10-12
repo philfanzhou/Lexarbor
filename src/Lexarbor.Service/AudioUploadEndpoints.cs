@@ -22,9 +22,10 @@ public static class AudioUploadEndpoints
     }
 
     private static async Task<IResult> HandleAsync(HttpContext context, string wordId, string locale,
-        [FromQuery] string? meaningId, AudioUploadService service, AudioUploadAdmission admission,
-        AudioUploadHttpSettings settings, CancellationToken cancellationToken)
+        [FromQuery] string? meaningId, IAudioUploadOperationFactory operations, AudioUploadAdmission admission, CancellationToken cancellationToken)
     {
+        using var operation = await operations.AcquireAsync(cancellationToken);
+        var settings = operation.Settings;
         if (!settings.Enabled) return Error(503, "Audio storage is disabled.");
         if (locale is not ("en-GB" or "en-US")) return Error(400, "Audio locale must be en-GB or en-US.");
         if (meaningId != null && string.IsNullOrWhiteSpace(meaningId)) return Error(400, "Meaning ID is invalid.");
@@ -49,7 +50,7 @@ public static class AudioUploadEndpoints
         { return Error(400, "Audio multipart body is invalid."); }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         { return Error(503, "Audio upload timed out."); }
-        var result = await service.UploadAsync(content, cancellationToken);
+        var result = await operation.Service.UploadAsync(content, cancellationToken);
         return result.StatusCode == 200
             ? VocabularyHttpResponse.Ok(new { assetId = result.AssetId, sourceRevision = result.SourceRevision })
             : Error(result.StatusCode, result.StatusCode switch

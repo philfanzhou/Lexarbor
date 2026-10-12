@@ -27,24 +27,46 @@ public sealed class AudioRuntimeConfiguration : IDisposable
     private Generation _current;
     private long _sequence;
     private bool _stopped;
+    private int _activeReferences;
+    private TaskCompletionSource? _destinationPending;
+    private readonly IAudioDestinationRecords? _records;
 
-    public AudioRuntimeConfiguration(IOptions<AudioOptions> options, IAudioObjectStoreFactory factory)
+    public AudioRuntimeConfiguration(IOptions<AudioOptions> options, IAudioObjectStoreFactory factory, IAudioDestinationRecords? records = null)
     {
         _factory = factory;
+        _records = records;
         var initial = options.Value.Copy();
         _startup = AudioRuntimeSnapshot.From(initial, 0);
         _current = CreateGeneration(initial);
     }
 
-    public AudioOperationReference Acquire()
+    public AudioOperationReference Acquire() => AcquireAsync(CancellationToken.None).GetAwaiter().GetResult();
+
+    public async Task<AudioOperationReference> AcquireAsync(CancellationToken cancellationToken)
     {
-        lock (_gate)
+        while (true)
         {
-            ObjectDisposedException.ThrowIf(_stopped, this);
-            var generation = _current;
-            generation.References++;
-            return new(generation.Snapshot, generation.Store, () => Release(generation));
+            Task pending;
+            lock (_gate)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                ObjectDisposedException.ThrowIf(_stopped, this);
+                if (_destinationPending is null) return Reference(_current);
+                pending = _destinationPending.Task;
+            }
+            await pending.WaitAsync(cancellationToken);
         }
+    }
+
+    // Called only while the parent operation owns a reference. No new-generation lookup.
+    private AudioOperationReference Reference(Generation generation)
+    {
+        generation.References++;
+        _activeReferences++;
+        return new(generation.Snapshot, generation.Store, () => Release(generation), () =>
+        {
+            lock (_gate) return Reference(generation);
+        });
     }
 
     // For Host settings code only; never serialize this secret-bearing copy.
@@ -59,33 +81,78 @@ public sealed class AudioRuntimeConfiguration : IDisposable
 
     // The coordinator invokes preparation before file commit. Nothing here runs
     // under the reference/publication lock, and there is no remote IO.
-    public Task<PreparedConfigurationChange?> PrepareAsync(IConfiguration configuration, CancellationToken cancellationToken)
+    public async Task<PreparedConfigurationChange?> PrepareAsync(IConfiguration configuration, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         Generation? candidate = null;
+        TaskCompletionSource? reservation = null;
         try
         {
             var options = new AudioOptions();
             configuration.GetSection(AudioOptions.SectionName).Bind(options);
-            if (!options.IsValid() || !SameAdvancedSettings(AudioRuntimeSnapshot.From(options, 0)))
-                return Task.FromResult<PreparedConfigurationChange?>(null);
+            if (!options.IsValid() || !SameAdvancedSettings(AudioRuntimeSnapshot.From(options, 0))) return null;
             candidate = CreateGeneration(options);
             cancellationToken.ThrowIfCancellationRequested();
+            lock (_gate)
+            {
+                ObjectDisposedException.ThrowIf(_stopped, this);
+                if (!SameDestination(_current.Snapshot, candidate.Snapshot))
+                {
+                    if (_activeReferences != 0 || _destinationPending is not null)
+                        throw new ConfigurationChangeConflictException();
+                    reservation = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                    _destinationPending = reservation;
+                }
+            }
+            // The reservation blocks new references; the short state lock is released.
+            // No SQLite transaction or remote storage call is part of this check.
+            if (reservation is not null && (_records is null || await _records.HasAnyAsync(cancellationToken)))
+                throw new ConfigurationChangeConflictException();
+            cancellationToken.ThrowIfCancellationRequested();
             var prepared = candidate;
-            return Task.FromResult<PreparedConfigurationChange?>(new(
-                () => Publish(prepared), () => DisposeStore(prepared)));
+            var pending = reservation;
+            return new(() =>
+            {
+                try { Publish(prepared, pending); }
+                finally { EndDestinationChange(pending); }
+            }, () =>
+            {
+                EndDestinationChange(pending);
+                DisposeStore(prepared);
+            });
+        }
+        catch (ConfigurationChangeConflictException)
+        {
+            EndDestinationChange(reservation);
+            if (candidate is not null) DisposeStore(candidate);
+            throw;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            EndDestinationChange(reservation);
             if (candidate is not null) DisposeStore(candidate);
             throw;
         }
         catch (Exception)
         {
+            EndDestinationChange(reservation);
             if (candidate is not null) DisposeStore(candidate);
             // Never retain SDK/binder exception details, credentials or endpoints.
-            return Task.FromResult<PreparedConfigurationChange?>(null);
+            return null;
         }
+    }
+
+    private static bool SameDestination(AudioRuntimeSnapshot left, AudioRuntimeSnapshot right) =>
+        left.InternalEndpoint == right.InternalEndpoint && left.Bucket == right.Bucket && left.KeyPrefix == right.KeyPrefix;
+
+    private void EndDestinationChange(TaskCompletionSource? reservation)
+    {
+        if (reservation is null) return;
+        lock (_gate)
+        {
+            if (ReferenceEquals(_destinationPending, reservation)) _destinationPending = null;
+        }
+        reservation.TrySetResult();
     }
 
     private Generation CreateGeneration(AudioOptions options)
@@ -116,7 +183,7 @@ public sealed class AudioRuntimeConfiguration : IDisposable
         && candidate.RecoveryMaxRetrySeconds == _startup.RecoveryMaxRetrySeconds
         && candidate.RecoveryRecheckSeconds == _startup.RecoveryRecheckSeconds;
 
-    private void Publish(Generation candidate)
+    private void Publish(Generation candidate, TaskCompletionSource? reservation = null)
     {
         Generation? disposable = null;
         lock (_gate)
@@ -130,6 +197,7 @@ public sealed class AudioRuntimeConfiguration : IDisposable
                 if (previous.References == 0) disposable = previous;
             }
         }
+        EndDestinationChange(reservation);
         // Disposal never holds the short lock or breaks post-commit publication.
         if (disposable is not null) DisposeStore(disposable);
     }
@@ -140,6 +208,7 @@ public sealed class AudioRuntimeConfiguration : IDisposable
         lock (_gate)
         {
             generation.References--;
+            _activeReferences--;
             dispose = generation.Retired && generation.References == 0;
         }
         if (dispose) DisposeStore(generation);
@@ -155,6 +224,7 @@ public sealed class AudioRuntimeConfiguration : IDisposable
             _current.Retired = true;
             if (_current.References == 0) disposable = _current;
         }
+        _destinationPending?.TrySetResult();
         if (disposable is not null) DisposeStore(disposable);
     }
 

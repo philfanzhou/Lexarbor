@@ -4,12 +4,21 @@ Audio queries use the existing administrator policy: an administrator Bearer tok
 
 The administrator API provides metadata, conditional MP3 uploads, conditional logical deletion and short-lived playback links. It does not generate audio or claim generation jobs. Metadata queries do not inspect S3. Audio is disabled by default; missing `Audio` configuration is supported. Every successful metadata query includes `enabled`, reflecting `Audio:Enabled`. Metadata remains readable when disabled, but callers must not start audio work when `enabled` is `false`. See [deployment configuration](../development/Deployment.md#optional-audio-object-storage).
 
-The staged online-settings implementation currently adds an internal Host
-configuration-generation and operation-reference foundation only. It exposes no
-new S3 settings endpoint and does not yet change the configuration timing of these
-HTTP routes. A caller using that internal foundation must hold one reference for
-its entire awaited operation and release it in `finally`/`Dispose`; publishing a
-new generation never disposes a client that still has active references.
+Conditional uploads use the internal Host runtime configuration manager. One
+operation reference covers multipart parsing limits, domain reservation parameters
+and the matching object client. Enabling internally after an initially disabled
+startup permits uploads; disabling rejects new uploads with 503 while requests
+already started keep their old generation. Credential/PublicEndpoint rotation
+changes subsequent uploads, and the shared host admission quota remains unchanged.
+Cancellation/timeout releases the request reference; a provider still finishing an
+ignored cancellation retains its client until actual completion.
+
+The internal destination guard rejects changes to InternalEndpoint/Bucket/KeyPrefix
+when any asset/upload record or active operation exists, including unbound history
+and cleanup state. It serializes first operation acquisition with destination
+commit, without holding the state lock during S3 or database IO. This adds no new
+S3 settings endpoint. Playback, metadata/unbinding and recovery configuration timing
+remain staged until their respective integrations are complete.
 
 ## Generation targets
 

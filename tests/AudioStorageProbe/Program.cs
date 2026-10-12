@@ -20,6 +20,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Data.Sqlite;
 using Lexarbor.Host.Audio;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Configuration;
+using Lexarbor.Host.Configuration;
 using Minio;
 using Minio.DataModel.Args;
 
@@ -48,6 +50,7 @@ try
     // Provisioning belongs solely to this disposable test harness, never the app.
     await setup.MakeBucketAsync(new MakeBucketArgs().WithBucket(bucket));
     var bytes = await File.ReadAllBytesAsync(Path.Combine(AppContext.BaseDirectory, "Fixtures/tone.mp3"));
+    await VerifyRuntimeUploadGenerationsAsync(options, bytes);
     using var store = new S3AudioObjectStore(Options.Create(options), TimeProvider.System);
     Require(Mp3Validation.IsValid(bytes), "The uploaded fixture must contain complete MP3 frames.");
     using var databaseRoot = new ProbeDatabaseRoot();
@@ -180,6 +183,69 @@ static async Task SafeFailure(Func<Task> operation)
         Require(error.InnerException is null && error.Code == "audio.storage.unavailable", "SDK errors must be sanitized.");
     }
 }
+static async Task VerifyRuntimeUploadGenerationsAsync(AudioOptions initial, byte[] bytes)
+{
+    using var root = new ProbeDatabaseRoot();
+    var dbOptions = new DbContextOptionsBuilder<VocabularyDbContext>().UseSqlite($"Data Source={root.Path};Pooling=False").Options;
+    await using var oldDb = new VocabularyDbContext(dbOptions);
+    await oldDb.Database.MigrateAsync();
+    oldDb.Vocabularies.Add(new() { Id = "runtime-word", Word = "tone" });
+    await oldDb.SaveChangesAsync();
+    var factory = new RuntimeProbeStoreFactory();
+    using var runtime = new AudioRuntimeConfiguration(Options.Create(initial), factory, new RuntimeProbeRecords(dbOptions));
+    using var old = await new AudioUploadOperationFactory(runtime, new AudioUploadRepository(oldDb), TimeProvider.System).AcquireAsync(default);
+    var revision = AudioSelectionService.ComputeRevision(AudioSelectionService.GetInput(new("runtime-word", "tone", null, null), null, AudioLocale.EnGb));
+    var upload = old.Service.UploadAsync(new(Guid.NewGuid().ToString(), "runtime-word", null, AudioLocale.EnGb, revision, null, bytes, null, null), default);
+    await factory.Stores[0].Started.Task.WaitAsync(TimeSpan.FromSeconds(10));
+    var rotated = JsonSerializer.Deserialize<AudioOptions>(JsonSerializer.Serialize(initial))!;
+    rotated.AccessKey = "synthetic-setup-access";
+    rotated.SecretKey = "synthetic-setup-secret";
+    using (var candidate = await runtime.PrepareAsync(RuntimeConfig(rotated), default))
+    {
+        Require(candidate is not null, "Same-destination credential rotation must prepare locally.");
+        candidate!.Publish();
+    }
+    await using var newDb = new VocabularyDbContext(dbOptions);
+    using var current = await new AudioUploadOperationFactory(runtime, new AudioUploadRepository(newDb), TimeProvider.System).AcquireAsync(default);
+    var us = AudioSelectionService.ComputeRevision(AudioSelectionService.GetInput(new("runtime-word", "tone", null, null), null, AudioLocale.EnUs));
+    var newer = await current.Service.UploadAsync(new(Guid.NewGuid().ToString(), "runtime-word", null, AudioLocale.EnUs, us, null, bytes, null, null), default);
+    Require(newer.StatusCode == 200, "New generation must upload while the old Put is paused.");
+    Require(!factory.Stores[0].Disposed && factory.Stores[0].Options.AccessKey == "synthetic-audio-access"
+        && factory.Stores[1].Options.AccessKey == "synthetic-setup-access", "Concurrent real S3 uploads must keep their own clients.");
+    var destination = JsonSerializer.Deserialize<AudioOptions>(JsonSerializer.Serialize(rotated))!;
+    destination.KeyPrefix = "new/";
+    try
+    {
+        using var rejected = await runtime.PrepareAsync(RuntimeConfig(destination), default);
+        throw new InvalidOperationException("Active audio operations must reject destination changes.");
+    }
+    catch (ConfigurationChangeConflictException) { }
+    factory.Stores[0].Finish.TrySetResult();
+    Require((await upload).StatusCode == 200, "The old generation must finish using its original real S3 client.");
+    var locations = await oldDb.AudioAssets.AsNoTracking().Select(asset => new AudioObjectLocation(asset.Bucket, asset.ObjectKey)).ToListAsync();
+    using var verifier = new S3AudioObjectStore(Options.Create(initial), TimeProvider.System);
+    foreach (var location in locations)
+    {
+        Require(location.Bucket == initial.Bucket && location.Key.StartsWith(initial.KeyPrefix, StringComparison.Ordinal)
+            && (await verifier.StatAsync(location, default))?.ByteLength == bytes.Length, "Each database location must identify the object actually uploaded.");
+        var signed = await verifier.GetPlaybackLinkAsync(location, TimeSpan.FromSeconds(60), default);
+        using var http = new HttpClient();
+        Require((await http.GetByteArrayAsync(signed.Url)).SequenceEqual(bytes), "Both generations must store the complete real MP3.");
+    }
+    old.Dispose(); current.Dispose();
+    Require(factory.Stores[0].Disposed, "Retired real S3 client must be disposed after the old operation ends.");
+    try
+    {
+        using var rejected = await runtime.PrepareAsync(RuntimeConfig(destination), default);
+        throw new InvalidOperationException("Historical audio records must reject destination changes.");
+    }
+    catch (ConfigurationChangeConflictException) { }
+    foreach (var location in locations) await verifier.RemoveAsync(location, default);
+    Console.WriteLine("Concurrent runtime upload generations passed.");
+}
+static IConfiguration RuntimeConfig(AudioOptions options) => new ConfigurationBuilder()
+    .AddJsonStream(new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(new { Audio = options }))).Build();
+
 static async Task VerifyRecoveryAsync(VocabularyDbContext db, string databasePath, AudioUploadRepository liveRepository,
     IAudioObjectStore store, IAudioObjectStore denied, string bucket, byte[] bytes,
     AudioObjectLocation published, HttpClient http)
@@ -400,4 +466,43 @@ sealed class PlaybackProbeStore(IAudioObjectStore inner) : IAudioObjectStore
     public Task RemoveAsync(AudioObjectLocation location, CancellationToken token) => Inner.RemoveAsync(location, token);
     public Task<AudioPlaybackLink> GetPlaybackLinkAsync(AudioObjectLocation location, TimeSpan ttl, CancellationToken token)
         => Inner.GetPlaybackLinkAsync(location, ttl, token);
+}
+
+sealed class RuntimeProbeRecords(DbContextOptions<VocabularyDbContext> options) : IAudioDestinationRecords
+{
+    public async Task<bool> HasAnyAsync(CancellationToken cancellationToken)
+    {
+        await using var db = new VocabularyDbContext(options);
+        return await new AudioRecordExistenceRepository(db).HasAnyAsync(cancellationToken);
+    }
+}
+sealed class RuntimeProbeStoreFactory : IAudioObjectStoreFactory
+{
+    public List<RuntimeProbeStore> Stores { get; } = [];
+    public IAudioObjectStore Create(AudioOptions options)
+    {
+        var store = new RuntimeProbeStore(options, Stores.Count == 0);
+        Stores.Add(store);
+        return store;
+    }
+}
+sealed class RuntimeProbeStore(AudioOptions options, bool pause) : IAudioObjectStore, IDisposable
+{
+    private readonly S3AudioObjectStore _inner = new(Microsoft.Extensions.Options.Options.Create(options), TimeProvider.System);
+    public AudioOptions Options { get; } = options;
+    public bool Disposed { get; private set; }
+    public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public TaskCompletionSource Finish { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public async Task PutAsync(AudioObjectLocation location, Stream content, long byteLength, string contentType, CancellationToken cancellationToken)
+    {
+        Started.TrySetResult();
+        if (pause) await Finish.Task.WaitAsync(cancellationToken);
+        if (Disposed || location.Bucket != Options.Bucket || !location.Key.StartsWith(Options.KeyPrefix, StringComparison.Ordinal))
+            throw new InvalidOperationException("Upload generation changed during transfer.");
+        await _inner.PutAsync(location, content, byteLength, contentType, cancellationToken);
+    }
+    public Task<AudioObjectInfo?> StatAsync(AudioObjectLocation location, CancellationToken token) => _inner.StatAsync(location, token);
+    public Task RemoveAsync(AudioObjectLocation location, CancellationToken token) => _inner.RemoveAsync(location, token);
+    public Task<AudioPlaybackLink> GetPlaybackLinkAsync(AudioObjectLocation location, TimeSpan validity, CancellationToken token) => _inner.GetPlaybackLinkAsync(location, validity, token);
+    public void Dispose() { Disposed = true; _inner.Dispose(); }
 }

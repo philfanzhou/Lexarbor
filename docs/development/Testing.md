@@ -390,5 +390,20 @@ Cancellation before commit preserves the old file/generation; cancellation after
 commit still publishes. Synthetic secret markers check safe failures and snapshot
 serialization. Lock probes verify construction/disposal can acquire references
 from another thread, and failed disposal cannot break committed publication.
-Existing storage/endpoint/recovery regressions remain applicable; this slice does
-not add online S3 HTTP saves or switch existing entry points.
+`AudioUploadEndpointTests` pauses HTTP parsing, Reserve and Put independently,
+rotates credentials/PublicEndpoint, and checks old/new client ownership, database
+locations, concurrent vocabulary writes, initial enablement/disablement, reference
+release on parsing cancellation/timeout, and non-cooperative timed-out transfers.
+Cross-generation references share two active/eight queued admission slots, with
+excess HTTP uploads returning 429. Destination tests exercise active/retired
+references, every unbound asset/operation state, commit-first waiting and cancelled
+waiters, and invalid/client/query/write/replace/cancellation failures with unchanged
+files and generations. The database query also defensively detects operation-only
+records; no migration or production FK behavior changes.
+
+`test-audio-storage.sh` additionally pauses an old real S3 Put while a new credential
+generation uploads concurrently in an independent SQLite database. Actual Stat and
+signed GET verify both database locations contain the complete MP3; destination
+changes fail while operations or history exist, and retired client disposal waits
+for completion. Existing upload idempotency, MP3/size/auth/CSRF, recovery and browser
+decode regressions remain applicable. There is still no online S3 HTTP save API.
