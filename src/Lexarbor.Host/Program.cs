@@ -6,6 +6,7 @@ using Lexarbor.Domain.Exceptions;
 using Lexarbor.Domain.Repositories;
 using Lexarbor.Domain.Services;
 using Lexarbor.Host;
+using Lexarbor.Host.Audio;
 using Lexarbor.Host.Authentication;
 using Lexarbor.Host.RateLimiting;
 using Lexarbor.Service;
@@ -112,6 +113,7 @@ builder.Services.AddScoped<IVocabularyBookUnitRepository, VocabularyBookUnitRepo
 builder.Services.AddScoped<IVocabularyMeaningUnitRepository, VocabularyMeaningUnitRepository>();
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddAudioStorage(builder.Configuration);
 // A session database failure must not emit SQL, parameters, or provider exception details.
 builder.Services.PostConfigure<LoggerFilterOptions>(options =>
 {

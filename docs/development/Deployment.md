@@ -1077,3 +1077,33 @@ to `20261001125645_AddServiceAuditLogs` with the current tooling, and then deplo
 the matching old image. Down discards audio bindings and recovery metadata by
 removing only the three audio tables and their new ownership index. Keep the
 pre-Down database backup; do not delete any audio object as part of image rollback.
+
+## Optional audio object storage
+
+Audio storage is disabled by default. Existing persisted configuration without an `Audio` section still starts without S3 credentials or S3 calls. This slice provides storage infrastructure only; it does not yet enable HTTP upload, playback, TTS generation, or an audio UI. Enable the complete audio feature only after its dependent API and UI changes and private-bucket integration verification are available.
+
+When `Audio:Enabled=true`, invalid local settings fail startup with a fixed English diagnostic. Startup does not probe S3, list buckets, or create buckets. An offline S3 service affects audio operations only; existing health, vocabulary and quiz APIs remain available. The audio client has a bounded timeout and honors caller cancellation, and it returns fixed errors without retaining SDK exception details, credentials, object content, internal addresses, or signed URLs. A missing object returns no stat result; other S3 failures are storage-unavailable errors. Upload streams remain owned by the caller; the host disposes its dedicated SDK/HTTP clients on shutdown.
+
+| Configuration key | `scripts/start.sh` variable | Default / allowed values |
+|---|---|---|
+| `Audio:Enabled` | `LEXARBOR_AUDIO_ENABLED` | `false` |
+| `Audio:InternalEndpoint` | `LEXARBOR_AUDIO_INTERNAL_ENDPOINT` | Empty; absolute HTTP(S) origin, no credentials/query/path prefix |
+| `Audio:PublicEndpoint` | `LEXARBOR_AUDIO_PUBLIC_ENDPOINT` | Empty; absolute HTTP(S) URL, optional directory prefix ending in `/` |
+| `Audio:AccessKey` | `LEXARBOR_AUDIO_ACCESS_KEY` | Empty; server-side credential |
+| `Audio:SecretKey` | `LEXARBOR_AUDIO_SECRET_KEY` | Empty; server-side credential |
+| `Audio:Region` | `LEXARBOR_AUDIO_REGION` | `us-east-1`; 1–63 lowercase letters, digits or hyphens |
+| `Audio:Bucket` | `LEXARBOR_AUDIO_BUCKET` | `lexarbor-audio`; 3–63 lowercase letters, digits or hyphens, alphanumeric endpoints |
+| `Audio:KeyPrefix` | `LEXARBOR_AUDIO_KEY_PREFIX` | `audio/`; 1–4 directory segments of lowercase letters/digits/hyphens, each 1–32 characters, each starting alphanumeric |
+| `Audio:PlaybackTtlSeconds` | `LEXARBOR_AUDIO_PLAYBACK_TTL_SECONDS` | `900`; 60–3600 |
+| `Audio:MaxUploadBytes` | `LEXARBOR_AUDIO_MAX_UPLOAD_BYTES` | `5242880` (5 MiB); 1–20971520 (20 MiB) |
+| `Audio:MaxConcurrentUploads` | `LEXARBOR_AUDIO_MAX_CONCURRENT_UPLOADS` | `2`; 1–8 |
+| `Audio:MaxQueuedUploads` | `LEXARBOR_AUDIO_MAX_QUEUED_UPLOADS` | `8`; 0–8 |
+| `Audio:OperationTimeoutSeconds` | `LEXARBOR_AUDIO_OPERATION_TIMEOUT_SECONDS` | `60`; 1–120 per operation |
+
+The upload and queue settings are configuration for the forthcoming upload API; they do not change existing global rate limits. Multipart overhead will be bounded separately to 64 KiB. Use HTTPS for production endpoints. Credentials stay in the host and must never be copied into browser configuration or logs. Environment overrides retain the existing precedence, and `start.sh` forwards these values without rewriting the persisted configuration or changing `/app/data` ownership/permissions.
+
+Provision a separate **private** audio bucket and credentials limited to reading, writing and deleting known audio objects in that bucket/prefix. Do not use the image bucket, grant global bucket-list permissions, or reuse image-cleanup rules. The adapter rejects other buckets and keys: an accepted key consists of the configured prefix followed by a lowercase random UUID without separators and `.mp3`. SHA-256 belongs to the upload's independently computed content hash; an S3 ETag is not a SHA-256 hash. Changing buckets or key prefixes requires an explicit data migration; historical object locations are not silently rewritten.
+
+For example, `InternalEndpoint=http://seaweedfs:8333/` and `PublicEndpoint=https://audio.example.com/s3/` let the host upload on its internal network while clients use a public address. Signatures are generated for the public origin, then prefixed with `/s3/`; the reverse proxy **must preserve the signed Host (including a non-default port)** and strip exactly that prefix before forwarding to S3. Do not redirect signed requests or rewrite their query. An arbitrary proxy arrangement is not guaranteed; run the actual integration check. Avoid logging full signed query strings in proxies, telemetry or browser analytics. Signed links are credentials until expiry; disabling a book or removing a binding cannot revoke an already issued link immediately.
+
+Keep S3 objects and a consistent SQLite backup together. Published objects are retained even after replacing/removing bindings, so an older database backup can still reference them. Restarting or upgrading Lexarbor does not delete S3 objects or scan the bucket. The adapter offers deletion only for a known controlled location; the later recovery task must obtain database permission before deleting an object that has never been published. None of this changes normal automatic database upgrade or adds an old-program compatibility requirement.

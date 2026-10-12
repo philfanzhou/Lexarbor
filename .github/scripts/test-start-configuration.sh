@@ -20,12 +20,32 @@ LEXARBOR_OIDC_CODE_CLIENT_ID=synthetic-client \
 LEXARBOR_OIDC_CODE_CLIENT_SECRET=synthetic-code-secret \
 LEXARBOR_OIDC_CODE_REDIRECT_URI='https://lexarbor.test/admin/auth/callback' \
 LEXARBOR_OIDC_CODE_POST_LOGOUT_REDIRECT_URI='https://lexarbor.test/admin/auth/logout/return' \
+LEXARBOR_AUDIO_ENABLED=true LEXARBOR_AUDIO_INTERNAL_ENDPOINT='http://s3.test:8333/' \
+LEXARBOR_AUDIO_PUBLIC_ENDPOINT='https://audio.test/s3/' LEXARBOR_AUDIO_ACCESS_KEY=synthetic-audio-access \
+LEXARBOR_AUDIO_SECRET_KEY=synthetic-audio-secret LEXARBOR_AUDIO_REGION=us-east-1 \
+LEXARBOR_AUDIO_BUCKET=lexarbor-audio LEXARBOR_AUDIO_KEY_PREFIX=audio/ \
+LEXARBOR_AUDIO_PLAYBACK_TTL_SECONDS=60 LEXARBOR_AUDIO_MAX_UPLOAD_BYTES=1048576 \
+LEXARBOR_AUDIO_MAX_CONCURRENT_UPLOADS=1 LEXARBOR_AUDIO_MAX_QUEUED_UPLOADS=0 \
+LEXARBOR_AUDIO_OPERATION_TIMEOUT_SECONDS=3 \
 LEXARBOR_OIDC_CODE_SCOPE='openid profile' \
 bash scripts/start.sh >/dev/null
 python3 - "$probe_root/arguments" "$probe_root/data/appsettings.json" <<'PY'
 import pathlib, sys
 arguments = pathlib.Path(sys.argv[1]).read_bytes().decode().split('\0')
 expected = {
+    'Audio__Enabled': 'true',
+    'Audio__InternalEndpoint': 'http://s3.test:8333/',
+    'Audio__PublicEndpoint': 'https://audio.test/s3/',
+    'Audio__AccessKey': 'synthetic-audio-access',
+    'Audio__SecretKey': 'synthetic-audio-secret',
+    'Audio__Region': 'us-east-1',
+    'Audio__Bucket': 'lexarbor-audio',
+    'Audio__KeyPrefix': 'audio/',
+    'Audio__PlaybackTtlSeconds': '60',
+    'Audio__MaxUploadBytes': '1048576',
+    'Audio__MaxConcurrentUploads': '1',
+    'Audio__MaxQueuedUploads': '0',
+    'Audio__OperationTimeoutSeconds': '3',
     'AdminAuthentication__Provider': 'OidcCode',
     'AdminAuthentication__OidcCode__ClientId': 'synthetic-client',
     'AdminAuthentication__OidcCode__ClientSecret': 'synthetic-code-secret',
