@@ -41,7 +41,7 @@ public sealed record AudioObjectInfo(long ByteLength, string ContentType);
 public sealed record AudioPlaybackLink(string Url, DateTimeOffset ExpiresAt);
 
 // Request receipts are separate from retryable object cleanup progress. The
-// conditional transitions that preserve them are implemented by the next slice.
+// conditional persistence boundary preserves them independently of cleanup.
 public sealed record AudioUploadReceipt(int StatusCode, string? AssetId, string? SourceRevision,
     string? ErrorCode, long CompletedAtUnixMs);
 public sealed record AudioLease(string? Owner, long Fence, long? ExpiresAtUnixMs);

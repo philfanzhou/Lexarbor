@@ -222,8 +222,8 @@ field and retention contract.
 `audio_upload_operation`, plus the unique `(id, vocabulary_id)` index on
 `vocabulary_meaning`. It does not rebuild existing tables or modify any existing
 word, meaning, book, position, administrator session, audit, or Data Protection row.
-This slice provides internal models and reads only. It does not enable audio
-uploads, HTTP endpoints, background cleanup, or S3 access.
+The internal model, selection reads and conditional write repository do not enable
+HTTP audio uploads, background cleanup, or S3 access by themselves.
 
 Assets hold an independent ID, bucket, server-owned object key, SHA-256, byte length,
 MIME, creation time and nullable first-publication time. A binding stores a word,
@@ -242,10 +242,9 @@ attempt, last safe error code and observation time. UTC lease and lifecycle time
 are INTEGER Unix milliseconds for conditional comparisons. CHECK constraints limit
 locale/state, valid receipt shapes, positive upload/cleanup lease fences and hashes.
 Target IDs intentionally have no foreign key: deleting a target must not erase the
-known object location or historical request result. Runtime conditional state
-transitions, receipt immutability and the prohibition on cleaning published assets
-must be enforced by the subsequent write repository; static schema checks alone
-are not a runtime upload or recovery implementation.
+known object location or historical request result. `AudioUploadRepository` enforces runtime conditional transitions, receipt
+immutability and the prohibition on cleaning published assets. Static schema
+checks alone are not a runtime upload or recovery implementation.
 
 `AudioReadRepository` reads current word, owned optional meaning and both accents'
 bindings/assets inside one deferred SQLite read snapshot, without taking the
@@ -282,3 +281,71 @@ removes only these three new tables and the new meaning index; it does not chang
 existing rows or touch S3. Preserve the pre-Down backup to retain audio bindings,
 receipts and recovery metadata. See [deployment](../development/Deployment.md#database)
 for the existing startup gate and [backups](../development/Deployment.md) for recovery.
+
+
+## Conditional audio persistence
+
+`IAudioUploadRepository` is the network-free persistence boundary shared by upload,
+logical deletion and recovery callers. Each mutation owns a short SQLite write
+transaction through `UnitOfWork`; it may not be called inside an enclosing write
+transaction. SQLite writer admission and conditional owner/fence updates arbitrate
+across connections; the process semaphore only queues local writers. Reads use
+fresh, untracked database values rather than pre-upload tracked targets.
+
+Upload callers validate authorization, bounded body, MP3, locale and fingerprint
+before `ReserveAsync`. Supply a canonical UUID, the immutable request fingerprint,
+current source revision, **the target's own** expected asset (null for no binding),
+SHA-256/size and trusted bucket/key prefix from validated server configuration.
+The repository creates a new asset ID and random `{prefix}{UUID-N}.mp3` key; it
+never accepts an object key or URL from the client. The default prefix is `audio/`.
+Key prefixes consist of one to four lower-case alphanumeric/hyphen directory
+segments followed by `/`. Producer/voice and safe error codes are caller-validated,
+bounded metadata; never pass credentials, SDK exception text or signed URLs.
+
+Call order is reserve, begin transfer, **Put outside any database transaction**,
+then complete. A reservation creates an owner/fence/expiry lease (normally five
+minutes); `RenewAsync` only extends a still-valid lease owned by that owner/fence.
+Expiry is exclusive: a lease expiring at `now` is already invalid. The repository
+re-reads its injected `TimeProvider` after writer admission, so time spent queued
+cannot let an expired owner publish using an earlier caller timestamp. A transfer
+cannot be restarted or published while merely Reserved. Complete atomically
+re-reads word/owned meaning, source revision, own asset and the lease. A match
+writes the binding, first-publication stamp and 200 receipt in one transaction;
+a missing target or changed condition writes an immutable 404/409 failure receipt
+without changing the old binding. Failure/cancellation before publication uses
+`AbandonAsync` with a safe 404/409/503 receipt. Recovery uses `ExpireAsync` for an
+expired Reserved/Transferring operation, recording fixed 503 `audio.upload_expired`.
+
+A repeated key with a different fingerprint conflicts. With the same fingerprint,
+a Reserved/Transferring operation reports InProgress (409); any terminal operation
+replays its original receipt, including while cleanup is running. A successful
+operation never publishes again, even if its binding was subsequently replaced
+or removed. `UnbindAsync` checks current target ownership and only removes that
+locale/target's own matching asset; it returns Conflict for a mismatched asset,
+NotFound for a missing target or own binding, and Removed for a successful removal. It never
+changes operation receipts or deletes assets/objects. The HTTP caller maps these
+internal results to its endpoint contract.
+
+Cleanup first calls `ClaimCleanupAsync` on Abandoned/CleanupObserved records.
+The database requires no valid upload lease, at least 24 hours since reservation,
+a due retry time and an asset that has **never** been published. The claim records
+an incrementing fencing token and cleanup expiry, preventing upload publication.
+Only the valid cleanup owner/fence may report success via `ObserveCleanupAsync`
+or failure via `ReleaseCleanupAsync`. Remove/Stat run outside the transaction.
+Successful removal or confirmed absence becomes CleanupObserved; failures restore
+Abandoned or the previous CleanupObserved state and schedule another attempt.
+`ExpireCleanupAsync` restores the same previous state after cleanup-lease expiry,
+recording `audio.cleanup_expired`. Every retry preserves the original receipt,
+key, attempt count and observation history. Retain these records after deletion:
+a timed-out Put may arrive late, so CleanupObserved is checked again rather than
+being considered permanently erased. `FindRecoverableAsync` returns a bounded,
+ordered advisory list; callers must still win the corresponding conditional
+operation before touching S3. It neither claims work nor extends a lease.
+
+Cancellation while waiting for writer admission leaves no change. Once admitted,
+the short transaction completes without request cancellation, following the
+existing vocabulary commit policy; a lost response is recovered by reading the
+idempotency key. No lease guarantees a distributed SQLite/S3 transaction, immediate
+object reclamation, or protection against direct administrative object deletion.
+This boundary performs no network calls and does not change vocabulary editing,
+batch-import, authentication, HTTP routes, or automatic startup migration policy.
