@@ -1,8 +1,8 @@
-# Administrator audio queries and uploads
+# Administrator audio queries, uploads and logical deletion
 
 Audio queries use the existing administrator policy: an administrator Bearer token for external programs, or the hosted-login session cookie for the administration UI. A supplied Bearer header takes precedence over a cookie. These GET requests do not require a CSRF header. Keep administrator credentials out of browser application code. Existing security headers, roles and rate-limit policies are unchanged.
 
-The administrator API provides metadata and conditional MP3 uploads. It does not generate audio, issue playback links, or claim generation jobs. Metadata queries do not inspect S3. Audio is disabled by default; missing `Audio` configuration is supported. Every successful query includes `enabled`, reflecting `Audio:Enabled`. Metadata remains readable when disabled, but callers must not start audio work when `enabled` is `false`. See [deployment configuration](../development/Deployment.md#optional-audio-object-storage).
+The administrator API provides metadata, conditional MP3 uploads and conditional logical deletion. It does not generate audio, issue playback links, or claim generation jobs. Metadata queries do not inspect S3. Audio is disabled by default; missing `Audio` configuration is supported. Every successful query includes `enabled`, reflecting `Audio:Enabled`. Metadata remains readable when disabled, but callers must not start audio work when `enabled` is `false`. See [deployment configuration](../development/Deployment.md#optional-audio-object-storage).
 
 ## Generation targets
 
@@ -97,3 +97,17 @@ New uploads require both the current revision and own asset to match before rese
 The file limit is `Audio:MaxUploadBytes` (default 5 MiB, configurable up to 20 MiB), plus at most 64 KiB total multipart overhead. After authorization, dedicated per-host admission allows `Audio:MaxConcurrentUploads` active uploads (default 2) and `Audio:MaxQueuedUploads` waiting requests (default 8). Admission precedes body consumption; a full queue or admission wait timeout returns 429 with `Retry-After: 1`. Body reading, admission waiting and S3 transfer each have the configured `Audio:OperationTimeoutSeconds` bound (default 60 seconds). These limits apply only to this audio route and do not change existing global limits.
 
 Storage disabled, storage failure and upload timeout return safe 503 messages; invalid conditions/header/fields return 400, missing target/ownership returns 404, and oversized content returns 413. Storage exceptions, credentials, object keys and signed URLs are not returned. A cancellation before reservation causes no upload; cancellation after reservation retains a durable failure or expiring operation. S3 IO holds no SQLite writer transaction, and only a valid five-minute lease can publish. Known unpublished keys remain recorded for the separate recovery task; this slice does not automatically remove them. Already published objects remain available for database backups after replacement or logical deletion. See [backup and storage configuration](../development/Deployment.md#optional-audio-object-storage).
+
+## Conditional logical deletion
+
+`DELETE /admin/vocabulary/{wordId}/audio/{locale}?meaningId=...`
+
+Use the same administrator authorization, Cookie CSRF and Bearer precedence as uploads. Locale must be exactly `en-GB` or `en-US`. Omit `meaningId` for the default binding; supply an owned meaning ID to remove an override. Disabled books and words without a book are allowed.
+
+Send exactly one strong, quoted entity tag in `If-Match`, containing the current **own binding** asset's canonical lowercase UUID, for example `If-Match: "12345678-1234-1234-1234-123456789abc"`. Read `ownBinding` from metadata first. Do not use the default `effectiveBinding` to delete a meaning with no override. Bare UUIDs, weak tags, wildcards, lists and multiple header values return 400. Missing or invalid conditions, unsupported locale and blank meaning IDs also return 400.
+
+Success is `{ "success": true, "data": { "removed": true } }`. Only the selected binding is removed. Deleting a meaning override restores same-accent default selection; deleting a default leaves existing overrides and the other accent untouched. A missing target, wrong meaning ownership or absent own binding returns 404 (including a repeated delete); a different current own asset returns 409. On 409, reread metadata before deciding whether to delete the newer binding.
+
+Deletion competes with replacements in one short SQLite write transaction. If replacement wins, the old `If-Match` cannot remove its new binding. If deletion wins while replacement is transferring, that replacement's old-asset condition prevents publication. Cancellation before write admission changes nothing; once the short write is admitted it finishes under the existing commit semantics, even if the response is lost.
+
+Audio disabled returns fixed 503. Deletion makes no S3 calls and retains all assets, objects, publication timestamps, upload operations and immutable idempotency receipts. Replaying an earlier successful upload returns its original receipt without restoring the deleted binding. Previously issued playback links remain usable until expiry. Internal object locations and storage credentials never appear in delete responses. No schema or deployment configuration change is required.

@@ -357,6 +357,112 @@ public sealed class AudioUploadRepositoryTests
         Assert.Equal(AudioUploadState.Transferring, (await repo.GetAsync(upload.Operation.IdempotencyKey, Token))!.Operation.State);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConditionalDeleteAndPublishCompeteOnRealSqlite(bool publishFirst)
+    {
+        using var file = new AudioTestDatabase(); await using var db = file.Open(); await InitAsync(db);
+        var repo = new AudioUploadRepository(db, new ManualClock()); var first = await ReserveAsync(repo, Request()); await PublishAsync(repo, first);
+        var replacing = await ReserveAsync(repo, Request(expected: first.Asset.Id));
+        Assert.True(await repo.BeginTransferAsync(replacing.Operation.IdempotencyKey, replacing.Operation.UploadLease, 2, Token));
+        await using var deleteDb = file.Open(); await using var holderDb = file.Open();
+        var deleting = new AudioUnbindService(new AudioUploadRepository(deleteDb, new ManualClock()));
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var holder = new UnitOfWork(holderDb).ExecuteInTransactionAsync(async () => { entered.SetResult(); await release.Task; return 0; });
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10), Token);
+        Task<AudioUnbindDisposition> delete; Task<AudioUploadOperation?> publish;
+        if (publishFirst)
+        {
+            publish = repo.CompleteAsync(replacing.Operation.IdempotencyKey, replacing.Operation.UploadLease, 3, Token);
+            delete = deleting.UnbindAsync("word", null, AudioLocale.EnGb, first.Asset.Id, Token);
+        }
+        else
+        {
+            delete = deleting.UnbindAsync("word", null, AudioLocale.EnGb, first.Asset.Id, Token);
+            publish = repo.CompleteAsync(replacing.Operation.IdempotencyKey, replacing.Operation.UploadLease, 3, Token);
+        }
+        release.SetResult(); await holder;
+        Assert.Equal(publishFirst ? AudioUnbindDisposition.Conflict : AudioUnbindDisposition.Removed, await delete);
+        var outcome = Assert.IsType<AudioUploadOperation>(await publish);
+        Assert.Equal(publishFirst ? 200 : 409, outcome.Receipt!.StatusCode);
+        Assert.Equal(publishFirst ? replacing.Asset.Id : null, await db.VocabularyAudioBindings.Select(x => x.AssetId).SingleOrDefaultAsync(Token));
+        Assert.Equal(2, await db.AudioAssets.CountAsync(Token)); Assert.Equal(2, await db.AudioUploadOperations.CountAsync(Token));
+        Assert.Equal(200, (await repo.GetAsync(first.Operation.IdempotencyKey, Token))!.Operation.Receipt!.StatusCode);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task ConditionalDeleteAndTargetDelete_KeepHistoryWithOneLegalResult(bool meaning, bool targetFirst)
+    {
+        using var file = new AudioTestDatabase(); await using var db = file.Open(); await InitAsync(db);
+        var repo = new AudioUploadRepository(db, new ManualClock()); var upload = await ReserveAsync(repo, Request(meaning ? "meaning" : null)); await PublishAsync(repo, upload);
+        var history = await repo.GetAsync(upload.Operation.IdempotencyKey, Token);
+        await using var other = file.Open(); await using var holderDb = file.Open();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var holder = new UnitOfWork(holderDb).ExecuteInTransactionAsync(async () => { entered.SetResult(); await release.Task; return 0; });
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10), Token);
+        Task<int> RemoveTarget() => new UnitOfWork(other).ExecuteInTransactionAsync(async () =>
+            meaning ? await other.VocabularyMeanings.Where(x => x.Id == "meaning").ExecuteDeleteAsync(Token)
+                : await other.Vocabularies.Where(x => x.Id == "word").ExecuteDeleteAsync(Token));
+        Task<AudioUnbindDisposition> delete; Task<int> target;
+        if (targetFirst) { target = RemoveTarget(); delete = new AudioUnbindService(repo).UnbindAsync("word", meaning ? "meaning" : null, AudioLocale.EnGb, upload.Asset.Id, Token); }
+        else { delete = new AudioUnbindService(repo).UnbindAsync("word", meaning ? "meaning" : null, AudioLocale.EnGb, upload.Asset.Id, Token); target = RemoveTarget(); }
+        release.SetResult(); await holder; Assert.Equal(1, await target);
+        Assert.Equal(targetFirst ? AudioUnbindDisposition.NotFound : AudioUnbindDisposition.Removed, await delete);
+        Assert.Empty(await db.VocabularyAudioBindings.ToListAsync(Token)); Assert.Equal(history, await repo.GetAsync(upload.Operation.IdempotencyKey, Token));
+    }
+
+    [Fact]
+    public async Task TwoConditionalDeletes_RemoveOnceAndPreserveReceipt()
+    {
+        using var file = new AudioTestDatabase(); await using var db = file.Open(); await InitAsync(db);
+        var repo = new AudioUploadRepository(db, new ManualClock()); var upload = await ReserveAsync(repo, Request()); await PublishAsync(repo, upload);
+        await using var other = file.Open();
+        var a = new AudioUnbindService(repo).UnbindAsync("word", null, AudioLocale.EnGb, upload.Asset.Id, Token);
+        var b = new AudioUnbindService(new AudioUploadRepository(other, new ManualClock())).UnbindAsync("word", null, AudioLocale.EnGb, upload.Asset.Id, Token);
+        Assert.Equal(new[] { AudioUnbindDisposition.Removed, AudioUnbindDisposition.NotFound }.Order(), (await Task.WhenAll(a, b)).Order());
+        Assert.Equal(200, (await repo.GetAsync(upload.Operation.IdempotencyKey, Token))!.Operation.Receipt!.StatusCode);
+    }
+
+    [Fact]
+    public async Task ConditionalDeleteCancellation_BeforeWhileQueuedAndAfterAdmission()
+    {
+        using var file = new AudioTestDatabase(); await using var db = file.Open(); await InitAsync(db);
+        var repo = new AudioUploadRepository(db, new ManualClock()); var upload = await ReserveAsync(repo, Request()); await PublishAsync(repo, upload);
+        var service = new AudioUnbindService(repo); using var before = new CancellationTokenSource(); before.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.UnbindAsync("word", null, AudioLocale.EnGb, upload.Asset.Id, before.Token));
+        await using var holderDb = file.Open();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var holder = new UnitOfWork(holderDb).ExecuteInTransactionAsync(async () => { entered.SetResult(); await release.Task; return 0; });
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10), Token); using var queuedCancel = new CancellationTokenSource();
+        var queued = service.UnbindAsync("word", null, AudioLocale.EnGb, upload.Asset.Id, queuedCancel.Token);
+        queuedCancel.Cancel(); await Assert.ThrowsAnyAsync<OperationCanceledException>(() => queued); release.SetResult(); await holder;
+        Assert.Single(await db.VocabularyAudioBindings.ToListAsync(Token));
+        using var admitted = new CancellationTokenSource(); await using var deleteDb = file.Open(new CancelOnUnbind(admitted));
+        Assert.Equal(AudioUnbindDisposition.Removed, await new AudioUnbindService(new AudioUploadRepository(deleteDb, new ManualClock()))
+            .UnbindAsync("word", null, AudioLocale.EnGb, upload.Asset.Id, admitted.Token));
+        Assert.True(admitted.IsCancellationRequested); Assert.Empty(await db.VocabularyAudioBindings.ToListAsync(Token));
+        Assert.Equal(200, (await repo.GetAsync(upload.Operation.IdempotencyKey, Token))!.Operation.Receipt!.StatusCode);
+        Assert.NotNull((await repo.GetAsync(upload.Operation.IdempotencyKey, Token))!.Asset.FirstPublishedAtUnixMs);
+    }
+
+    private sealed class CancelOnUnbind(CancellationTokenSource source) : DbCommandInterceptor
+    {
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command, CommandEventData eventData,
+            InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.StartsWith("DELETE FROM \"vocabulary_audio_binding\"", StringComparison.Ordinal)) source.Cancel();
+            return ValueTask.FromResult(result);
+        }
+    }
+
     private sealed class ManualClock : TimeProvider
     {
         public long Now { get; set; }
