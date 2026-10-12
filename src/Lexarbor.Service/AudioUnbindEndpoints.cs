@@ -10,12 +10,14 @@ namespace Lexarbor.Service;
 
 public static class AudioUnbindEndpoints
 {
-    public static void MapAudioUnbindEndpoints(this IEndpointRouteBuilder app, bool enabled)
+    public static void MapAudioUnbindEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapDelete("/admin/vocabulary/{wordId}/audio/{locale}", async (HttpContext context, string wordId,
-            string locale, [FromQuery] string? meaningId, AudioUnbindService service, CancellationToken cancellationToken) =>
+            string locale, [FromQuery] string? meaningId, AudioUnbindService service,
+            IAudioAdminOperationFactory operations, CancellationToken cancellationToken) =>
         {
-            if (!enabled) return Error(503, "Audio storage is disabled.");
+            using var operation = await operations.AcquireAsync(cancellationToken);
+            if (!operation.Enabled) return Error(503, "Audio storage is disabled.");
             if (locale is not ("en-GB" or "en-US")) return Error(400, "Audio locale must be en-GB or en-US.");
             if (meaningId != null && string.IsNullOrWhiteSpace(meaningId)) return Error(400, "Meaning ID is invalid.");
             var values = context.Request.Headers.IfMatch;

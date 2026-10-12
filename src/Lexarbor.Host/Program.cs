@@ -159,6 +159,7 @@ builder.Services.AddSingleton(provider =>
         TimeSpan.FromSeconds(options.OperationTimeoutSeconds is >= 1 and <= 120 ? options.OperationTimeoutSeconds : 60));
 });
 builder.Services.AddScoped<AudioUnbindService>();
+builder.Services.AddScoped<IAudioAdminOperationFactory, AudioAdminOperationFactory>();
 builder.Services.AddScoped<IAudioPublicReadRepository, AudioReadRepository>();
 builder.Services.AddScoped<IAudioPlaybackOperationFactory, AudioPlaybackOperationFactory>();
 builder.Services.AddSingleton(provider =>
@@ -803,9 +804,9 @@ adminSurface.MapVocabularyMeaningEditEndpoints();
 adminSurface.MapVocabularyBookUnitEndpoints();
 adminSurface.MapVocabularyMeaningPositionEndpoints();
 adminSurface.MapVocabularyAdminQueryEndpoints();
-adminSurface.MapAudioAdminQueryEndpoints(app.Services.GetRequiredService<IOptions<AudioOptions>>().Value.Enabled);
+adminSurface.MapAudioAdminQueryEndpoints();
 adminSurface.MapAudioUploadEndpoints();
-adminSurface.MapAudioUnbindEndpoints(app.Services.GetRequiredService<IOptions<AudioOptions>>().Value.Enabled);
+adminSurface.MapAudioUnbindEndpoints();
 adminSurface.MapAudioAdminPlaybackEndpoints();
 adminSurface.MapVocabularyCleanupEndpoints();
 app.MapAudioPublicPlaybackEndpoints(
