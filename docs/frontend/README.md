@@ -339,3 +339,7 @@ npm run build
 ```
 
 Vite writes to the frontend's own `dist/`, and the root Dockerfile copies that directory into the .NET Host's `wwwroot` publish content during the image build.
+
+## System settings
+
+The authenticated `/#/settings` route shows the effective login/public API ceilings, actual numeric values, and switch configuration sources. Only editable switches can be saved. Drafts stay separate from actual state; read failures show unknown and offer retry. Save uses strong If-Match and CSRF, blocks duplicates, then confirms by GET. A lost response triggers read-back without automatically resubmitting. Failures retain nonsecret drafts, while navigation/sign-out discards them and cancels pending reads. Environment/command-line overrides are shown as read-only. The hosted login return allowlist includes the exact `/settings` route. See [System settings API](../api/SystemSettings.md).

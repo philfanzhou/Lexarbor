@@ -184,6 +184,8 @@ test('the hosted button sends one start navigation with the allowlisted return r
 })
 
 for (const { redirect, expected } of [
+  { redirect: '/settings', expected: '/admin/auth/start?returnUrl=%2Fsettings' },
+  { redirect: '/%73ettings', expected: '/admin/auth/start' },
   { redirect: '/books/abc-123_X/words', expected: '/admin/auth/start?returnUrl=%2Fbooks%2Fabc-123_X%2Fwords' },
   { redirect: '/secret', expected: '/admin/auth/start' },
   { redirect: '/import?x=1', expected: '/admin/auth/start' },

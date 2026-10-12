@@ -371,3 +371,9 @@ then `docker build -t lexarbor:ci .` and
 first-start configuration mode `0600`, existing-file preservation and unchanged
 environment/argument precedence. This infrastructure does not certify the later
 rate-limit or S3 administration endpoints; those modules require their own tests.
+
+## Online rate-limit settings
+
+`SystemSettingsTests` verifies authenticated GET/PUT, cookie CSRF and Bearer precedence, no-store/security headers, strict switch payloads, If-Match errors, concurrent-save conflicts, read-only-file failure, deployment override sources, invalid disabled numbers, and file/restart persistence. Real Host requests exercise disabled → enabled → 429 → disabled → enabled without resetting the original per-address bucket, using custom initially disabled quotas, unknown routes, browse, question batch, audio playback, and equivalent login paths. Existing audio upload tests continue to verify the separate concurrency admission guard. Coordinator tests cover cancellation before commit and noncancelable publication after commit.
+
+`frontend/e2e/settings.spec.ts` covers actual/custom values, separate drafts, CSRF/If-Match and one submission, 400/413/503 failures, stale revisions, unknown/malformed reads and retry, source overrides, lost save responses and failed read-back, page/sign-out cancellation with late responses, exact login return, permission navigation, keyboard and narrow-screen behavior. Run `npm run test:e2e -- settings.spec.ts` for this slice and the full browser suite before merge.

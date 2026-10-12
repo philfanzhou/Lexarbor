@@ -90,13 +90,17 @@ public sealed class PersistentConfigurationCoordinator
     }
 
     public async Task<ConfigurationReadResult> ReadAsync(CancellationToken cancellationToken = default)
+        => await ReadAsync(result => result, cancellationToken);
+
+    // Read the module snapshot and its shared revision under the publication lock.
+    public async Task<T> ReadAsync<T>(Func<ConfigurationReadResult, T> read, CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken);
         try
         {
             var available = RefreshDisk();
-            return new ConfigurationReadResult(_revision,
-                new Dictionary<string, ConfigurationFieldSource>(_sources, StringComparer.OrdinalIgnoreCase), available);
+            return read(new ConfigurationReadResult(_revision,
+                new Dictionary<string, ConfigurationFieldSource>(_sources, StringComparer.OrdinalIgnoreCase), available));
         }
         finally
         {

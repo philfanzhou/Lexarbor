@@ -987,7 +987,7 @@ key appears in the response or shared rejection diagnostic.
 omits retry metadata, the Host supplies the configured whole window as a
 conservative backoff suggestion, preserving any shared header. Concurrent traffic
 can still exhaust the quota when the suggested delay ends. This is neither a
-distributed limiter nor a WAF or DDoS defense; configuration is fixed at startup.
+distributed limiter nor a WAF or DDoS defense; numeric quotas are fixed at startup; the administrator can switch either policy online at `/#/settings`.
 
 A new container copies these disabled defaults into `/app/data/appsettings.json`.
 Upgrades never overwrite an existing file: explicit `true` or `false` values
@@ -1021,7 +1021,7 @@ untrusted clients.
 
 Enabled policies require `PermitLimit` in `1..10000` and `WindowSeconds` in
 `10..600`. Out-of-range settings fail startup without clamping. Disabled policies
-ignore their numeric settings, consume no bucket, and log a startup warning.
+accept invalid numeric settings at startup, consume no bucket, and log a startup warning. The settings page displays those actual numbers and rejects enabling them until they are corrected offline and the host is restarted. Valid numbers from an initially disabled policy are used when enabling online.
 Only `GET /admin/auth/start` (including case/trailing-slash equivalents) and all
 `/api/*` routes, including unknown routes, are metered. Callback, logout, logout
 return, administrator business routes, health and the SPA remain unmetered.
@@ -1217,3 +1217,7 @@ or automatic historical published-object collection is introduced.
 The [public audio endpoint](../api/Audio.md#public-book-authorized-playback) is anonymous and uses the existing public API rate limit. Every request requires an enabled book and matching word/meaning membership, checked together with the selected audio in one SQLite snapshot. Storage IO begins after the snapshot ends. Disabling a book prevents later authorization; a request already authorized and already signed URLs may still play until their S3 expiry. Links are short lived (default 900 seconds) and responses are `no-store`. Clients should fetch on playback and refresh after expiry, handle missing/stale and safe 503 responses, and avoid logging or persisting the URL.
 
 Deploy a reachable public S3 endpoint serving private MP3 objects and supporting signed GET and Range. For a prefixed proxy preserve signed Host and strip the prefix. Lexarbor adds no download proxy, fixed public access, learning UI or global CORS permission; configure S3/proxy CORS for actual origins only when the client uses cross-origin fetch/WebAudio. The private storage integration exercises this public HTTP mapper with a real MP3, Range, expired/renewed signatures, permission denial, missing objects and disable/re-enable behavior. Old public routes, response fields, anonymous authentication and quotas remain unchanged.
+
+### Online request-limit settings
+
+Administrators can read the effective switches and save editable fields at `/#/settings`. Environment or command-line overrides are read-only. Saves use the shared opaque revision and atomic `/app/data/appsettings.json` writer, take effect for subsequent requests without restarting, and survive restart. Turning a policy off and on does not reset a live bucket. Read-only files/directories or unsafe targets return 503 without publishing the candidate. See [System settings API](../api/SystemSettings.md) for If-Match conflicts, persistence, sources, and uncertain network outcomes. Numeric quotas remain offline settings.

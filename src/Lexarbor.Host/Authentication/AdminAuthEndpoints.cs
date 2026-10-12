@@ -2,7 +2,6 @@ using Lexarbor.Host.RateLimiting;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Routing;
-using Microsoft.Extensions.Options;
 using ServiceMantle.Web.Management;
 using SignaCore.Client.AspNetCore;
 
@@ -25,22 +24,13 @@ public static class AdminAuthEndpoints
     public static IEndpointConventionBuilder MapAdminAuthEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapSignaCoreHostedLogin(Prefix);
-        var rateLimitEnabled = app.ServiceProvider
-            .GetRequiredService<IOptions<RateLimitOptions>>().Value.AdminLogin.Enabled;
         group.Add(builder =>
         {
             if (builder is not RouteEndpointBuilder route) return;
             var path = route.RoutePattern.RawText ?? string.Empty;
             if (IsSegment(path, Prefix + "/" + SignaCoreHostedLoginDefaults.StartPathSegment))
             {
-                if (rateLimitEnabled)
-                {
-                    route.Metadata.Add(new EnableRateLimitingAttribute(RateLimitingExtensions.AdminLoginPolicy));
-                }
-                else
-                {
-                    route.Metadata.Add(new DisableRateLimitingAttribute());
-                }
+                route.Metadata.Add(new EnableRateLimitingAttribute(RateLimitingExtensions.AdminLoginPolicy));
             }
             else if (IsSegment(path, Prefix + "/" + SignaCoreHostedLoginDefaults.LogoutPathSegment))
             {
