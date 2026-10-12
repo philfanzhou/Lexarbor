@@ -52,3 +52,7 @@ public sealed record AudioUploadOperation(string IdempotencyKey, string RequestF
     string? ExpectedAssetId, string AssetId, string? Producer, string? Voice,
     AudioUploadState State, long CreatedAtUnixMs, long UpdatedAtUnixMs, AudioLease UploadLease,
     AudioUploadReceipt? Receipt, AudioCleanupProgress Cleanup);
+
+public sealed record AudioTargetQuery(string? BookId, AudioLocale? Locale, AudioContentStatus? Status, int Page, int Size);
+public sealed record AudioTarget(string WordId, string? MeaningId, AudioSelection Selection);
+public sealed record AudioTargetPage(IReadOnlyList<AudioTarget> Items, int TotalCount, int TotalPage);
