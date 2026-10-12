@@ -1,6 +1,12 @@
 using System.Net;
 using System.Net.Http.Headers;
 using Lexarbor.Domain.Models;
+using Lexarbor.Domain.Services;
+using Lexarbor.Database;
+using Lexarbor.Database.Entities;
+using Lexarbor.Database.Repositories;
+using Lexarbor.Service;
+using Microsoft.EntityFrameworkCore;
 using Lexarbor.Host.Audio;
 using Microsoft.Extensions.Options;
 using Minio;
@@ -25,12 +31,27 @@ try
         .WithRegion("us-east-1").WithHttpClient(new HttpClient(), true).Build();
     // Provisioning belongs solely to this disposable test harness, never the app.
     await setup.MakeBucketAsync(new MakeBucketArgs().WithBucket(bucket));
-    var location = new AudioObjectLocation(bucket, $"audio/{Guid.NewGuid():N}.mp3");
     var bytes = await File.ReadAllBytesAsync(Path.Combine(AppContext.BaseDirectory, "Fixtures/tone.mp3"));
     using var store = new S3AudioObjectStore(Options.Create(options), TimeProvider.System);
-    using var stream = new MemoryStream(bytes);
-    await store.PutAsync(location, stream, bytes.Length, "audio/mpeg", default);
-    Require(stream.CanRead, "Caller stream must remain open.");
+    Require(Mp3Validation.IsValid(bytes), "The uploaded fixture must contain complete MP3 frames.");
+    using var databaseRoot = new ProbeDatabaseRoot();
+    await using var db = new VocabularyDbContext(new DbContextOptionsBuilder<VocabularyDbContext>()
+        .UseSqlite($"Data Source={databaseRoot.Path};Pooling=False").Options);
+    await db.Database.MigrateAsync();
+    db.Vocabularies.Add(new VocabularyEntity { Id = "probe-word", Word = "tone" });
+    await db.SaveChangesAsync();
+    var repository = new AudioUploadRepository(db);
+    var coordinator = new AudioUploadService(repository, store, new(true, bucket, "audio/", 3), TimeProvider.System);
+    var revision = AudioSelectionService.ComputeRevision(AudioSelectionService.GetInput(new("probe-word", "tone", null, null), null, AudioLocale.EnGb));
+    var request = new AudioUploadContent(Guid.NewGuid().ToString(), "probe-word", null, AudioLocale.EnGb, revision, null, bytes, "probe", null);
+    var uploaded = await coordinator.UploadAsync(request, default);
+    Require(uploaded.StatusCode == 200, "Conditional upload must publish the real MP3.");
+    var persisted = (await repository.GetAsync(request.IdempotencyKey, default))!;
+    var location = persisted.Asset.Location;
+    Require(persisted.Operation.State == AudioUploadState.Succeeded && persisted.Asset.FirstPublishedAtUnixMs != null,
+        "The successful upload must have a durable receipt and published stamp.");
+    Require((await coordinator.UploadAsync(request, default)) == uploaded && await db.AudioAssets.CountAsync() == 1,
+        "An identical retry must return the original receipt without a second object.");
     var stat = await store.StatAsync(location, default);
     Require(stat?.ByteLength == bytes.Length && stat.ContentType == "audio/mpeg", "Stat must match uploaded MP3.");
     Require(await store.StatAsync(new(bucket, $"audio/{Guid.NewGuid():N}.mp3"), default) is null, "Missing object must return null.");
@@ -66,6 +87,15 @@ try
     using var deniedStream = new MemoryStream(bytes);
     await SafeFailure(() => denied.PutAsync(location, deniedStream, bytes.Length, "audio/mpeg", default));
     await SafeFailure(() => denied.RemoveAsync(location, default));
+    var deniedUpload = new AudioUploadService(repository, denied, new(true, bucket, "audio/", 3), TimeProvider.System);
+    var deniedRequest = request with { IdempotencyKey = Guid.NewGuid().ToString(), Locale = AudioLocale.EnUs,
+        SourceRevision = AudioSelectionService.ComputeRevision(AudioSelectionService.GetInput(new("probe-word", "tone", null, null), null, AudioLocale.EnUs)) };
+    Require((await deniedUpload.UploadAsync(deniedRequest, default)).StatusCode == 503,
+        "A real S3 denial must produce a safe upload failure.");
+    Require((await repository.GetAsync(deniedRequest.IdempotencyKey, default))!.Operation.State == AudioUploadState.Abandoned,
+        "A denied upload must retain its known key and failure receipt.");
+    Require(await db.VocabularyAudioBindings.CountAsync() == 1,
+        "A denied upload must not change the successful binding.");
     using var cancelled = new CancellationTokenSource();
     cancelled.Cancel();
     try { await store.StatAsync(location, cancelled.Token); throw new InvalidOperationException("Cancellation must be observed."); }
@@ -107,3 +137,11 @@ sealed class OffsetClock : TimeProvider
 }
 
 sealed class ProbeFailure(string message) : Exception(message);
+
+sealed class ProbeDatabaseRoot : IDisposable
+{
+    private readonly string _root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "lexarbor-audio-upload-probe-" + Guid.NewGuid().ToString("N"));
+    public string Path => System.IO.Path.Combine(_root, "probe.db");
+    public ProbeDatabaseRoot() => Directory.CreateDirectory(_root);
+    public void Dispose() { Directory.Delete(_root, recursive: true); }
+}

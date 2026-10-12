@@ -144,6 +144,25 @@ builder.Services.AddScoped<IVocabularyAdminQueryRepository, VocabularyAdminQuery
 builder.Services.AddScoped<VocabularyAdminQueryService>();
 builder.Services.AddScoped<IAudioReadRepository, AudioReadRepository>();
 builder.Services.AddScoped<AudioAdminQueryService>();
+builder.Services.AddScoped<IAudioUploadRepository, AudioUploadRepository>();
+builder.Services.AddSingleton(provider =>
+{
+    var options = provider.GetRequiredService<IOptions<AudioOptions>>().Value;
+    return new AudioUploadSettings(options.Enabled, options.Bucket, options.KeyPrefix, options.OperationTimeoutSeconds);
+});
+builder.Services.AddSingleton(provider =>
+{
+    var options = provider.GetRequiredService<IOptions<AudioOptions>>().Value;
+    return new AudioUploadHttpSettings(options.Enabled, options.MaxUploadBytes, options.OperationTimeoutSeconds);
+});
+builder.Services.AddSingleton(provider =>
+{
+    var options = provider.GetRequiredService<IOptions<AudioOptions>>().Value;
+    // Disabled configuration may contain arbitrary unused limits; do not construct an invalid semaphore.
+    return new AudioUploadAdmission(options.Enabled ? options.MaxConcurrentUploads : 2,
+        options.Enabled ? options.MaxQueuedUploads : 8, TimeSpan.FromSeconds(options.Enabled ? options.OperationTimeoutSeconds : 60));
+});
+builder.Services.AddScoped<AudioUploadService>();
 builder.Services.AddScoped<IVocabularyPublicQueryRepository, VocabularyPublicQueryRepository>();
 builder.Services.AddScoped<VocabularyPublicQueryService>();
 builder.Services.AddScoped<IVocabularyCleanupRepository, VocabularyCleanupRepository>();
@@ -774,6 +793,7 @@ adminSurface.MapVocabularyBookUnitEndpoints();
 adminSurface.MapVocabularyMeaningPositionEndpoints();
 adminSurface.MapVocabularyAdminQueryEndpoints();
 adminSurface.MapAudioAdminQueryEndpoints(app.Services.GetRequiredService<IOptions<AudioOptions>>().Value.Enabled);
+adminSurface.MapAudioUploadEndpoints();
 adminSurface.MapVocabularyCleanupEndpoints();
 app.MapVocabularyHttpEndpoints(
     rateLimitOptions.PublicApi.Enabled ? RateLimitingExtensions.PublicApiPolicy : null,
