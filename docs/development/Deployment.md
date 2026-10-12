@@ -1080,7 +1080,7 @@ pre-Down database backup; do not delete any audio object as part of image rollba
 
 ## Optional audio object storage
 
-Audio storage is disabled by default. Existing persisted configuration without an `Audio` section still starts without S3 credentials or S3 calls. Storage infrastructure, administrator metadata queries, conditional HTTP uploads/deletion and administrator playback are available. Public learning playback, TTS generation and an audio UI are not provided by this slice. Enable the complete audio feature only after its dependent API and UI changes and private-bucket integration verification are available.
+Audio storage is disabled by default. Existing persisted configuration without an `Audio` section still starts without S3 credentials or S3 calls. Storage infrastructure, administrator metadata queries, conditional HTTP uploads/deletion, administrator playback and bounded failed-upload recovery are available. Public learning playback, TTS generation and an audio UI are not provided by this slice. Enable the complete audio feature only after its dependent API and UI changes and private-bucket integration verification are available.
 
 When `Audio:Enabled=true`, invalid local settings fail startup with a fixed English diagnostic. Startup does not probe S3, list buckets, or create buckets. An offline S3 service affects audio operations only; existing health, vocabulary and quiz APIs remain available. The audio client has a bounded timeout and honors caller cancellation, and it returns fixed errors without retaining SDK exception details, credentials, object content, internal addresses, or signed URLs. A missing object returns no stat result; other S3 failures are storage-unavailable errors. Upload streams remain owned by the caller; the host disposes its dedicated SDK/HTTP clients on shutdown.
 
@@ -1099,11 +1099,53 @@ When `Audio:Enabled=true`, invalid local settings fail startup with a fixed Engl
 | `Audio:MaxConcurrentUploads` | `LEXARBOR_AUDIO_MAX_CONCURRENT_UPLOADS` | `2`; 1–8 |
 | `Audio:MaxQueuedUploads` | `LEXARBOR_AUDIO_MAX_QUEUED_UPLOADS` | `8`; 0–8 |
 | `Audio:OperationTimeoutSeconds` | `LEXARBOR_AUDIO_OPERATION_TIMEOUT_SECONDS` | `60`; 1–120 per operation |
+| `Audio:RecoveryBatchSize` | `LEXARBOR_AUDIO_RECOVERY_BATCH_SIZE` | `20`; 1–100 records per batch |
+| `Audio:RecoveryIntervalSeconds` | `LEXARBOR_AUDIO_RECOVERY_INTERVAL_SECONDS` | `60`; 10–3600, delay after each batch |
+| `Audio:RecoveryLeaseSeconds` | `LEXARBOR_AUDIO_RECOVERY_LEASE_SECONDS` | `300`; 30–900, strictly greater than operation timeout |
+| `Audio:RecoveryRetrySeconds` | `LEXARBOR_AUDIO_RECOVERY_RETRY_SECONDS` | `60`; 10–3600, first failed attempt |
+| `Audio:RecoveryMaxRetrySeconds` | `LEXARBOR_AUDIO_RECOVERY_MAX_RETRY_SECONDS` | `3600`; retry floor–86400, exponential retry cap |
+| `Audio:RecoveryRecheckSeconds` | `LEXARBOR_AUDIO_RECOVERY_RECHECK_SECONDS` | `86400`; 3600–604800, repeat checks after observed deletion |
 
-The [conditional upload API](../api/Audio.md#conditional-mp3-upload) enforces these upload and queue settings without changing existing global rate limits. Total multipart overhead is bounded to 64 KiB. Admission occurs before body reading; a full queue or timed-out wait returns 429 with Retry-After. Body reads and object transfers each have the operation timeout. Publication requires a valid five-minute database lease; network IO runs outside SQLite write transactions. Failed/cancelled transfers retain their known object location and immutable failure receipt for the separate recovery task. Use HTTPS for production endpoints. Credentials stay in the host and must never be copied into browser configuration or logs. Environment overrides retain the existing precedence, and `start.sh` forwards these values without rewriting the persisted configuration or changing `/app/data` ownership/permissions.
+The [conditional upload API](../api/Audio.md#conditional-mp3-upload) enforces these upload and queue settings without changing existing global rate limits. Total multipart overhead is bounded to 64 KiB. Admission occurs before body reading; a full queue or timed-out wait returns 429 with Retry-After. Body reads and object transfers each have the operation timeout. Publication requires a valid five-minute database lease; network IO runs outside SQLite write transactions. Failed/cancelled transfers retain their known object location and immutable failure receipt for the recovery worker. Use HTTPS for production endpoints. Credentials stay in the host and must never be copied into browser configuration or logs. Environment overrides retain the existing precedence, and `start.sh` forwards these values without rewriting the persisted configuration or changing `/app/data` ownership/permissions.
 
 Provision a separate **private** audio bucket and credentials limited to reading, writing and deleting known audio objects in that bucket/prefix. Do not use the image bucket, grant global bucket-list permissions, or reuse image-cleanup rules. The adapter rejects other buckets and keys: an accepted key consists of the configured prefix followed by a lowercase random UUID without separators and `.mp3`. SHA-256 belongs to the upload's independently computed content hash; an S3 ETag is not a SHA-256 hash. Changing buckets or key prefixes requires an explicit data migration; historical object locations are not silently rewritten.
 
 For example, `InternalEndpoint=http://seaweedfs:8333/` and `PublicEndpoint=https://audio.example.com/s3/` let the host upload on its internal network while clients use a public address. Signatures are generated for the public origin, then prefixed with `/s3/`; the reverse proxy **must preserve the signed Host (including a non-default port)** and strip exactly that prefix before forwarding to S3. Do not redirect signed requests or rewrite their query. An arbitrary proxy arrangement is not guaranteed; run the actual integration check. Avoid logging full signed query strings in proxies, telemetry or browser analytics. Signed links are credentials until expiry; disabling a book or removing a binding cannot revoke an already issued link immediately.
 
-Keep S3 objects and a consistent SQLite backup together. Published objects are retained even after replacing/removing bindings, so an older database backup can still reference them. Restarting or upgrading Lexarbor does not delete S3 objects or scan the bucket. The adapter offers deletion only for a known controlled location; the later recovery task must obtain database permission before deleting an object that has never been published. None of this changes normal automatic database upgrade or adds an old-program compatibility requirement.
+Keep S3 objects and a consistent SQLite backup together. Published objects are retained even after replacing/removing bindings, so an older database backup can still reference them. Restarting or upgrading Lexarbor does not scan or clear the bucket. The recovery worker deletes only database-authorized, known objects that have never been published and have no valid upload lease. None of this changes normal automatic database upgrade or adds an old-program compatibility requirement.
+
+
+### Failed-upload recovery
+
+When audio is enabled, a background worker starts after database initialization and
+runs one bounded batch immediately, then waits the configured interval after every
+batch, including failures. Audio disabled means no recovery database or S3 calls.
+Storage outage never stops the host or its existing health/business routes; logs
+contain only fixed messages and counts, without provider exceptions, keys, URLs or
+credentials. The worker shares the upload repository's conditional state transitions,
+not a process lock, so multiple hosts/workers cannot claim the same live cleanup lease.
+
+Expired Reserved/Transferring uploads receive the fixed immutable 503 receipt.
+Cleanup requires at least **24 hours since reservation**, no valid upload lease,
+no first-publication stamp, a due retry and a fresh database owner/fencing token.
+Only then does Remove followed by Stat run outside SQLite transactions, under one
+operation deadline per object. Cleanup ownership lasts longer than that deadline.
+Failures restore the previous state and persist exponential retry time capped by
+RecoveryMaxRetrySeconds. There is no immediate retry loop or finite retry-count
+cutoff that silently loses an object. Successful/absent objects become CleanupObserved
+and are checked again after RecoveryRecheckSeconds, permanently retaining the key
+and original receipt: a timed-out remote Put can appear after an earlier deletion.
+Shutdown cancels network waits; incomplete claims expire and are recovered after
+restart. A stale worker cannot publish or change another owner's cleanup result.
+
+Before restoring SQLite, pause Lexarbor and preserve both the database (including
+all audio assets and upload-operation recovery records) and the private S3 bucket.
+Restore a consistent database backup, keep its original bucket/prefix configuration,
+and restart the new service; pending operations resume from their persisted leases
+and retry times. Published objects remain readable from historical backups even
+if current bindings were replaced, logically removed, or removed by vocabulary SQL
+cleanup. Do not manually discard CleanupObserved records, change buckets/prefixes
+without migration, apply a general orphan-object purge, or configure a bucket lifecycle
+rule that removes published audio. Recovery cannot recreate files removed outside
+Lexarbor. No new permanent local directory, full-bucket scan, image-bucket access,
+or automatic historical published-object collection is introduced.

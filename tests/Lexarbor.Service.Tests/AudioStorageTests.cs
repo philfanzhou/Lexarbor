@@ -188,6 +188,18 @@ public sealed class AudioStorageTests
     [InlineData("MaxQueuedUploads", "9")]
     [InlineData("OperationTimeoutSeconds", "0")]
     [InlineData("OperationTimeoutSeconds", "121")]
+    [InlineData("RecoveryBatchSize", "0")]
+    [InlineData("RecoveryBatchSize", "101")]
+    [InlineData("RecoveryIntervalSeconds", "9")]
+    [InlineData("RecoveryIntervalSeconds", "3601")]
+    [InlineData("RecoveryLeaseSeconds", "30")]
+    [InlineData("RecoveryLeaseSeconds", "901")]
+    [InlineData("RecoveryRetrySeconds", "9")]
+    [InlineData("RecoveryRetrySeconds", "3601")]
+    [InlineData("RecoveryMaxRetrySeconds", "59")]
+    [InlineData("RecoveryMaxRetrySeconds", "86401")]
+    [InlineData("RecoveryRecheckSeconds", "3599")]
+    [InlineData("RecoveryRecheckSeconds", "604801")]
     public void ConfigurationBoundariesAreRejected(string property, string value)
     {
         var options = ValidOptions();

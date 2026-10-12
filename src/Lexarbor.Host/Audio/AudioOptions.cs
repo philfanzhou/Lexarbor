@@ -21,6 +21,13 @@ public sealed class AudioOptions
     public int MaxQueuedUploads { get; set; } = 8;
     public int OperationTimeoutSeconds { get; set; } = 60;
 
+    public int RecoveryBatchSize { get; set; } = 20;
+    public int RecoveryIntervalSeconds { get; set; } = 60;
+    public int RecoveryLeaseSeconds { get; set; } = 300;
+    public int RecoveryRetrySeconds { get; set; } = 60;
+    public int RecoveryMaxRetrySeconds { get; set; } = 3600;
+    public int RecoveryRecheckSeconds { get; set; } = 86400;
+
     public bool IsValid() => !Enabled ||
         (ValidEndpoint(InternalEndpoint, false) && ValidEndpoint(PublicEndpoint, true)
         && !string.IsNullOrWhiteSpace(AccessKey) && !string.IsNullOrWhiteSpace(SecretKey)
@@ -30,7 +37,12 @@ public sealed class AudioOptions
         && PlaybackTtlSeconds is >= 60 and <= 3600
         && MaxUploadBytes is >= 1 and <= 20 * 1024 * 1024
         && MaxConcurrentUploads is >= 1 and <= 8 && MaxQueuedUploads is >= 0 and <= 8
-        && OperationTimeoutSeconds is >= 1 and <= 120);
+        && OperationTimeoutSeconds is >= 1 and <= 120
+        && RecoveryBatchSize is >= 1 and <= 100 && RecoveryIntervalSeconds is >= 10 and <= 3600
+        && RecoveryLeaseSeconds is >= 30 and <= 900 && RecoveryLeaseSeconds > OperationTimeoutSeconds
+        && RecoveryRetrySeconds is >= 10 and <= 3600
+        && RecoveryMaxRetrySeconds >= RecoveryRetrySeconds && RecoveryMaxRetrySeconds <= 86400
+        && RecoveryRecheckSeconds is >= 3600 and <= 604800);
 
     private static bool ValidEndpoint(string value, bool allowPrefix) =>
         !value.Contains("..", StringComparison.Ordinal)
