@@ -170,6 +170,15 @@ builder.Services.AddSingleton(provider =>
     return new AudioPlaybackSettings(options.PlaybackTtlSeconds, options.OperationTimeoutSeconds);
 });
 builder.Services.AddScoped<AudioPlaybackService>();
+builder.Services.AddSingleton(provider =>
+{
+    var options = provider.GetRequiredService<IOptions<AudioOptions>>().Value;
+    return new AudioRecoverySettings(options.Enabled, options.Bucket, options.KeyPrefix, options.RecoveryBatchSize,
+        options.OperationTimeoutSeconds, options.RecoveryLeaseSeconds, options.RecoveryRetrySeconds,
+        options.RecoveryMaxRetrySeconds, options.RecoveryRecheckSeconds);
+});
+builder.Services.AddScoped<AudioRecoveryService>();
+builder.Services.AddHostedService<AudioRecoveryWorker>();
 builder.Services.AddScoped<IVocabularyPublicQueryRepository, VocabularyPublicQueryRepository>();
 builder.Services.AddScoped<VocabularyPublicQueryService>();
 builder.Services.AddScoped<IVocabularyCleanupRepository, VocabularyCleanupRepository>();
