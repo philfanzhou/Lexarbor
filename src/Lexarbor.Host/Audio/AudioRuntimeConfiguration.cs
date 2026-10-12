@@ -26,9 +26,11 @@ public sealed class AudioRuntimeConfiguration : IDisposable
     private readonly AudioRuntimeSnapshot _startup;
     private Generation _current;
     private long _sequence;
+    private long _lastEnabledGeneration;
     private bool _stopped;
     private int _activeReferences;
     private TaskCompletionSource? _destinationPending;
+    private TaskCompletionSource _changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly IAudioDestinationRecords? _records;
 
     public AudioRuntimeConfiguration(IOptions<AudioOptions> options, IAudioObjectStoreFactory factory, IAudioDestinationRecords? records = null)
@@ -38,6 +40,7 @@ public sealed class AudioRuntimeConfiguration : IDisposable
         var initial = options.Value.Copy();
         _startup = AudioRuntimeSnapshot.From(initial, 0);
         _current = CreateGeneration(initial);
+        _lastEnabledGeneration = initial.Enabled ? _current.Snapshot.Generation : 0;
     }
 
     public AudioOperationReference Acquire() => AcquireAsync(CancellationToken.None).GetAwaiter().GetResult();
@@ -55,6 +58,30 @@ public sealed class AudioRuntimeConfiguration : IDisposable
                 pending = _destinationPending.Task;
             }
             await pending.WaitAsync(cancellationToken);
+        }
+    }
+
+    // Observe and subscribe under the same short lock, so publication cannot be lost.
+    internal Task<AudioRuntimeSnapshot> WaitForChangeAsync(long generation, CancellationToken cancellationToken)
+        => WaitAsync(generation, false, cancellationToken);
+
+    // Remember enable transitions even if disable/re-enable coalesces before observation.
+    internal Task<AudioRuntimeSnapshot> WaitForEnableAsync(long generation, CancellationToken cancellationToken)
+        => WaitAsync(generation, true, cancellationToken);
+
+    private async Task<AudioRuntimeSnapshot> WaitAsync(long generation, bool enabledOnly, CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            Task changed;
+            lock (_gate)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                ObjectDisposedException.ThrowIf(_stopped, this);
+                if (enabledOnly ? _lastEnabledGeneration > generation : _current.Snapshot.Generation != generation) return _current.Snapshot;
+                changed = _changed.Task;
+            }
+            await changed.WaitAsync(cancellationToken);
         }
     }
 
@@ -186,6 +213,7 @@ public sealed class AudioRuntimeConfiguration : IDisposable
     private void Publish(Generation candidate, TaskCompletionSource? reservation = null)
     {
         Generation? disposable = null;
+        TaskCompletionSource? changed = null;
         lock (_gate)
         {
             if (_stopped) disposable = candidate;
@@ -193,10 +221,14 @@ public sealed class AudioRuntimeConfiguration : IDisposable
             {
                 var previous = _current;
                 _current = candidate;
+                if (!previous.Snapshot.Enabled && candidate.Snapshot.Enabled) _lastEnabledGeneration = candidate.Snapshot.Generation;
+                changed = _changed;
+                _changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
                 previous.Retired = true;
                 if (previous.References == 0) disposable = previous;
             }
         }
+        changed?.TrySetResult();
         EndDestinationChange(reservation);
         // Disposal never holds the short lock or breaks post-commit publication.
         if (disposable is not null) DisposeStore(disposable);
@@ -224,6 +256,7 @@ public sealed class AudioRuntimeConfiguration : IDisposable
             _current.Retired = true;
             if (_current.References == 0) disposable = _current;
         }
+        _changed.TrySetResult();
         _destinationPending?.TrySetResult();
         if (disposable is not null) DisposeStore(disposable);
     }

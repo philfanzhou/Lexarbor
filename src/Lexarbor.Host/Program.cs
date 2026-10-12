@@ -162,14 +162,6 @@ builder.Services.AddScoped<AudioUnbindService>();
 builder.Services.AddScoped<IAudioAdminOperationFactory, AudioAdminOperationFactory>();
 builder.Services.AddScoped<IAudioPublicReadRepository, AudioReadRepository>();
 builder.Services.AddScoped<IAudioPlaybackOperationFactory, AudioPlaybackOperationFactory>();
-builder.Services.AddSingleton(provider =>
-{
-    var options = provider.GetRequiredService<IOptions<AudioOptions>>().Value;
-    return new AudioRecoverySettings(options.Enabled, options.Bucket, options.KeyPrefix, options.RecoveryBatchSize,
-        options.OperationTimeoutSeconds, options.RecoveryLeaseSeconds, options.RecoveryRetrySeconds,
-        options.RecoveryMaxRetrySeconds, options.RecoveryRecheckSeconds);
-});
-builder.Services.AddScoped<AudioRecoveryService>();
 builder.Services.AddHostedService<AudioRecoveryWorker>();
 builder.Services.AddScoped<IVocabularyPublicQueryRepository, VocabularyPublicQueryRepository>();
 builder.Services.AddScoped<VocabularyPublicQueryService>();

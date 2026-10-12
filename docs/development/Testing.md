@@ -436,3 +436,18 @@ method is called. Invalid candidates, client construction and write/replace
 failures preserve enabled state, bindings and history. Query/unbind endpoint
 regressions cover identity, CSRF, no-store/security headers, strong If-Match,
 404/409/400 outcomes, immutable receipts and upload publication races.
+
+
+`AudioRecoveryWorkerTests` uses controlled interval timers and Delete/Stat barriers
+to exercise disabled startup, enable/disable/re-enable (including coalesced
+notifications), repeated enable notifications, bounded sequential batches, and
+host cancellation while waiting. Rotation/disablement preserves every old-batch
+Delete/Stat and releases its client only after completion. Uncooperative Delete
+and Stat tests cover both timeout and shutdown, with safe persistent retry codes
+and delayed disposal. Invalid and discarded candidates leave the disabled worker
+unchanged; existing coordinator write/replace failure tests remain applicable.
+`AudioRecoveryTests` retains the SQLite lease/fence, backoff, batch bound, published
+history preservation and concurrent writer regressions. The private S3 script
+also starts disabled, cleans a paused two-object old-client batch across credential
+rotation/disablement, then re-enables using a second synthetic identity to clean
+the remaining object. Actual Stat confirms deletion in the private bucket.

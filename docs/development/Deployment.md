@@ -1222,10 +1222,16 @@ do not call S3, delete objects, or remove historical asset/upload records; unbin
 does not release the destination guard. Failed configuration preparation or file
 commit preserves the enabled state and all bindings.
 
-Recovery integration remains staged, and no S3
-settings save API is exposed yet. All remaining audio paths must use the manager
-before administrator S3 saves are enabled. Remote credentials being revoked can
-still make an older operation fail.
+Recovery now also uses the runtime manager. An initially disabled worker waits
+for internal enablement instead of exiting. Each bounded batch acquires one
+configuration/client reference; disablement prevents subsequent batches and
+re-enablement wakes recovery. A batch already started uses its old generation
+through every Delete and Stat. Non-cooperative provider calls retain the old
+client even after batch timeout or host cancellation, until actual IO ends.
+Enabled credential rotations do not skip the configured batch interval; retry,
+lease/fence and never-published-only cleanup semantics remain unchanged. No S3
+settings save API is exposed yet. Keep old remote credentials valid until all
+old operations end; revocation can still make an older operation fail.
 
 Provision a separate **private** audio bucket and credentials limited to reading, writing and deleting known audio objects in that bucket/prefix. Do not use the image bucket, grant global bucket-list permissions, or reuse image-cleanup rules. The adapter rejects other buckets and keys: an accepted key consists of the configured prefix followed by a lowercase random UUID without separators and `.mp3`. SHA-256 belongs to the upload's independently computed content hash; an S3 ETag is not a SHA-256 hash. Changing buckets or key prefixes requires an explicit data migration; historical object locations are not silently rewritten.
 
