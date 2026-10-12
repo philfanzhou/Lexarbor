@@ -349,3 +349,23 @@ idempotency key. No lease guarantees a distributed SQLite/S3 transaction, immedi
 object reclamation, or protection against direct administrative object deletion.
 This boundary performs no network calls and does not change vocabulary editing,
 batch-import, authentication, HTTP routes, or automatic startup migration policy.
+
+
+## Failed-upload recovery execution
+
+`AudioRecoveryService` and the host's `AudioRecoveryWorker` execute the existing
+conditional transitions above. There is no extra schema migration or alternate
+state machine. The worker uses a fresh scoped SQLite context for each bounded batch;
+Remove/Stat run only after a successful database cleanup claim, outside write
+transactions. Configuration defaults, retry intervals and restoration steps are in
+[deployment recovery](../development/Deployment.md#failed-upload-recovery).
+
+Never prune `audio_asset` or `audio_upload_operation` merely because no current
+binding references them. First-publication stamps permanently prevent automatic
+physical deletion, preserving objects referenced by historical SQLite backups.
+CleanupObserved retains the original immutable failure receipt and object location
+and schedules another check even after a successful Remove, covering late remote
+writes. A restart expires abandoned upload/cleanup leases conditionally and resumes
+persisted retries; it does not rebind an old request, scan S3, clear a bucket or delete
+published objects. Preserve these tables and the private bucket together when
+backing up or restoring the database.
