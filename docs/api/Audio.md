@@ -4,6 +4,13 @@ Audio queries use the existing administrator policy: an administrator Bearer tok
 
 The administrator API provides metadata, conditional MP3 uploads, conditional logical deletion and short-lived playback links. It does not generate audio or claim generation jobs. Metadata queries do not inspect S3. Audio is disabled by default; missing `Audio` configuration is supported. Every successful metadata query includes `enabled`, reflecting `Audio:Enabled`. Metadata remains readable when disabled, but callers must not start audio work when `enabled` is `false`. See [deployment configuration](../development/Deployment.md#optional-audio-object-storage).
 
+The staged online-settings implementation currently adds an internal Host
+configuration-generation and operation-reference foundation only. It exposes no
+new S3 settings endpoint and does not yet change the configuration timing of these
+HTTP routes. A caller using that internal foundation must hold one reference for
+its entire awaited operation and release it in `finally`/`Dispose`; publishing a
+new generation never disposes a client that still has active references.
+
 ## Generation targets
 
 `GET /admin/audio-targets?bookId=...&locale=en-GB&status=missing&page=1&size=20`

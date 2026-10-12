@@ -1170,6 +1170,24 @@ When `Audio:Enabled=true`, invalid local settings fail startup with a fixed Engl
 
 The [conditional upload API](../api/Audio.md#conditional-mp3-upload) enforces these upload and queue settings without changing existing global rate limits. Total multipart overhead is bounded to 64 KiB. Admission occurs before body reading; a full queue or timed-out wait returns 429 with Retry-After. Body reads and object transfers each have the operation timeout. Publication requires a valid five-minute database lease; network IO runs outside SQLite write transactions. Failed/cancelled transfers retain their known object location and immutable failure receipt for the recovery worker. Use HTTPS for production endpoints. Credentials stay in the host and must never be copied into browser configuration or logs. Environment overrides retain the existing precedence, and `start.sh` forwards these values without rewriting the persisted configuration or changing `/app/data` ownership/permissions.
 
+The Host also provides an internal runtime-generation manager for the staged online
+settings implementation. It prepares a full locally validated configuration and
+clients without probing S3, then publishes only after the shared configuration
+coordinator commits the file. An operation reference holds one credential-free
+snapshot and its matching object store; retired clients are released after the
+last reference ends, including on host shutdown. Credentials remain inside the
+Host and disabled candidates retain them for later enablement. Advanced upload,
+queue, timeout and recovery parameters remain restart-only; upload admission
+continues to be one host-wide instance. Construction, file IO and client disposal
+run outside the short reference/publication lock. A failed or cancelled
+pre-commit candidate leaves the previous generation intact; cancellation after
+file commit cannot prevent publication. Already issued URLs are not revoked.
+
+This internal foundation does not yet change audio HTTP entry points or the
+recovery worker and adds no S3 settings save API. The remaining audio integration
+and destination-change guard must be completed before administrator S3 saves are
+enabled. Remote credentials being revoked can still make an older operation fail.
+
 Provision a separate **private** audio bucket and credentials limited to reading, writing and deleting known audio objects in that bucket/prefix. Do not use the image bucket, grant global bucket-list permissions, or reuse image-cleanup rules. The adapter rejects other buckets and keys: an accepted key consists of the configured prefix followed by a lowercase random UUID without separators and `.mp3`. SHA-256 belongs to the upload's independently computed content hash; an S3 ETag is not a SHA-256 hash. Changing buckets or key prefixes requires an explicit data migration; historical object locations are not silently rewritten.
 
 For example, `InternalEndpoint=http://seaweedfs:8333/` and `PublicEndpoint=https://audio.example.com/s3/` let the host upload on its internal network while clients use a public address. Signatures are generated for the public origin, then prefixed with `/s3/`; the reverse proxy **must preserve the signed Host (including a non-default port)** and strip exactly that prefix before forwarding to S3. Do not redirect signed requests or rewrite their query. An arbitrary proxy arrangement is not guaranteed; run the actual integration check. Avoid logging full signed query strings in proxies, telemetry or browser analytics. Signed links are credentials until expiry; disabling a book or removing a binding cannot revoke an already issued link immediately.

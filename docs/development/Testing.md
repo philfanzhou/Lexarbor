@@ -377,3 +377,18 @@ rate-limit or S3 administration endpoints; those modules require their own tests
 `SystemSettingsTests` verifies authenticated GET/PUT, cookie CSRF and Bearer precedence, no-store/security headers, strict switch payloads, If-Match errors, concurrent-save conflicts, read-only-file failure, deployment override sources, invalid disabled numbers, and file/restart persistence. Real Host requests exercise disabled → enabled → 429 → disabled → enabled without resetting the original per-address bucket, using custom initially disabled quotas, unknown routes, browse, question batch, audio playback, and equivalent login paths. Existing audio upload tests continue to verify the separate concurrency admission guard. Coordinator tests cover cancellation before commit and noncancelable publication after commit.
 
 `frontend/e2e/settings.spec.ts` covers actual/custom values, separate drafts, CSRF/If-Match and one submission, 400/413/503 failures, stale revisions, unknown/malformed reads and retry, source overrides, lost save responses and failed read-back, page/sign-out cancellation with late responses, exact login return, permission navigation, keyboard and narrow-screen behavior. Run `npm run test:e2e -- settings.spec.ts` for this slice and the full browser suite before merge.
+
+## Internal audio runtime generations
+
+`AudioRuntimeConfigurationTests` exercises disabled → enabled → disabled →
+re-enabled internal file commits, complete immutable snapshots without credentials,
+retained credentials and fixed advanced settings. Barrier-controlled old storage
+operations survive rotation until their actual last reference ends. Concurrent
+acquisition/rotation, repeated disposal, cancellation, timeout, host shutdown,
+construction failure and write/replace failures verify ownership and release.
+Cancellation before commit preserves the old file/generation; cancellation after
+commit still publishes. Synthetic secret markers check safe failures and snapshot
+serialization. Lock probes verify construction/disposal can acquire references
+from another thread, and failed disposal cannot break committed publication.
+Existing storage/endpoint/recovery regressions remain applicable; this slice does
+not add online S3 HTTP saves or switch existing entry points.
