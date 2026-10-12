@@ -42,6 +42,6 @@ public sealed class AudioRecoveryWorkerTests
         Assert.Equal(1, count); Assert.False(worker.ExecuteTask!.IsCompleted);
         await worker.StopAsync(TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
         Assert.Equal(1, count);
-        Assert.All(logger.Invocations, call => { Assert.Null(call.Arguments[3]); Assert.DoesNotContain("synthetic-secret-url-marker", call.Arguments[2].ToString()); });
+        Assert.All(logger.Invocations, call => { Assert.Null(call.Arguments[3]); Assert.DoesNotContain("synthetic-secret-url-marker", call.Arguments[2]?.ToString() ?? ""); });
     }
 }
