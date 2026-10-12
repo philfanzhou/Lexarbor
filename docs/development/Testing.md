@@ -424,3 +424,15 @@ and health requests still available. Existing playback endpoint tests cover book
 visibility, membership, meaning fallback, missing/stale DTOs, authentication,
 no-store, TTL, safe errors and rate-limit policies. These internal tests do not
 expose an S3 settings save API.
+
+`AudioAdminRuntimeTests` covers both metadata routes and conditional unbinding
+from initial disablement through internal enablement, closure and reopening.
+Database barriers pause each route during rotation: the old request uses one
+generation, new metadata reports disabled, and new deletes return 503. Successful,
+failed and cancelled requests release retired clients; destination reservations
+wait asynchronously and cancelled waiters do not acquire references. Existing
+history survives deletion and still rejects destination changes; no object-store
+method is called. Invalid candidates, client construction and write/replace
+failures preserve enabled state, bindings and history. Query/unbind endpoint
+regressions cover identity, CSRF, no-store/security headers, strong If-Match,
+404/409/400 outcomes, immutable receipts and upload publication races.

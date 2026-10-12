@@ -1214,7 +1214,15 @@ keeps its client until its actual call ends. Retain old remote credentials until
 old operations finish; issued URLs remain valid only as allowed by S3 and their
 expiry, and are not immediately revoked by disabling audio.
 
-Metadata/unbinding and recovery integration remain staged, and no S3
+Metadata queries and conditional unbinding now acquire one runtime reference per
+request, held through their database work. Queries remain readable while disabled
+and report their captured enabled state. Closing audio rejects new unbind requests
+with 503 while already started deletes retain their original decision. These paths
+do not call S3, delete objects, or remove historical asset/upload records; unbinding
+does not release the destination guard. Failed configuration preparation or file
+commit preserves the enabled state and all bindings.
+
+Recovery integration remains staged, and no S3
 settings save API is exposed yet. All remaining audio paths must use the manager
 before administrator S3 saves are enabled. Remote credentials being revoked can
 still make an older operation fail.

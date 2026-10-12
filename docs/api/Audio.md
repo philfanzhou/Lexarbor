@@ -2,7 +2,7 @@
 
 Audio queries use the existing administrator policy: an administrator Bearer token for external programs, or the hosted-login session cookie for the administration UI. A supplied Bearer header takes precedence over a cookie. These GET requests do not require a CSRF header. Keep administrator credentials out of browser application code. Existing security headers, roles and rate-limit policies are unchanged.
 
-The administrator API provides metadata, conditional MP3 uploads, conditional logical deletion and short-lived playback links. It does not generate audio or claim generation jobs. Metadata queries do not inspect S3. Audio is disabled by default; missing `Audio` configuration is supported. Every successful metadata query includes `enabled`, reflecting `Audio:Enabled`. Metadata remains readable when disabled, but callers must not start audio work when `enabled` is `false`. See [deployment configuration](../development/Deployment.md#optional-audio-object-storage).
+The administrator API provides metadata, conditional MP3 uploads, conditional logical deletion and short-lived playback links. It does not generate audio or claim generation jobs. Metadata queries do not inspect S3. Audio is disabled by default; missing `Audio` configuration is supported. Every successful metadata query includes `enabled`, reflecting the runtime configuration acquired once at request start. Metadata remains readable when disabled, but callers must not start audio work when `enabled` is `false`. See [deployment configuration](../development/Deployment.md#optional-audio-object-storage).
 
 Conditional uploads use the internal Host runtime configuration manager. One
 operation reference covers multipart parsing limits, domain reservation parameters
@@ -17,8 +17,8 @@ The internal destination guard rejects changes to InternalEndpoint/Bucket/KeyPre
 when any asset/upload record or active operation exists, including unbound history
 and cleanup state. It serializes first operation acquisition with destination
 commit, without holding the state lock during S3 or database IO. This adds no new
-S3 settings endpoint. Playback, metadata/unbinding and recovery configuration timing
-remain staged until their respective integrations are complete.
+S3 settings endpoint. Recovery configuration timing remains staged until its
+integration is complete.
 
 ## Generation targets
 
@@ -121,6 +121,13 @@ Storage disabled, storage failure and upload timeout return safe 503 messages; i
 Use the same administrator authorization, Cookie CSRF and Bearer precedence as uploads. Locale must be exactly `en-GB` or `en-US`. Omit `meaningId` for the default binding; supply an owned meaning ID to remove an override. Disabled books and words without a book are allowed.
 
 Send exactly one strong, quoted entity tag in `If-Match`, containing the current **own binding** asset's canonical lowercase UUID, for example `If-Match: "12345678-1234-1234-1234-123456789abc"`. Read `ownBinding` from metadata first. Do not use the default `effectiveBinding` to delete a meaning with no override. Bare UUIDs, weak tags, wildcards, lists and multiple header values return 400. Missing or invalid conditions, unsupported locale and blank meaning IDs also return 400.
+
+Logical deletion acquires one runtime reference before validation and keeps it
+through the conditional database operation. Internal enablement permits new
+deletes even after disabled startup; closing audio rejects new deletes with 503,
+while a delete already started keeps its original enabled decision. Metadata
+remains readable while disabled; a query spanning a configuration change reports
+its own captured `enabled`. Neither path calls S3 or removes asset/upload history.
 
 Success is `{ "success": true, "data": { "removed": true } }`. Only the selected binding is removed. Deleting a meaning override restores same-accent default selection; deleting a default leaves existing overrides and the other accent untouched. A missing target, wrong meaning ownership or absent own binding returns 404 (including a repeated delete); a different current own asset returns 409. On 409, reread metadata before deciding whether to delete the newer binding.
 
