@@ -163,6 +163,7 @@ builder.Services.AddSingleton(provider =>
         options.Enabled ? options.MaxQueuedUploads : 8, TimeSpan.FromSeconds(options.Enabled ? options.OperationTimeoutSeconds : 60));
 });
 builder.Services.AddScoped<AudioUploadService>();
+builder.Services.AddScoped<AudioUnbindService>();
 builder.Services.AddScoped<IVocabularyPublicQueryRepository, VocabularyPublicQueryRepository>();
 builder.Services.AddScoped<VocabularyPublicQueryService>();
 builder.Services.AddScoped<IVocabularyCleanupRepository, VocabularyCleanupRepository>();
@@ -794,6 +795,7 @@ adminSurface.MapVocabularyMeaningPositionEndpoints();
 adminSurface.MapVocabularyAdminQueryEndpoints();
 adminSurface.MapAudioAdminQueryEndpoints(app.Services.GetRequiredService<IOptions<AudioOptions>>().Value.Enabled);
 adminSurface.MapAudioUploadEndpoints();
+adminSurface.MapAudioUnbindEndpoints(app.Services.GetRequiredService<IOptions<AudioOptions>>().Value.Enabled);
 adminSurface.MapVocabularyCleanupEndpoints();
 app.MapVocabularyHttpEndpoints(
     rateLimitOptions.PublicApi.Enabled ? RateLimitingExtensions.PublicApiPolicy : null,
