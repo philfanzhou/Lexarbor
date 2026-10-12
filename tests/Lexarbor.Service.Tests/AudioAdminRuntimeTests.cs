@@ -51,7 +51,8 @@ public sealed class AudioAdminRuntimeTests
     [InlineData(2)]
     public async Task RotationDuringDatabaseWork_RequestKeepsOneGenerationAndHistory(int route)
     {
-        await using var host = new Host(); await host.Seed();
+        await using var host = new Host(holdRecoveryBatch: true); await host.Seed();
+        await host.RecoveryEntered.Task.WaitAsync(TimeSpan.FromSeconds(5), Ct);
         var history = await host.History(); var old = host.Stores.Created.Single();
         var entered = Signal(); var finish = Signal(); var calls = 0;
         host.Barrier.Before = async token => { if (Interlocked.Increment(ref calls) == 1) { entered.SetResult(); await finish.Task.WaitAsync(token); } };
@@ -70,7 +71,10 @@ public sealed class AudioAdminRuntimeTests
             if (route == 2) Assert.Equal(HttpStatusCode.OK, response.StatusCode);
             else await Metadata(response, true);
         }
-        Assert.Equal(4, host.Acquisitions); Assert.Equal(1, old.Disposed);
+        Assert.Equal(4, host.Acquisitions); Assert.Equal(0, old.Disposed);
+        host.RecoveryFinish.SetResult();
+        await old.DisposedSignal.Task.WaitAsync(TimeSpan.FromSeconds(5), Ct);
+        Assert.Equal(1, old.Disposed);
         Assert.Equal(route == 2 ? null : host.Asset, await host.Binding());
         Assert.Equal(history, await host.History());
         await Assert.ThrowsAsync<ConfigurationChangeConflictException>(() => host.Change(o => o.KeyPrefix = "next/"));
@@ -86,7 +90,8 @@ public sealed class AudioAdminRuntimeTests
     [InlineData(2, true)]
     public async Task CancelOrDomainFailure_ReleasesReferenceAndPreservesBinding(int route, bool failure)
     {
-        await using var host = new Host(); await host.Seed();
+        await using var host = new Host(holdRecoveryBatch: true); await host.Seed();
+        await host.RecoveryEntered.Task.WaitAsync(TimeSpan.FromSeconds(5), Ct);
         var old = host.Stores.Created.Single(); var entered = Signal(); var finish = Signal();
         host.Barrier.Before = async token =>
         {
@@ -99,7 +104,10 @@ public sealed class AudioAdminRuntimeTests
         Assert.Equal(0, old.Disposed);
         if (failure) { finish.SetResult(); using var failed = await pending; Assert.Equal(HttpStatusCode.BadRequest, failed.StatusCode); }
         else { cancellation.Cancel(); await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending); }
-        await Eventually(() => old.Disposed == 1);
+        Assert.Equal(0, old.Disposed);
+        host.RecoveryFinish.SetResult();
+        await old.DisposedSignal.Task.WaitAsync(TimeSpan.FromSeconds(5), Ct);
+        Assert.Equal(1, old.Disposed);
         host.Barrier.Before = _ => Task.CompletedTask;
         using var next = await host.Client.GetAsync(Queries[0], Ct); await Metadata(next, false);
         Assert.Equal(host.Asset, await host.Binding());
@@ -113,7 +121,7 @@ public sealed class AudioAdminRuntimeTests
     [InlineData(2)]
     public async Task DestinationReservation_WaitersCancelWithoutLeakingOrUsingStartupValue(int route)
     {
-        await using var host = new Host(enabled: false, fakeRecords: true);
+        await using var host = new Host(enabled: false, fakeRecords: true, holdRecoveryBatch: true);
         var entered = Signal(); var finish = Signal();
         host.Records.Check = async token => { entered.SetResult(); await finish.Task.WaitAsync(token); return false; };
         var options = host.Runtime.CopyCurrentOptions(); options.Bucket = "next-bucket"; options.Enabled = true;
@@ -122,12 +130,19 @@ public sealed class AudioAdminRuntimeTests
         var cancelled = route == 2 ? host.Delete(cancellation.Token) : host.Client.GetAsync(Queries[route], cancellation.Token);
         var waiting = route == 2 ? host.Delete() : host.Client.GetAsync(Queries[route], Ct);
         Assert.False(waiting.IsCompleted); cancellation.Cancel(); await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelled);
+        Assert.Equal(0, host.Acquisitions);
         using var health = await host.Client.GetAsync("/health", Ct); Assert.Equal(HttpStatusCode.OK, health.StatusCode);
         await host.Seed(); finish.SetResult(); using var prepared = await preparing; Assert.NotNull(prepared); prepared.Publish();
+        await host.RecoveryEntered.Task.WaitAsync(TimeSpan.FromSeconds(5), Ct);
+        var enabledStore = host.Stores.Created.Last();
         using var response = await waiting;
         if (route == 2) Assert.Equal(HttpStatusCode.OK, response.StatusCode); else await Metadata(response, true);
         Assert.Equal(1, host.Acquisitions); Assert.Equal(1, host.Stores.Created.First().Disposed);
         await host.Change(o => o.Enabled = false);
+        // The real hosted worker still holds this generation until its repository task completes.
+        Assert.Equal(0, enabledStore.Disposed);
+        host.RecoveryFinish.SetResult();
+        await enabledStore.DisposedSignal.Task.WaitAsync(TimeSpan.FromSeconds(5), Ct);
         foreach (var store in host.Stores.Created.Take(host.Stores.Created.Count - 1)) Assert.Equal(1, store.Disposed);
     }
 
@@ -169,11 +184,6 @@ public sealed class AudioAdminRuntimeTests
         using var json = JsonDocument.Parse(text); var data = json.RootElement.GetProperty("data");
         Assert.Equal(enabled, data.GetProperty("enabled").GetBoolean()); Assert.Equal(2, data.GetProperty("items").GetArrayLength());
     }
-    private static async Task Eventually(Func<bool> predicate)
-    {
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(Ct); timeout.CancelAfter(TimeSpan.FromSeconds(5));
-        while (!predicate()) await Task.Delay(10, timeout.Token);
-    }
     private static IConfigurationRoot Config(AudioOptions options) => new ConfigurationBuilder().AddJsonStream(new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(new { Audio = options }))).Build();
     private sealed class FailingFiles(string root, string failure) : PersistentConfigurationFileStore(root)
     {
@@ -190,10 +200,11 @@ public sealed class AudioAdminRuntimeTests
     {
         internal T Inner = null!;
         private Barrier _barrier = null!;
-        internal static T Wrap(T inner, Barrier barrier)
+        private Barrier _recoveryBarrier = null!;
+        internal static T Wrap(T inner, Barrier barrier, Barrier recoveryBarrier)
         {
             var proxy = Create<T, RepositoryProxy<T>>(); var state = (RepositoryProxy<T>)(object)proxy;
-            state.Inner = inner; state._barrier = barrier; return proxy;
+            state.Inner = inner; state._barrier = barrier; state._recoveryBarrier = recoveryBarrier; return proxy;
         }
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
@@ -203,11 +214,12 @@ public sealed class AudioAdminRuntimeTests
                 nameof(IAudioReadRepository.SearchTargetsAsync) => Pause<AudioTargetPage>(method, parameters),
                 nameof(IAudioReadRepository.GetSnapshotAsync) => Pause<AudioReadSnapshot>(method, parameters),
                 nameof(IAudioUploadRepository.UnbindAsync) => Pause<AudioUnbindDisposition>(method, parameters),
+                nameof(IAudioUploadRepository.FindRecoverableAsync) => Pause<IReadOnlyList<AudioStoredUpload>>(method, parameters, _recoveryBarrier),
                 _ => method.Invoke(Inner, parameters)
             };
         }
-        private async Task<TResult> Pause<TResult>(MethodInfo method, object?[] args)
-        { await _barrier.Before((CancellationToken)args[^1]!); return await (Task<TResult>)method.Invoke(Inner, args)!; }
+        private async Task<TResult> Pause<TResult>(MethodInfo method, object?[] args, Barrier? barrier = null)
+        { await (barrier ?? _barrier).Before((CancellationToken)args[^1]!); return await (Task<TResult>)method.Invoke(Inner, args)!; }
     }
     private sealed class Stores : IAudioObjectStoreFactory
     {
@@ -217,12 +229,13 @@ public sealed class AudioAdminRuntimeTests
     private sealed class Store(AudioOptions options) : IAudioObjectStore, IDisposable
     {
         public AudioOptions Options { get; } = options; public int Disposed; public int Calls;
+        public readonly TaskCompletionSource DisposedSignal = Signal();
         private Task<T> Unexpected<T>() { Interlocked.Increment(ref Calls); throw new InvalidOperationException("Metadata/unbind must not call S3."); }
         public Task PutAsync(AudioObjectLocation location, Stream input, long length, string type, CancellationToken token) => Unexpected<bool>();
         public Task RemoveAsync(AudioObjectLocation location, CancellationToken token) => Unexpected<bool>();
         public Task<AudioObjectInfo?> StatAsync(AudioObjectLocation location, CancellationToken token) => Unexpected<AudioObjectInfo?>();
         public Task<AudioPlaybackLink> GetPlaybackLinkAsync(AudioObjectLocation location, TimeSpan validity, CancellationToken token) => Unexpected<AudioPlaybackLink>();
-        public void Dispose() => Interlocked.Increment(ref Disposed);
+        public void Dispose() { Interlocked.Increment(ref Disposed); DisposedSignal.TrySetResult(); }
     }
     private sealed class CountedOperations(AudioRuntimeConfiguration runtime, Action acquired) : IAudioAdminOperationFactory
     {
@@ -231,11 +244,14 @@ public sealed class AudioAdminRuntimeTests
     private sealed class Host : IAsyncDisposable
     {
         public readonly Stores Stores = new(); public readonly Records Records = new(); public readonly Barrier Barrier = new();
+        public readonly TaskCompletionSource RecoveryEntered = Signal(); public readonly TaskCompletionSource RecoveryFinish = Signal();
+        private readonly Barrier _recoveryBarrier = new();
         public readonly VocabularyWebApplicationFactory Factory; public readonly WebApplicationFactory<Program> App; public readonly HttpClient Client;
         public readonly string Asset = Guid.NewGuid().ToString(); public int Acquisitions;
         public AudioRuntimeConfiguration Runtime => App.Services.GetRequiredService<AudioRuntimeConfiguration>();
-        public Host(bool enabled = true, bool fakeRecords = false)
+        public Host(bool enabled = true, bool fakeRecords = false, bool holdRecoveryBatch = false)
         {
+            if (holdRecoveryBatch) _recoveryBarrier.Before = async token => { RecoveryEntered.TrySetResult(); await RecoveryFinish.Task.WaitAsync(token); };
             Factory = new("Testing", true, extraConfiguration: new Dictionary<string, string?>
             {
                 ["Audio:Enabled"] = enabled.ToString(),
@@ -248,8 +264,8 @@ public sealed class AudioAdminRuntimeTests
             {
                 services.RemoveAll<IAudioObjectStoreFactory>(); services.AddSingleton<IAudioObjectStoreFactory>(Stores);
                 if (fakeRecords) { services.RemoveAll<IAudioDestinationRecords>(); services.AddSingleton<IAudioDestinationRecords>(Records); }
-                services.RemoveAll<IAudioReadRepository>(); services.AddScoped<IAudioReadRepository>(sp => RepositoryProxy<IAudioReadRepository>.Wrap(new AudioReadRepository(sp.GetRequiredService<VocabularyDbContext>()), Barrier));
-                services.RemoveAll<IAudioUploadRepository>(); services.AddScoped<IAudioUploadRepository>(sp => RepositoryProxy<IAudioUploadRepository>.Wrap(new AudioUploadRepository(sp.GetRequiredService<VocabularyDbContext>(), sp.GetRequiredService<TimeProvider>()), Barrier));
+                services.RemoveAll<IAudioReadRepository>(); services.AddScoped<IAudioReadRepository>(sp => RepositoryProxy<IAudioReadRepository>.Wrap(new AudioReadRepository(sp.GetRequiredService<VocabularyDbContext>()), Barrier, _recoveryBarrier));
+                services.RemoveAll<IAudioUploadRepository>(); services.AddScoped<IAudioUploadRepository>(sp => RepositoryProxy<IAudioUploadRepository>.Wrap(new AudioUploadRepository(sp.GetRequiredService<VocabularyDbContext>(), sp.GetRequiredService<TimeProvider>()), Barrier, _recoveryBarrier));
                 services.RemoveAll<IAudioAdminOperationFactory>(); services.AddScoped<IAudioAdminOperationFactory>(sp => new CountedOperations(sp.GetRequiredService<AudioRuntimeConfiguration>(), () => Interlocked.Increment(ref Acquisitions)));
             }));
             Client = App.CreateClient(new() { BaseAddress = new("https://localhost") }); Client.DefaultRequestHeaders.Authorization = new("Bearer", Factory.CreateToken("admin"));
@@ -272,6 +288,6 @@ public sealed class AudioAdminRuntimeTests
             using var scope = App.Services.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
             return JsonSerializer.Serialize(new { assets = await db.AudioAssets.AsNoTracking().ToListAsync(Ct), operations = await db.AudioUploadOperations.AsNoTracking().ToListAsync(Ct) });
         }
-        public async ValueTask DisposeAsync() { Client.Dispose(); await App.DisposeAsync(); await Factory.DisposeAsync(); }
+        public async ValueTask DisposeAsync() { RecoveryFinish.TrySetResult(); Client.Dispose(); await App.DisposeAsync(); await Factory.DisposeAsync(); }
     }
 }
