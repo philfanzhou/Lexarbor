@@ -180,6 +180,66 @@ public sealed class AudioUploadEndpointTests
     }
 
     [Theory]
+    [InlineData("trailing-lf")]
+    [InlineData("trailing-crlf")]
+    [InlineData("trailing-cr")]
+    [InlineData("leading-lf")]
+    [InlineData("trailing-space")]
+    [InlineData("leading-space")]
+    [InlineData("uppercase")]
+    [InlineData("short")]
+    [InlineData("long")]
+    [InlineData("non-hex")]
+    public async Task InvalidSourceRevision_Returns400WithoutReserveOrPut(string kind)
+    {
+        await using var host = new Host(); await host.SeedAsync();
+        var revision = await host.Revision();
+        var invalid = kind switch
+        {
+            "trailing-lf" => revision + "\n",
+            "trailing-crlf" => revision + "\r\n",
+            "trailing-cr" => revision + "\r",
+            "leading-lf" => "\n" + revision,
+            "trailing-space" => revision + " ",
+            "leading-space" => " " + revision,
+            "uppercase" => new string('A', 64),
+            "short" => revision[..^1],
+            "long" => revision + "a",
+            "non-hex" => "g" + revision[1..],
+            _ => throw new ArgumentOutOfRangeException(nameof(kind))
+        };
+        using var response = await Put(host, invalid);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct));
+        Assert.False(json.RootElement.GetProperty("success").GetBoolean());
+        Assert.Equal("Audio upload conditions are required and must be valid.", json.RootElement.GetProperty("message").GetString());
+        Assert.Equal(0, host.Store.Calls);
+        using var scope = host.App.Services.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+        Assert.Empty(await db.AudioUploadOperations.ToListAsync(Ct));
+        Assert.Empty(await db.AudioAssets.ToListAsync(Ct));
+        Assert.Empty(await db.VocabularyAudioBindings.ToListAsync(Ct));
+    }
+
+    [Fact]
+    public async Task ValidSourceRevision_PreservesVersionConflictAndSuccess()
+    {
+        await using var host = new Host(); await host.SeedAsync();
+        var revision = await host.Revision();
+        using var mismatch = await Put(host, new string(revision[0] == 'a' ? 'b' : 'a', 64));
+        Assert.Equal(HttpStatusCode.Conflict, mismatch.StatusCode);
+        Assert.Equal(0, host.Store.Calls);
+        using (var scope = host.App.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+            Assert.Empty(await db.AudioUploadOperations.ToListAsync(Ct));
+            Assert.Empty(await db.AudioAssets.ToListAsync(Ct));
+        }
+        using var valid = await Put(host, revision);
+        await Asset(valid);
+        Assert.Equal(1, host.Store.Calls);
+    }
+
+    [Theory]
     [InlineData("anonymous", 401)]
     [InlineData("student", 403)]
     [InlineData("cookie", 401)]

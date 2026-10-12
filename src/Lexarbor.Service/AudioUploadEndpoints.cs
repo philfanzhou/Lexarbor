@@ -116,7 +116,7 @@ public static class AudioUploadEndpoints
         while (await input.ReadAsync(remainder.AsMemory(), token) != 0) { }
         if (file == null) throw new UploadInputException(400, "Exactly one audio file is required.");
         if (input.BytesRead - file.LongLength > 64 * 1024) throw new UploadInputException(413, "Audio upload is too large.");
-        if (!fields.TryGetValue("sourceRevision", out var revision) || !Regex.IsMatch(revision, "^[a-f0-9]{64}$", RegexOptions.CultureInvariant)
+        if (!fields.TryGetValue("sourceRevision", out var revision) || !Regex.IsMatch(revision, @"\A[a-f0-9]{64}\z", RegexOptions.CultureInvariant)
             || !fields.TryGetValue("expectedAssetId", out var expected)) throw new UploadInputException(400, "Audio upload conditions are required and must be valid.");
         if (expected != "" && (!Guid.TryParseExact(expected, "D", out var asset) || asset.ToString() != expected))
             throw new UploadInputException(400, "Audio upload conditions are required and must be valid.");
