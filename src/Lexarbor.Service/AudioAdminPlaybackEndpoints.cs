@@ -10,18 +10,19 @@ namespace Lexarbor.Service;
 
 public static class AudioAdminPlaybackEndpoints
 {
-    public static void MapAudioAdminPlaybackEndpoints(this IEndpointRouteBuilder app, bool enabled)
+    public static void MapAudioAdminPlaybackEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapGet("/admin/vocabulary/{wordId}/audio/{locale}/playback", async (HttpContext context, string wordId,
-            string locale, [FromQuery] string? meaningId, AudioPlaybackService service, CancellationToken cancellationToken) =>
+            string locale, [FromQuery] string? meaningId, IAudioPlaybackOperationFactory operations, CancellationToken cancellationToken) =>
         {
             context.Response.Headers.CacheControl = "no-store";
-            if (!enabled) return Error(503, "Audio storage is disabled.");
+            using var operation = await operations.AcquireAsync(cancellationToken);
+            if (!operation.Enabled) return Error(503, "Audio storage is disabled.");
             if (locale is not ("en-GB" or "en-US")) return Error(400, "Audio locale must be en-GB or en-US.");
             if (meaningId != null && string.IsNullOrWhiteSpace(meaningId)) return Error(400, "Meaning ID is invalid.");
             try
             {
-                var result = await service.GetAsync(wordId, meaningId, AudioLocales.FromCode(locale), cancellationToken);
+                var result = await operation.Admin.GetAsync(wordId, meaningId, AudioLocales.FromCode(locale), cancellationToken);
                 var selection = result.Selection;
                 return VocabularyHttpResponse.Ok(new AudioPlaybackDto(locale, selection.Status.ToString().ToLowerInvariant(),
                     selection.Source?.ToString().ToLowerInvariant(), selection.EffectiveBinding?.Asset.Id,

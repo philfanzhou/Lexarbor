@@ -405,5 +405,22 @@ records; no migration or production FK behavior changes.
 generation uploads concurrently in an independent SQLite database. Actual Stat and
 signed GET verify both database locations contain the complete MP3; destination
 changes fail while operations or history exist, and retired client disposal waits
-for completion. Existing upload idempotency, MP3/size/auth/CSRF, recovery and browser
+for completion. It also pauses administrator signing and the second public accent,
+rotates to a second valid synthetic S3 identity and public endpoint, then downloads
+all old/new signatures and checks complete MP3 bytes and the old proxy prefix.
+Existing upload idempotency, MP3/size/auth/CSRF, recovery and browser
 decode regressions remain applicable. There is still no online S3 HTTP save API.
+
+`AudioPlaybackRuntimeTests` exercises both administrator and public HTTP playback
+from initial disablement through enablement, closure during signing, and reopening.
+Barriers at Stat and the first signature rotate credentials/PublicEndpoint while
+both public accents retain the same old client and TTL; new requests use the new
+client and path prefix. Cancellation and timeout tests use providers that ignore
+cancellation to assert disposal only after the actual Stat/signing call ends.
+Destination preparation tests check asynchronous HTTP waiting and cancelled
+waiters without blocking health. Invalid/client/write/replace failures preserve
+old playback and the file; remote failure is a safe 503 with ordinary vocabulary
+and health requests still available. Existing playback endpoint tests cover book
+visibility, membership, meaning fallback, missing/stale DTOs, authentication,
+no-store, TTL, safe errors and rate-limit policies. These internal tests do not
+expose an S3 settings save API.

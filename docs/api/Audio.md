@@ -192,3 +192,16 @@ async function playVocabulary(wordId, bookId, meaningId) {
 ```
 
 Callers handle 400/404/422/429/503, expired links and normal media failures, and release the player when leaving the word. MP3 is the baseline; no browser speech fallback, download proxy, permanent public link or learning UI is supplied. Use the configured public S3 endpoint; any path-prefix proxy must strip the prefix and preserve the signed Host. Ordinary media playback and cross-origin fetch/WebAudio have different CORS needs: configure the bucket/proxy for actual client origins when needed rather than enabling global CORS in Lexarbor. No claim is made about all older browsers.
+
+### Internal playback configuration lifecycle
+
+Playback holds one runtime configuration for its full authorization, selection,
+Stat and signing sequence; a public request asking for both accents uses the same
+configuration for both. Internal enablement works after a disabled startup, and
+closing audio returns the existing safe 503 for new playback. Requests already
+holding a configuration finish on that configuration, including its TTL and public
+path prefix. A cancelled or timed-out provider that has not actually ended retains
+its client until completion. Credential/PublicEndpoint rotation does not immediately
+revoke issued URLs; remote credential validity and URL expiry still apply. Advanced
+TTL and timeout settings remain restart-only. The S3 administrator save API is still
+staged until the remaining audio paths have been integrated.

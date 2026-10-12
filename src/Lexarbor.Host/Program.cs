@@ -159,14 +159,8 @@ builder.Services.AddSingleton(provider =>
         TimeSpan.FromSeconds(options.OperationTimeoutSeconds is >= 1 and <= 120 ? options.OperationTimeoutSeconds : 60));
 });
 builder.Services.AddScoped<AudioUnbindService>();
-builder.Services.AddSingleton(provider =>
-{
-    var options = provider.GetRequiredService<IOptions<AudioOptions>>().Value;
-    return new AudioPlaybackSettings(options.PlaybackTtlSeconds, options.OperationTimeoutSeconds);
-});
-builder.Services.AddScoped<AudioPlaybackService>();
 builder.Services.AddScoped<IAudioPublicReadRepository, AudioReadRepository>();
-builder.Services.AddScoped<AudioPublicPlaybackService>();
+builder.Services.AddScoped<IAudioPlaybackOperationFactory, AudioPlaybackOperationFactory>();
 builder.Services.AddSingleton(provider =>
 {
     var options = provider.GetRequiredService<IOptions<AudioOptions>>().Value;
@@ -812,9 +806,9 @@ adminSurface.MapVocabularyAdminQueryEndpoints();
 adminSurface.MapAudioAdminQueryEndpoints(app.Services.GetRequiredService<IOptions<AudioOptions>>().Value.Enabled);
 adminSurface.MapAudioUploadEndpoints();
 adminSurface.MapAudioUnbindEndpoints(app.Services.GetRequiredService<IOptions<AudioOptions>>().Value.Enabled);
-adminSurface.MapAudioAdminPlaybackEndpoints(app.Services.GetRequiredService<IOptions<AudioOptions>>().Value.Enabled);
+adminSurface.MapAudioAdminPlaybackEndpoints();
 adminSurface.MapVocabularyCleanupEndpoints();
-app.MapAudioPublicPlaybackEndpoints(app.Services.GetRequiredService<IOptions<AudioOptions>>().Value.Enabled,
+app.MapAudioPublicPlaybackEndpoints(
     RateLimitingExtensions.PublicApiPolicy);
 app.MapVocabularyHttpEndpoints(
     RateLimitingExtensions.PublicApiPolicy,
