@@ -5,7 +5,8 @@ namespace Lexarbor.Service.Tests;
 public sealed class PersistentConfigurationBootstrapperTests : IDisposable
 {
     private readonly string _contentRoot = Path.Combine(
-        Path.GetTempPath(),
+        AppContext.BaseDirectory,
+        "configuration-tests",
         $"lexarbor-config-{Guid.NewGuid():N}");
 
     [Fact]
@@ -32,7 +33,7 @@ public sealed class PersistentConfigurationBootstrapperTests : IDisposable
         Directory.CreateDirectory(_contentRoot);
         File.WriteAllText(
             Path.Combine(_contentRoot, PersistentConfigurationBootstrapper.FileName),
-            "image defaults");
+            "{\"ImageDefaults\":true}");
 
         var result = PersistentConfigurationBootstrapper.EnsureFile(_contentRoot);
 
@@ -58,18 +59,18 @@ public sealed class PersistentConfigurationBootstrapperTests : IDisposable
         Directory.CreateDirectory(Path.Combine(_contentRoot, "data"));
         File.WriteAllText(
             Path.Combine(_contentRoot, PersistentConfigurationBootstrapper.FileName),
-            "image defaults");
+            "{\"ImageDefaults\":true}");
         var persistentPath = Path.Combine(
             _contentRoot,
             "data",
             PersistentConfigurationBootstrapper.FileName);
-        File.WriteAllText(persistentPath, "operator settings");
+        File.WriteAllText(persistentPath, "{\"OperatorSettings\":true}");
 
         var result = PersistentConfigurationBootstrapper.EnsureFile(_contentRoot);
 
         Assert.False(result.Created);
         Assert.Equal(persistentPath, result.Path);
-        Assert.Equal("operator settings", File.ReadAllText(persistentPath));
+        Assert.Equal("{\"OperatorSettings\":true}", File.ReadAllText(persistentPath));
     }
 
     [Fact]

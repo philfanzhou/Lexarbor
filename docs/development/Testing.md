@@ -342,3 +342,28 @@ bash .github/scripts/test-audio-storage.sh
 The script uses SeaweedFS 4.00 and Minio .NET 7.0.0, a new private test bucket, synthetic bucket-scoped and denied credentials, a unique disposable container, and dynamic loopback ports. The setup identity exists only in this test container to provision its bucket; the application does not create or list buckets. A local proxy preserves signed Host and strips `/s3/`. The real host adapter uploads a generated MP3 tone. An isolated HTTP host maps the administrator playback endpoint using the actual SQLite read repository and S3 adapter; it checks no-store links, UTC expiry, original download bytes, MIME, 206 Range, expired and renewed signatures, and fixed 503 for real storage denial or a lost object. The probe also checks unsigned and denied adapter access, cancellation and controlled deletion. Production authentication, roles, Cookie/Bearer priority, ownership, missing/stale selection, cancellation during Stat/signing and concurrent SQLite writes are covered by `AudioAdminPlaybackEndpointTests`. An offset test clock produces an actually expired signature without an idle wait; S3 validates it. Chromium decodes the downloaded file, rather than treating arbitrary bytes as playable audio. No ffmpeg or TTS tool is needed. CI runs this as `Private audio storage integration`.
 
 The script removes only its own container/anonymous volumes, proxy process and temporary files. It needs Docker, Python 3, .NET 10, Node.js and Chromium; it never accesses production S3, image buckets or shared data directories. It does not certify all browsers, arbitrary proxy configurations, or future audio HTTP routes. Container/startup changes also require the standard image build and `test-container.sh` checks.
+
+
+## Persistent settings coordinator
+
+`PersistentConfigurationCoordinatorTests` verifies the fixed Host file writer
+without adding public settings routes. Each case owns a separate content root
+and uses synthetic values. The tests cover optional/missing data files and
+templates, complete snapshot recovery after file/directory loss, unknown-field
+preservation and prevention of environment-secret persistence; shared revision
+conflicts across modules; disk edits before/during preparation; source precedence
+and per-field edit refusal; malformed/duplicate/conflicting JSON and symbolic
+links; read-only directories; invalid candidates; temporary-file permissions,
+write/rename failure cleanup, and cancellation before/after the commit point.
+Two child processes exit immediately before/after rename, and the parent verifies
+the complete old/new file and startup's exclusion of stranded temporary files.
+A restart test also verifies that the original IConfiguration is not hot-reloaded.
+Unix permission/link tests apply on Unix; this repository's container CI runs them
+as an unprivileged user.
+
+Run `dotnet restore Lexarbor.sln`, the Release build/test and formatting checks,
+then `docker build -t lexarbor:ci .` and
+`bash .github/scripts/test-container.sh lexarbor:ci`. The container script checks
+first-start configuration mode `0600`, existing-file preservation and unchanged
+environment/argument precedence. This infrastructure does not certify the later
+rate-limit or S3 administration endpoints; those modules require their own tests.
