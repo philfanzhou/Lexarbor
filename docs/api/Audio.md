@@ -1,8 +1,8 @@
-# Administrator audio queries, uploads and logical deletion
+# Administrator audio queries, uploads, logical deletion and playback
 
 Audio queries use the existing administrator policy: an administrator Bearer token for external programs, or the hosted-login session cookie for the administration UI. A supplied Bearer header takes precedence over a cookie. These GET requests do not require a CSRF header. Keep administrator credentials out of browser application code. Existing security headers, roles and rate-limit policies are unchanged.
 
-The administrator API provides metadata, conditional MP3 uploads and conditional logical deletion. It does not generate audio, issue playback links, or claim generation jobs. Metadata queries do not inspect S3. Audio is disabled by default; missing `Audio` configuration is supported. Every successful query includes `enabled`, reflecting `Audio:Enabled`. Metadata remains readable when disabled, but callers must not start audio work when `enabled` is `false`. See [deployment configuration](../development/Deployment.md#optional-audio-object-storage).
+The administrator API provides metadata, conditional MP3 uploads, conditional logical deletion and short-lived playback links. It does not generate audio or claim generation jobs. Metadata queries do not inspect S3. Audio is disabled by default; missing `Audio` configuration is supported. Every successful metadata query includes `enabled`, reflecting `Audio:Enabled`. Metadata remains readable when disabled, but callers must not start audio work when `enabled` is `false`. See [deployment configuration](../development/Deployment.md#optional-audio-object-storage).
 
 ## Generation targets
 
@@ -111,3 +111,27 @@ Success is `{ "success": true, "data": { "removed": true } }`. Only the selected
 Deletion competes with replacements in one short SQLite write transaction. If replacement wins, the old `If-Match` cannot remove its new binding. If deletion wins while replacement is transferring, that replacement's old-asset condition prevents publication. Cancellation before write admission changes nothing; once the short write is admitted it finishes under the existing commit semantics, even if the response is lost.
 
 Audio disabled returns fixed 503. Deletion makes no S3 calls and retains all assets, objects, publication timestamps, upload operations and immutable idempotency receipts. Replaying an earlier successful upload returns its original receipt without restoring the deleted binding. Previously issued playback links remain usable until expiry. Internal object locations and storage credentials never appear in delete responses. No schema or deployment configuration change is required.
+
+## Administrator playback
+
+`GET /admin/vocabulary/{wordId}/audio/{locale}/playback?meaningId=...`
+
+An administrator can listen to words in disabled books and words with no book. `meaningId`, when supplied, must belong to the requested word; wrong ownership or an absent target returns 404. The locale must be exactly `en-GB` or `en-US`; invalid locale or blank meaning ID returns 400. The existing administrator role and Bearer-over-cookie priority apply. GET requires no CSRF token and keeps existing rate-limit policies. Audio disabled returns `503` with `Audio storage is disabled.`.
+
+Selection uses one completed database read snapshot. The same-locale meaning override wins, even if stale; otherwise the same-locale default is selected. There is no cross-accent fallback. Storage Stat and signing run after that snapshot has ended, with request cancellation and a bounded combined deadline (`Audio:OperationTimeoutSeconds`, default 60 seconds). They hold no SQLite write transaction or global write lock. A concurrent replacement can leave the link pointing to the snapshot's retained old asset, which is valid until its expiry.
+
+A successful response is `{success:true,data:...}` with these fields:
+
+| Field | Meaning |
+|---|---|
+| `locale` | Requested accent |
+| `status` | `missing`, `ready` or `stale` content version |
+| `source` | `default`, `meaning` or null |
+| `assetId` | Selected asset ID, or null |
+| `sourceRevision` | Selected binding's stored revision, or null; current generation input remains available through metadata |
+| `url` | Short-lived signed GET URL, or null |
+| `expiresAt` | UTC expiry of the signed URL, or null |
+
+Missing audio is a successful `missing` response with null source, asset, revision, URL and expiry; it does not access S3. Stale audio still receives a link for the selected old asset. If that object is lost, denied or storage times out, the response is fixed `503` with `Audio storage is unavailable.`; it never silently signs a different default. Provider errors and internal location/configuration fields are omitted. There are no database mutations or migrations.
+
+Playback responses use `Cache-Control: no-store`. The URL points to the configured public S3 endpoint and contains the object path and signature needed to download; it is a temporary playback credential. Do not log it, send it to analytics or persist it. Internal S3 endpoints, separate bucket/key fields and storage credentials are never returned. Link lifetime uses `Audio:PlaybackTtlSeconds` (default 900, allowed 60–3600). Request a fresh link when the user clicks play or when a link expires. Previously issued links cannot be immediately revoked by deleting a binding, replacing audio or disabling a book; they may remain usable until expiry. Object availability can still change after Stat. The caller handles missing/stale/503 and normal network or decoding failures.
