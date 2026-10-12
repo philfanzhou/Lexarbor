@@ -1,8 +1,8 @@
-# Administrator audio queries
+# Administrator audio queries and uploads
 
 Audio queries use the existing administrator policy: an administrator Bearer token for external programs, or the hosted-login session cookie for the administration UI. A supplied Bearer header takes precedence over a cookie. These GET requests do not require a CSRF header. Keep administrator credentials out of browser application code. Existing security headers, roles and rate-limit policies are unchanged.
 
-This slice provides metadata only. It does not generate audio, upload files, issue playback links, inspect S3, or claim generation jobs. Audio is disabled by default; missing `Audio` configuration is supported. Every successful query includes `enabled`, reflecting `Audio:Enabled`. Metadata remains readable when disabled, but callers must not start audio work when `enabled` is `false`. See [deployment configuration](../development/Deployment.md#optional-audio-object-storage).
+The administrator API provides metadata and conditional MP3 uploads. It does not generate audio, issue playback links, or claim generation jobs. Metadata queries do not inspect S3. Audio is disabled by default; missing `Audio` configuration is supported. Every successful query includes `enabled`, reflecting `Audio:Enabled`. Metadata remains readable when disabled, but callers must not start audio work when `enabled` is `false`. See [deployment configuration](../development/Deployment.md#optional-audio-object-storage).
 
 ## Generation targets
 
@@ -20,7 +20,7 @@ All query parameters are optional:
 
 Blank filter values, unsupported locale/status values, nonpositive page/size, oversized pages and offset overflow return 400. The list contains two default targets per word and only the accents of **existing** meaning overrides. It never creates missing override targets for every meaning. Results sort by target type (default before meaning), target ID (word ID or meaning ID, SQLite binary ordering), then locale (`en-GB` before `en-US`). Filtering applies before pagination. `totalCount` and `totalPage` describe the filtered result; an empty result has `totalPage: 0`. A page beyond the last page returns an empty `items` array with the current totals.
 
-Each request reads one consistent SQLite snapshot, including inputs, bindings, states and totals. Different pages are independent snapshots, not a frozen export or a job-claim queue. A generation program should rescan, handle changes and use the target's current version and own binding as upload conditions when the upload API becomes available. Computing content-state filters scans matching targets in bounded batches; page size bounds the response, not the number of inspected targets.
+Each request reads one consistent SQLite snapshot, including inputs, bindings, states and totals. Different pages are independent snapshots, not a frozen export or a job-claim queue. A generation program should rescan, handle changes and use the target's current version and own binding as upload conditions for uploads. Computing content-state filters scans matching targets in bounded batches; page size bounds the response, not the number of inspected targets.
 
 Example response for a word with no audio:
 
@@ -64,10 +64,36 @@ Omit `meaningId` for defaults; supply an owned meaning ID to inspect an existing
 
 `sourceRevision` always describes the requested target's **current** generation input. `ownBinding` is the target's own stored binding, or null. `effectiveBinding` is the audio selected for listening, or null. Each binding contains only `assetId` and its stored `sourceRevision`; internal bucket, object key, endpoints, credentials and signed URLs never appear.
 
-For a first meaning override, `ownBinding` is null even when `effectiveBinding` points at the word's default audio. Use the own binding's asset ID as the future upload's `expectedAssetId`; use an empty expected asset when own binding is null. Never substitute the fallback asset ID. The fallback's version is compared with current **default** input, while the returned target version describes the meaning input.
+For a first meaning override, `ownBinding` is null even when `effectiveBinding` points at the word's default audio. Use the own binding's asset ID as the upload's `expectedAssetId`; use an empty expected asset when own binding is null. Never substitute the fallback asset ID. The fallback's version is compared with current **default** input, while the returned target version describes the meaning input.
 
 `source` is `default`, `meaning`, or null when missing. A same-accent meaning override wins even when stale. An absent override falls back only to the same accent's default; there is no cross-accent fallback. `missing`, `ready` and `stale` describe the selected binding's content version. They do not prove the remote object exists or is playable, because queries make no S3 calls.
 
 ## Errors and cancellation
 
 Success uses the existing `{ "success": true, "data": ... }` envelope. Business failures use `{ "success": false, "message": "<fixed English message>" }`. Missing/invalid administrator identity returns 401, an authenticated non-administrator returns 403, invalid query values return 400, and missing resources or wrong meaning ownership return 404. Framework-level parsing errors retain the host's existing handling. Query cancellation releases the read transaction without creating assets, bindings or upload operations. Existing vocabulary endpoints and JSON contracts are unchanged.
+
+## Conditional MP3 upload
+
+`PUT /admin/vocabulary/{wordId}/audio/{locale}?meaningId=...`
+
+Use an administrator Bearer token over HTTPS. The existing administrator session also works with its CSRF cookie and `X-SignaCore-CSRF` header; Bearer requests do not require CSRF even when a session cookie is present. Locale must be exactly `en-GB` or `en-US`. Omit `meaningId` for the word default, or supply an owned meaning for an override. Disabled books and words without a book are allowed.
+
+Send a UUID in the `Idempotency-Key` header and `multipart/form-data` containing exactly one file part named `file` and these fields:
+
+| Field | Contract |
+| --- | --- |
+| `sourceRevision` | Required current target revision, 64 lowercase hexadecimal characters, from the metadata query. |
+| `expectedAssetId` | Required field: empty for no **own** binding; otherwise the own binding's canonical lowercase UUID. Never use a fallback default asset for a new meaning override. |
+| `producer`, `voice` | Optional generation labels, at most 128 characters each, with no control characters. They do not validate pronunciation or voice quality. |
+
+Duplicate or unknown fields, additional files and malformed multipart bodies are rejected. File names, extensions and declared MIME do not establish validity: the bytes must contain at least two complete MPEG Layer III frames (optional bounded ID3 tags are accepted). Truncated frames and other formats return 415. Lexarbor does not generate speech or transcode WAV/Opus; the external program must generate a valid MP3 from the current input.
+
+Success returns `{ "success": true, "data": { "assetId": "<UUID>", "sourceRevision": "<revision>" } }`, without a URL or internal object location. Uploads create fresh objects, never overwrite an existing object. The default and each meaning override, and the two accents, have independent conditions.
+
+The same key and identical content, target, conditions and generation labels replay the original immutable receipt without uploading again or changing the binding. This still applies after later edits, replacements or target deletion. A changed fingerprint or a still-processing operation returns 409. A failed operation replays its original 404/409/503 result; use a **new** key for a new attempt. Authentication, multipart validity and fingerprint checks precede replay. Keep the same key when retrying a lost response; do not assume a lost response means the database rolled back.
+
+New uploads require both the current revision and own asset to match before reserving and again after S3 completes. Competing replacements publish at most one binding. Edits/imports/deletion during transfer prevent publication and return 409 or 404. Existing audio is retained on a failed replacement. Source changes mark retained audio stale through the existing query rules.
+
+The file limit is `Audio:MaxUploadBytes` (default 5 MiB, configurable up to 20 MiB), plus at most 64 KiB total multipart overhead. After authorization, dedicated per-host admission allows `Audio:MaxConcurrentUploads` active uploads (default 2) and `Audio:MaxQueuedUploads` waiting requests (default 8). Admission precedes body consumption; a full queue or admission wait timeout returns 429 with `Retry-After: 1`. Body reading, admission waiting and S3 transfer each have the configured `Audio:OperationTimeoutSeconds` bound (default 60 seconds). These limits apply only to this audio route and do not change existing global limits.
+
+Storage disabled, storage failure and upload timeout return safe 503 messages; invalid conditions/header/fields return 400, missing target/ownership returns 404, and oversized content returns 413. Storage exceptions, credentials, object keys and signed URLs are not returned. A cancellation before reservation causes no upload; cancellation after reservation retains a durable failure or expiring operation. S3 IO holds no SQLite writer transaction, and only a valid five-minute lease can publish. Known unpublished keys remain recorded for the separate recovery task; this slice does not automatically remove them. Already published objects remain available for database backups after replacement or logical deletion. See [backup and storage configuration](../development/Deployment.md#optional-audio-object-storage).
