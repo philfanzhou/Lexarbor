@@ -170,6 +170,8 @@ builder.Services.AddSingleton(provider =>
     return new AudioPlaybackSettings(options.PlaybackTtlSeconds, options.OperationTimeoutSeconds);
 });
 builder.Services.AddScoped<AudioPlaybackService>();
+builder.Services.AddScoped<IAudioPublicReadRepository, AudioReadRepository>();
+builder.Services.AddScoped<AudioPublicPlaybackService>();
 builder.Services.AddSingleton(provider =>
 {
     var options = provider.GetRequiredService<IOptions<AudioOptions>>().Value;
@@ -813,6 +815,8 @@ adminSurface.MapAudioUploadEndpoints();
 adminSurface.MapAudioUnbindEndpoints(app.Services.GetRequiredService<IOptions<AudioOptions>>().Value.Enabled);
 adminSurface.MapAudioAdminPlaybackEndpoints(app.Services.GetRequiredService<IOptions<AudioOptions>>().Value.Enabled);
 adminSurface.MapVocabularyCleanupEndpoints();
+app.MapAudioPublicPlaybackEndpoints(app.Services.GetRequiredService<IOptions<AudioOptions>>().Value.Enabled,
+    rateLimitOptions.PublicApi.Enabled ? RateLimitingExtensions.PublicApiPolicy : null);
 app.MapVocabularyHttpEndpoints(
     rateLimitOptions.PublicApi.Enabled ? RateLimitingExtensions.PublicApiPolicy : null,
     static adminGroup => adminGroup.RequireServiceMantleSecurityResponseHeaders());
