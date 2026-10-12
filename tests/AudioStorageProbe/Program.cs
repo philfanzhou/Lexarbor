@@ -1,5 +1,14 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Text.Json;
+using System.Security.Claims;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Lexarbor.Domain.Repositories;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Services;
 using Lexarbor.Database;
@@ -58,7 +67,8 @@ try
     using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
     var anonymous = await http.GetAsync(publicEndpoint + bucket + "/" + location.Key);
     Require(anonymous.StatusCode == HttpStatusCode.Forbidden, "Unsigned access must be refused.");
-    var link = await store.GetPlaybackLinkAsync(location, TimeSpan.FromSeconds(60), default);
+    await using var playbackHost = await PlaybackProbeHost.StartAsync(new AudioReadRepository(db), store);
+    var link = await playbackHost.GetLinkAsync();
     using var download = await http.GetAsync(link.Url);
     Require(download.StatusCode == HttpStatusCode.OK && download.Content.Headers.ContentType?.MediaType == "audio/mpeg", "Signed GET MIME must match.");
     Require((await download.Content.ReadAsByteArrayAsync()).SequenceEqual(bytes), "Signed download must match bytes.");
@@ -69,9 +79,11 @@ try
     // Sign using the same adapter with an elapsed clock: exercise real expiration
     // validation without making every CI run idle for the minimum 60-second TTL.
     using var expiredStore = new S3AudioObjectStore(Options.Create(options), new OffsetClock());
-    var expired = await expiredStore.GetPlaybackLinkAsync(location, TimeSpan.FromSeconds(60), default);
+    playbackHost.Store.Inner = expiredStore;
+    var expired = await playbackHost.GetLinkAsync();
     Require((await http.GetAsync(expired.Url)).StatusCode == HttpStatusCode.Forbidden, "Expired signature must be refused.");
-    var renewed = await store.GetPlaybackLinkAsync(location, TimeSpan.FromSeconds(60), default);
+    playbackHost.Store.Inner = store;
+    var renewed = await playbackHost.GetLinkAsync();
     Require((await http.GetAsync(renewed.Url)).StatusCode == HttpStatusCode.OK, "Renewed signature must work.");
     var deniedOptions = new AudioOptions
     {
@@ -83,6 +95,9 @@ try
         SecretKey = "synthetic-denied-secret"
     };
     using var denied = new S3AudioObjectStore(Options.Create(deniedOptions), TimeProvider.System);
+    playbackHost.Store.Inner = denied;
+    await playbackHost.RequireUnavailableAsync();
+    playbackHost.Store.Inner = store;
     await SafeFailure(() => denied.StatAsync(location, default));
     using var deniedStream = new MemoryStream(bytes);
     await SafeFailure(() => denied.PutAsync(location, deniedStream, bytes.Length, "audio/mpeg", default));
@@ -104,6 +119,7 @@ try
     await File.WriteAllBytesAsync(Environment.GetEnvironmentVariable("LEXARBOR_S3_TEST_DOWNLOAD")!, await http.GetByteArrayAsync(renewed.Url));
     await store.RemoveAsync(location, default);
     Require(await store.StatAsync(location, default) is null, "Controlled deletion must remove only the known object.");
+    await playbackHost.RequireUnavailableAsync();
     Console.WriteLine("Private S3 upload/stat/GET/MIME/Range/expiry/renewal/denial/deletion passed.");
 }
 catch (ProbeFailure error)
@@ -144,4 +160,65 @@ sealed class ProbeDatabaseRoot : IDisposable
     public string Path => System.IO.Path.Combine(_root, "probe.db");
     public ProbeDatabaseRoot() => Directory.CreateDirectory(_root);
     public void Dispose() { Directory.Delete(_root, recursive: true); }
+}
+
+// Real HTTP mapper and private S3. Full production identity/role cases live in
+// AudioAdminPlaybackEndpointTests; this isolated host supplies only a test identity.
+sealed class PlaybackProbeHost(WebApplication app, HttpClient client, PlaybackProbeStore store) : IAsyncDisposable
+{
+    public PlaybackProbeStore Store => store;
+    public static async Task<PlaybackProbeHost> StartAsync(IAudioReadRepository repository, IAudioObjectStore objectStore)
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.Logging.ClearProviders();
+        builder.WebHost.ConfigureKestrel(server => server.Listen(IPAddress.Loopback, 0));
+        builder.Services.AddAuthorization(options => options.AddPolicy(AdminEndpointAuthorization.PolicyName, policy => policy.RequireRole("admin")));
+        builder.Services.AddSingleton(repository);
+        var store = new PlaybackProbeStore(objectStore);
+        builder.Services.AddSingleton<IAudioObjectStore>(store);
+        builder.Services.AddSingleton(new AudioPlaybackSettings(60, 3));
+        builder.Services.AddScoped<AudioPlaybackService>();
+        var app = builder.Build();
+        app.Use(async (context, next) =>
+        {
+            context.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Role, "admin")], "isolated-probe"));
+            await next(context);
+        });
+        app.UseAuthorization();
+        app.MapAudioAdminPlaybackEndpoints(true);
+        await app.StartAsync();
+        var address = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single();
+        return new(app, new HttpClient { BaseAddress = new Uri(address), Timeout = TimeSpan.FromSeconds(10) }, store);
+    }
+    public async Task<AudioPlaybackLink> GetLinkAsync()
+    {
+        using var response = await client.GetAsync("/admin/vocabulary/probe-word/audio/en-GB/playback");
+        if (response.StatusCode != HttpStatusCode.OK || response.Headers.CacheControl?.ToString() != "no-store")
+            throw new ProbeFailure("The real administrator playback endpoint must return no-store success.");
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var data = json.RootElement.GetProperty("data");
+        if (data.GetProperty("status").GetString() != "ready" || data.GetProperty("source").GetString() != "default")
+            throw new ProbeFailure("Playback must use the published default binding.");
+        var expires = data.GetProperty("expiresAt").GetDateTimeOffset();
+        if (expires.Offset != TimeSpan.Zero) throw new ProbeFailure("Playback expiry must be UTC.");
+        return new(data.GetProperty("url").GetString()!, expires);
+    }
+    public async Task RequireUnavailableAsync()
+    {
+        using var response = await client.GetAsync("/admin/vocabulary/probe-word/audio/en-GB/playback");
+        if (response.StatusCode != HttpStatusCode.ServiceUnavailable || response.Headers.CacheControl?.ToString() != "no-store"
+            || await response.Content.ReadAsStringAsync() != "{\"success\":false,\"message\":\"Audio storage is unavailable.\"}")
+            throw new ProbeFailure("Real S3 denial or lost object must yield the fixed no-store playback failure.");
+    }
+    public async ValueTask DisposeAsync() { client.Dispose(); await app.StopAsync(); await app.DisposeAsync(); }
+}
+sealed class PlaybackProbeStore(IAudioObjectStore inner) : IAudioObjectStore
+{
+    public IAudioObjectStore Inner { get; set; } = inner;
+    public Task PutAsync(AudioObjectLocation location, Stream content, long size, string type, CancellationToken token)
+        => Inner.PutAsync(location, content, size, type, token);
+    public Task<AudioObjectInfo?> StatAsync(AudioObjectLocation location, CancellationToken token) => Inner.StatAsync(location, token);
+    public Task RemoveAsync(AudioObjectLocation location, CancellationToken token) => Inner.RemoveAsync(location, token);
+    public Task<AudioPlaybackLink> GetPlaybackLinkAsync(AudioObjectLocation location, TimeSpan ttl, CancellationToken token)
+        => Inner.GetPlaybackLinkAsync(location, ttl, token);
 }
