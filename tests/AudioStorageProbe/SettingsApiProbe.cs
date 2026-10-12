@@ -1,28 +1,33 @@
-using System.Net;
-using System.Net.Http.Json;
-using System.Security.Claims;
-using System.Text.Json;
-using Lexarbor.Database;
 using Lexarbor.Database.Entities;
 using Lexarbor.Database.Repositories;
+using Lexarbor.Database;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 using Lexarbor.Domain.Services;
-using Lexarbor.Host;
 using Lexarbor.Host.Audio;
 using Lexarbor.Host.Configuration;
 using Lexarbor.Host.RateLimiting;
+using Lexarbor.Host;
 using Lexarbor.Service;
 using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ServiceMantle.Web.Management;
+using ServiceMantle;
+using System.Diagnostics;
+using System.Net.Http.Json;
+using System.Net;
+using System.Security.Claims;
+using System.Text.Json;
 
 // Production settings/upload/query/playback/recovery paths with disposable real S3.
 // Authentication/CSRF/security-header cases use the complete Host in service tests.
@@ -53,17 +58,24 @@ internal static class SettingsApiProbe
             {
                 var initial = await host.ReadAsync(); Check(!initial.Enabled && !File.Exists(Path.Combine(root, "data/appsettings.json")), "GET must not create configuration.");
                 stage = "initial settings save";
-                await host.SaveAsync(new
+                await host.BrowserAsync("configure", options);
+                using (var persisted = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(root, "data/appsettings.json"))))
                 {
-                    enabled = true,
-                    internalEndpoint = options.InternalEndpoint,
-                    publicEndpoint = options.PublicEndpoint,
-                    options.Region,
-                    options.Bucket,
-                    keyPrefix = "settings/",
-                    accessKey = new { action = "replace", value = options.AccessKey },
-                    secretKey = new { action = "replace", value = options.SecretKey }
-                });
+                    var audio = persisted.RootElement.GetProperty("Audio");
+                    Check(audio.GetProperty("Enabled").GetBoolean() && audio.GetProperty("AccessKey").GetString() == options.AccessKey
+                        && audio.GetProperty("SecretKey").GetString() == options.SecretKey, "Browser save must create the complete private configuration file.");
+                }
+                if (!OperatingSystem.IsWindows())
+                {
+                    stage = "read-only browser save";
+                    var savedFile = Path.Combine(root, "data/appsettings.json");
+                    var beforeReadOnly = await File.ReadAllBytesAsync(savedFile);
+                    File.SetUnixFileMode(savedFile, UnixFileMode.UserRead);
+                    try { await host.BrowserAsync("readonly", options); }
+                    finally { File.SetUnixFileMode(savedFile, UnixFileMode.UserRead | UnixFileMode.UserWrite); }
+                    var afterReadOnly = await File.ReadAllBytesAsync(savedFile);
+                    Check(beforeReadOnly.SequenceEqual(afterReadOnly), "Read-only browser save must preserve the configuration file.");
+                }
                 stage = "MP3 upload";
                 using var uploadBody = new MultipartFormDataContent();
                 sourceRevision = AudioSelectionService.ComputeRevision(AudioSelectionService.GetInput(new("settings-word", "tone", null, null), null, AudioLocale.EnGb));
@@ -77,12 +89,13 @@ internal static class SettingsApiProbe
                 assetId = payload.RootElement.GetProperty("data").GetProperty("assetId").GetString()!;
                 stage = "administrator/public playback";
                 await host.PlayAsync(mp3);
+                await host.BrowserAsync("playback", options);
                 stage = "destination guard";
                 var before = await host.ReadAsync();
                 using var conflict = await host.SendSaveAsync(before.Revision, new { bucket = "other-bucket" });
                 Check(conflict.StatusCode == HttpStatusCode.Conflict && (await host.ReadAsync()).Revision == before.Revision, "Stored audio must reject destination changes with 409.");
                 stage = "disable/metadata";
-                await host.SaveAsync(new { enabled = false });
+                await host.BrowserAsync("disable", options);
                 using var disabled = await host.Client.GetAsync("/admin/vocabulary/settings-word/audio/en-GB/playback");
                 Check(disabled.StatusCode == HttpStatusCode.ServiceUnavailable, "Disabled API configuration blocks new playback.");
                 using var metadata = await host.Client.GetAsync("/admin/vocabulary/settings-word/audio");
@@ -123,7 +136,7 @@ internal static class SettingsApiProbe
                 });
                 await db.SaveChangesAsync();
                 stage = "re-enable/recovery";
-                await host.SaveAsync(new { enabled = true, accessKey = new { action = "keep" }, secretKey = new { action = "keep" } });
+                await host.BrowserAsync("enable", options);
                 for (var attempt = 0; attempt < 100 && await store.StatAsync(recoveryObject, default) is not null; attempt++) await Task.Delay(100);
                 Check(await store.StatAsync(recoveryObject, default) is null, "API re-enable must recover the private unpublished object.");
                 await host.PlayAsync(mp3);
@@ -133,12 +146,16 @@ internal static class SettingsApiProbe
             {
                 var saved = await restarted.ReadAsync(); Check(saved.Enabled && saved.HasAccessKey && saved.HasSecretKey && saved.KeyPrefix == "settings/", "Restart must read saved complete S3 settings.");
                 await restarted.PlayAsync(mp3);
+                await restarted.BrowserAsync("restart", options);
                 await using var db = new VocabularyDbContext(dbOptions);
                 Check(await db.VocabularyAudioBindings.AnyAsync(binding => binding.AssetId == assetId), "Restart keeps the original binding.");
                 Check(await db.AudioAssets.AnyAsync(asset => asset.Id == assetId && asset.FirstPublishedAtUnixMs != null), "Recovery keeps the published object.");
             }
+            stage = "deployment override browser view";
+            await using (var overridden = await Host.StartAsync(root, dbOptions, commandLineOverride: true))
+                await overridden.BrowserAsync("override", options);
         }
-        catch (Exception) { throw new ProbeFailure("Settings API integration failed at " + stage + "."); }
+        catch (Exception error) { throw new ProbeFailure("Settings API integration failed at " + stage + ". " + (error is ProbeFailure ? error.Message : "")); }
         finally { Directory.Delete(root, true); }
     }
     private static void Check(bool condition, string message) { if (!condition) throw new ProbeFailure(message); }
@@ -147,16 +164,19 @@ internal static class SettingsApiProbe
     {
         private const string Url = "/admin/system/settings/audio-storage";
         public HttpClient Client => client;
-        public static async Task<Host> StartAsync(string root, DbContextOptions<VocabularyDbContext> dbOptions)
+        public static async Task<Host> StartAsync(string root, DbContextOptions<VocabularyDbContext> dbOptions, bool commandLineOverride = false)
         {
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions { ContentRootPath = root });
             builder.Logging.ClearProviders(); builder.WebHost.ConfigureKestrel(server => server.Listen(IPAddress.Loopback, 0));
-            builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["Audio:OperationTimeoutSeconds"] = "3", ["Audio:RecoveryIntervalSeconds"] = "10" });
+            builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["Audio:OperationTimeoutSeconds"] = "3", ["Audio:RecoveryIntervalSeconds"] = "10", ["RateLimits:PublicApi:PermitLimit"] = "2", ["RateLimits:PublicApi:WindowSeconds"] = "600" });
             var file = new PersistentConfigurationFileStore(root);
             builder.Configuration.AddJsonFile(file.FilePath, optional: true, reloadOnChange: false);
+            if (commandLineOverride) builder.Configuration.AddCommandLine(["--Audio:Region=us-east-1"]);
             builder.Services.AddSingleton(file);
             builder.Services.AddSingleton(provider => new PersistentConfigurationCoordinator((IConfigurationRoot)provider.GetRequiredService<IConfiguration>(), file));
-            builder.Services.AddSingleton(new RateLimitRuntime(Options.Create(new RateLimitOptions())));
+            var serviceId = ServiceId.Parse("settings-browser-probe");
+            builder.Services.AddServiceMantle(serviceId, InstanceId.CreateRandom(serviceId)).AddLexarborRateLimiting(builder.Configuration);
+            builder.Services.AddSingleton<RateLimitRuntime>();
             builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
             builder.Services.AddAudioStorage(builder.Configuration);
             builder.Services.AddAuthorization(options =>
@@ -170,6 +190,8 @@ internal static class SettingsApiProbe
             builder.Services.AddScoped<IAudioReadRepository, AudioReadRepository>();
             builder.Services.AddScoped<IAudioPublicReadRepository, AudioReadRepository>();
             builder.Services.AddScoped<AudioAdminQueryService>();
+            builder.Services.AddScoped<IVocabularyAdminQueryRepository, VocabularyAdminQueryRepository>();
+            builder.Services.AddScoped<VocabularyAdminQueryService>();
             builder.Services.AddScoped<IAudioUploadOperationFactory, AudioUploadOperationFactory>();
             builder.Services.AddScoped<IAudioAdminOperationFactory, AudioAdminOperationFactory>();
             builder.Services.AddScoped<IAudioPlaybackOperationFactory, AudioPlaybackOperationFactory>();
@@ -177,16 +199,47 @@ internal static class SettingsApiProbe
             builder.Services.AddHostedService<AudioRecoveryWorker>();
             var app = builder.Build();
             app.Services.GetRequiredService<PersistentConfigurationCoordinator>();
+            // Match production startup: bind quota options before the limiter freezes its policies.
+            app.Services.GetRequiredService<RateLimitRuntime>();
             app.Use(async (context, next) =>
             {
                 if (context.Request.Path.StartsWithSegments("/admin")) context.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Role, "admin")], "isolated-probe"));
                 await next(context);
             });
+            var frontend = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../frontend/dist"));
+            app.UseStaticFiles(new StaticFileOptions { FileProvider = new PhysicalFileProvider(frontend) });
+            app.UseRouting(); app.UseLexarborRateLimiting();
+            app.MapGet("/", () => Results.File(Path.Combine(frontend, "index.html"), "text/html"));
+            app.MapGet("/admin/auth/session", () => Results.Json(new { username = "synthetic-browser-admin", roles = new[] { "admin" } }));
+            app.MapGet("/admin/auth/csrf", () => Results.Json(new { token = "synthetic-browser-csrf" }));
+            app.MapGet("/admin/system/version", () => Results.Json(new { version = "unknown", channel = "development", revision = (string?)null }));
+            app.MapGet("/admin/vocabulary-books/categories", () => Results.Json(new { success = true, data = new { items = Array.Empty<object>() } }));
+            app.MapGet("/admin/vocabulary-books/education-levels", () => Results.Json(new { success = true, data = new { items = Array.Empty<object>() } }));
+            app.MapGet("/admin/vocabulary-books", () => Results.Json(new { success = true, data = new { items = Array.Empty<object>(), totalCount = 0, totalPage = 0 } }));
+            app.MapGet("/api/settings-probe", () => Results.Ok()).RequireRateLimiting(RateLimitingExtensions.PublicApiPolicy);
+            app.MapVocabularyAdminQueryEndpoints();
             app.UseSystemSettingsNoStore(); app.UseAuthorization(); app.MapSystemSettingsEndpoints();
-            app.MapAudioUploadEndpoints(); app.MapAudioAdminQueryEndpoints(); app.MapAudioAdminPlaybackEndpoints(); app.MapAudioPublicPlaybackEndpoints();
+            app.MapAudioUploadEndpoints(); app.MapAudioAdminQueryEndpoints(); app.MapAudioAdminPlaybackEndpoints(); app.MapAudioPublicPlaybackEndpoints(RateLimitingExtensions.PublicApiPolicy);
             await app.StartAsync();
             var address = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single();
             return new(app, new HttpClient { BaseAddress = new Uri(address), Timeout = TimeSpan.FromSeconds(15) });
+        }
+        public async Task BrowserAsync(string mode, AudioOptions options)
+        {
+            var repository = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../"));
+            var start = new ProcessStartInfo("node") { WorkingDirectory = repository, RedirectStandardOutput = true, RedirectStandardError = true };
+            start.ArgumentList.Add(Path.Combine(repository, ".github/scripts/test-settings-browser.mjs"));
+            start.ArgumentList.Add(client.BaseAddress!.ToString()); start.ArgumentList.Add(mode);
+            start.Environment["LEXARBOR_S3_TEST_INTERNAL"] = options.InternalEndpoint;
+            start.Environment["LEXARBOR_S3_TEST_PUBLIC"] = options.PublicEndpoint;
+            start.Environment["LEXARBOR_S3_TEST_BUCKET"] = options.Bucket;
+            using var process = Process.Start(start)!;
+            var output = process.StandardOutput.ReadToEndAsync(); var errors = process.StandardError.ReadToEndAsync();
+            using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+            try { await process.WaitForExitAsync(timeout.Token); }
+            catch (OperationCanceledException) { process.Kill(entireProcessTree: true); throw new ProbeFailure("Browser settings probe timed out."); }
+            Console.Write(await output);
+            Check(process.ExitCode == 0, "Browser settings probe failed: " + mode + ". " + await errors);
         }
         public async Task<AudioStorageSettingsEndpoints.AudioStorageResponse> ReadAsync()
         {

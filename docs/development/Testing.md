@@ -470,12 +470,42 @@ continue to verify pre-commit cancellation and post-commit publication.
 
 `test-audio-storage.sh` runs `SettingsApiProbe` against the disposable private S3
 bucket through real Kestrel settings/upload/query/playback routes and the runtime
-recovery worker: missing-file GET → authenticated save → MP3 upload → administrator
+recovery worker: missing-file GET → real administrator form save → MP3 upload → administrator
 and public signed downloads → destination 409 → disable → readable disabled
 metadata → re-enable and clean a known never-published candidate → restart and
 replay the original published binding. It checks credentials never enter safe
 settings responses and leaves public audio response shapes unchanged. Production
 authentication is tested with the full Host above; the disposable probe injects
-only its local administrator identity. Existing Range/MIME/expiry, real process
+only its local administrator identity and a synthetic CSRF endpoint (the browser
+still asserts its write header). Existing Range/MIME/expiry, real process
 termination/recovery and Chromium decoding checks still run in the same script.
 No production bucket, credential or database is used.
+
+
+## S3 settings page verification
+
+`frontend/e2e/audio-settings.spec.ts` covers first setup, change-only payloads,
+CSRF/If-Match and duplicate suppression; blank keep, replacement and explicit
+clear; incomplete disabled saves; safe 400/409/412/428/503 notices; failed and
+malformed reads; locked environment/command-line values; uncertain PUT outcomes
+and failed read-back without replay; 401/403 navigation and late response guards;
+secret clearing on navigation/logout/save; password controls, storage/URL/console
+boundaries, keyboard, narrow viewport and WCAG A/AA checks. Existing
+`settings.spec.ts` continues to cover rate-limit behavior independently.
+
+`bash .github/scripts/test-audio-storage.sh` now builds the frontend and runs
+`.github/scripts/test-settings-browser.mjs` against real Kestrel routes via
+`SettingsApiProbe`. Install frontend dependencies and Chromium first. The browser
+uses the actual settings form without mocking settings APIs: absent file → first
+S3 save → inspect the complete persisted file → reload; two pages/cross-panel 412;
+rate-limit off/on/429/off; drop a real committed PUT response and GET confirmation
+without replay; read-only file 503 with the business route still available;
+actual MP3 upload → administrator word-drawer playback → public signed MP3 decoded
+by Chromium; historical destination 409; browser disable/re-enable followed by
+real recovery; restart → browser read and both playback paths; command-line source
+locked with its reason. The fixture uses an isolated content root, SQLite file,
+dynamic loopback Kestrel/S3/proxy ports and synthetic secrets only. It serves the
+compiled production Vue app; authentication is deliberately supplied by the
+disposable test harness and separately covered by full-Host tests. No secret
+traces/screenshots/request logs are captured. Existing low-level S3, concurrent
+client-generation, process-recovery, MIME/Range/expiry and MP3 assertions remain.

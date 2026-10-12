@@ -1286,3 +1286,30 @@ Deploy a reachable public S3 endpoint serving private MP3 objects and supporting
 ### Online request-limit settings
 
 Administrators can read the effective switches and save editable fields at `/#/settings`. Environment or command-line overrides are read-only. Saves use the shared opaque revision and atomic `/app/data/appsettings.json` writer, take effect for subsequent requests without restarting, and survive restart. Turning a policy off and on does not reset a live bucket. Read-only files/directories or unsafe targets return 503 without publishing the candidate. See [System settings API](../api/SystemSettings.md) for If-Match conflicts, persistence, sources, and uncertain network outcomes. Numeric quotas remain offline settings.
+
+### Online S3 settings page
+
+Open the authenticated `/#/settings` page and its Audio storage (S3) panel to
+configure the server access address, browser playback address, Region, private
+Bucket, KeyPrefix and credential actions. Save creates
+`<contentRoot>/data/appsettings.json` when absent (`/app/data/appsettings.json` in
+the container), preserves other sections, and activates the saved configuration
+without restarting. The page shows effective values and configuration sources;
+environment and command-line overrides are read-only. Advanced upload, queue,
+timeout, recovery and signing settings remain offline configuration.
+
+Existing credentials are represented only by presence flags. Leave new-value
+inputs blank to keep them, enter a replacement, or choose explicit clear. Disabling
+does not clear credentials or delete audio. Incomplete settings can be saved while
+disabled; enabling validates the complete local candidate. No connection probe or
+bucket provisioning happens during save. Historical assets or active operations
+block InternalEndpoint/Bucket/KeyPrefix changes with 409; migrate separately.
+
+Save failure never displays success. Read-only files and write failures preserve
+the prior file/runtime and return 503. For 412/428 or a deployment conflict, reload
+settings, compare the retained nonsecret draft and explicitly save again. If the
+response is lost, the page clears secret inputs and rereads effective state without
+repeating PUT. Reload/restart reads the persisted result. Check actual upload and
+administrator/public playback to establish remote connectivity. See the
+[frontend settings guide](../frontend/README.md#audio-storage-s3) and
+[API contract](../api/SystemSettings.md#audio-storage-s3).
