@@ -1080,7 +1080,7 @@ pre-Down database backup; do not delete any audio object as part of image rollba
 
 ## Optional audio object storage
 
-Audio storage is disabled by default. Existing persisted configuration without an `Audio` section still starts without S3 credentials or S3 calls. Storage infrastructure, administrator metadata queries and conditional HTTP uploads are available. Playback, TTS generation and an audio UI are not provided by this slice. Enable the complete audio feature only after its dependent API and UI changes and private-bucket integration verification are available.
+Audio storage is disabled by default. Existing persisted configuration without an `Audio` section still starts without S3 credentials or S3 calls. Storage infrastructure, administrator metadata queries, conditional HTTP uploads/deletion and administrator playback are available. Public learning playback, TTS generation and an audio UI are not provided by this slice. Enable the complete audio feature only after its dependent API and UI changes and private-bucket integration verification are available.
 
 When `Audio:Enabled=true`, invalid local settings fail startup with a fixed English diagnostic. Startup does not probe S3, list buckets, or create buckets. An offline S3 service affects audio operations only; existing health, vocabulary and quiz APIs remain available. The audio client has a bounded timeout and honors caller cancellation, and it returns fixed errors without retaining SDK exception details, credentials, object content, internal addresses, or signed URLs. A missing object returns no stat result; other S3 failures are storage-unavailable errors. Upload streams remain owned by the caller; the host disposes its dedicated SDK/HTTP clients on shutdown.
 

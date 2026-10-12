@@ -47,7 +47,7 @@ Data Protection keys are stored inside the SQLite database as ServiceMantle auth
 
 ## Audio storage
 
-Optional private S3 audio storage infrastructure is available and defaults to disabled. Existing deployments need no Audio settings or credentials. Upload/playback HTTP APIs and the audio UI are separate dependent work; configuring storage alone does not enable them. See [audio storage configuration and proxy requirements](docs/development/Deployment.md#optional-audio-object-storage) and [private-bucket integration testing](docs/development/Testing.md#audio-storage-verification).
+Optional private S3 audio storage defaults to disabled. Existing deployments need no Audio settings or credentials. The [administrator audio API](docs/api/Audio.md) supports metadata, conditional MP3 uploads, logical deletion and short-lived playback links, including disabled books and words without a book. Public learning playback and the audio UI remain separate dependent work; configuring storage alone does not provide the complete audio feature. See [audio storage configuration and proxy requirements](docs/development/Deployment.md#optional-audio-object-storage) and [private-bucket integration testing](docs/development/Testing.md#audio-storage-verification).
 
 ## Authentication
 

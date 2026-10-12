@@ -164,6 +164,12 @@ builder.Services.AddSingleton(provider =>
 });
 builder.Services.AddScoped<AudioUploadService>();
 builder.Services.AddScoped<AudioUnbindService>();
+builder.Services.AddSingleton(provider =>
+{
+    var options = provider.GetRequiredService<IOptions<AudioOptions>>().Value;
+    return new AudioPlaybackSettings(options.PlaybackTtlSeconds, options.OperationTimeoutSeconds);
+});
+builder.Services.AddScoped<AudioPlaybackService>();
 builder.Services.AddScoped<IVocabularyPublicQueryRepository, VocabularyPublicQueryRepository>();
 builder.Services.AddScoped<VocabularyPublicQueryService>();
 builder.Services.AddScoped<IVocabularyCleanupRepository, VocabularyCleanupRepository>();
@@ -796,6 +802,7 @@ adminSurface.MapVocabularyAdminQueryEndpoints();
 adminSurface.MapAudioAdminQueryEndpoints(app.Services.GetRequiredService<IOptions<AudioOptions>>().Value.Enabled);
 adminSurface.MapAudioUploadEndpoints();
 adminSurface.MapAudioUnbindEndpoints(app.Services.GetRequiredService<IOptions<AudioOptions>>().Value.Enabled);
+adminSurface.MapAudioAdminPlaybackEndpoints(app.Services.GetRequiredService<IOptions<AudioOptions>>().Value.Enabled);
 adminSurface.MapVocabularyCleanupEndpoints();
 app.MapVocabularyHttpEndpoints(
     rateLimitOptions.PublicApi.Enabled ? RateLimitingExtensions.PublicApiPolicy : null,
