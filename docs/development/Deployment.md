@@ -1098,7 +1098,7 @@ When `Audio:Enabled=true`, invalid local settings fail startup with a fixed Engl
 | `Audio:MaxUploadBytes` | `LEXARBOR_AUDIO_MAX_UPLOAD_BYTES` | `5242880` (5 MiB); 1–20971520 (20 MiB) |
 | `Audio:MaxConcurrentUploads` | `LEXARBOR_AUDIO_MAX_CONCURRENT_UPLOADS` | `2`; 1–8 |
 | `Audio:MaxQueuedUploads` | `LEXARBOR_AUDIO_MAX_QUEUED_UPLOADS` | `8`; 0–8 |
-| `Audio:OperationTimeoutSeconds` | `LEXARBOR_AUDIO_OPERATION_TIMEOUT_SECONDS` | `30`; 1–120 per operation |
+| `Audio:OperationTimeoutSeconds` | `LEXARBOR_AUDIO_OPERATION_TIMEOUT_SECONDS` | `60`; 1–120 per operation |
 
 The upload and queue settings are configuration for the forthcoming upload API; they do not change existing global rate limits. Multipart overhead will be bounded separately to 64 KiB. Use HTTPS for production endpoints. Credentials stay in the host and must never be copied into browser configuration or logs. Environment overrides retain the existing precedence, and `start.sh` forwards these values without rewriting the persisted configuration or changing `/app/data` ownership/permissions.
 

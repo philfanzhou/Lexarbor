@@ -11,6 +11,7 @@ using Lexarbor.Service.Tests.TestInfrastructure;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Lexarbor.Service.Tests;
@@ -53,6 +54,58 @@ public sealed class AudioStorageTests
         var error = await Assert.ThrowsAsync<OptionsValidationException>(() => host.StartAsync(TestContext.Current.CancellationToken));
         Assert.Contains(AudioOptions.ConfigurationFailure, error.Message);
         Assert.DoesNotContain("synthetic-secret-marker", error.ToString());
+    }
+
+    [Theory]
+    [InlineData("Enabled", "synthetic-invalid-marker")]
+    [InlineData("PlaybackTtlSeconds", "synthetic-invalid-marker")]
+    [InlineData("MaxUploadBytes", "synthetic-invalid-marker")]
+    [InlineData("OperationTimeoutSeconds", "2147483648")]
+    [InlineData("MaxUploadBytes", "9223372036854775808")]
+    public async Task InvalidConfigurationTypesRejectStartupWithoutEchoingValues(string property, string value)
+    {
+        var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder();
+        builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Audio:Enabled"] = "true",
+            [$"Audio:{property}"] = value
+        });
+        using var logs = new RecordingLogs();
+        builder.Logging.ClearProviders();
+        builder.Logging.AddProvider(logs);
+        builder.Services.AddAudioStorage(builder.Configuration);
+        using var host = builder.Build();
+
+        var error = await Assert.ThrowsAsync<OptionsValidationException>(() => host.StartAsync(TestContext.Current.CancellationToken));
+
+        Assert.Equal(AudioOptions.ConfigurationFailure, error.Message);
+        Assert.Null(error.InnerException);
+        Assert.DoesNotContain(value, error.ToString());
+        Assert.Contains(logs.Entries, entry => entry.Contains(AudioOptions.ConfigurationFailure, StringComparison.Ordinal));
+        Assert.All(logs.Entries, entry => Assert.DoesNotContain(value, entry));
+    }
+
+    [Fact]
+    public void MissingAudioConfigurationUsesSixtySecondTimeout()
+    {
+        var services = new ServiceCollection();
+        services.AddAudioStorage(new ConfigurationBuilder().Build());
+        using var provider = services.BuildServiceProvider();
+
+        Assert.Equal(60, provider.GetRequiredService<IOptions<AudioOptions>>().Value.OperationTimeoutSeconds);
+    }
+
+    [Theory]
+    [InlineData(null, 60)]
+    [InlineData("17", 17)]
+    public void HostConfigurationUsesDefaultTimeoutAndHonorsOverrides(string? value, int expected)
+    {
+        var configuration = new Dictionary<string, string?>();
+        if (value is not null)
+            configuration["Audio:OperationTimeoutSeconds"] = value;
+        using var factory = new VocabularyWebApplicationFactory("Testing", true, extraConfiguration: configuration);
+
+        Assert.Equal(expected, factory.Services.GetRequiredService<IOptions<AudioOptions>>().Value.OperationTimeoutSeconds);
     }
 
     [Fact]
@@ -219,6 +272,21 @@ public sealed class AudioStorageTests
             Assert.Null(error.InnerException);
             Assert.DoesNotContain(options.InternalEndpoint, error.ToString());
             Assert.DoesNotContain(options.SecretKey, error.ToString());
+        }
+    }
+
+    private sealed class RecordingLogs : ILoggerProvider
+    {
+        public List<string> Entries { get; } = [];
+        public ILogger CreateLogger(string categoryName) => new Recorder(this);
+        public void Dispose() { }
+
+        private sealed class Recorder(RecordingLogs owner) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+            public bool IsEnabled(LogLevel logLevel) => true;
+            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+                => owner.Entries.Add(formatter(state, exception) + exception?.ToString());
         }
     }
 
