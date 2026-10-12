@@ -8,7 +8,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Lexarbor.Database.Repositories;
 
-public sealed class AudioReadRepository(VocabularyDbContext context) : IAudioReadRepository
+public sealed class AudioReadRepository(VocabularyDbContext context) : IAudioReadRepository, IAudioPublicReadRepository
 {
     public async Task<AudioTargetPage> SearchTargetsAsync(AudioTargetQuery query, CancellationToken cancellationToken)
     {
@@ -96,7 +96,13 @@ public sealed class AudioReadRepository(VocabularyDbContext context) : IAudioRea
             new AudioAsset(asset.Id, new(asset.Bucket, asset.ObjectKey), asset.Sha256,
                 asset.ByteLength, asset.ContentType, asset.CreatedAtUnixMs, asset.FirstPublishedAtUnixMs), binding.SourceRevision);
 
-    public async Task<AudioReadSnapshot> GetSnapshotAsync(string wordId, string? meaningId,
+    public Task<AudioReadSnapshot> GetSnapshotAsync(string wordId, string? meaningId,
+        CancellationToken cancellationToken) => ReadSnapshotAsync(null, wordId, meaningId, cancellationToken);
+
+    public Task<AudioReadSnapshot> GetPublicSnapshotAsync(string bookId, string wordId, string? meaningId,
+        CancellationToken cancellationToken) => ReadSnapshotAsync(bookId, wordId, meaningId, cancellationToken);
+
+    private async Task<AudioReadSnapshot> ReadSnapshotAsync(string? bookId, string wordId, string? meaningId,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -105,6 +111,16 @@ public sealed class AudioReadRepository(VocabularyDbContext context) : IAudioRea
         {
             await using var transaction = ((SqliteConnection)context.Database.GetDbConnection()).BeginTransaction(deferred: true);
             await using var enlisted = await context.Database.UseTransactionAsync(transaction, cancellationToken);
+            if (bookId != null)
+            {
+                var book = await context.VocabularyBooks.AsNoTracking()
+                    .SingleOrDefaultAsync(row => row.Id == bookId, cancellationToken)
+                    ?? throw new ResourceNotFoundException("Vocabulary book was not found.");
+                if (!book.Status) throw new BusinessRuleException("Vocabulary book is disabled.");
+                if (!await context.VocabularyMeanings.AsNoTracking().AnyAsync(row => row.BookId == bookId
+                    && row.VocabularyId == wordId && (meaningId == null || row.Id == meaningId), cancellationToken))
+                    throw new ResourceNotFoundException("Vocabulary audio target was not found.");
+            }
             // No tracking: an edit or import on this scoped context must never
             // make later audio reads reuse an older word/meaning instance.
             var word = await context.Vocabularies.AsNoTracking().SingleOrDefaultAsync(row => row.Id == wordId, cancellationToken)

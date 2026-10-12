@@ -55,6 +55,8 @@ try
         .UseSqlite($"Data Source={databaseRoot.Path};Pooling=False").Options);
     await db.Database.MigrateAsync();
     db.Vocabularies.Add(new VocabularyEntity { Id = "probe-word", Word = "tone" });
+    db.VocabularyBooks.Add(new() { Id = "probe-book", BookName = "Probe", Status = true });
+    db.VocabularyMeanings.Add(new() { Id = "probe-meaning", VocabularyId = "probe-word", BookId = "probe-book", Meaning = "tone" });
     await db.SaveChangesAsync();
     var repository = new AudioUploadRepository(db);
     var coordinator = new AudioUploadService(repository, store, new(true, bucket, "audio/", 3), TimeProvider.System);
@@ -76,6 +78,19 @@ try
     Require(anonymous.StatusCode == HttpStatusCode.Forbidden, "Unsigned access must be refused.");
     await using var playbackHost = await PlaybackProbeHost.StartAsync(new AudioReadRepository(db), store);
     var link = await playbackHost.GetLinkAsync();
+    var publicLink = await playbackHost.GetLinkAsync(publicAudio: true);
+    using var publicDownload = await http.GetAsync(publicLink.Url);
+    Require(publicDownload.StatusCode == HttpStatusCode.OK && (await publicDownload.Content.ReadAsByteArrayAsync()).SequenceEqual(bytes),
+        "The book-authorized public endpoint must play the real private MP3.");
+    using var publicRangeRequest = new HttpRequestMessage(HttpMethod.Get, publicLink.Url);
+    publicRangeRequest.Headers.Range = new RangeHeaderValue(10, 41);
+    using var publicRange = await http.SendAsync(publicRangeRequest);
+    Require(publicRange.StatusCode == HttpStatusCode.PartialContent && (await publicRange.Content.ReadAsByteArrayAsync()).SequenceEqual(bytes[10..42]),
+        "The public endpoint signed URL must support real MP3 Range.");
+    await db.Database.ExecuteSqlRawAsync("UPDATE vocabulary_book SET status=0 WHERE id='probe-book'");
+    await playbackHost.RequireDisabledBookAsync();
+    Require((await http.GetAsync(publicLink.Url)).StatusCode == HttpStatusCode.OK, "Disabling a book must not revoke an already signed URL.");
+    await db.Database.ExecuteSqlRawAsync("UPDATE vocabulary_book SET status=1 WHERE id='probe-book'");
     using var download = await http.GetAsync(link.Url);
     Require(download.StatusCode == HttpStatusCode.OK && download.Content.Headers.ContentType?.MediaType == "audio/mpeg", "Signed GET MIME must match.");
     Require((await download.Content.ReadAsByteArrayAsync()).SequenceEqual(bytes), "Signed download must match bytes.");
@@ -88,9 +103,13 @@ try
     using var expiredStore = new S3AudioObjectStore(Options.Create(options), new OffsetClock());
     playbackHost.Store.Inner = expiredStore;
     var expired = await playbackHost.GetLinkAsync();
+    var publicExpired = await playbackHost.GetLinkAsync(publicAudio: true);
+    Require((await http.GetAsync(publicExpired.Url)).StatusCode == HttpStatusCode.Forbidden, "The public URL expiration must be enforced by real S3.");
     Require((await http.GetAsync(expired.Url)).StatusCode == HttpStatusCode.Forbidden, "Expired signature must be refused.");
     playbackHost.Store.Inner = store;
     var renewed = await playbackHost.GetLinkAsync();
+    var publicRenewed = await playbackHost.GetLinkAsync(publicAudio: true);
+    Require((await http.GetAsync(publicRenewed.Url)).StatusCode == HttpStatusCode.OK, "The public endpoint must renew an expired URL after authorization.");
     Require((await http.GetAsync(renewed.Url)).StatusCode == HttpStatusCode.OK, "Renewed signature must work.");
     var deniedOptions = new AudioOptions
     {
@@ -104,6 +123,7 @@ try
     using var denied = new S3AudioObjectStore(Options.Create(deniedOptions), TimeProvider.System);
     playbackHost.Store.Inner = denied;
     await playbackHost.RequireUnavailableAsync();
+    await playbackHost.RequireUnavailableAsync(publicAudio: true);
     playbackHost.Store.Inner = store;
     await SafeFailure(() => denied.StatAsync(location, default));
     using var deniedStream = new MemoryStream(bytes);
@@ -123,10 +143,11 @@ try
     try { await store.StatAsync(location, cancelled.Token); throw new InvalidOperationException("Cancellation must be observed."); }
     catch (OperationCanceledException) { }
     // Downloaded real bytes are decoded by Chromium in the following script.
-    await File.WriteAllBytesAsync(Environment.GetEnvironmentVariable("LEXARBOR_S3_TEST_DOWNLOAD")!, await http.GetByteArrayAsync(renewed.Url));
+    await File.WriteAllBytesAsync(Environment.GetEnvironmentVariable("LEXARBOR_S3_TEST_DOWNLOAD")!, await http.GetByteArrayAsync(publicRenewed.Url));
     await store.RemoveAsync(location, default);
     Require(await store.StatAsync(location, default) is null, "Controlled deletion must remove only the known object.");
     await playbackHost.RequireUnavailableAsync();
+    await playbackHost.RequireUnavailableAsync(publicAudio: true);
     // Restore the harness object for the independent backup-retention scenario.
     using (var stream = new MemoryStream(bytes)) await store.PutAsync(location, stream, bytes.Length, "audio/mpeg", default);
     await VerifyRecoveryAsync(db, databaseRoot.Path, repository, store, denied, bucket, bytes, location, http);
@@ -305,48 +326,68 @@ sealed class ProbeDatabaseRoot : IDisposable
 sealed class PlaybackProbeHost(WebApplication app, HttpClient client, PlaybackProbeStore store) : IAsyncDisposable
 {
     public PlaybackProbeStore Store => store;
-    public static async Task<PlaybackProbeHost> StartAsync(IAudioReadRepository repository, IAudioObjectStore objectStore)
+    public static async Task<PlaybackProbeHost> StartAsync(AudioReadRepository repository, IAudioObjectStore objectStore)
     {
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
         builder.WebHost.ConfigureKestrel(server => server.Listen(IPAddress.Loopback, 0));
         builder.Services.AddAuthorization(options => options.AddPolicy(AdminEndpointAuthorization.PolicyName, policy => policy.RequireRole("admin")));
-        builder.Services.AddSingleton(repository);
+        builder.Services.AddSingleton<IAudioReadRepository>(repository);
+        builder.Services.AddSingleton<IAudioPublicReadRepository>(repository);
         var store = new PlaybackProbeStore(objectStore);
         builder.Services.AddSingleton<IAudioObjectStore>(store);
         builder.Services.AddSingleton(new AudioPlaybackSettings(60, 3));
         builder.Services.AddScoped<AudioPlaybackService>();
+        builder.Services.AddScoped<AudioPublicPlaybackService>();
         var app = builder.Build();
         app.Use(async (context, next) =>
         {
-            context.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Role, "admin")], "isolated-probe"));
+            if (context.Request.Path.StartsWithSegments("/admin"))
+                context.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Role, "admin")], "isolated-probe"));
             await next(context);
         });
         app.UseAuthorization();
         app.MapAudioAdminPlaybackEndpoints(true);
+        app.MapAudioPublicPlaybackEndpoints(true);
+        app.Use(async (context, next) =>
+        {
+            try { await next(context); }
+            catch (Lexarbor.Domain.Exceptions.BusinessRuleException)
+            {
+                context.Response.StatusCode = 422;
+            }
+        });
         await app.StartAsync();
         var address = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single();
         return new(app, new HttpClient { BaseAddress = new Uri(address), Timeout = TimeSpan.FromSeconds(10) }, store);
     }
-    public async Task<AudioPlaybackLink> GetLinkAsync()
+    public async Task<AudioPlaybackLink> GetLinkAsync(bool publicAudio = false)
     {
-        using var response = await client.GetAsync("/admin/vocabulary/probe-word/audio/en-GB/playback");
+        using var response = await client.GetAsync(publicAudio ? "/api/vocabulary/probe-word/audio?bookId=probe-book&locale=en-GB"
+            : "/admin/vocabulary/probe-word/audio/en-GB/playback");
         if (response.StatusCode != HttpStatusCode.OK || response.Headers.CacheControl?.ToString() != "no-store")
             throw new ProbeFailure("The real administrator playback endpoint must return no-store success.");
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var data = json.RootElement.GetProperty("data");
+        if (publicAudio) data = data.GetProperty("items")[0];
         if (data.GetProperty("status").GetString() != "ready" || data.GetProperty("source").GetString() != "default")
             throw new ProbeFailure("Playback must use the published default binding.");
         var expires = data.GetProperty("expiresAt").GetDateTimeOffset();
         if (expires.Offset != TimeSpan.Zero) throw new ProbeFailure("Playback expiry must be UTC.");
         return new(data.GetProperty("url").GetString()!, expires);
     }
-    public async Task RequireUnavailableAsync()
+    public async Task RequireUnavailableAsync(bool publicAudio = false)
     {
-        using var response = await client.GetAsync("/admin/vocabulary/probe-word/audio/en-GB/playback");
+        using var response = await client.GetAsync(publicAudio ? "/api/vocabulary/probe-word/audio?bookId=probe-book&locale=en-GB"
+            : "/admin/vocabulary/probe-word/audio/en-GB/playback");
         if (response.StatusCode != HttpStatusCode.ServiceUnavailable || response.Headers.CacheControl?.ToString() != "no-store"
             || await response.Content.ReadAsStringAsync() != "{\"success\":false,\"message\":\"Audio storage is unavailable.\"}")
             throw new ProbeFailure("Real S3 denial or lost object must yield the fixed no-store playback failure.");
+    }
+    public async Task RequireDisabledBookAsync()
+    {
+        using var response = await client.GetAsync("/api/vocabulary/probe-word/audio?bookId=probe-book&locale=en-GB");
+        if (response.StatusCode != HttpStatusCode.UnprocessableEntity) throw new ProbeFailure("A disabled book cannot receive a new public URL.");
     }
     public async ValueTask DisposeAsync() { client.Dispose(); await app.StopAsync(); await app.DisposeAsync(); }
 }

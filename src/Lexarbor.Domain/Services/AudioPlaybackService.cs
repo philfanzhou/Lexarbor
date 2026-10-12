@@ -14,6 +14,12 @@ public sealed class AudioPlaybackService(IAudioReadRepository repository, IAudio
         CancellationToken cancellationToken)
     {
         var snapshot = await repository.GetSnapshotAsync(wordId, meaningId, cancellationToken);
+        return await GetAsync(snapshot, locale, cancellationToken);
+    }
+
+    public async Task<AudioPlaybackResult> GetAsync(AudioReadSnapshot snapshot, AudioLocale locale,
+        CancellationToken cancellationToken)
+    {
         var selection = AudioSelectionService.Select(snapshot, locale);
         cancellationToken.ThrowIfCancellationRequested();
         if (selection.EffectiveBinding == null) return new(selection, null);

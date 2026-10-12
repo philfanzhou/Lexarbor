@@ -1080,7 +1080,7 @@ pre-Down database backup; do not delete any audio object as part of image rollba
 
 ## Optional audio object storage
 
-Audio storage is disabled by default. Existing persisted configuration without an `Audio` section still starts without S3 credentials or S3 calls. Storage infrastructure, administrator metadata queries, conditional HTTP uploads/deletion, administrator playback and bounded failed-upload recovery are available. Public learning playback, TTS generation and an audio UI are not provided by this slice. Enable the complete audio feature only after its dependent API and UI changes and private-bucket integration verification are available.
+Audio storage is disabled by default. Existing persisted configuration without an `Audio` section still starts without S3 credentials or S3 calls. Storage infrastructure, administrator metadata queries, conditional HTTP uploads/deletion, administrator playback, bounded failed-upload recovery and book-authorized public playback are available. TTS generation and a learning webpage UI are external responsibilities. Configure a private bucket and verify integration before enabling audio; administrator UI availability is documented separately in the frontend guide.
 
 When `Audio:Enabled=true`, invalid local settings fail startup with a fixed English diagnostic. Startup does not probe S3, list buckets, or create buckets. An offline S3 service affects audio operations only; existing health, vocabulary and quiz APIs remain available. The audio client has a bounded timeout and honors caller cancellation, and it returns fixed errors without retaining SDK exception details, credentials, object content, internal addresses, or signed URLs. A missing object returns no stat result; other S3 failures are storage-unavailable errors. Upload streams remain owned by the caller; the host disposes its dedicated SDK/HTTP clients on shutdown.
 
@@ -1149,3 +1149,9 @@ without migration, apply a general orphan-object purge, or configure a bucket li
 rule that removes published audio. Recovery cannot recreate files removed outside
 Lexarbor. No new permanent local directory, full-bucket scan, image-bucket access,
 or automatic historical published-object collection is introduced.
+
+### Public learning playback
+
+The [public audio endpoint](../api/Audio.md#public-book-authorized-playback) is anonymous and uses the existing public API rate limit. Every request requires an enabled book and matching word/meaning membership, checked together with the selected audio in one SQLite snapshot. Storage IO begins after the snapshot ends. Disabling a book prevents later authorization; a request already authorized and already signed URLs may still play until their S3 expiry. Links are short lived (default 900 seconds) and responses are `no-store`. Clients should fetch on playback and refresh after expiry, handle missing/stale and safe 503 responses, and avoid logging or persisting the URL.
+
+Deploy a reachable public S3 endpoint serving private MP3 objects and supporting signed GET and Range. For a prefixed proxy preserve signed Host and strip the prefix. Lexarbor adds no download proxy, fixed public access, learning UI or global CORS permission; configure S3/proxy CORS for actual origins only when the client uses cross-origin fetch/WebAudio. The private storage integration exercises this public HTTP mapper with a real MP3, Range, expired/renewed signatures, permission denial, missing objects and disable/re-enable behavior. Old public routes, response fields, anonymous authentication and quotas remain unchanged.
