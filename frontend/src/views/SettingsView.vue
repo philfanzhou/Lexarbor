@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import PageHeader from '@/components/PageHeader.vue'
+import AudioStorageSettingsPanel from '@/components/AudioStorageSettingsPanel.vue'
 import { sessionGeneration } from '@/services/authState'
 import { getApiError } from '@/services/apiError'
 import { readRateLimits, saveRateLimits } from '@/services/systemSettingsApi'
@@ -126,6 +127,7 @@ onMounted(() => { void load(true) })
         <el-button :disabled="busy" @click="load(false)">重新读取</el-button>
       </div>
     </el-card>
+    <AudioStorageSettingsPanel />
   </section>
 </template>
 

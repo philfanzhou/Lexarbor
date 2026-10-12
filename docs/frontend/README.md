@@ -343,3 +343,41 @@ Vite writes to the frontend's own `dist/`, and the root Dockerfile copies that d
 ## System settings
 
 The authenticated `/#/settings` route shows the effective login/public API ceilings, actual numeric values, and switch configuration sources. Only editable switches can be saved. Drafts stay separate from actual state; read failures show unknown and offer retry. Save uses strong If-Match and CSRF, blocks duplicates, then confirms by GET. A lost response triggers read-back without automatically resubmitting. Failures retain nonsecret drafts, while navigation/sign-out discards them and cancels pending reads. Environment/command-line overrides are shown as read-only. The hosted login return allowlist includes the exact `/settings` route. See [System settings API](../api/SystemSettings.md).
+
+### Audio storage (S3)
+
+The same System settings page contains 音频存储（S3）. It displays the effective
+Enabled, InternalEndpoint (server access address), PublicEndpoint (browser
+playback address), Region, Bucket and KeyPrefix values, and the source and
+editability of every field. Deployment overrides explain why a field is read-only.
+Existing AccessKey and SecretKey values never reach the page: only their presence
+and source are displayed. Both new-value inputs use password controls. Blank
+inputs keep existing credentials; typing a new value replaces it, while clearing
+requires the explicit clear action. Turning audio off keeps credentials and
+objects; incomplete configuration can be saved while disabled.
+
+Save sends only changed editable values and explicit credential actions with
+CSRF and the current shared If-Match revision. A successful response confirms
+both file persistence and immediate runtime publication; it becomes the displayed
+effective configuration and clears the secret inputs. The first save creates the
+configuration file automatically. Reloading or restarting retains the result.
+Being enabled confirms local validity, not remote connectivity or permission;
+verify an actual upload and playback. Existing audio or active operations prevent
+destination changes with 409 and require a separate migration. Advanced upload,
+queue, timeout, recovery and signing parameters remain offline settings: this
+panel describes them without editing them or inventing effective values absent
+from the API.
+
+400, 409, 412, 428 and 503 have fixed safe notices. Deployment/destination conflicts
+and stale or missing revisions require a fresh read and an explicit subsequent
+save. A read failure displays unknown rather than disabled or unconfigured.
+Timeouts and lost responses trigger GET only; a successful read shows the actual
+configuration without claiming the uncertain PUT succeeded. There is no automatic
+credential replay. Every save attempt clears secret inputs, including refusal or
+an unknown outcome; enter a new value again only after checking the result.
+Nonsecret drafts survive a failed save or explicit read for comparison; a newly
+locked field adopts the server value. Navigation and sign-out abort in-flight work,
+discard drafts and ignore stale replies through the existing session guard.
+Neither drafts nor credentials are stored in web storage, URLs, console output or
+analytics. The rate-limit panel keeps its own draft, notice and save operation;
+saving either panel can make the other's revision stale and cause 412.

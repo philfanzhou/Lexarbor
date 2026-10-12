@@ -3,6 +3,7 @@
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$root"
+npm run build --prefix frontend
 probe_root="$(mktemp -d)"
 container="lexarbor-audio-probe-$(date +%s)-${RANDOM}"
 bucket="lexarbor-audio-probe"
