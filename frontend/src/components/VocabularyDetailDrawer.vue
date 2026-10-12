@@ -16,6 +16,9 @@ import type {
   AdminWordEditPayload
 } from '@/services/adminVocabularyApi'
 import { getApiError } from '@/services/apiError'
+import VocabularyAudioPreview from '@/components/VocabularyAudioPreview.vue'
+import { createAudioPreview } from '@/services/audioPreview'
+import { sessionGeneration } from '@/services/authState'
 import VocabularyCleanupDialog from '@/components/VocabularyCleanupDialog.vue'
 import MeaningPositionDialog from '@/components/MeaningPositionDialog.vue'
 import type { PositionTarget } from '@/components/MeaningPositionDialog.vue'
@@ -88,6 +91,9 @@ interface MeaningEdit {
 
 const meaningEdits = ref<Record<string, MeaningEdit | undefined>>({})
 
+const audioPlayer = createAudioPreview()
+watch(sessionGeneration, () => audioPlayer.stop(), { flush: 'sync' })
+
 let generation = 0
 let controller: AbortController | null = null
 
@@ -115,6 +121,7 @@ function load() {
     return
   }
 
+  audioPlayer.stop()
   generation += 1
   const current = generation
   controller?.abort()
@@ -215,6 +222,7 @@ function handleCleanupUnknown() {
 watch(wordId, () => {
   if (wordId.value === null) {
     // Closing ends the target too: nothing may land in a closed drawer.
+    audioPlayer.stop()
     generation += 1
     controller?.abort()
     resetEditState()
@@ -225,6 +233,7 @@ watch(wordId, () => {
 })
 
 onBeforeUnmount(() => {
+  audioPlayer.stop()
   generation += 1
   controller?.abort()
 })
@@ -560,6 +569,7 @@ async function saveMeaning(meaning: AdminMeaning) {
               </div>
             </el-form>
           </div>
+          <VocabularyAudioPreview v-if="wordId" :word-id="detail.id" :meaning-id="null" label="单词默认" :player="audioPlayer" />
         </section>
 
         <p class="word-detail__hint">
@@ -663,6 +673,7 @@ async function saveMeaning(meaning: AdminMeaning) {
                   </div>
                 </el-form>
               </div>
+              <VocabularyAudioPreview v-if="wordId" :word-id="detail.id" :meaning-id="meaning.id" :label="`释义 ${meaning.meaning} `" :player="audioPlayer" />
             </li>
           </ul>
         </section>

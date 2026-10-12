@@ -6,6 +6,8 @@ import { ensureSessionVersionFetch, invalidateVersionState } from './systemVersi
 
 export const isAuthenticated = ref(false)
 export const currentUser = ref<AdminSession | null>(null)
+/** Invalidates guarded work immediately when sign-out begins, including a pending logout. */
+export const sessionGeneration = ref(0)
 
 function applySession(session: AdminSession) {
   currentUser.value = session
@@ -14,6 +16,7 @@ function applySession(session: AdminSession) {
 }
 
 export function clearSession() {
+  sessionGeneration.value += 1
   currentUser.value = null
   isAuthenticated.value = false
   invalidateVersionState()
@@ -46,6 +49,7 @@ export async function logout(): Promise<LogoutOutcome> {
   // The version request must not outlive the session it described, even while
   // the logout call itself is still in flight; the finally below still clears
   // the session on both success and failure.
+  sessionGeneration.value += 1
   invalidateVersionState()
   try {
     return { logoutUrl: readLogoutUrl(await deleteSession()) }
