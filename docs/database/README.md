@@ -214,3 +214,71 @@ responsibility. Migration Down drops only this table, losing the audit history a
 nothing else. See
 [Deployment](../development/Deployment.md#management-audit-log) for the event,
 field and retention contract.
+
+
+## Audio reference model
+
+`AddVocabularyAudio` adds `audio_asset`, `vocabulary_audio_binding`, and
+`audio_upload_operation`, plus the unique `(id, vocabulary_id)` index on
+`vocabulary_meaning`. It does not rebuild existing tables or modify any existing
+word, meaning, book, position, administrator session, audit, or Data Protection row.
+This slice provides internal models and reads only. It does not enable audio
+uploads, HTTP endpoints, background cleanup, or S3 access.
+
+Assets hold an independent ID, bucket, server-owned object key, SHA-256, byte length,
+MIME, creation time and nullable first-publication time. A binding stores a word,
+optional meaning, locale (`en-GB` or `en-US`), asset and source revision. Partial
+unique indexes allow one default per `(word_id, locale)` and one override per
+`(meaning_id, locale)`. A composite foreign key `(meaning_id, word_id)` verifies
+meaning ownership. Word/meaning deletion, including bulk cleanup SQL, cascades
+only bindings; assets and upload operations remain. Asset foreign keys restrict
+removal while a binding or recovery operation still references them.
+
+Operations have a canonical UUID key, SHA-256 request fingerprint, historical
+target and conditions, independent asset reference, upload lease owner/fence/expiry,
+and state. They retain a separate terminal receipt (status, asset/revision or safe
+error code, completion time) and cleanup lease/fence/return state, attempts, next
+attempt, last safe error code and observation time. UTC lease and lifecycle times
+are INTEGER Unix milliseconds for conditional comparisons. CHECK constraints limit
+locale/state, valid receipt shapes, positive upload/cleanup lease fences and hashes.
+Target IDs intentionally have no foreign key: deleting a target must not erase the
+known object location or historical request result. Runtime conditional state
+transitions, receipt immutability and the prohibition on cleaning published assets
+must be enforced by the subsequent write repository; static schema checks alone
+are not a runtime upload or recovery implementation.
+
+`AudioReadRepository` reads current word, owned optional meaning and both accents'
+bindings/assets inside one deferred SQLite read snapshot, without taking the
+UnitOfWork write semaphore. Reads ignore tracked entities. All consumers use
+`AudioSelectionService`: source revision is lower-case SHA-256 of the fixed JSON
+array `["lexarbor.audio.source.v1", word, locale, phonetic, targetKind, partOfSpeech,
+meaning]`, using System.Text.Json UTF-8 encoding with explicit nulls. `targetKind`
+is `default` or `meaning`; default input has null part of speech and meaning.
+Display spelling retains casing. Only the locale's phonetic is included; meaning
+overrides additionally include their part of speech and definition. Examples,
+IDs, timestamps, positions and book enablement do not affect the revision. Reading
+actual current input covers word/meaning replacement and batch import without
+changing their existing write results.
+
+An override wins within its accent even when stale. Without one, selection falls
+back to that accent's default, whose revision is compared with default input.
+There is no cross-accent fallback. No selected binding means `missing`; matching
+revision means `ready`; otherwise `stale`. Own and effective bindings remain
+separate so later upload conditions cannot accidentally use a fallback asset.
+These are content states, not proof that an object exists or a playable URL.
+
+Back up SQLite and the independent audio bucket consistently. Keep every asset
+that has ever been published, including superseded or unbound objects: historical
+SQLite backups can still reference them. This slice performs no object deletion.
+A database restore does not restore missing remote files, and a bucket change
+requires an explicit object migration.
+
+The existing startup version gate still refuses an older image if it does not
+know the new migration (`migration.version_too_new`). Keeping additive tables does
+not itself make that image start. Before an explicit Down, stop audio activity and
+back up SQLite and S3; use the current migration tooling to return to
+`20261001125645_AddServiceAuditLogs`, then deploy the matching older image. Down
+removes only these three new tables and the new meaning index; it does not change
+existing rows or touch S3. Preserve the pre-Down backup to retain audio bindings,
+receipts and recovery metadata. See [deployment](../development/Deployment.md#database)
+for the existing startup gate and [backups](../development/Deployment.md) for recovery.
