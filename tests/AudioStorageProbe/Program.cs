@@ -51,6 +51,7 @@ try
     await setup.MakeBucketAsync(new MakeBucketArgs().WithBucket(bucket));
     var bytes = await File.ReadAllBytesAsync(Path.Combine(AppContext.BaseDirectory, "Fixtures/tone.mp3"));
     await VerifyRuntimeUploadGenerationsAsync(options, bytes);
+    await VerifyRuntimeRecoveryGenerationsAsync(options, bytes);
     using var store = new S3AudioObjectStore(Options.Create(options), TimeProvider.System);
     Require(Mp3Validation.IsValid(bytes), "The uploaded fixture must contain complete MP3 frames.");
     using var databaseRoot = new ProbeDatabaseRoot();
@@ -183,6 +184,67 @@ static async Task SafeFailure(Func<Task> operation)
         Require(error.InnerException is null && error.Code == "audio.storage.unavailable", "SDK errors must be sanitized.");
     }
 }
+static async Task VerifyRuntimeRecoveryGenerationsAsync(AudioOptions initial, byte[] bytes)
+{
+    using var root = new ProbeDatabaseRoot();
+    var dbOptions = new DbContextOptionsBuilder<VocabularyDbContext>().UseSqlite($"Data Source={root.Path};Pooling=False").Options;
+    var clock = new RecoveryProbeClock { Now = 0 };
+    var locations = new List<AudioObjectLocation>();
+    await using (var db = new VocabularyDbContext(dbOptions))
+    {
+        await db.Database.MigrateAsync(); db.Vocabularies.Add(new() { Id = "recovery-word", Word = "tone" }); await db.SaveChangesAsync();
+        var repo = new AudioUploadRepository(db, clock);
+        using var store = new S3AudioObjectStore(Options.Create(initial), TimeProvider.System);
+        for (var i = 0; i < 3; i++)
+        {
+            var candidate = (await repo.ReserveAsync(new(Guid.NewGuid().ToString(), new string('a', 64), "recovery-word", null, AudioLocale.EnGb,
+                AudioSelectionService.ComputeRevision(AudioSelectionService.GetInput(new("recovery-word", "tone", null, null), null, AudioLocale.EnGb)),
+                null, Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes)), bytes.Length, initial.Bucket), "crashed-upload", 0, 300000, default)).Upload!;
+            locations.Add(candidate.Asset.Location);
+            using var content = new MemoryStream(bytes); await store.PutAsync(candidate.Asset.Location, content, bytes.Length, "audio/mpeg", default);
+        }
+    }
+    clock.Now = DateTimeOffset.UtcNow.AddDays(2).ToUnixTimeMilliseconds();
+    var options = JsonSerializer.Deserialize<AudioOptions>(JsonSerializer.Serialize(initial))!; options.Enabled = false; options.RecoveryBatchSize = 2;
+    var stores = new RecoveryRotationProbeFactory();
+    using var runtime = new AudioRuntimeConfiguration(Options.Create(options), stores);
+    var services = new ServiceCollection(); services.AddScoped(_ => new VocabularyDbContext(dbOptions));
+    services.AddScoped<IAudioUploadRepository>(sp => new AudioUploadRepository(sp.GetRequiredService<VocabularyDbContext>(), clock));
+    await using var provider = services.BuildServiceProvider();
+    using var worker = new AudioRecoveryWorker(provider.GetRequiredService<IServiceScopeFactory>(), runtime, clock,
+        Microsoft.Extensions.Logging.Abstractions.NullLogger<AudioRecoveryWorker>.Instance);
+    await worker.StartAsync(default);
+    Require(!worker.ExecuteTask!.IsCompleted && stores.Stores[0].Calls == 0, "Disabled recovery must wait without storage IO.");
+    options.Enabled = true; await Publish(options);
+    var previous = stores.Stores[1]; await previous.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+    options.Enabled = false; options.AccessKey = "synthetic-setup-access"; options.SecretKey = "synthetic-setup-secret";
+    options.PublicEndpoint = initial.PublicEndpoint.Replace("/s3/", "/"); await Publish(options);
+    Require(!previous.Disposed, "Paused real recovery must keep its old client during disable/rotation.");
+    previous.Finish.TrySetResult(); await previous.DisposedSignal.Task.WaitAsync(TimeSpan.FromSeconds(10));
+    Require(previous.Calls == 4 && stores.Stores[2].Calls == 0, "A bounded two-object batch must keep one old client; disabled generation performs no IO.");
+    options.Enabled = true; await Publish(options);
+    await stores.Stores[3].Entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+    var deadline = Stopwatch.StartNew();
+    while (true)
+    {
+        await using var db = new VocabularyDbContext(dbOptions);
+        if (await db.AudioUploadOperations.CountAsync(o => o.State == AudioUploadState.CleanupObserved) == 3) break;
+        Require(deadline.Elapsed < TimeSpan.FromSeconds(10), "Re-enabled recovery must observe the remaining real object.");
+        await Task.Delay(20);
+    }
+    await worker.StopAsync(default);
+    using var verify = new S3AudioObjectStore(Options.Create(initial), TimeProvider.System);
+    foreach (var location in locations) Require(await verify.StatAsync(location, default) is null, "Runtime recovery must delete every known unpublished object.");
+    Require(stores.Stores[3].Calls == 2, "Re-enable must use the rotated real client for the remaining bounded batch.");
+    Console.WriteLine("Private S3 disabled-start recovery, bounded old-generation cleanup, rotation and re-enable passed.");
+    async Task Publish(AudioOptions candidate)
+    {
+        using var configuration = (ConfigurationRoot)new ConfigurationBuilder().AddJsonStream(new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(new { Audio = candidate }))).Build();
+        using var prepared = await runtime.PrepareAsync(configuration, default);
+        Require(prepared is not null, "Internal recovery candidate must be valid."); prepared!.Publish();
+    }
+}
+
 static async Task VerifyRuntimeUploadGenerationsAsync(AudioOptions initial, byte[] bytes)
 {
     using var root = new ProbeDatabaseRoot();
@@ -586,4 +648,28 @@ sealed class PlaybackRotationProbeStore(AudioOptions options, int pauseAt) : IAu
     public Task PutAsync(AudioObjectLocation location, Stream content, long length, string type, CancellationToken token) => throw new NotSupportedException();
     public Task RemoveAsync(AudioObjectLocation location, CancellationToken token) => throw new NotSupportedException();
     public void Dispose() { Disposed = true; _inner.Dispose(); }
+}
+
+sealed class RecoveryRotationProbeFactory : IAudioObjectStoreFactory
+{
+    public readonly List<RecoveryRotationProbeStore> Stores = [];
+    public IAudioObjectStore Create(AudioOptions options)
+    { var store = new RecoveryRotationProbeStore(options, Stores.Count == 1); Stores.Add(store); return store; }
+}
+sealed class RecoveryRotationProbeStore(AudioOptions options, bool pause) : IAudioObjectStore, IDisposable
+{
+    private readonly S3AudioObjectStore _inner = new(Options.Create(options), TimeProvider.System);
+    public int Calls; public bool Disposed;
+    public readonly TaskCompletionSource Entered = new(TaskCreationOptions.RunContinuationsAsynchronously), Finish = new(TaskCreationOptions.RunContinuationsAsynchronously), DisposedSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public async Task RemoveAsync(AudioObjectLocation location, CancellationToken token)
+    {
+        if (Interlocked.Increment(ref Calls) == 1) { Entered.TrySetResult(); if (pause) await Finish.Task.WaitAsync(token); }
+        RequireClient(); await _inner.RemoveAsync(location, token);
+    }
+    public async Task<AudioObjectInfo?> StatAsync(AudioObjectLocation location, CancellationToken token)
+    { Interlocked.Increment(ref Calls); RequireClient(); return await _inner.StatAsync(location, token); }
+    private void RequireClient() { if (Disposed) throw new InvalidOperationException("Recovery client was released before completion."); }
+    public Task PutAsync(AudioObjectLocation location, Stream content, long length, string type, CancellationToken token) => throw new NotSupportedException();
+    public Task<AudioPlaybackLink> GetPlaybackLinkAsync(AudioObjectLocation location, TimeSpan validity, CancellationToken token) => throw new NotSupportedException();
+    public void Dispose() { Disposed = true; _inner.Dispose(); DisposedSignal.TrySetResult(); }
 }

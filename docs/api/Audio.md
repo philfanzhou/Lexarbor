@@ -17,8 +17,12 @@ The internal destination guard rejects changes to InternalEndpoint/Bucket/KeyPre
 when any asset/upload record or active operation exists, including unbound history
 and cleanup state. It serializes first operation acquisition with destination
 commit, without holding the state lock during S3 or database IO. This adds no new
-S3 settings endpoint. Recovery configuration timing remains staged until its
-integration is complete.
+S3 settings endpoint. Background recovery waits while disabled, including after
+initially disabled startup. Internal enablement wakes a bounded batch. Each batch
+holds one configuration/client generation; disabling prevents new batches while
+an already started batch finishes on its old generation. Delete/Stat providers
+that ignore cancellation retain their client until actual completion. Recovery
+keeps the existing database lease, retry and never-published-only cleanup rules.
 
 ## Generation targets
 
