@@ -50,6 +50,8 @@ try
     // Provisioning belongs solely to this disposable test harness, never the app.
     await setup.MakeBucketAsync(new MakeBucketArgs().WithBucket(bucket));
     var bytes = await File.ReadAllBytesAsync(Path.Combine(AppContext.BaseDirectory, "Fixtures/tone.mp3"));
+    await SettingsApiProbe.VerifyAsync(options, bytes);
+    Console.WriteLine("Private S3 settings API save/upload/playback/disable/re-enable/recovery/restart passed.");
     await VerifyRuntimeUploadGenerationsAsync(options, bytes);
     await VerifyRuntimeRecoveryGenerationsAsync(options, bytes);
     using var store = new S3AudioObjectStore(Options.Create(options), TimeProvider.System);

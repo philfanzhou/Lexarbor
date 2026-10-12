@@ -3,7 +3,7 @@
 The administrator page at `/#/settings` displays effective request ceilings, their
 configuration source, and separate unsaved switch drafts. A failed read means
 **unknown**, never disabled. Numeric limits and windows are read-only; change them
-offline and restart. Audio storage settings are not exposed by this page yet.
+offline and restart. The audio storage API below is available; its administrator page is a separate feature.
 
 ## Request rate limits
 
@@ -80,7 +80,7 @@ routes, browsing, question batches, and audio playback share the public budget.
 Callback, logout, health, SPA, administrator business, and settings routes remain
 unmetered. Audio upload concurrency/queue admission is a separate unchanged guard.
 
-A save modifies only allowed switches in `<contentRoot>/data/appsettings.json`
+A save modifies only allowed settings in `<contentRoot>/data/appsettings.json`
 (`/app/data/appsettings.json` in containers), preserving unrelated JSON fields.
 The shared coordinator creates missing directories/files, writes a same-directory
 temporary file, flushes it, atomically replaces the target, then publishes one
@@ -102,3 +102,108 @@ by hosted login; external URLs and encoded variants remain rejected.
 These are process-local request ceilings, not distributed quotas or DDoS protection.
 Configure trusted proxies correctly and respect 429 Retry-After guidance; see
 [Deployment](../development/Deployment.md#rate-limits-and-client-addresses).
+
+## Audio storage (S3)
+
+`GET /admin/system/settings/audio-storage` returns effective values directly:
+
+```json
+{
+  "revision": "\"0123456789abcdef0123456789abcdef\"",
+  "enabled": false,
+  "internalEndpoint": "",
+  "publicEndpoint": "",
+  "region": "us-east-1",
+  "bucket": "lexarbor-audio",
+  "keyPrefix": "audio/",
+  "hasAccessKey": false,
+  "hasSecretKey": false,
+  "fields": {
+    "enabled": { "source": "default", "editable": true, "reason": null },
+    "internalEndpoint": { "source": "default", "editable": true, "reason": null },
+    "publicEndpoint": { "source": "default", "editable": true, "reason": null },
+    "region": { "source": "default", "editable": true, "reason": null },
+    "bucket": { "source": "default", "editable": true, "reason": null },
+    "keyPrefix": { "source": "default", "editable": true, "reason": null },
+    "accessKey": { "source": "default", "editable": true, "reason": null },
+    "secretKey": { "source": "default", "editable": true, "reason": null }
+  }
+}
+```
+
+The same administrator, Cookie/CSRF, Bearer precedence, security headers, no-store,
+opaque ETag and shared-file revision rules apply. A missing file does not prevent
+GET or first configuration. Credential values are never returned, including on
+successful PUT; only their presence and source are exposed. `fields` contains the
+eight names shown above. Sources are `default`, `file`, `environment`, and
+`commandLine`. Deployment overrides have `editable: false` and the fixed safe
+reason `Overridden by deployment configuration.`. Advanced upload, queue, timeout,
+recovery and signature TTL parameters are not accepted by this API; change them
+offline and restart.
+
+`PUT /admin/system/settings/audio-storage` requires the current strong `If-Match`
+and at least one permitted field or credential operation. For example:
+
+```json
+{
+  "enabled": true,
+  "internalEndpoint": "http://seaweedfs:8333/",
+  "publicEndpoint": "https://audio.example.com/s3/",
+  "region": "us-east-1",
+  "bucket": "lexarbor-audio",
+  "keyPrefix": "audio/",
+  "accessKey": { "action": "replace", "value": "<new access key>" },
+  "secretKey": { "action": "replace", "value": "<new secret key>" }
+}
+```
+
+Omitted fields retain effective values. Each credential independently accepts
+`{"action":"keep"}`, `{"action":"replace","value":"<nonblank new value>"}`,
+or `{"action":"clear"}`. Omission means keep. Keep and clear must not include a
+`value`, including null or an empty string; replace requires a nonblank string.
+Unknown names, duplicates, wrong types, invalid actions and an empty object return
+400 without echoing input. Do not submit a masked placeholder as a replacement.
+An explicit keep is allowed for an overridden credential; attempting to replace
+or clear it returns 409. Other overridden fields are likewise rejected, even
+when the submitted value equals the effective one. The 409 override response
+contains only a fixed message and safe requested field names.
+
+Disabled configurations can be incomplete. Enabling requires a complete locally
+valid candidate, including credentials, endpoints, destination and unchanged
+advanced parameters. Saving performs no remote probe, bucket listing or creation:
+an offline S3 endpoint or credentials without remote permission can still be
+saved. Verify the deployment through actual upload and playback.
+
+A successful PUT returns the GET shape and its ETag after atomic file commit and
+runtime publication. Editable retained audio fields are included in the persisted
+candidate, preserving credentials even on a first save without a template or after
+file loss. Environment/command-line values are not copied into the file. Unrelated
+RateLimits, OIDC and unknown JSON fields retain their values. Current runtime
+clients are replaced only after successful commit; rejected candidates leave the
+file and existing operations intact.
+
+| Status | Result |
+|---|---|
+| 200 | Complete candidate committed and published immediately |
+| 400 | Invalid body, If-Match, enabled configuration, or local client construction |
+| 409 | Requested deployment override, or destination change with any audio asset/upload record or active operation |
+| 412 | Stale shared revision, concurrent save, or offline disk edit |
+| 413 | Body exceeds 16384 bytes, including streamed requests |
+| 428 | Missing If-Match |
+| 503 | Unsafe/unavailable configuration storage; previous runtime remains active |
+
+InternalEndpoint, Bucket and KeyPrefix changes require no asset/upload records
+and no active audio operations, including retired client generations. Existing
+history needs a separate migration; unbinding does not remove this protection.
+Credential, region, public endpoint and enabled changes keep old operations on
+their captured generation. Disabling blocks new audio operations with the existing
+503 behavior while metadata remains readable; re-enabling wakes bounded recovery.
+Keep old remote credentials valid until actual old IO ends. Existing signatures
+are not immediately revoked. Public audio routes and response fields are unchanged.
+
+Do not log request bodies or store credential drafts in browser storage, URLs or
+telemetry. The default Host HTTP logging categories are suppressed; settings errors
+never expose paths, original input or SDK exception details. After a lost PUT
+response, GET to determine the current state; do not automatically resend the
+credential-bearing request. See [Audio API](Audio.md) and
+[Deployment](../development/Deployment.md#optional-audio-object-storage) for operational details.

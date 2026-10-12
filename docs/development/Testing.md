@@ -409,7 +409,7 @@ for completion. It also pauses administrator signing and the second public accen
 rotates to a second valid synthetic S3 identity and public endpoint, then downloads
 all old/new signatures and checks complete MP3 bytes and the old proxy prefix.
 Existing upload idempotency, MP3/size/auth/CSRF, recovery and browser
-decode regressions remain applicable. There is still no online S3 HTTP save API.
+decode regressions remain applicable. Online S3 HTTP saves are covered by `AudioStorageSettingsTests` and the settings API probe below.
 
 `AudioPlaybackRuntimeTests` exercises both administrator and public HTTP playback
 from initial disablement through enablement, closure during signing, and reopening.
@@ -423,7 +423,7 @@ old playback and the file; remote failure is a safe 503 with ordinary vocabulary
 and health requests still available. Existing playback endpoint tests cover book
 visibility, membership, meaning fallback, missing/stale DTOs, authentication,
 no-store, TTL, safe errors and rate-limit policies. These internal tests do not
-expose an S3 settings save API.
+change the S3 settings save API contract.
 
 `AudioAdminRuntimeTests` covers both metadata routes and conditional unbinding
 from initial disablement through internal enablement, closure and reopening.
@@ -451,3 +451,31 @@ history preservation and concurrent writer regressions. The private S3 script
 also starts disabled, cleans a paused two-object old-client batch across credential
 rotation/disablement, then re-enables using a second synthetic identity to clean
 the remaining object. Actual Stat confirms deletion in the private bucket.
+
+
+## Online S3 settings API
+
+`AudioStorageSettingsTests` exercises the full production Host GET/PUT route,
+administrator/anonymous/non-administrator access, Cookie CSRF and explicit Bearer
+precedence, no-store/security headers on successes and failures, strict bounded
+payloads, independent keep/replace/clear credential actions, incomplete disabled
+and locally valid enabled configurations, shared If-Match and cross-module races,
+environment/command-line sources and override rejection, deleted-file recreation,
+restart persistence, unrelated JSON preservation, read-only/malformed/symlink and
+injected disk/client failures. Active-operation and historical/unpublished-asset
+cases verify destination 409 preserves the old file/runtime. Synthetic credential
+markers are absent from responses, console logging and captured OpenTelemetry
+spans, including raw injected exception messages. Shared coordinator/runtime tests
+continue to verify pre-commit cancellation and post-commit publication.
+
+`test-audio-storage.sh` runs `SettingsApiProbe` against the disposable private S3
+bucket through real Kestrel settings/upload/query/playback routes and the runtime
+recovery worker: missing-file GET → authenticated save → MP3 upload → administrator
+and public signed downloads → destination 409 → disable → readable disabled
+metadata → re-enable and clean a known never-published candidate → restart and
+replay the original published binding. It checks credentials never enter safe
+settings responses and leaves public audio response shapes unchanged. Production
+authentication is tested with the full Host above; the disposable probe injects
+only its local administrator identity. Existing Range/MIME/expiry, real process
+termination/recovery and Chromium decoding checks still run in the same script.
+No production bucket, credential or database is used.
