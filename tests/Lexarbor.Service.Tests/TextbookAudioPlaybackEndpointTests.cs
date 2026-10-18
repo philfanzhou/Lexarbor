@@ -28,6 +28,8 @@ public sealed class TextbookAudioPlaybackEndpointTests
         public Func<CancellationToken, Task<AudioPlaybackLink>>? OnSign;
         public TimeSpan Validity;
         public Task PutAsync(AudioObjectLocation location, Stream content, long length, string type, CancellationToken token)
+            => PutAsync(location, content, length, type, AudioUploadPurpose.Vocabulary, token);
+        public Task PutAsync(AudioObjectLocation location, Stream content, long length, string type, AudioUploadPurpose purpose, CancellationToken token)
             => throw new InvalidOperationException("Playback cannot upload.");
         public Task RemoveAsync(AudioObjectLocation location, CancellationToken token)
             => throw new InvalidOperationException("Playback cannot delete.");

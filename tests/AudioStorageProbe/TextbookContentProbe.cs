@@ -23,9 +23,14 @@ internal static class TextbookContentProbe
     private const string Root = "/admin/vocabulary-books/content-book/units/content-unit/audio-tracks";
     public static async Task VerifyAsync(AudioOptions options, byte[] mp3)
     {
+        options = Copy(options);
+        options.MaxUploadBytes = mp3.Length - 1;
+        options.MaxTextbookUploadBytes = mp3.Length;
+        Check(options.MaxUploadBytes < mp3.Length && options.MaxTextbookUploadBytes >= mp3.Length, "The textbook S3 test must cross the vocabulary limit.");
         using var root = new ProbeDatabaseRoot();
         var database = new DbContextOptionsBuilder<VocabularyDbContext>().UseSqlite($"Data Source={root.Path};Pooling=False").Options;
-        var version = Guid.NewGuid().ToString(); var key = Guid.NewGuid().ToString(); string receipt;
+        var version = Guid.NewGuid().ToString(); var key = Guid.NewGuid().ToString(); string receipt, failedReceipt, failedVersion;
+        var deniedKey = Guid.NewGuid().ToString();
         var duration = new TextbookMp3Validator().Validate(mp3, options.MaxTextbookDurationSeconds, TimeSpan.FromSeconds(3), default);
         using var store = new S3AudioObjectStore(Options.Create(options), TimeProvider.System);
         try
@@ -43,6 +48,9 @@ internal static class TextbookContentProbe
                 using var policy = await host.Client.GetAsync(Root + "/upload-policy");
                 using var policyJson = JsonDocument.Parse(await policy.Content.ReadAsStringAsync());
                 Check(policy.StatusCode == HttpStatusCode.OK && policyJson.RootElement.GetProperty("data").GetProperty("enabled").GetBoolean(), "Textbook policy must describe the enabled captured configuration.");
+                Check(policyJson.RootElement.GetProperty("data").GetProperty("maxUploadBytes").GetInt64() == mp3.Length
+                    && policyJson.RootElement.GetProperty("data").GetProperty("maxDurationSeconds").GetInt32() == options.MaxTextbookDurationSeconds,
+                    "Textbook policy must report the exact independent limits used by S3.");
                 using var uploaded = await host.Put(version, key, mp3); Check(uploaded.StatusCode == HttpStatusCode.OK, "Textbook content HTTP upload must publish the MP3.");
                 receipt = await uploaded.Content.ReadAsStringAsync();
                 using var payload = JsonDocument.Parse(receipt); var data = payload.RootElement.GetProperty("data");
@@ -60,11 +68,26 @@ internal static class TextbookContentProbe
                 var link = await store.GetPlaybackLinkAsync(location, TimeSpan.FromSeconds(60), default);
                 using var http = new HttpClient(); var downloaded = await http.GetByteArrayAsync(link.Url);
                 Check(downloaded.SequenceEqual(mp3) && new TextbookMp3Validator().Validate(downloaded, 7200, TimeSpan.FromSeconds(3), default) == duration, "The content-uploaded real MP3 must download and decode completely.");
+                using var oversized = await host.Put(data.GetProperty("version").GetString()!, Guid.NewGuid().ToString(), mp3.Concat(new byte[1]).ToArray());
+                Check(oversized.StatusCode == HttpStatusCode.RequestEntityTooLarge, "Textbook limit + 1 must be 413 before Reserve.");
+                var rejectedWordLocation = new AudioObjectLocation(options.Bucket, options.KeyPrefix + Guid.NewGuid().ToString("N") + ".mp3");
+                try
+                {
+                    using var input = new MemoryStream(mp3);
+                    await store.PutAsync(rejectedWordLocation, input, mp3.Length, "audio/mpeg", default);
+                    throw new ProbeFailure("The legacy vocabulary Put must not borrow the textbook limit.");
+                }
+                catch (AudioStorageException error) when (error.Code == "audio.storage.invalid_input") { }
+                Check(await store.StatAsync(rejectedWordLocation, default) is null, "Oversized vocabulary Put must not create a real object.");
+                await using (var db = new VocabularyDbContext(database))
+                    Check(await db.TextbookAudioUploadOperations.CountAsync() == 1 && await db.AudioAssets.CountAsync() == 1,
+                        "Oversized textbook HTTP must not reserve an operation or object location.");
                 var denied = Copy(options); denied.AccessKey = "synthetic-denied-access"; denied.SecretKey = "synthetic-denied-secret";
                 await host.Publish(denied);
-                var deniedKey = Guid.NewGuid().ToString();
-                using var failure = await host.Put(data.GetProperty("version").GetString()!, deniedKey, mp3);
+                failedVersion = data.GetProperty("version").GetString()!;
+                using var failure = await host.Put(failedVersion, deniedKey, mp3);
                 Check(failure.StatusCode == HttpStatusCode.ServiceUnavailable && !(await failure.Content.ReadAsStringAsync()).Contains("synthetic", StringComparison.Ordinal), "Real S3 denial must return a safe textbook failure.");
+                failedReceipt = await failure.Content.ReadAsStringAsync();
                 await host.Publish(options);
                 using var failedReplay = await host.Put(data.GetProperty("version").GetString()!, deniedKey, mp3);
                 Check(failedReplay.StatusCode == HttpStatusCode.ServiceUnavailable, "Textbook denied-upload receipt must remain terminal after credential recovery.");
@@ -76,9 +99,13 @@ internal static class TextbookContentProbe
             {
                 using var replay = await restarted.Put(version, key, mp3);
                 Check(replay.StatusCode == HttpStatusCode.OK && await replay.Content.ReadAsStringAsync() == receipt, "Restart with tighter policy must keep the original textbook receipt.");
+                using var failedReplay = await restarted.Put(failedVersion, deniedKey, mp3);
+                Check(failedReplay.StatusCode == HttpStatusCode.ServiceUnavailable && await failedReplay.Content.ReadAsStringAsync() == failedReceipt,
+                    "Restart with corrected storage and tighter policy must preserve the original terminal failure without another Put.");
                 await using var db = new VocabularyDbContext(database);
                 Check(await db.TextbookAudioUploadOperations.CountAsync() == 2 && await db.AudioAssets.CountAsync(a => a.FirstPublishedAtUnixMs != null) == 1, "Failed and invalid requests must not replace the prior real file.");
             }
+            Console.WriteLine("Private S3 textbook independent limits: wordLimit < valid MP3 == textbookLimit; policy/HTTP 200/Stat/original bytes/full PCM passed; each oversized type creates no object.");
             Console.WriteLine("Private S3 textbook content HTTP upload/PCM/download/replay/denied-write/restart/tighter-policy passed.");
         }
         finally

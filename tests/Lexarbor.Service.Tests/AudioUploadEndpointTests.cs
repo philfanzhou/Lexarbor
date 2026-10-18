@@ -36,7 +36,9 @@ public sealed class AudioUploadEndpointTests
         public void Dispose() => Interlocked.Increment(ref Disposals);
         public Func<CancellationToken, Task>? BeforePut;
         public readonly Dictionary<string, byte[]> Objects = [];
-        public async Task PutAsync(AudioObjectLocation location, Stream stream, long length, string type, CancellationToken token)
+        public Task PutAsync(AudioObjectLocation location, Stream stream, long length, string type, CancellationToken token)
+            => PutAsync(location, stream, length, type, AudioUploadPurpose.Vocabulary, token);
+        public async Task PutAsync(AudioObjectLocation location, Stream stream, long length, string type, AudioUploadPurpose purpose, CancellationToken token)
         {
             lock (Locations) Locations.Add(location);
             Assert.Equal(0, Disposals);

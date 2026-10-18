@@ -303,7 +303,9 @@ public sealed class AudioPlaybackRuntimeTests
             Assert.Equal(0, Disposed); Signs.Add(validity); if (Sign != null) await Sign(token); Assert.Equal(0, Disposed);
             return new(Options.PublicEndpoint + "synthetic-signed-" + Signs.Count, DateTimeOffset.UtcNow.Add(validity));
         }
-        public Task PutAsync(AudioObjectLocation location, Stream content, long length, string type, CancellationToken token) => throw new NotSupportedException();
+        public Task PutAsync(AudioObjectLocation location, Stream content, long length, string type, CancellationToken token)
+            => PutAsync(location, content, length, type, AudioUploadPurpose.Vocabulary, token);
+        public Task PutAsync(AudioObjectLocation location, Stream content, long length, string type, AudioUploadPurpose purpose, CancellationToken token) => throw new NotSupportedException();
         public Task RemoveAsync(AudioObjectLocation location, CancellationToken token) => throw new NotSupportedException();
         public void Dispose() => Interlocked.Increment(ref Disposed);
     }

@@ -179,6 +179,13 @@ the same shared admission slot, client and input stream until it actually finish
 Until then, both upload types can receive 429 before body reading or reservation.
 Late storage success cannot publish the timed-out or cancelled upload.
 
+The textbook byte limit applies independently through both HTTP validation and the
+object store Put, using the same captured runtime configuration. A valid textbook
+file may exceed the vocabulary `Audio:MaxUploadBytes` limit. Each upload type must
+still fit its own limit, even when the other type permits larger files. The upload
+purpose is selected by the server and is never a multipart field or inferred from
+an object key.
+
 The server checks complete Layer III headers, lengths, consistent MPEG version,
 sample rate and channel mode, optional CRC-16 and sequential bit-reservoir decoding
 with NLayer 3.0.0. Each frame must produce all expected finite PCM samples. Free
@@ -219,6 +226,12 @@ being disabled still rejects this request with 503. Reservation rechecks the key
 atomically to cover concurrent first requests. After 409, re-read the target; do
 not blindly generate another key when a prior result is unknown. Failed or unknown
 publication keeps its durable operation for bounded recovery.
+
+Correcting storage configuration or a storage implementation does not change an
+existing terminal receipt. This includes a 503 stored by an earlier upload: an
+exact retry keeps that 503 without another Put or publication. After confirming a
+terminal failure, a new logical upload uses a new idempotency key and the current
+expected version; an unknown result still requires checking the original key.
 
 Upload-local errors use JSON, for example:
 

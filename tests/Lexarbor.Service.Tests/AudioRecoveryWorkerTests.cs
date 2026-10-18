@@ -314,7 +314,9 @@ public sealed class AudioRecoveryWorkerTests
         private async Task Call(string name) { Assert.Equal(0, Disposed); Calls.Add(name); Called.TrySetResult(); if (name == PauseAt) { PauseAt = null; Entered.TrySetResult(); await Finish.Task; } Assert.Equal(0, Disposed); }
         public async Task RemoveAsync(AudioObjectLocation location, CancellationToken token) { Assert.Equal(Options.Bucket, location.Bucket); await Call("remove"); }
         public async Task<AudioObjectInfo?> StatAsync(AudioObjectLocation location, CancellationToken token) { await Call("stat"); return null; }
-        public Task PutAsync(AudioObjectLocation location, Stream content, long length, string type, CancellationToken token) => throw new NotSupportedException();
+        public Task PutAsync(AudioObjectLocation location, Stream content, long length, string type, CancellationToken token)
+            => PutAsync(location, content, length, type, AudioUploadPurpose.Vocabulary, token);
+        public Task PutAsync(AudioObjectLocation location, Stream content, long length, string type, AudioUploadPurpose purpose, CancellationToken token) => throw new NotSupportedException();
         public Task<AudioPlaybackLink> GetPlaybackLinkAsync(AudioObjectLocation location, TimeSpan validity, CancellationToken token) => throw new NotSupportedException();
         public void Dispose() { Interlocked.Increment(ref Disposed); DisposedSignal.TrySetResult(); }
     }

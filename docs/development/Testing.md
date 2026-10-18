@@ -621,6 +621,20 @@ restore/build/test, formatting, full-solution vulnerability audit, startup mappi
 private S3 and container checks on the proposed head. A local missing Docker daemon
 or `pwsh` is recorded as an environment limit; actual PR CI must still run those checks.
 
+The content probe sets the vocabulary limit one byte below the valid MP3 fixture
+and the textbook limit exactly equal to it. Production HTTP, SQLite, runtime
+wrapping and the real S3 adapter must agree with the policy and return 200;
+Stat, original download bytes and complete PCM decoding verify the stored object.
+Textbook limit + 1 returns 413 without reserving an operation or object location,
+and an oversized vocabulary Put leaves no real object. Existing denied-write,
+restart, tighter-policy, recovery, published-history and vocabulary scenarios stay
+enabled. Terminal success and failure receipts replay after restart without
+reuploading. `AudioStorageTests` separately checks both relative limit orders,
+inclusive boundaries, source-options immutability, unknown-purpose rejection before
+network and the five-argument vocabulary compatibility call. Host tests cover both
+HTTP types, original current metadata, retained upload purposes during rotation
+and late IO, shared admission, and an old storage 503 replay after the fix.
+
 
 ### Textbook administrator playback
 

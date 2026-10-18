@@ -21,7 +21,9 @@ public sealed class AudioUnbindEndpointTests
         public int Puts;
         public Func<CancellationToken, Task>? BeforePut;
         public readonly Dictionary<string, byte[]> Objects = [];
-        public async Task PutAsync(AudioObjectLocation location, Stream input, long length, string type, CancellationToken token)
+        public Task PutAsync(AudioObjectLocation location, Stream input, long length, string type, CancellationToken token)
+            => PutAsync(location, input, length, type, AudioUploadPurpose.Vocabulary, token);
+        public async Task PutAsync(AudioObjectLocation location, Stream input, long length, string type, AudioUploadPurpose purpose, CancellationToken token)
         {
             Puts++;
             if (BeforePut != null) await BeforePut(token);
