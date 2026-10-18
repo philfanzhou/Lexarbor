@@ -18,6 +18,7 @@
     <PackageVersion Include="ServiceMantle.Persistence.Relational" Version="0.3.3" />
     <PackageVersion Include="ServiceMantle.Web" Version="0.3.3" />
     <PackageVersion Include="SignaCore.Client.AspNetCore" Version="0.1.16" />
+    <PackageVersion Include="System.Security.Cryptography.Xml" Version="10.0.13" />
     <PackageVersion Include="xunit.v3" Version="4.0.2" />
   </ItemGroup>
 </Project>
