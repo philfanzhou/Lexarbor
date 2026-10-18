@@ -54,6 +54,7 @@ try
     Console.WriteLine("Private S3 settings API save/upload/playback/disable/re-enable/recovery/restart passed.");
     await VerifyRuntimeUploadGenerationsAsync(options, bytes);
     await VerifyRuntimeRecoveryGenerationsAsync(options, bytes);
+    await TextbookRecoveryProbe.VerifyAsync(options, bytes);
     using var store = new S3AudioObjectStore(Options.Create(options), TimeProvider.System);
     Require(Mp3Validation.IsValid(bytes), "The uploaded fixture must contain complete MP3 frames.");
     using var databaseRoot = new ProbeDatabaseRoot();
@@ -194,11 +195,23 @@ static async Task VerifyRuntimeRecoveryGenerationsAsync(AudioOptions initial, by
     var locations = new List<AudioObjectLocation>();
     await using (var db = new VocabularyDbContext(dbOptions))
     {
-        await db.Database.MigrateAsync(); db.Vocabularies.Add(new() { Id = "recovery-word", Word = "tone" }); await db.SaveChangesAsync();
+        await db.Database.MigrateAsync(); db.Vocabularies.Add(new() { Id = "recovery-word", Word = "tone" });
+        db.VocabularyBooks.Add(new() { Id = "recovery-book", BookName = "Recovery" });
+        db.VocabularyBookUnits.Add(new() { Id = "recovery-unit", BookId = "recovery-book", Number = 1 });
+        db.TextbookAudioTracks.Add(new() { Id = "recovery-track", BookId = "recovery-book", UnitId = "recovery-unit", Title = "Recovery", Version = "11111111-1111-1111-1111-111111111111" });
+        await db.SaveChangesAsync();
         var repo = new AudioUploadRepository(db, clock);
         using var store = new S3AudioObjectStore(Options.Create(initial), TimeProvider.System);
         for (var i = 0; i < 3; i++)
         {
+            if (i == 1)
+            {
+                var text = (await new TextbookAudioUploadRepository(db, clock).ReserveAsync(new(Guid.NewGuid().ToString(), new string('b', 64), "recovery-book", "recovery-unit", "recovery-track",
+                    "11111111-1111-1111-1111-111111111111", 0.5, Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes)), bytes.Length, initial.Bucket), "crashed-textbook", 0, 300000, default)).Upload!;
+                locations.Add(text.Asset.Location);
+                using var textContent = new MemoryStream(bytes); await store.PutAsync(text.Asset.Location, textContent, bytes.Length, "audio/mpeg", default);
+                continue;
+            }
             var candidate = (await repo.ReserveAsync(new(Guid.NewGuid().ToString(), new string('a', 64), "recovery-word", null, AudioLocale.EnGb,
                 AudioSelectionService.ComputeRevision(AudioSelectionService.GetInput(new("recovery-word", "tone", null, null), null, AudioLocale.EnGb)),
                 null, Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes)), bytes.Length, initial.Bucket), "crashed-upload", 0, 300000, default)).Upload!;
@@ -212,6 +225,7 @@ static async Task VerifyRuntimeRecoveryGenerationsAsync(AudioOptions initial, by
     using var runtime = new AudioRuntimeConfiguration(Options.Create(options), stores);
     var services = new ServiceCollection(); services.AddScoped(_ => new VocabularyDbContext(dbOptions));
     services.AddScoped<IAudioUploadRepository>(sp => new AudioUploadRepository(sp.GetRequiredService<VocabularyDbContext>(), clock));
+    services.AddScoped<ITextbookAudioUploadRepository>(sp => new TextbookAudioUploadRepository(sp.GetRequiredService<VocabularyDbContext>(), clock));
     await using var provider = services.BuildServiceProvider();
     using var worker = new AudioRecoveryWorker(provider.GetRequiredService<IServiceScopeFactory>(), runtime, clock,
         Microsoft.Extensions.Logging.Abstractions.NullLogger<AudioRecoveryWorker>.Instance);
@@ -230,7 +244,8 @@ static async Task VerifyRuntimeRecoveryGenerationsAsync(AudioOptions initial, by
     while (true)
     {
         await using var db = new VocabularyDbContext(dbOptions);
-        if (await db.AudioUploadOperations.CountAsync(o => o.State == AudioUploadState.CleanupObserved) == 3) break;
+        if (await db.AudioUploadOperations.CountAsync(o => o.State == AudioUploadState.CleanupObserved)
+            + await db.TextbookAudioUploadOperations.CountAsync(o => o.State == AudioUploadState.CleanupObserved) == 3) break;
         Require(deadline.Elapsed < TimeSpan.FromSeconds(10), "Re-enabled recovery must observe the remaining real object.");
         await Task.Delay(20);
     }
@@ -238,7 +253,7 @@ static async Task VerifyRuntimeRecoveryGenerationsAsync(AudioOptions initial, by
     using var verify = new S3AudioObjectStore(Options.Create(initial), TimeProvider.System);
     foreach (var location in locations) Require(await verify.StatAsync(location, default) is null, "Runtime recovery must delete every known unpublished object.");
     Require(stores.Stores[3].Calls == 2, "Re-enable must use the rotated real client for the remaining bounded batch.");
-    Console.WriteLine("Private S3 disabled-start recovery, bounded old-generation cleanup, rotation and re-enable passed.");
+    Console.WriteLine("Private S3 mixed vocabulary/textbook disabled-start recovery, shared batch bound, old-generation cleanup, rotation and re-enable passed.");
     async Task Publish(AudioOptions candidate)
     {
         using var configuration = (ConfigurationRoot)new ConfigurationBuilder().AddJsonStream(new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(new { Audio = candidate }))).Build();

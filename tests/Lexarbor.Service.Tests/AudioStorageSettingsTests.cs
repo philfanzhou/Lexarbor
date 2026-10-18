@@ -6,10 +6,13 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using Lexarbor.Database;
+using Lexarbor.Database.Repositories;
+using Lexarbor.Domain.Repositories;
 using Lexarbor.Host;
 using Lexarbor.Host.Audio;
 using Lexarbor.Host.Configuration;
 using Lexarbor.Service.Tests.TestInfrastructure;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -404,6 +407,53 @@ public sealed class AudioStorageSettingsTests : IDisposable
         var saved = await Read(client); var bytes = File.ReadAllBytes(FilePath);
         Assert.Equal(HttpStatusCode.Conflict, (await Put(client, saved.Revision, """{"keyPrefix":"new/"}""")).StatusCode);
         Assert.Equal(bytes, File.ReadAllBytes(FilePath)); Assert.Equal(saved.Revision, (await Read(client)).Revision);
+    }
+
+    [Theory]
+    [InlineData("catalog")]
+    [InlineData("asset")]
+    [InlineData("reserved")]
+    [InlineData("transferring")]
+    [InlineData("published-history")]
+    public async Task TextbookOnlyRecords_GuardAllDestinationFieldsButAllowRotation(string kind)
+    {
+        using var factory = Factory(); using var client = Admin(factory); var initial = await Read(client);
+        Assert.Equal(HttpStatusCode.OK, (await Put(client, initial.Revision, Complete(false))).StatusCode);
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+            var version = Guid.NewGuid().ToString();
+            db.VocabularyBooks.Add(new() { Id = "textbook-only", BookName = "Only textbook" });
+            db.VocabularyBookUnits.Add(new() { Id = "textbook-unit", BookId = "textbook-only", Number = 1 });
+            db.TextbookAudioTracks.Add(new() { Id = "textbook-track", BookId = "textbook-only", UnitId = "textbook-unit", Title = "Track", Version = version });
+            await db.SaveChangesAsync(Ct); db.ChangeTracker.Clear();
+            var records = new AudioRecordExistenceRepository(db);
+            Assert.False(await records.HasAnyAsync(Ct));
+            if (kind != "catalog")
+            {
+                var repo = new TextbookAudioUploadRepository(db); var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                var request = new TextbookAudioUploadRequest(Guid.NewGuid().ToString(), new string('a', 64), "textbook-only", "textbook-unit", "textbook-track", version, 10, new string('b', 64), 128, "settings-test-bucket");
+                var upload = (await repo.ReserveAsync(request, "textbook-uploader", now, now + 300000, Ct)).Upload!;
+                if (kind is "transferring" or "published-history") await repo.BeginTransferAsync(request.IdempotencyKey, upload.Operation.UploadLease, now, Ct);
+                if (kind == "published-history")
+                {
+                    Assert.Equal(200, (await repo.CompleteAsync(request.IdempotencyKey, upload.Operation.UploadLease, now, Ct))!.Receipt!.StatusCode);
+                    await db.TextbookAudioTracks.ExecuteDeleteAsync(Ct); await db.VocabularyBookUnits.ExecuteDeleteAsync(Ct); await db.VocabularyBooks.ExecuteDeleteAsync(Ct);
+                }
+                if (kind == "asset") await db.TextbookAudioUploadOperations.ExecuteDeleteAsync(Ct);
+                Assert.True(await records.HasAnyAsync(Ct));
+            }
+            Assert.Empty(await db.AudioUploadOperations.ToListAsync(Ct)); Assert.Empty(await db.VocabularyAudioBindings.ToListAsync(Ct));
+        }
+        var state = await Read(client);
+        foreach (var json in new[] { """{"bucket":"changed-bucket"}""", """{"internalEndpoint":"http://127.0.0.1:10/"}""", """{"keyPrefix":"changed/"}""" })
+        {
+            var before = File.ReadAllBytes(FilePath);
+            Assert.Equal(kind == "catalog" ? HttpStatusCode.OK : HttpStatusCode.Conflict, (await Put(client, state.Revision, json)).StatusCode);
+            if (kind != "catalog") Assert.Equal(before, File.ReadAllBytes(FilePath));
+            state = await Read(client);
+        }
+        Assert.Equal(HttpStatusCode.OK, (await Put(client, state.Revision, """{"publicEndpoint":"https://rotated.example.test/","secretKey":{"action":"replace","value":"synthetic-settings-secret-marker"}}""")).StatusCode);
     }
 
     [Fact]

@@ -165,5 +165,6 @@ least 24 hours old, with no live upload lease and a due retry, can be conditiona
 claimed for cleanup. Cleanup uses its own owner/fence/expiry and keeps the original
 receipt. Observed deletion leaves a permanent tombstone for later rechecks; a late
 transfer cannot publish. Any asset ever marked published remains protected from
-automatic cleanup, even after replacement or removal. This boundary does not yet
-run a recovery worker or remove objects.
+automatic cleanup, even after replacement or removal. The shared recovery worker
+now processes textbook operations through these conditional methods; see
+[recovery and backups](../development/Deployment.md#failed-upload-recovery).

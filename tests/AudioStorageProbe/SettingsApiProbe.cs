@@ -187,6 +187,7 @@ internal static class SettingsApiProbe
             builder.Services.AddScoped(_ => new VocabularyDbContext(dbOptions));
             builder.Services.AddScoped<IAudioRecordExistenceRepository, AudioRecordExistenceRepository>();
             builder.Services.AddScoped<IAudioUploadRepository, AudioUploadRepository>();
+            builder.Services.AddScoped<ITextbookAudioUploadRepository, TextbookAudioUploadRepository>();
             builder.Services.AddScoped<IAudioReadRepository, AudioReadRepository>();
             builder.Services.AddScoped<IAudioPublicReadRepository, AudioReadRepository>();
             builder.Services.AddScoped<AudioAdminQueryService>();

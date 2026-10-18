@@ -553,3 +553,35 @@ for late transfers. No object-storage IO or HTTP upload is claimed by these test
 Run the normal Release restore/build/test, formatting and full-solution dependency
 audit, plus the required container build/smoke. Backend and container CI execute the
 new migration assertions on the actual PR head when local Docker is unavailable.
+
+### Textbook failed-upload recovery
+
+`TextbookAudioRecoveryTests` exercises actual SQLite operations with controlled
+storage: restart at reservation/transfer/publication, active leases and historical
+published assets, two-worker claims, writer access during blocked IO, deletion
+denial, failed Stat and objects still present, cancellation/timeouts with an
+uncooperative provider, capped persistent backoff, expired cleanup fences and a
+late Put at the retained tombstone key. Assertions retain the original terminal
+receipt and location. Mixed pronunciation/textbook queues test shared limits of
+one, two and three, stable order, fresh contexts after restart and empty queues.
+
+`AudioRecoveryWorkerTests` uses barriers for mixed batches, disable/re-enable,
+credential/public-address rotation and actual Remove/Stat completion after the
+batch has timed out or stopped. Its interval timer verifies alternating first
+types at batch size one and fresh scopes. `TextbookAudioDestinationTests` combines
+real SQLite records with a destination-check barrier: an active reference blocks
+a change before reservation, while a prepared destination blocks new references
+until publication. `AudioStorageSettingsTests` proves textbook-only pending and
+published history reject all three destination fields through HTTP, empty catalog
+metadata permits changes, and credential/public-address rotation remains valid.
+
+The private-S3 script retains all pronunciation scenarios and now runs
+`TextbookRecoveryProbe` using the internal repository, with real MP3 Put/Stat and
+denied Remove, persisted retry after reopening SQLite, late Put and recheck,
+immutable receipts, catalog removal and successful download from a historical
+backup. Its real recovery worker also uses a mixed batch across disable/rotation
+and re-enable. These are actual S3 assertions; cancellation, exact races and
+uncooperative calls remain controlled tests. Run Release restore/build/test,
+formatting, the full-solution dependency audit, private-S3 integration and the
+applicable container build/smoke on the current head. A missing local Docker
+daemon or PowerShell must be recorded separately from successful CI checks.

@@ -11,6 +11,7 @@ public sealed class AudioRecoveryWorker(IServiceScopeFactory scopes, AudioRuntim
     {
         // Host startup completes independently of storage availability.
         await Task.Yield();
+        var textbookFirst = false;
         try
         {
             while (!stoppingToken.IsCancellationRequested)
@@ -24,11 +25,14 @@ public sealed class AudioRecoveryWorker(IServiceScopeFactory scopes, AudioRuntim
                         try
                         {
                             await using var scope = scopes.CreateAsyncScope();
+                            var first = textbookFirst;
+                            textbookFirst = !textbookFirst;
                             var service = new AudioRecoveryService(scope.ServiceProvider.GetRequiredService<IAudioUploadRepository>(),
+                                scope.ServiceProvider.GetRequiredService<ITextbookAudioUploadRepository>(),
                                 new RecoveryStore(operation), new(true, snapshot.Bucket, snapshot.KeyPrefix, snapshot.RecoveryBatchSize,
                                     snapshot.OperationTimeoutSeconds, snapshot.RecoveryLeaseSeconds, snapshot.RecoveryRetrySeconds,
                                     snapshot.RecoveryMaxRetrySeconds, snapshot.RecoveryRecheckSeconds), clock);
-                            var result = await service.RunBatchAsync(stoppingToken);
+                            var result = await service.RunBatchAsync(stoppingToken, first);
                             if (result.Failed > 0) logger.LogWarning("Audio recovery will retry {Count} object operations.", result.Failed);
                         }
                         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
