@@ -5,6 +5,8 @@
     <PackageReference Include="Mapster" />
     <PackageReference Include="ServiceMantle.Database.Sqlite" />
     <PackageReference Include="ServiceMantle.Persistence.Relational" />
+    <!-- Set the security floor for ServiceMantle's transitive cryptography dependencies. -->
+    <PackageReference Include="System.Security.Cryptography.Xml" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Lexarbor.Domain\Lexarbor.Domain.csproj" />
