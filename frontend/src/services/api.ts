@@ -46,7 +46,7 @@ const safeMethods = new Set(['get', 'head', 'options', 'trace'])
 
 api.interceptors.request.use(async (config) => {
   if (!safeMethods.has((config.method ?? 'get').toLowerCase())) {
-    const token = await ensureCsrfToken(config.lxIsCurrent)
+    const token = await ensureCsrfToken(config.lxIsCurrent, config.signal)
     if (token) {
       config.headers.set('X-SignaCore-CSRF', token)
     }

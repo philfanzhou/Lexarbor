@@ -1,3 +1,4 @@
+import type { AxiosRequestConfig } from 'axios'
 import api from './api'
 
 /**
@@ -29,7 +30,7 @@ async function fetchToken(lxIsCurrent?: () => boolean): Promise<string | null> {
 }
 
 /** Returns the cached antiforgery token, fetching it once per token lifetime. */
-export function ensureCsrfToken(lxIsCurrent?: () => boolean): Promise<string | null> {
+export function ensureCsrfToken(lxIsCurrent?: () => boolean, signal?: AxiosRequestConfig['signal']): Promise<string | null> {
   // A completed token belongs to the browser cookie and remains reusable. An
   // in-flight fetch owned by an obsolete scope must neither redirect its
   // replacement nor make that replacement wait on an obsolete failure. Keep
@@ -45,7 +46,24 @@ export function ensureCsrfToken(lxIsCurrent?: () => boolean): Promise<string | n
       pendingIsCurrent = undefined
     })
   }
-  return tokenPromise
+  const pending = tokenPromise
+  if (!signal) return pending
+  // Cancel this consumer's wait immediately, even while the shared GET is
+  // still pending. Axios then sees the aborted write signal before dispatch;
+  // the shared cookie fetch remains usable by independent consumers.
+  return new Promise((resolve) => {
+    let settled = false
+    const complete = (token: string | null) => {
+      if (settled) return
+      settled = true
+      signal.removeEventListener?.('abort', onAbort)
+      resolve(token)
+    }
+    const onAbort = () => complete(null)
+    signal.addEventListener?.('abort', onAbort)
+    if (signal.aborted) onAbort()
+    void pending.then(complete)
+  })
 }
 
 /** Retires the cached token after the session it accompanied is gone. */

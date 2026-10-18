@@ -453,3 +453,22 @@ test('a deleted unit keeps the original draft and target until an explicit unit 
   expect(state.requests.at(-1)?.url.pathname).toContain('/units/second/')
   expect(writes(state)).toHaveLength(1)
 })
+
+test('cancel while awaiting CSRF gives immediate unknown feedback and never dispatches the write', async ({ page }) => {
+  const state = await setup(page)
+  let held: Route | undefined
+  await page.route('**/admin/auth/csrf', async route => { held = route; await new Promise<void>(() => {}) })
+  await open(page)
+  await page.getByRole('button', { name: '新增录音', exact: true }).click()
+  await fill(page, 'Canceled before dispatch')
+  await page.getByRole('button', { name: '保存', exact: true }).click()
+  await expect.poll(() => Boolean(held)).toBe(true)
+  await page.getByRole('button', { name: '取消等待（结果可能未知）' }).click()
+  await expect(page.getByRole('dialog')).toContainText('结果未知', { timeout: 2000 })
+  expect(writes(state)).toHaveLength(0)
+  await expect(page.getByRole('textbox', { name: '录音标题' })).toHaveValue('Canceled before dispatch')
+  await held?.fulfill({ contentType: 'application/json', body: '{"token":"synthetic-antiforgery-token"}' })
+  await page.waitForTimeout(100)
+  expect(writes(state)).toHaveLength(0)
+  await expect(page.getByRole('button', { name: '保存', exact: true })).toBeDisabled()
+})

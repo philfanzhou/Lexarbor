@@ -412,7 +412,7 @@ that another recording may be created. Confirmed writes followed by failed reads
 are reported separately; retry the read instead of repeating the write.
 
 All reads and writes use the current book/unit/page and session generation with
-abort signals, including authentication failures and loading cleanup. The shared CSRF fetch inherits the initiating write’s current-scope guard; a replacement write starts its own token fetch if the old fetch is still pending. A completed cookie-bound token remains reusable. Switching
+abort signals, including authentication failures and loading cleanup. The shared CSRF fetch inherits the initiating write’s current-scope guard; a replacement write starts its own token fetch if the old fetch is still pending. A completed cookie-bound token remains reusable. Canceling a write immediately ends that caller’s token wait without canceling the shared Cookie fetch; an aborted write is never dispatched when the token later arrives. Switching
 context, leaving the page or beginning logout discards its transient draft and
 invalidates requests immediately; canceling a request does not undo server work.
 Draft recovery after refresh is not promised. Writes use the shared session Cookie
