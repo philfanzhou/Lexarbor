@@ -14,6 +14,8 @@ public sealed record AudioRuntimeSnapshot
     public string KeyPrefix { get; init; } = "";
     public int PlaybackTtlSeconds { get; init; }
     public long MaxUploadBytes { get; init; }
+    public long MaxTextbookUploadBytes { get; init; }
+    public int MaxTextbookDurationSeconds { get; init; }
     public int MaxConcurrentUploads { get; init; }
     public int MaxQueuedUploads { get; init; }
     public int OperationTimeoutSeconds { get; init; }
@@ -35,6 +37,8 @@ public sealed record AudioRuntimeSnapshot
         KeyPrefix = options.KeyPrefix,
         PlaybackTtlSeconds = options.PlaybackTtlSeconds,
         MaxUploadBytes = options.MaxUploadBytes,
+        MaxTextbookUploadBytes = options.MaxTextbookUploadBytes,
+        MaxTextbookDurationSeconds = options.MaxTextbookDurationSeconds,
         MaxConcurrentUploads = options.MaxConcurrentUploads,
         MaxQueuedUploads = options.MaxQueuedUploads,
         OperationTimeoutSeconds = options.OperationTimeoutSeconds,

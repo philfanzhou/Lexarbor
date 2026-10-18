@@ -1158,6 +1158,8 @@ When `Audio:Enabled=true`, invalid local settings fail startup with a fixed Engl
 | `Audio:KeyPrefix` | `LEXARBOR_AUDIO_KEY_PREFIX` | `audio/`; 1–4 directory segments of lowercase letters/digits/hyphens, each 1–32 characters, each starting alphanumeric |
 | `Audio:PlaybackTtlSeconds` | `LEXARBOR_AUDIO_PLAYBACK_TTL_SECONDS` | `900`; 60–3600 |
 | `Audio:MaxUploadBytes` | `LEXARBOR_AUDIO_MAX_UPLOAD_BYTES` | `5242880` (5 MiB); 1–20971520 (20 MiB) |
+| `Audio:MaxTextbookUploadBytes` | `LEXARBOR_AUDIO_MAX_TEXTBOOK_UPLOAD_BYTES` | `67108864` (64 MiB); 1–134217728 (128 MiB) |
+| `Audio:MaxTextbookDurationSeconds` | `LEXARBOR_AUDIO_MAX_TEXTBOOK_DURATION_SECONDS` | `7200`; 1–14400 seconds of complete decoded PCM |
 | `Audio:MaxConcurrentUploads` | `LEXARBOR_AUDIO_MAX_CONCURRENT_UPLOADS` | `2`; 1–8 |
 | `Audio:MaxQueuedUploads` | `LEXARBOR_AUDIO_MAX_QUEUED_UPLOADS` | `8`; 0–8 |
 | `Audio:OperationTimeoutSeconds` | `LEXARBOR_AUDIO_OPERATION_TIMEOUT_SECONDS` | `60`; 1–120 per operation |
@@ -1351,10 +1353,9 @@ unchanged. See [catalog API](../api/TextbookAudio.md) and
 
 `AddTextbookAudioUploads` is an additive, automatic forward migration creating an
 empty textbook operation table. It retains every existing catalog, vocabulary,
-session, key, audit and pronunciation record. This release provides only the
-internal persistence boundary and bounded background recovery for textbook
-operations. No textbook upload or playback endpoint or new audio setting is
-enabled. Existing pronunciation upload semantics are unchanged. Textbook-only
+session, key, audit and pronunciation record. The internal persistence boundary and
+bounded background recovery support conditional textbook content upload. Textbook
+playback remains a separate feature. Existing pronunciation upload semantics are unchanged. Textbook-only
 assets and pending operations also block changes to internal endpoint, bucket or
 prefix; empty catalog metadata does not. Credential/public-address rotations use
 the existing generation references, including references held by actual provider
@@ -1370,3 +1371,35 @@ objects. Restore the matching backup to recover that history. The existing
 `migration.version_too_new` gate still rejects a newer schema in an older image;
 rolling back code alone does not roll back data. `/app/data` paths and permissions
 remain unchanged. See [internal persistence](../api/TextbookAudio.md#internal-conditional-upload-persistence).
+
+### Textbook content upload limits
+
+The [textbook content API](../api/TextbookAudio.md#conditionally-upload-or-replace-content)
+requires enabled private audio storage. Uploads use complete bounded Layer III
+validation and NLayer 3.0.0 decoding; no external codec is installed or invoked.
+`Audio:MaxTextbookUploadBytes` and `Audio:MaxTextbookDurationSeconds` are advanced
+settings requiring a process restart. They are copied into every runtime generation
+and cannot be changed by an online S3 settings save. Both remain validated while
+audio is disabled, so the administrator upload policy always reports bounded values.
+`scripts/start.sh` maps the two environment variables in the table above to their
+`Audio__...` settings without rewriting the persistent configuration file.
+
+Pronunciation and textbook upload requests share `MaxConcurrentUploads` and
+`MaxQueuedUploads` for reading, validation and transfer. Budget for bounded encoded
+file buffers per admitted request (up to 128 MiB each, with temporary copies during
+buffer growth), plus a fixed frame PCM buffer. Set reverse-proxy request limits to
+at least the configured file limit plus 64 KiB of multipart overhead, and suitable
+proxy timeouts; the server's endpoint-specific limit also handles chunked bodies.
+The default server duration counts decoder delay and padding; it can be longer than
+a gapless player's display. Tightening limits after restart affects new keys;
+matching old permanent receipts still use their original size/hash without redecoding.
+
+Content upload captures one configuration generation for its entire request.
+Disabling storage rejects new uploads; an admitted upload continues with its captured
+store. A timed-out provider cannot publish and retains its client and input stream
+until the actual IO ends. Failed or unknown submissions retain their durable operation
+for the existing recovery worker; keep the original request/key when establishing an
+unknown result. Publication starts unavailable and preserves title/order. Published
+historical objects are never automatically removed; continue backing up SQLite and
+the private audio bucket consistently. This HTTP feature adds no migration beyond
+`AddTextbookAudioUploads`; its rollback/backup gate still applies.
