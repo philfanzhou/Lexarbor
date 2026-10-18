@@ -529,3 +529,27 @@ compiled production Vue app; authentication is deliberately supplied by the
 disposable test harness and separately covered by full-Host tests. No secret
 traces/screenshots/request logs are captured. Existing low-level S3, concurrent
 client-generation, process-recovery, MIME/Range/expiry and MP3 assertions remain.
+
+### Textbook conditional upload persistence
+
+`TextbookAudioUploadMigrationTests` compares fresh/upgrade operation schema and
+all existing vocabulary, position, session, key, audit, pronunciation and catalog
+rows. It proves Down leaves old structures and shared assets intact, preserves the
+three catalog parent-delete guards, and exercises actual SQLite receipt, lease,
+version, duration, state, asset-FK and uniqueness constraints. The container smoke
+upgrade removes this new operation schema from a fixture, starts the real image,
+and checks its recreation plus retained catalog metadata, published asset and
+foreign-key integrity.
+
+`TextbookAudioUploadRepositoryTests` uses isolated SQLite files, independent
+connections and controlled time. It asserts one winner for concurrent old-version
+publication; metadata edit/availability/deletion between transfer and publication;
+permanent success/failure replay after replacement, parent deletion and restart;
+independent pronunciation keys; strict owner/fence/exclusive expiry; expired queued
+publication; cancellation while queued and completion after admission; rollback
+on injected save, receipt-write and commit failures; real SQLite writer ownership;
+and cleanup age/retry fencing, published-history protection and retained tombstones
+for late transfers. No object-storage IO or HTTP upload is claimed by these tests.
+Run the normal Release restore/build/test, formatting and full-solution dependency
+audit, plus the required container build/smoke. Backend and container CI execute the
+new migration assertions on the actual PR head when local Docker is unavailable.

@@ -450,8 +450,15 @@ import sys
 with sqlite3.connect(sys.argv[1]) as connection:
     columns = {row[1]: row[2] for row in connection.execute("PRAGMA table_info(admin_session)")}
     assert columns == {"handle_hash": "TEXT", "expires_at_unix_ms": "INTEGER", "protected_payload": "TEXT"}
+    assert connection.execute("SELECT COUNT(*) FROM textbook_audio_upload_operation").fetchone()[0] == 0
+    assert any(row[1] == "IX_textbook_audio_upload_operation_asset_id" and row[2] == 1 for row in connection.execute("PRAGMA index_list(textbook_audio_upload_operation)"))
+    assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
     assert connection.execute("SELECT COUNT(*) FROM admin_session").fetchone()[0] == 0
     assert any(row[1] == "IX_admin_session_expires_at_unix_ms_handle_hash" for row in connection.execute("PRAGMA index_list(admin_session)"))
+    # Exercise this additive persistence upgrade through the actual container startup.
+    # Historical textbook metadata and the shared published asset must survive.
+    connection.execute("DROP TABLE textbook_audio_upload_operation")
+    connection.execute("DELETE FROM __EFMigrationsHistory WHERE MigrationId LIKE '%_AddTextbookAudioUploads'")
     connection.execute("DROP TABLE admin_session")
     connection.execute("DELETE FROM __EFMigrationsHistory WHERE MigrationId LIKE '%_AddAdminSessions'")
     # A pre-key-repository database also predates the ServiceMantle key table;
@@ -461,7 +468,10 @@ with sqlite3.connect(sys.argv[1]) as connection:
     connection.execute("DELETE FROM __EFMigrationsHistory WHERE MigrationId LIKE '%_AddServiceDataProtectionKeys'")
     connection.execute("INSERT INTO vocabulary_book (id, book_name, display_order, status, created_at, updated_at) VALUES ('retained-book', 'Retained book', 0, 1, '2026-01-01', '2026-01-01')")
     connection.execute("INSERT INTO vocabulary (id, word, created_at, updated_at) VALUES ('retained-word', 'Retained Word', '2026-01-01', '2026-01-01')")
-    snapshot = {table: connection.execute(f"SELECT * FROM {table}").fetchall() for table in ("vocabulary_book", "vocabulary")}
+    connection.execute("INSERT INTO vocabulary_book_unit (id,book_id,number,created_at,updated_at) VALUES ('retained-unit','retained-book',1,'2026-01-01','2026-01-01')")
+    connection.execute("INSERT INTO audio_asset (id,bucket,object_key,sha256,byte_length,content_type,created_at_unix_ms,first_published_at_unix_ms) VALUES ('retained-asset','test-audio','audio/retained.mp3',?,128,'audio/mpeg',1,2)", ('0' * 64,))
+    connection.execute("INSERT INTO textbook_audio_track (id,book_id,unit_id,title,display_order,current_asset_id,duration_seconds,is_available,version) VALUES ('retained-track','retained-book','retained-unit','Retained track',3,'retained-asset',42,1,'11111111-1111-1111-1111-111111111111')")
+    snapshot = {table: connection.execute(f"SELECT * FROM {table}").fetchall() for table in ("vocabulary_book", "vocabulary", "vocabulary_book_unit", "audio_asset", "textbook_audio_track")}
     with open(sys.argv[2], "w", encoding="utf-8") as output:
         json.dump(snapshot, output)
 PYSQL
@@ -478,6 +488,9 @@ with sqlite3.connect(sys.argv[1]) as connection:
         before = json.load(source)
     for table, rows in before.items():
         assert [list(row) for row in connection.execute(f"SELECT * FROM {table}")] == rows
+    assert connection.execute("SELECT COUNT(*) FROM textbook_audio_upload_operation").fetchone()[0] == 0
+    assert any(row[1] == "IX_textbook_audio_upload_operation_asset_id" and row[2] == 1 for row in connection.execute("PRAGMA index_list(textbook_audio_upload_operation)"))
+    assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
     assert connection.execute("SELECT COUNT(*) FROM admin_session").fetchone()[0] == 0
     assert any(row[1] == "IX_admin_session_expires_at_unix_ms_handle_hash" for row in connection.execute("PRAGMA index_list(admin_session)"))
 PYSQL

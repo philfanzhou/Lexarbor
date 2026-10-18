@@ -1337,3 +1337,22 @@ required to run a newer schema: `migration.version_too_new` still refuses it. A
 code rollback alone does not restore data. Paths and `/app/data` permissions are
 unchanged. See [catalog API](../api/TextbookAudio.md) and
 [database constraints](../database/README.md#textbook-audio-catalog).
+
+### Textbook upload persistence upgrade
+
+`AddTextbookAudioUploads` is an additive, automatic forward migration creating an
+empty textbook operation table. It retains every existing catalog, vocabulary,
+session, key, audit and pronunciation record. This release provides only the
+internal persistence boundary: no textbook upload endpoint, background object
+removal or new audio setting is enabled. Existing audio behavior is unchanged.
+
+Keep textbook operation receipts and cleanup tombstones permanently with shared
+assets. Back up SQLite, its matching root key and the private audio bucket
+consistently; replacement or track/parent removal does not authorize deleting
+previously published files. Stop writes and take a consistent backup before an
+explicit Down. Down removes only the new operation structure and loses replay and
+cleanup history, retaining shared assets/current catalog references and physical
+objects. Restore the matching backup to recover that history. The existing
+`migration.version_too_new` gate still rejects a newer schema in an older image;
+rolling back code alone does not roll back data. `/app/data` paths and permissions
+remain unchanged. See [internal persistence](../api/TextbookAudio.md#internal-conditional-upload-persistence).
