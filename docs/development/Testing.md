@@ -743,6 +743,37 @@ aria-live, axe WCAG 2.1 A/AA and document overflow are checked at 1440 and 768px
 
 These mocks establish browser request/recovery behavior, not real S3 publication,
 server transactions or a real identity provider. Existing same-head Private audio
-storage CI retains the actual production upload/receipt/S3 tests. The subsequent
-single-player slice owns the complete browser upload-to-real-S3 listening flow;
-these tests do not claim that integration is already available.
+storage CI retains the actual production upload/receipt/S3 tests. The complete
+browser upload-to-real-S3 listening flow is described below and remains separate
+from these controlled HTTP tests.
+
+### Administrator textbook preview and complete webpage flow
+
+`frontend/e2e/textbook-preview.spec.ts` uses controlled HTTP responses and a real
+legal MP3 fixture. Chromium actually decodes that fixture; deterministic media
+fixtures separately exercise expired links, one renewal for media/play failures,
+autoplay refusal, malformed three-field responses, no-file/disabled/failed-policy
+states, current 401/403 and recoverable 404/503. It verifies one player, stop/ended
+cleanup, captured late media callbacks and play promises, late signatures across
+context/mutation/logout boundaries, unknown-upload leave cancellation, no persistent
+signatures, keyboard/focus/live feedback, axe WCAG 2.1 A/AA and no page overflow at
+1440 and 768px. The existing word-preview, catalog, upload and hosted-login tests
+remain regression coverage. HTTP mocks do not prove S3 publication or real identity.
+
+`test-audio-storage.sh` also runs `.github/scripts/test-textbook-browser.mjs` through
+`SettingsApiProbe`, using the compiled production Vue application and actual
+catalog/unit/content/policy/playback mappers, SQLite, audio runtime and disposable
+private S3/proxy. From a disabled book with a unit and no words, the browser creates
+two tracks, selects/uploads the legal MP3 twice, observes unavailable publication,
+decodes both administrator previews in Chromium, explicitly enables/orders/disables,
+replaces a file, checks its changed version and reset availability, previews again,
+then removes both tracks. Read-back checks the real catalog; the host also verifies
+that SQLite has no remaining tracks. All media sources/handlers and Web Storage are
+checked on completion. The browser asserts write CSRF headers without mocking
+business responses. Private audio storage CI executes this new chain on the PR head.
+
+This harness injects an isolated administrator and synthetic CSRF endpoint. Full
+Host tests separately verify session/role/CSRF enforcement; this is not a real IdP
+or production-resource acceptance test. No signed URLs, secrets, traces or screenshots
+are emitted by the S3 browser script. Local environments without Docker must use
+the same-head Private audio storage CI result for actual S3 evidence.

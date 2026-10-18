@@ -20,3 +20,13 @@ void getTextbookAudioUploadPolicy('book', 'unit', config)
 attempt.expectedVersion = 'another-version'
 // @ts-expect-error An upload requires the original File, not a storage URL.
 createTextbookUploadAttempt('book', 'unit', 'track', 'version', 'https://example.test/audio.mp3')
+
+import { getTextbookAudioPlayback, type TextbookAudioPlayback } from '@/services/textbookAudioApi'
+import { readTextbookAudioPlayback } from '@/services/textbookAudioPreview'
+const playback: Promise<unknown> = getTextbookAudioPlayback('book', 'unit', 'track', config)
+const validated: TextbookAudioPlayback = readTextbookAudioPlayback({}, 'track')
+void playback
+void validated
+// @ts-expect-error Textbook links have no pronunciation locale or revision contract.
+const pronunciation: import('@/services/adminAudioApi').AudioPlayback = validated
+void pronunciation

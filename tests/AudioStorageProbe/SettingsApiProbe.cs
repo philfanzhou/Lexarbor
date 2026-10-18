@@ -1,18 +1,23 @@
+using System.Diagnostics;
+using System.Net;
+using System.Net.Http.Json;
+using System.Security.Claims;
+using System.Text.Json;
+using Lexarbor.Database;
 using Lexarbor.Database.Entities;
 using Lexarbor.Database.Repositories;
-using Lexarbor.Database;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 using Lexarbor.Domain.Services;
+using Lexarbor.Host;
 using Lexarbor.Host.Audio;
 using Lexarbor.Host.Configuration;
 using Lexarbor.Host.RateLimiting;
-using Lexarbor.Host;
 using Lexarbor.Service;
 using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting.Server.Features;
-using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
@@ -21,13 +26,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using ServiceMantle.Web.Management;
 using ServiceMantle;
-using System.Diagnostics;
-using System.Net.Http.Json;
-using System.Net;
-using System.Security.Claims;
-using System.Text.Json;
+using ServiceMantle.Web.Management;
 
 // Production settings/upload/query/playback/recovery paths with disposable real S3.
 // Authentication/CSRF/security-header cases use the complete Host in service tests.
@@ -48,6 +48,8 @@ internal static class SettingsApiProbe
                 db.Vocabularies.Add(new() { Id = "settings-word", Word = "tone" });
                 db.VocabularyBooks.Add(new() { Id = "settings-book", BookName = "Settings", Status = true });
                 db.VocabularyMeanings.Add(new() { Id = "settings-meaning", VocabularyId = "settings-word", BookId = "settings-book", Meaning = "tone" });
+                db.VocabularyBooks.Add(new() { Id = "recording-book", BookName = "Recording browser", Status = false });
+                db.VocabularyBookUnits.Add(new() { Id = "recording-unit", BookId = "recording-book", Number = 1, Title = "No words" });
                 await db.SaveChangesAsync();
             }
             string assetId;
@@ -90,6 +92,10 @@ internal static class SettingsApiProbe
                 stage = "administrator/public playback";
                 await host.PlayAsync(mp3);
                 await host.BrowserAsync("playback", options);
+                stage = "actual textbook webpage create/upload/replace/preview/publish/order/remove";
+                await host.BrowserAsync("textbook", options);
+                await using (var catalogDb = new VocabularyDbContext(dbOptions))
+                    Check(!await catalogDb.TextbookAudioTracks.AnyAsync(track => track.BookId == "recording-book"), "Browser removal must leave no textbook tracks in SQLite.");
                 stage = "destination guard";
                 var before = await host.ReadAsync();
                 using var conflict = await host.SendSaveAsync(before.Revision, new { bucket = "other-bucket" });
@@ -188,6 +194,18 @@ internal static class SettingsApiProbe
             builder.Services.AddScoped<IAudioRecordExistenceRepository, AudioRecordExistenceRepository>();
             builder.Services.AddScoped<IAudioUploadRepository, AudioUploadRepository>();
             builder.Services.AddScoped<ITextbookAudioUploadRepository, TextbookAudioUploadRepository>();
+            builder.Services.AddScoped<ITextbookAudioUploadOperationFactory, TextbookAudioUploadOperationFactory>();
+            builder.Services.AddSingleton<ITextbookMp3Validator, TextbookMp3Validator>();
+            builder.Services.AddScoped<ITextbookAudioPlaybackReadRepository, TextbookAudioPlaybackReadRepository>();
+            builder.Services.AddScoped<ITextbookAudioPlaybackOperationFactory, TextbookAudioPlaybackOperationFactory>();
+            builder.Services.AddScoped<ITextbookAudioTrackRepository, TextbookAudioTrackRepository>();
+            builder.Services.AddScoped<TextbookAudioTrackService>();
+            builder.Services.AddScoped<IVocabularyBookRepository, VocabularyBookRepository>();
+            builder.Services.AddScoped<IVocabularyMeaningRepository, VocabularyMeaningRepository>();
+            builder.Services.AddScoped<IVocabularyBookUnitRepository, VocabularyBookUnitRepository>();
+            builder.Services.AddScoped<IVocabularyMeaningUnitRepository, VocabularyMeaningUnitRepository>();
+            builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
+            builder.Services.AddScoped<VocabularyBookUnitDomainService>();
             builder.Services.AddScoped<IAudioReadRepository, AudioReadRepository>();
             builder.Services.AddScoped<IAudioPublicReadRepository, AudioReadRepository>();
             builder.Services.AddScoped<AudioAdminQueryService>();
@@ -219,6 +237,7 @@ internal static class SettingsApiProbe
             app.MapGet("/admin/vocabulary-books", () => Results.Json(new { success = true, data = new { items = Array.Empty<object>(), totalCount = 0, totalPage = 0 } }));
             app.MapGet("/api/settings-probe", () => Results.Ok()).RequireRateLimiting(RateLimitingExtensions.PublicApiPolicy);
             app.MapVocabularyAdminQueryEndpoints();
+            app.MapVocabularyBookUnitEndpoints(); app.MapTextbookAudioTrackEndpoints(); app.MapTextbookAudioUploadEndpoints(); app.MapTextbookAudioPlaybackEndpoints();
             app.UseSystemSettingsNoStore(); app.UseAuthorization(); app.MapSystemSettingsEndpoints();
             app.MapAudioUploadEndpoints(); app.MapAudioAdminQueryEndpoints(); app.MapAudioAdminPlaybackEndpoints(); app.MapAudioPublicPlaybackEndpoints(RateLimitingExtensions.PublicApiPolicy);
             await app.StartAsync();
@@ -229,7 +248,7 @@ internal static class SettingsApiProbe
         {
             var repository = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../"));
             var start = new ProcessStartInfo("node") { WorkingDirectory = repository, RedirectStandardOutput = true, RedirectStandardError = true };
-            start.ArgumentList.Add(Path.Combine(repository, ".github/scripts/test-settings-browser.mjs"));
+            start.ArgumentList.Add(Path.Combine(repository, mode == "textbook" ? ".github/scripts/test-textbook-browser.mjs" : ".github/scripts/test-settings-browser.mjs"));
             start.ArgumentList.Add(client.BaseAddress!.ToString()); start.ArgumentList.Add(mode);
             start.Environment["LEXARBOR_S3_TEST_INTERNAL"] = options.InternalEndpoint;
             start.Environment["LEXARBOR_S3_TEST_PUBLIC"] = options.PublicEndpoint;
