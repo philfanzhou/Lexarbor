@@ -387,7 +387,9 @@ static async Task VerifyRecoveryAsync(VocabularyDbContext db, string databasePat
     var candidate = (await liveRepository.ReserveAsync(request, "crashed-upload", created, created + 300000, default)).Upload!;
     await liveRepository.BeginTransferAsync(request.IdempotencyKey, candidate.Operation.UploadLease, created, default);
     using (var stream = new MemoryStream(bytes)) await store.PutAsync(candidate.Asset.Location, stream, bytes.Length, "audio/mpeg", default);
-    var clock = new RecoveryProbeClock { Now = created + 86400001 };
+    // Reserve refreshes its timestamp after writer admission. Base retention on
+    // the durable timestamp, not the earlier caller clock (even a 2 ms delay matters).
+    var clock = new RecoveryProbeClock { Now = candidate.Operation.CreatedAtUnixMs + 86400001 };
     // A fresh context/coordinator models restart: no upload process memory is reused.
     await using var restarted = new VocabularyDbContext(new DbContextOptionsBuilder<VocabularyDbContext>()
         .UseSqlite($"Data Source={databasePath};Pooling=False").Options);
