@@ -18,6 +18,26 @@ This document describes the structure, coverage, and conventions of the `Lexarbo
 - Mapster 10.0.12 (dependency of the DTO mapping extensions)
 - Microsoft.Testing.Extensions.CodeCoverage 18.10.0
 
+## Dependency vulnerability audit
+
+After restoring dependencies, audit the entire solution, including both direct and
+transitive packages:
+
+```bash
+dotnet restore Lexarbor.sln
+dotnet list Lexarbor.sln package --vulnerable --include-transitive --format json
+```
+
+Review every project in the result. A clean audit of only `Lexarbor.Host` does not
+cover packages resolved by the database or test projects. CI runs
+[`assert-no-vulnerable-dotnet-packages.ps1`](../../.github/scripts/assert-no-vulnerable-dotnet-packages.ps1)
+with PowerShell and fails if the query fails or any project reports a vulnerable
+direct or transitive package. Run the same check locally when PowerShell is available:
+
+```powershell
+./.github/scripts/assert-no-vulnerable-dotnet-packages.ps1
+```
+
 ## How tests are executed
 
 Tests run on **Microsoft.Testing.Platform** (MTP) rather than the older VSTest — the .NET 10
