@@ -1247,6 +1247,14 @@ Keep S3 objects and a consistent SQLite backup together. Published objects are r
 When audio is enabled, a background worker starts after database initialization and
 runs one bounded batch immediately, then waits the configured interval after every
 batch, including failures. Audio disabled means no recovery database or S3 calls.
+Pronunciation and textbook operations share `RecoveryBatchSize` as a total
+processing limit. Each type reads at most that many candidates; the worker
+alternates types and the first type of successive batches, so a batch size of one
+does not starve either queue. Empty queues leave capacity to the other type.
+Each batch uses a fresh database scope and one captured configuration/client;
+disablement stops new batches while an already started batch finishes on its
+original generation. Continuous process restarts do not guarantee a fairness
+deadline.
 Storage outage never stops the host or its existing health/business routes; logs
 contain only fixed messages and counts, without provider exceptions, keys, URLs or
 credentials. The worker shares the upload repository's conditional state transitions,
@@ -1266,7 +1274,8 @@ Shutdown cancels network waits; incomplete claims expire and are recovered after
 restart. A stale worker cannot publish or change another owner's cleanup result.
 
 Before restoring SQLite, pause Lexarbor and preserve both the database (including
-all audio assets and upload-operation recovery records) and the private S3 bucket.
+all shared audio assets, pronunciation operations and permanent
+`textbook_audio_upload_operation` records) and the private S3 bucket.
 Restore a consistent database backup, keep its original bucket/prefix configuration,
 and restart the new service; pending operations resume from their persisted leases
 and retry times. Published objects remain readable from historical backups even
@@ -1343,8 +1352,13 @@ unchanged. See [catalog API](../api/TextbookAudio.md) and
 `AddTextbookAudioUploads` is an additive, automatic forward migration creating an
 empty textbook operation table. It retains every existing catalog, vocabulary,
 session, key, audit and pronunciation record. This release provides only the
-internal persistence boundary: no textbook upload endpoint, background object
-removal or new audio setting is enabled. Existing audio behavior is unchanged.
+internal persistence boundary and bounded background recovery for textbook
+operations. No textbook upload or playback endpoint or new audio setting is
+enabled. Existing pronunciation upload semantics are unchanged. Textbook-only
+assets and pending operations also block changes to internal endpoint, bucket or
+prefix; empty catalog metadata does not. Credential/public-address rotations use
+the existing generation references, including references held by actual provider
+IO that outlives a timeout. No bucket scan or unreferenced-object purge is added.
 
 Keep textbook operation receipts and cleanup tombstones permanently with shared
 assets. Back up SQLite, its matching root key and the private audio bucket

@@ -354,14 +354,17 @@ batch-import, authentication, HTTP routes, or automatic startup migration policy
 ## Failed-upload recovery execution
 
 `AudioRecoveryService` and the host's `AudioRecoveryWorker` execute the existing
-conditional transitions above. There is no extra schema migration or alternate
+conditional transitions above for both pronunciation and textbook operations.
+The narrow adapters carry recovery facts only, preserving each protocol's own
+targets and permanent receipts. There is no extra schema migration or alternate
 state machine. The worker uses a fresh scoped SQLite context for each bounded batch;
 Remove/Stat run only after a successful database cleanup claim, outside write
 transactions. Configuration defaults, retry intervals and restoration steps are in
 [deployment recovery](../development/Deployment.md#failed-upload-recovery).
 
-Never prune `audio_asset` or `audio_upload_operation` merely because no current
-binding references them. First-publication stamps permanently prevent automatic
+Never prune `audio_asset`, `audio_upload_operation` or
+`textbook_audio_upload_operation` merely because no current binding or catalog
+track references them. First-publication stamps permanently prevent automatic
 physical deletion, preserving objects referenced by historical SQLite backups.
 CleanupObserved retains the original immutable failure receipt and object location
 and schedules another check even after a successful Remove, covering late remote
@@ -369,6 +372,15 @@ writes. A restart expires abandoned upload/cleanup leases conditionally and resu
 persisted retries; it does not rebind an old request, scan S3, clear a bucket or delete
 published objects. Preserve these tables and the private bucket together when
 backing up or restoring the database.
+
+Each type queries at most `RecoveryBatchSize` candidates in stable creation/key
+order. Processing alternates between types under one shared batch limit; an empty
+type gives its unused capacity to the other. The worker alternates the first type
+between batches, including a batch size of one. Fairness holds during normal
+process execution; repeated crashes do not promise a completion deadline. A fresh
+context and one runtime reference cover each batch. Shared assets also ensure
+that textbook-only pending operations and published history protect the configured
+storage destination; empty catalog metadata alone does not.
 
 ## Textbook audio catalog
 

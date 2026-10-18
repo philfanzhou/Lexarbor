@@ -9,29 +9,56 @@ public sealed record AudioRecoverySettings(bool Enabled, string Bucket, string K
 public sealed record AudioRecoveryResult(int Examined, int Expired, int Observed, int Failed);
 
 /// <summary>Reclaims only database-authorized never-published objects. Tombstones and receipts are permanent.</summary>
-public sealed class AudioRecoveryService(IAudioUploadRepository repository, IAudioObjectStore store,
-    AudioRecoverySettings settings, TimeProvider clock)
+public sealed class AudioRecoveryService
 {
-    public async Task<AudioRecoveryResult> RunBatchAsync(CancellationToken cancellationToken)
+    private readonly RecoverySource[] sources;
+    private readonly IAudioObjectStore store;
+    private readonly AudioRecoverySettings settings;
+    private readonly TimeProvider clock;
+
+    public AudioRecoveryService(IAudioUploadRepository repository, IAudioObjectStore store,
+        AudioRecoverySettings settings, TimeProvider clock) : this([new VocabularyRecoverySource(repository)], store, settings, clock) { }
+
+    public AudioRecoveryService(ITextbookAudioUploadRepository repository, IAudioObjectStore store,
+        AudioRecoverySettings settings, TimeProvider clock) : this([new TextbookRecoverySource(repository)], store, settings, clock) { }
+
+    public AudioRecoveryService(IAudioUploadRepository vocabulary, ITextbookAudioUploadRepository textbook,
+        IAudioObjectStore store, AudioRecoverySettings settings, TimeProvider clock)
+        : this([new VocabularyRecoverySource(vocabulary), new TextbookRecoverySource(textbook)], store, settings, clock) { }
+
+    private AudioRecoveryService(RecoverySource[] sources, IAudioObjectStore store, AudioRecoverySettings settings, TimeProvider clock)
+    { this.sources = sources; this.store = store; this.settings = settings; this.clock = clock; }
+    public async Task<AudioRecoveryResult> RunBatchAsync(CancellationToken cancellationToken, bool textbookFirst = false)
     {
         if (!settings.Enabled) return new(0, 0, 0, 0);
-        var candidates = await repository.FindRecoverableAsync(Now(), settings.BatchSize, cancellationToken);
+        // Each query is independently bounded. Materialize both before IO, then spend
+        // one shared processing budget, alternating types without changing their order.
+        var queues = new Queue<RecoveryUpload>[sources.Length];
+        for (var i = 0; i < sources.Length; i++)
+            queues[i] = new(await sources[i].FindAsync(Now(), settings.BatchSize, cancellationToken));
+        var candidates = new List<(RecoverySource Repository, RecoveryUpload Upload)>();
+        var turn = textbookFirst && sources.Length > 1 ? 1 : 0;
+        while (candidates.Count < settings.BatchSize && queues.Any(q => q.Count > 0))
+        {
+            if (queues[turn].TryDequeue(out var upload)) candidates.Add((sources[turn], upload));
+            turn = (turn + 1) % queues.Length;
+        }
         var expired = 0; var observed = 0; var failed = 0;
-        foreach (var candidate in candidates)
+        foreach (var (repository, candidate) in candidates)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var key = candidate.Operation.IdempotencyKey;
-            if (candidate.Operation.State is AudioUploadState.Reserved or AudioUploadState.Transferring)
+            var key = candidate.Key;
+            if (candidate.State is AudioUploadState.Reserved or AudioUploadState.Transferring)
             {
                 if (await repository.ExpireAsync(key, Now(), cancellationToken)) expired++;
             }
-            else if (candidate.Operation.State == AudioUploadState.CleanupClaimed)
+            else if (candidate.State == AudioUploadState.CleanupClaimed)
             {
-                if (await repository.ExpireCleanupAsync(key, Now(), RetryAt(candidate.Operation.Cleanup.Attempts), cancellationToken)) expired++;
+                if (await repository.ExpireCleanupAsync(key, Now(), RetryAt(candidate.Cleanup.Attempts), cancellationToken)) expired++;
                 continue;
             }
             var now = Now();
-            var claim = await repository.ClaimCleanupAsync(key, Guid.NewGuid().ToString(), now,
+            var claim = await repository.ClaimAsync(key, Guid.NewGuid().ToString(), now,
                 now + settings.LeaseSeconds * 1000L, cancellationToken);
             if (claim == null) continue;
             // Never infer eligibility from a missing binding or scan a bucket. The
@@ -45,7 +72,7 @@ public sealed class AudioRecoveryService(IAudioUploadRepository repository, IAud
                 var remaining = await store.StatAsync(claim.Asset.Location, deadline.Token).WaitAsync(deadline.Token);
                 deadline.Token.ThrowIfCancellationRequested();
                 if (remaining != null) throw new InvalidOperationException("Audio cleanup was not observed.");
-                if (await repository.ObserveCleanupAsync(key, claim.Operation.Cleanup.Lease, Now(),
+                if (await repository.ObserveAsync(key, claim.Cleanup.Lease, Now(),
                     Now() + settings.RecheckSeconds * 1000L, cancellationToken)) observed++;
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -58,8 +85,8 @@ public sealed class AudioRecoveryService(IAudioUploadRepository repository, IAud
             {
                 // No provider error, URL, endpoint or credential crosses this boundary.
                 failed++;
-                await repository.ReleaseCleanupAsync(key, claim.Operation.Cleanup.Lease, Now(),
-                    RetryAt(claim.Operation.Cleanup.Attempts), "audio.cleanup_failed", cancellationToken);
+                await repository.ReleaseAsync(key, claim.Cleanup.Lease, Now(),
+                    RetryAt(claim.Cleanup.Attempts), "audio.cleanup_failed", cancellationToken);
             }
         }
         return new(candidates.Count, expired, observed, failed);
