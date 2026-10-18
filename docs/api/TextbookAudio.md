@@ -7,8 +7,8 @@ bindings and their accents and `sourceRevision`.
 
 Administrators can manage catalog metadata and conditionally upload or replace MP3
 content. Metadata management works with `Audio:Enabled=false` and without S3; it
-makes no object-storage calls. Administrator preview, public playback and a
-management webpage are separate features.
+makes no object-storage calls. Administrators can request short-lived preview links
+for uploaded tracks. Public textbook playback and a management webpage are separate features.
 
 ## Authentication and responses
 
@@ -40,7 +40,7 @@ exactly these fields:
 IDs in paths are opaque nonempty strings, trimmed before lookup; existing book and
 unit IDs need not be UUIDs. `version` is a server-generated canonical lowercase UUID
 D string, used only for exact comparison. It is separate from pronunciation source
-revisions. No DTO exposes asset IDs, object keys, buckets, signed URLs or credentials.
+revisions. Catalog DTOs expose no asset IDs, object keys, buckets, signed URLs or credentials.
 `hasFile` describes a current reference, not successful object storage access.
 
 ## List tracks
@@ -245,6 +245,49 @@ URLs are not included in upload responses or logs. Cancellation before reservati
 creates no operation; after reservation the operation keeps its original failure
 receipt or an expiring lease. An unknown commit may have succeeded: replay the
 original request to establish its result.
+
+## Administrator playback
+
+`GET /admin/vocabulary-books/{bookId}/units/{unitId}/audio-tracks/{trackId}/playback`
+
+This read requires the configured administrator role; Cookie GET needs no CSRF
+pair and Bearer credentials retain priority. It permits disabled books, empty books
+and tracks with `isAvailable=false`. Those administrator permissions do not grant
+public playback. Path IDs are trimmed opaque nonempty strings; whitespace is 400.
+
+Success is HTTP 200 with exactly these three `data` fields:
+
+```json
+{"success":true,"data":{"trackId":"track-id","url":"https://audio.example.test/short-lived-signed-link","expiresAt":"2026-10-18T04:00:00+00:00"}}
+```
+
+One deferred SQLite read snapshot checks book, unit ownership, track ownership and
+the current published asset, in that order. Missing book/unit/track or no published
+current file returns 404; an existing unit under another book, or track under
+another book/unit, returns 409. SQLite busy/locked during connection opening,
+transaction setup, reads or commit returns safe 503 with `Retry-After: 1`.
+The transaction and connection close before any storage call. The service checks
+that captured object once and signs that same object once; a concurrent replacement
+or catalog/parent deletion cannot change selection or hold a SQLite transaction
+across network IO. There is no fallback to another recording.
+
+Audio must be enabled. Disabled storage returns 503
+`{"success":false,"message":"Audio storage is disabled."}`. A missing object,
+provider denial/failure or operation deadline returns 503 with the fixed message
+`Audio storage is unavailable.`. These failures never return an empty success,
+provider detail, object key, bucket or credentials. Caller cancellation stops waiting.
+All successful and failed responses retain `no-store` and administrator security
+headers, including authorization, routing and exception responses.
+
+Links use the captured `Audio:PlaybackTtlSeconds` and `Audio:OperationTimeoutSeconds`;
+`expiresAt` is UTC. An entire request retains one runtime generation, and a provider
+call that ignores cancellation keeps its original client alive until the real call
+ends. Disabling audio rejects new requests; captured requests follow their original
+generation. Fetch a fresh link for each playback, retry after expiry/failure, and
+keep it only in the current playback scope. Never log it or persist it in analytics,
+local storage or session storage. Removing a track, changing availability or disabling
+a book does not immediately revoke an already signed link. This endpoint returns a
+link, not proxied audio bytes, and does not introduce student identities.
 
 ## Internal conditional upload persistence
 
