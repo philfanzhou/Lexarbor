@@ -1,3 +1,4 @@
+using Lexarbor.Domain.Exceptions;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 
@@ -13,6 +14,30 @@ public sealed class TextbookAudioPlaybackService(ITextbookAudioPlaybackReadRepos
     {
         // Complete the read transaction before starting any provider I/O.
         var snapshot = await repository.GetAdminSnapshotAsync(bookId, unitId, trackId, cancellationToken);
+        return await SignAsync(snapshot, cancellationToken);
+    }
+
+    public Task<TextbookAudioTrackPage> ListPublicAsync(string bookId, string unitId, int page, int size,
+        CancellationToken cancellationToken)
+    {
+        bookId = NormalizeId(bookId); unitId = NormalizeId(unitId);
+        if (page < 0 || size < 0) throw new DomainValidationException("Page and size must be nonnegative integers.");
+        return repository.GetPublicPageAsync(bookId, unitId, page == 0 ? 1 : page,
+            size == 0 ? 20 : Math.Min(size, 100), cancellationToken);
+    }
+
+    public async Task<TextbookAudioPlaybackResult> GetPublicAsync(string bookId, string unitId, string trackId,
+        CancellationToken cancellationToken)
+    {
+        var snapshot = await repository.GetPublicSnapshotAsync(NormalizeId(bookId), NormalizeId(unitId), NormalizeId(trackId), cancellationToken);
+        return await SignAsync(snapshot, cancellationToken);
+    }
+
+    private static string NormalizeId(string? id) => !string.IsNullOrWhiteSpace(id)
+        ? id.Trim() : throw new DomainValidationException("An ID is required.");
+
+    private async Task<TextbookAudioPlaybackResult> SignAsync(TextbookAudioPlaybackSnapshot snapshot, CancellationToken cancellationToken)
+    {
         cancellationToken.ThrowIfCancellationRequested();
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(settings.TimeoutSeconds));

@@ -1435,3 +1435,19 @@ in the active playback scope, and never log or persist it. Track removal, availa
 changes and book disablement do not immediately revoke existing signed links. Public
 textbook authorization and its management webpage are separate capabilities. A code
 rollback removes this new route without deleting objects or revoking short-lived links.
+
+### Public textbook playback access
+
+The [public textbook API](../api/TextbookAudio.md#public-track-list-and-playback)
+uses the existing anonymous `/api/*` boundary and public rate budget. Enabled books
+and explicitly available tracks with published current files are readable without
+student identity; administrator preview permissions are broader. Both public list
+and playback responses, including errors and 429, are `no-store`. Lists perform no
+S3 checks, so metadata availability does not establish object readability. Playback
+returns a short-lived URL through the captured `Audio:PublicEndpoint`; keep that
+endpoint reachable by consumers while the bucket remains private. Downstream apps
+own their login and must avoid persisting or logging signatures. Disabling a book,
+hiding/replacing/removing a track, or disabling audio rejects subsequent requests
+but does not revoke a previously signed URL before S3 expiry. No new configuration,
+schema or persistent directory is introduced; backups retain the existing SQLite
+and private bucket consistency requirements.

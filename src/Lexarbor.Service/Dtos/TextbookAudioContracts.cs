@@ -27,3 +27,12 @@ public sealed record TextbookAudioTrackDto(string Id, string BookId, string Unit
     public static TextbookAudioTrackDto FromModel(TextbookAudioTrackModel t) => new(t.Id, t.BookId, t.UnitId, t.Title,
         t.DisplayOrder, t.CurrentAssetId != null, t.DurationSeconds, t.IsAvailable, t.Version);
 }
+
+public sealed record PublicTextbookAudioTrackDto(string Id, string BookId, string UnitId, string Title,
+    int DisplayOrder, double DurationSeconds, string Version)
+{
+    public static PublicTextbookAudioTrackDto FromModel(TextbookAudioTrackModel t) => new(t.Id, t.BookId, t.UnitId,
+        t.Title, t.DisplayOrder, t.DurationSeconds!.Value, t.Version);
+}
+
+public sealed record TextbookAudioPlaybackDto(string TrackId, string Url, DateTimeOffset ExpiresAt);

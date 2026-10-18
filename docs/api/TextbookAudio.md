@@ -8,11 +8,11 @@ bindings and their accents and `sourceRevision`.
 Administrators can manage catalog metadata and conditionally upload or replace MP3
 content. Metadata management works with `Audio:Enabled=false` and without S3; it
 makes no object-storage calls. Administrators can request short-lived preview links
-for uploaded tracks. Public textbook playback and a management webpage are separate features.
+for uploaded tracks. Anonymous clients can list available tracks in enabled books and request short-lived playback links. A management webpage is a separate feature.
 
 ## Authentication and responses
 
-Every route requires the configured administrator role (default `admin`). A Bearer
+Every `/admin` route requires the configured administrator role (default `admin`). A Bearer
 header takes precedence over a session cookie; rejected Bearer credentials never
 fall back to the cookie. Unsafe cookie requests require the normal CSRF token pair.
 Anonymous requests return 401, authenticated non-administrators 403. All responses
@@ -342,3 +342,82 @@ transfer cannot publish. Any asset ever marked published remains protected from
 automatic cleanup, even after replacement or removal. The shared recovery worker
 now processes textbook operations through these conditional methods; see
 [recovery and backups](../development/Deployment.md#failed-upload-recovery).
+
+## Public track list and playback
+
+These anonymous GET routes share the existing `/api/*` per-client rate limit.
+They require no student identifier or administrator credentials. An attached ordinary
+session or invalid Bearer token does not turn them into administrator routes. They
+read books and units directly; neither needs to contain words or meanings. Every
+response from these two routes, including errors and rate refusals, has
+`Cache-Control: no-store`. Existing pronunciation DTOs and quotas are unchanged.
+
+```http
+GET /api/vocabulary-books/book-id/units/unit-id/audio-tracks?page=1&size=20
+```
+
+```json
+{"success":true,"data":{"items":[{"id":"track-id","bookId":"book-id","unitId":"unit-id","title":"Listening exercise","displayOrder":0,"durationSeconds":0.5746938775510204,"version":"00000000-0000-0000-0000-000000000002"}],"totalCount":1,"totalPage":1}}
+```
+
+Each item has exactly those seven fields. Only available tracks whose current asset
+has a recorded publication time are included. Order is `displayOrder ASC, id ASC`.
+Pagination has the administrator list's defaults and validation: omitted/zero page
+and size mean 1/20, size is capped at 100; negative, overflowing, non-decimal and
+duplicate values are 400. A large valid page is empty without overflowing the offset.
+The filtered total and items share one SQLite snapshot. Empty units return
+`{"success":true,"data":{"items":[],"totalCount":0,"totalPage":0}}`.
+Listing performs no object-storage calls: metadata does not prove an object is readable.
+
+```http
+GET /api/vocabulary-books/book-id/units/unit-id/audio-tracks/track-id/playback
+```
+
+```json
+{"success":true,"data":{"trackId":"track-id","url":"https://audio.example.test/signed-example","expiresAt":"2026-10-18T04:00:00+00:00"}}
+```
+
+The three fields are the entire playback DTO. `expiresAt` is UTC; validity uses
+`Audio:PlaybackTtlSeconds`. The illustrative URL above is not a usable signature.
+No independent asset ID, bucket, key, settings or credentials are exposed. SQLite
+selects the enabled book, unit ownership, available track and published current
+asset in one completed read snapshot. Only then does the captured runtime's object
+store Stat and sign that same asset. Storage I/O holds no SQLite transaction or
+writer lock. Replacement, unavailability, book disabling or deletion after that
+snapshot can leave this request signing its originally authorized asset; a new
+request reads the new state. Requests and actual provider calls retain their own
+runtime generation during rotation, disable/re-enable, cancellation or deadlines.
+
+Validation precedes the runtime enabled check, then book existence/status, unit
+ownership and finally public track selection. Refusals are:
+
+| Condition | Status and safe response |
+| --- | --- |
+| Blank trimmed opaque ID; invalid/repeated list pagination | 400, e.g. `{"success":false,"message":"An ID is required."}` or `{"success":false,"message":"Page and size must be nonnegative integers."}` |
+| Audio disabled | 503, `{"success":false,"message":"Audio storage is disabled."}` |
+| Missing book, missing/cross-book unit, missing/cross-unit/hidden/fileless/unpublished track | 404 Problem Details, `errorCode: "vocabulary.not_found"` |
+| Disabled book | 422 Problem Details, `errorCode: "vocabulary.business_rule"` |
+| SQLite busy/locked | 503 Problem Details, `errorCode: "vocabulary.storage_busy"`, `Retry-After: 1` |
+| Selected object missing, access denied, Stat/sign error or timeout | 503, `{"success":false,"message":"Audio storage is unavailable."}` |
+| Shared public budget exhausted | Existing 429 response and a positive `Retry-After` header |
+| Unexpected database failure | Existing safe 500 Problem Details |
+
+For example, an unavailable track returns HTTP 404 and `application/problem+json`:
+
+```json
+{"type":"urn:servicemantle:error:vocabulary.not_found","title":"The requested resource was not found.","status":404,"correlationId":"example-correlation-id","errorCode":"vocabulary.not_found"}
+```
+
+The correlation ID is request-specific and also appears in `X-Correlation-Id`.
+The same track may still be previewed by an administrator. Storage failure never
+becomes an empty list, a different recording or a provider exception in the response.
+
+Consumers own their login boundary and should obtain a fresh link for each user
+click, handle expiry/renewal and media failures, and ensure the public S3 endpoint
+is reachable. Keep signed URLs only in the active playback scope; never log, analyze
+or persist them in browser storage or a database. Signed links can remain usable
+until S3 expiry after a track is hidden, replaced or removed or its book is disabled.
+There is no immediate revocation, cross-request catalog snapshot, byte proxy or
+promise of support on every device. Downstream deployments must check their actual
+Lexarbor release before using these additive routes. Rolling back these routes
+requires no migration and preserves all stored recordings.

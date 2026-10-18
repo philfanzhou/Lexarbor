@@ -779,6 +779,7 @@ app.UseStaticFiles();
 // than a JWT validation, which for a cookie-bearing request can reach out to the
 // identity provider for signing keys.
 app.UseSystemSettingsNoStore();
+app.UsePublicTextbookAudioNoStore();
 app.UseLexarborRateLimiting();
 app.UseMiddleware<AdminSessionFailureMiddleware>();
 app.UseMiddleware<TextbookAudioUploadCsrfMiddleware>();
@@ -812,6 +813,7 @@ adminSurface.MapAudioUploadEndpoints();
 adminSurface.MapAudioUnbindEndpoints();
 adminSurface.MapAudioAdminPlaybackEndpoints();
 adminSurface.MapVocabularyCleanupEndpoints();
+app.MapPublicTextbookAudioEndpoints(RateLimitingExtensions.PublicApiPolicy);
 app.MapAudioPublicPlaybackEndpoints(
     RateLimitingExtensions.PublicApiPolicy);
 app.MapVocabularyHttpEndpoints(

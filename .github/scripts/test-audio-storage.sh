@@ -44,4 +44,5 @@ LEXARBOR_S3_TEST_BUCKET="$bucket" LEXARBOR_S3_TEST_DOWNLOAD="$probe_root/downloa
 dotnet run --project tests/AudioStorageProbe --configuration Release
 node .github/scripts/test-audio-decoding.mjs "$probe_root/download.mp3"
 node .github/scripts/test-audio-decoding.mjs "$probe_root/download.mp3.textbook.mp3"
+node .github/scripts/test-audio-decoding.mjs "$probe_root/download.mp3.textbook-admin.mp3"
 echo 'Audio storage integration passed.'
