@@ -62,6 +62,7 @@ async function setup(page: Page, initial: Track[] = []) {
     if (state.lose) return route.abort('failed')
     return json(route, method === 'DELETE' ? { success: true } : row)
   })
+  await page.route('**/audio-tracks/upload-policy', route => json(route, { enabled: true, maxUploadBytes: 67108864, maxDurationSeconds: 7200 }))
   return state
 }
 async function open(page: Page) {

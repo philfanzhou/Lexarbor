@@ -9,3 +9,14 @@ void removeTextbookAudioTrack('book', 'unit', 'track', 'version', config)
 replaceTextbookAudioTrack('book', 'unit', 'track', { title: 'Recording', displayOrder: 1 }, config)
 // @ts-expect-error Metadata cannot set file state.
 createTextbookAudioTrack('book', 'unit', { title: 'Recording', displayOrder: 0, hasFile: true }, config)
+
+import { getTextbookAudioUploadPolicy, uploadTextbookAudioContent } from '@/services/textbookAudioApi'
+import { createTextbookUploadAttempt, type TextbookUploadAttempt } from '@/services/textbookAudioUpload'
+const attempt: TextbookUploadAttempt = createTextbookUploadAttempt('book', 'unit', 'track', 'version', new File([], 'tone.mp3'))
+const receipt: Promise<unknown> = uploadTextbookAudioContent(attempt, config)
+void receipt
+void getTextbookAudioUploadPolicy('book', 'unit', config)
+// @ts-expect-error Original conditions must remain immutable for exact replay.
+attempt.expectedVersion = 'another-version'
+// @ts-expect-error An upload requires the original File, not a storage URL.
+createTextbookUploadAttempt('book', 'unit', 'track', 'version', 'https://example.test/audio.mp3')

@@ -719,3 +719,29 @@ callbacks through the existing synthetic authority, including the audio deep lin
 Production roles/CSRF and the unchanged catalog transaction contract retain their
 existing Host integration coverage. Run Release restore/build/full tests, format,
 frontend lint/types/build and applicable full browser suites on this head.
+
+### Administrator textbook upload webpage
+
+`frontend/e2e/textbook-upload.spec.ts` uses controlled HTTP responses and the real
+MP3 fixture to verify the exact policy, disabled and failed-policy recovery,
+new-file size bounds, two multipart fields, original bytes/version, canonical
+request key and shared CSRF header. It checks duplicate-click prevention,
+server-measured duration and unavailable publication through catalog read-back,
+specific 400/404/413/415/422 refusals, current 401/403, active/conflicting 409,
+429 and unknown 5xx/lost/canceled/unreadable responses. Replays retain the original
+bytes/version/key after stricter or disabled policy, later replacement or removal;
+old success/failure receipts never overwrite current catalog data. Confirmed writes
+and failed reads remain distinct. Explicit abandonment rereads before a fresh
+logical upload; unit/page/size/track/book/route cancellation retains the attempt,
+accepted navigation releases it, automatic last-page fallback waits until the
+original attempt is confirmed or abandoned, and logout does not wait for an
+unanswered prompt. Missing secure UUID support reports HTTPS/localhost guidance
+before sending any file.
+Late 200/401/403 cannot affect the replacement view/session. Keyboard focus,
+aria-live, axe WCAG 2.1 A/AA and document overflow are checked at 1440 and 768px.
+
+These mocks establish browser request/recovery behavior, not real S3 publication,
+server transactions or a real identity provider. Existing same-head Private audio
+storage CI retains the actual production upload/receipt/S3 tests. The subsequent
+single-player slice owns the complete browser upload-to-real-S3 listening flow;
+these tests do not claim that integration is already available.

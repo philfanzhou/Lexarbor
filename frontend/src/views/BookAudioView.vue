@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
+import TextbookAudioUpload from '@/components/TextbookAudioUpload.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { getAdminBookContent } from '@/services/adminVocabularyApi'
 import { getBookUnits } from '@/services/bookApi'
@@ -10,6 +11,7 @@ import { createTextbookAudioTrack, getTextbookAudioTracks, removeTextbookAudioTr
 import type { TextbookAudioTrack } from '@/services/textbookAudioApi'
 import type { Book, BookUnit } from '@/types'
 
+const uploader = ref<InstanceType<typeof TextbookAudioUpload>>()
 const route = useRoute()
 const router = useRouter()
 const bookId = computed(() => String(route.params.bookId ?? ''))
@@ -59,6 +61,7 @@ function request(controller: AbortController) {
   return { owns, config: { signal: controller.signal, lxIsCurrent: () => owns() && !controller.signal.aborted } }
 }
 function invalidate(clearTotal = true) {
+  uploader.value?.invalidate()
   generation += 1
   readGeneration += 1
   contextController?.abort()
@@ -132,11 +135,19 @@ async function load(): Promise<boolean> {
     if (!current()) return false
     const lastPage = Math.max(1, data.totalPage)
     if (page.value > lastPage) {
+      // A read-back must not silently abandon an unknown content attempt by
+      // navigating away from its original page. Confirmation or explicit
+      // abandonment releases it; a later read can then use the normal fallback.
+      if (uploader.value?.hasAttempt) {
+        loadError.value = '目录页码已变化，原上传仍待核对。请先核对原上传结果或放弃继续核对，再重新读取目录。'
+        return false
+      }
       page.value = lastPage
       return await load()
     }
     items.value = data.items
     totalCount.value = data.totalCount
+    uploader.value?.catalogRefreshed()
     return true
   } catch (error) {
     if (!current()) return false
@@ -148,26 +159,31 @@ async function load(): Promise<boolean> {
     if (current()) loading.value = false
   }
 }
-function changeUnit(value: string) {
+async function changeUnit(value: string) {
+  if (value === unitId.value || !await releaseUpload()) return
   invalidate()
   unitId.value = value
   page.value = 1
   void load()
 }
-function changePage(value: number) {
-  if (page.value === value) return
+async function changePage(value: number) {
+  if (page.value === value || !await releaseUpload()) return
   invalidate(false)
   page.value = value
   void load()
 }
-function changeSize(value: number) {
+async function changeSize(value: number) {
+  if (size.value === value || !await releaseUpload()) return
   invalidate(false)
   size.value = value
   page.value = 1
   void load()
 }
-function openEditor(kind: 'create' | 'edit' | 'delete', event: Event, track?: TextbookAudioTrack) {
-  trigger.value = event.currentTarget as HTMLElement
+async function openEditor(kind: 'create' | 'edit' | 'delete', event: Event, track?: TextbookAudioTrack) {
+  const button = event.currentTarget as HTMLElement
+  if (!await releaseUpload()) return
+  uploader.value?.invalidate()
+  trigger.value = button
   mode.value = kind
   selected.value = track ? { ...track } : null
   title.value = track?.title ?? ''
@@ -243,6 +259,20 @@ async function submit() {
     if (owns() && writeController === controller) busy.value = false
   }
 }
+// Route guards ask before the target changes. Logout clears the attempt
+// synchronously and never waits for a confirmation.
+async function releaseUpload() {
+  const own = generation
+  const session = sessionGeneration.value
+  const allowed = !uploader.value || await uploader.value.confirmLeave()
+  return allowed && own === generation && session === sessionGeneration.value
+}
+async function allowRouteChange() {
+  // Actual book watch/unmount performs cleanup after navigation succeeds.
+  return await releaseUpload()
+}
+onBeforeRouteLeave(allowRouteChange)
+onBeforeRouteUpdate(allowRouteChange)
 watch(bookId, () => {
   invalidate()
   book.value = null
@@ -288,6 +318,7 @@ onBeforeUnmount(() => { disposed = true; invalidate() })
           <el-button ref="reloadButton" :disabled="loading || busy" @click="load">重新读取目录</el-button>
           <el-button ref="createButton" type="primary" :disabled="contextLoading || !!contextError || !unitId || unitGone || busy" @click="openEditor('create', $event)">新增录音</el-button>
         </div>
+        <TextbookAudioUpload ref="uploader" :book-id="bookId" :unit-id="unitId" :refresh="load" />
         <p class="audio-feedback" role="status" aria-live="polite">{{ notice }}</p>
         <el-alert v-if="loadError" :title="loadError" type="error" :closable="false">
           <el-button @click="load">重试目录</el-button>
@@ -299,10 +330,11 @@ onBeforeUnmount(() => { disposed = true; invalidate() })
           <el-table-column label="时长（秒）" min-width="110"><template #default="{ row }">{{ row.durationSeconds === null ? '—' : row.durationSeconds.toFixed(2) }}</template></el-table-column>
           <el-table-column label="文件" min-width="100"><template #default="{ row }">{{ row.hasFile ? '已有文件' : '缺少文件' }}</template></el-table-column>
           <el-table-column label="可用状态" min-width="100"><template #default="{ row }">{{ row.isAvailable ? '可用' : '未可用' }}</template></el-table-column>
-          <el-table-column label="操作" min-width="180">
+          <el-table-column label="操作" min-width="240">
             <template #default="{ row }">
-              <el-button link type="primary" :disabled="busy || loading" @click="openEditor('edit', $event, row)">编辑</el-button>
-              <el-button link type="danger" :disabled="busy || loading" @click="openEditor('delete', $event, row)">移除</el-button>
+              <el-button link type="primary" :disabled="busy || loading || (uploader?.sending && uploader.targetId() === row.id)" @click="openEditor('edit', $event, row)">编辑</el-button>
+              <el-button link type="primary" :disabled="busy || loading || !!loadError || !uploader?.canStart" @click="uploader?.open(row, $event)">上传文件</el-button>
+              <el-button link type="danger" :disabled="busy || loading || (uploader?.sending && uploader.targetId() === row.id)" @click="openEditor('delete', $event, row)">移除</el-button>
             </template>
           </el-table-column>
           <template #empty><el-empty v-if="!loading && !loadError" :image-size="70" description="本单元暂无录音，可新增录音目录" /><span v-else>{{ loading ? '正在读取' : '目录读取失败' }}</span></template>
