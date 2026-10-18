@@ -1313,3 +1313,27 @@ repeating PUT. Reload/restart reads the persisted result. Check actual upload an
 administrator/public playback to establish remote connectivity. See the
 [frontend settings guide](../frontend/README.md#audio-storage-s3) and
 [API contract](../api/SystemSettings.md#audio-storage-s3).
+
+## Textbook audio catalog upgrade
+
+The additive `AddTextbookAudioTracks` migration creates an empty recording catalog
+under existing books and units. Normal startup automatically migrates forward and
+retains all previous vocabulary, positions, administrator sessions, audit rows,
+Data Protection keys, audio assets, bindings and operation receipts. No S3 call or
+new seed is involved. The catalog metadata API works with audio disabled and no
+storage configuration. Textbook upload and playback are separate capabilities.
+
+Books and units with tracks now reject ordinary deletion and whole-book cleanup
+delete (including preview) with 409; remove the tracks explicitly first. Other
+vocabulary cleanup actions preserve tracks and current file references. Track
+deletion retains generic assets, historical operations and physical files.
+
+Back up SQLite consistently before upgrade, preserving the matching root key and
+audio bucket when present. Before explicit Down, stop writes and retain a
+consistent backup: Down drops only the catalog table and indexes, permanently
+removing its metadata but retaining generic assets/receipts and physical objects.
+Restore the consistent backup to recover the catalog. The previous image is not
+required to run a newer schema: `migration.version_too_new` still refuses it. A
+code rollback alone does not restore data. Paths and `/app/data` permissions are
+unchanged. See [catalog API](../api/TextbookAudio.md) and
+[database constraints](../database/README.md#textbook-audio-catalog).

@@ -369,3 +369,44 @@ writes. A restart expires abandoned upload/cleanup leases conditionally and resu
 persisted retries; it does not rebind an old request, scan S3, clear a bucket or delete
 published objects. Preserve these tables and the private bucket together when
 backing up or restoring the database.
+
+## Textbook audio catalog
+
+`AddTextbookAudioTracks` adds only `textbook_audio_track` and its indexes. Its
+fields are `id`, `book_id`, `unit_id`, `title`, `display_order`, nullable
+`current_asset_id`, nullable `duration_seconds`, `is_available`, and `version`.
+The composite unit foreign key `(unit_id, book_id)` references the existing
+`(id, book_id)` key and prevents cross-book ownership. Book, unit and current
+asset references use RESTRICT deletion. The `(unit_id, display_order, id)` index
+supports stable pagination, including repeated orders.
+
+CHECK constraints reject blank titles, negative/noninteger orders, invalid booleans
+and noncanonical UUID versions. With no file, duration must be null and availability
+false. With a file, duration must be positive and finite, and its asset must exist.
+The domain additionally trims and limits titles to 200 UTF-16 code units and
+checks asset publication before enabling. SQLite triggers also reject available
+tracks with unpublished assets and removal of publication from an available track's
+asset. Object readability is never inferred
+from these rows. Metadata writes read current database state and condition updates
+or deletes on the expected version in one UnitOfWork transaction; same-value
+updates also generate a new version. Reads use a deferred SQLite snapshot for
+ownership, total and page, without the application's writer semaphore.
+SQLite busy/locked failures across connection opening, transaction creation,
+reading and commit are translated to the safe storage-busy error (HTTP 503 with
+`Retry-After: 1`), including contention from an external exclusive writer in
+rollback-journal mode. The failed list request leaves catalog data unchanged.
+
+All three parent delete services check for tracks within the write transaction;
+cleanup preview checks its read snapshot. RESTRICT foreign keys prevent a
+check/delete race even for direct SQL. Whole-book cleanup delete rolls back all
+changes on conflict; vocabulary-only cleanup preserves tracks. Removing a track
+keeps `audio_asset`, `audio_upload_operation`, pronunciation bindings and objects.
+
+Fresh initialization and upgrade from `AddVocabularyAudio` create an empty catalog
+and no new seed, retaining all earlier business, session, audit, key and audio rows.
+Restart applies no extra changes. Down removes only the catalog table/indexes,
+losing its metadata and references; it does not delete generic assets, receipts or
+objects. Before Down, take a consistent database/root-key/bucket backup. Restoring
+catalog data requires that consistent backup. The existing
+`migration.version_too_new` startup rule still applies to older images; rolling
+back code alone is not data rollback. See the [catalog API](../api/TextbookAudio.md).

@@ -74,20 +74,18 @@ public class VocabularyBookDomainService
         return existing;
     }
 
-    public async Task DeleteAsync(string id)
+    public Task DeleteAsync(string id) => _unitOfWork.ExecuteInTransactionAsync(async () =>
     {
         _ = await _bookRepository.GetByIdAsync(id)
             ?? throw new ResourceNotFoundException("Vocabulary book was not found.");
-
+        if (await _bookRepository.HasAudioTracksAsync(id))
+            throw new ConflictException("A vocabulary book with audio tracks cannot be deleted. Remove its audio tracks first.");
         if (await _bookRepository.HasMeaningsAsync(id))
-        {
-            throw new ConflictException(
-                "A vocabulary book with meanings cannot be deleted. Disable it instead.");
-        }
-
+            throw new ConflictException("A vocabulary book with meanings cannot be deleted. Disable it instead.");
         await _bookRepository.DeleteAsync(id);
         await _unitOfWork.SaveChangesAsync();
-    }
+        return 0;
+    });
 
     public async Task<(List<VocabularyModel> Items, int TotalCount)> GetWordsAsync(
         string bookId,

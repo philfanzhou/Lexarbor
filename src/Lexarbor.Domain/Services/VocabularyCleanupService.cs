@@ -39,6 +39,8 @@ public sealed class VocabularyCleanupService(IVocabularyCleanupRepository reposi
     {
         var book = await repository.GetBookAsync(bookId, cancellationToken)
             ?? throw new ResourceNotFoundException("Vocabulary book was not found.");
+        if (selection.Action == "delete" && await repository.HasAudioTracksAsync(bookId, cancellationToken))
+            throw new ConflictException("A vocabulary book with audio tracks cannot be deleted. Remove its audio tracks first.");
         if (selection.Action == "removeMeaning")
         {
             if (!await repository.WordExistsAsync(selection.WordId!, cancellationToken))

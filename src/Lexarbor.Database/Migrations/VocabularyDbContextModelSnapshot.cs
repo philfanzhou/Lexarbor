@@ -255,6 +255,72 @@ namespace Lexarbor.Database.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Lexarbor.Database.Entities.TextbookAudioTrackEntity", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("id");
+
+                    b.Property<string>("BookId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("book_id");
+
+                    b.Property<string>("CurrentAssetId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("current_asset_id");
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("display_order");
+
+                    b.Property<double?>("DurationSeconds")
+                        .HasColumnType("REAL")
+                        .HasColumnName("duration_seconds");
+
+                    b.Property<bool>("IsAvailable")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("is_available");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("title");
+
+                    b.Property<string>("UnitId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("unit_id");
+
+                    b.Property<string>("Version")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BookId");
+
+                    b.HasIndex("CurrentAssetId");
+
+                    b.HasIndex("UnitId", "BookId");
+
+                    b.HasIndex("UnitId", "DisplayOrder", "Id");
+
+                    b.ToTable("textbook_audio_track", t =>
+                        {
+                            t.HasCheckConstraint("CK_textbook_audio_track_available", "is_available IN (0, 1)");
+
+                            t.HasCheckConstraint("CK_textbook_audio_track_file", "(current_asset_id IS NULL AND duration_seconds IS NULL AND is_available = 0) OR (current_asset_id IS NOT NULL AND duration_seconds IS NOT NULL AND duration_seconds > 0 AND duration_seconds <= 1.7976931348623157e308)");
+
+                            t.HasCheckConstraint("CK_textbook_audio_track_order", "display_order >= 0 AND display_order <= 2147483647 AND typeof(display_order) = 'integer'");
+
+                            t.HasCheckConstraint("CK_textbook_audio_track_title", "length(trim(title)) > 0");
+
+                            t.HasCheckConstraint("CK_textbook_audio_track_version", "length(version) = 36 AND substr(version,9,1) = '-' AND substr(version,14,1) = '-' AND substr(version,19,1) = '-' AND substr(version,24,1) = '-' AND length(replace(version,'-','')) = 32 AND replace(version,'-','') NOT GLOB '*[^0-9a-f]*'");
+                        });
+                });
+
             modelBuilder.Entity("Lexarbor.Database.Entities.VocabularyAudioBindingEntity", b =>
                 {
                     b.Property<string>("Id")
@@ -697,6 +763,27 @@ namespace Lexarbor.Database.Migrations
                     b.HasOne("Lexarbor.Database.Entities.AudioAssetEntity", null)
                         .WithMany()
                         .HasForeignKey("AssetId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Lexarbor.Database.Entities.TextbookAudioTrackEntity", b =>
+                {
+                    b.HasOne("Lexarbor.Database.Entities.VocabularyBookEntity", null)
+                        .WithMany()
+                        .HasForeignKey("BookId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Lexarbor.Database.Entities.AudioAssetEntity", null)
+                        .WithMany()
+                        .HasForeignKey("CurrentAssetId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Lexarbor.Database.Entities.VocabularyBookUnitEntity", null)
+                        .WithMany()
+                        .HasForeignKey("UnitId", "BookId")
+                        .HasPrincipalKey("Id", "BookId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

@@ -169,6 +169,8 @@ builder.Services.AddScoped<IVocabularyCleanupRepository, VocabularyCleanupReposi
 builder.Services.AddScoped<VocabularyCleanupService>();
 builder.Services.AddScoped<VocabularyDomainService>();
 builder.Services.AddScoped<VocabularyBookDomainService>();
+builder.Services.AddScoped<ITextbookAudioTrackRepository, TextbookAudioTrackRepository>();
+builder.Services.AddScoped<TextbookAudioTrackService>();
 builder.Services.AddScoped<VocabularyBookUnitDomainService>();
 builder.Services.Configure<RouteHandlerOptions>(options =>
 {
@@ -794,6 +796,7 @@ adminSurface.MapSystemSettingsEndpoints();
 adminSurface.MapVocabularyWordEditEndpoints();
 adminSurface.MapVocabularyMeaningEditEndpoints();
 adminSurface.MapVocabularyBookUnitEndpoints();
+adminSurface.MapTextbookAudioTrackEndpoints();
 adminSurface.MapVocabularyMeaningPositionEndpoints();
 adminSurface.MapVocabularyAdminQueryEndpoints();
 adminSurface.MapAudioAdminQueryEndpoints();

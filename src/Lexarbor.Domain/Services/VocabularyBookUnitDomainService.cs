@@ -193,6 +193,9 @@ public class VocabularyBookUnitDomainService
                     "Vocabulary book unit does not belong to the requested vocabulary book.");
             }
 
+            if (await _unitRepository.HasAudioTracksAsync(unit.Id))
+                throw new ConflictException("A vocabulary book unit with audio tracks cannot be deleted. Remove its audio tracks first.");
+
             // Assignments of this unit cascade away; meanings and words are
             // untouched, including meanings this unit shared with other units.
             await _unitRepository.DeleteAsync(unit.Id);
