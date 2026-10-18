@@ -428,7 +428,9 @@ The page reads the exact server upload policy: enabled, maximum file bytes and
 maximum duration seconds. A failed policy read has an explicit retry; it does not
 invent limits. Disabled audio prevents new uploads while catalog editing remains
 available. Choose **上传文件** on a current row, select one MP3 and explicitly
-click **开始上传**. File name and MIME are hints only; the server validates the
+click **开始上传**. Opening a new upload rereads the catalog and takes the current
+row/version; closing an unconfirmed upload also rereads before a new selection.
+File name and MIME are hints only; the server validates the
 complete bytes and measures duration. Only the content request has no browser
 30-second deadline; server deadlines and **取消上传等待（结果可能未知）** still apply.
 The shared session Cookie and CSRF header authorize the multipart request.

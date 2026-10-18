@@ -318,7 +318,7 @@ onBeforeUnmount(() => { disposed = true; invalidate() })
           <el-button ref="reloadButton" :disabled="loading || busy" @click="load">重新读取目录</el-button>
           <el-button ref="createButton" type="primary" :disabled="contextLoading || !!contextError || !unitId || unitGone || busy" @click="openEditor('create', $event)">新增录音</el-button>
         </div>
-        <TextbookAudioUpload ref="uploader" :book-id="bookId" :unit-id="unitId" :refresh="load" />
+        <TextbookAudioUpload ref="uploader" :book-id="bookId" :unit-id="unitId" :refresh="load" :current-track="id => items.find(item => item.id === id)" />
         <p class="audio-feedback" role="status" aria-live="polite">{{ notice }}</p>
         <el-alert v-if="loadError" :title="loadError" type="error" :closable="false">
           <el-button @click="load">重试目录</el-button>

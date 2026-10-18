@@ -736,7 +736,8 @@ logical upload; unit/page/size/track/book/route cancellation retains the attempt
 accepted navigation releases it, automatic last-page fallback waits until the
 original attempt is confirmed or abandoned, and logout does not wait for an
 unanswered prompt. Missing secure UUID support reports HTTPS/localhost guidance
-before sending any file.
+before sending any file. New-target opening always rereads the current catalog row;
+same-page close/track abandonment cannot reuse a pre-abandonment version.
 Late 200/401/403 cannot affect the replacement view/session. Keyboard focus,
 aria-live, axe WCAG 2.1 A/AA and document overflow are checked at 1440 and 768px.
 

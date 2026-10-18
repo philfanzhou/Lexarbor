@@ -6,7 +6,7 @@ import { getApiError } from '@/services/apiError'
 import { getTextbookAudioUploadPolicy, uploadTextbookAudioContent, type TextbookAudioTrack } from '@/services/textbookAudioApi'
 import { createTextbookUploadAttempt, readTextbookUploadPolicy, readTextbookUploadReceipt, type TextbookUploadAttempt, type TextbookUploadPolicy } from '@/services/textbookAudioUpload'
 
-const props = defineProps<{ bookId: string; unitId: string; refresh: () => Promise<boolean> }>()
+const props = defineProps<{ bookId: string; unitId: string; refresh: () => Promise<boolean>; currentTrack: (id: string) => TextbookAudioTrack | undefined }>()
 // These are actual operation boundaries for the page's later single player.
 const emit = defineEmits<{ beforeContentMutation: [trackId: string]; afterRefresh: []; scopeInvalidated: [] }>()
 const policy = ref<TextbookUploadPolicy | null>(null)
@@ -68,16 +68,34 @@ async function open(track: TextbookAudioTrack, event: Event) {
   const button = event.currentTarget as HTMLElement
   if (!await confirmLeave()) return
   invalidate()
-  target.value = { ...track }
+  const own = generation
+  const session = sessionGeneration.value
+  // Every new logical upload starts from a freshly read row. Closing or
+  // changing tracks must not bypass the explicit-abandon read-back boundary.
+  const refreshed = await props.refresh()
+  if (disposed || own !== generation || session !== sessionGeneration.value) return
+  const current = refreshed ? props.currentTrack(track.id) : undefined
+  if (!current) {
+    message.value = '当前录音读取失败或已不在当前页。请重新读取目录，再选择当前录音上传；不会使用旧版本。'
+    return
+  }
+  target.value = { ...current }
   trigger = button
   await nextTick()
   input.value?.focus()
 }
 async function close() {
+  const pending = attempt.value !== null
   if (!await confirmLeave()) return
   invalidate()
+  const own = generation
+  const session = sessionGeneration.value
+  if (pending) {
+    message.value = '已放弃继续核对，不代表撤销服务器结果。先重新读取目录，再选择当前录音开始新的上传。'
+    await props.refresh()
+  }
   await nextTick()
-  if (trigger?.isConnected) trigger.focus()
+  if (!disposed && own === generation && session === sessionGeneration.value && trigger?.isConnected) trigger.focus()
 }
 async function loadPolicy() {
   policyController?.abort()

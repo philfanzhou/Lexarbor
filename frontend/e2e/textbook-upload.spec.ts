@@ -119,7 +119,7 @@ test('one explicit upload has two multipart fields, original bytes/version and C
   expect(state.calls[0]!.version).toBe(version(1))
   expect(state.calls[0]!.key).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
   expect(state.calls[0]!.csrf).toBe('synthetic-antiforgery-token')
-  expect(state.reads).toBe(2)
+  expect(state.reads).toBe(3)
   const runtime = await page.evaluate(() => { const data = window as unknown as { uploadRequestTimeouts: { path: string; timeout: number }[]; uploadStorageWrites: number }; return { uploadRequestTimeouts: data.uploadRequestTimeouts, uploadStorageWrites: data.uploadStorageWrites } })
   expect(runtime.uploadRequestTimeouts.filter(r => r.path.endsWith('/content') && r.path.includes('/audio-tracks/')).map(r => r.timeout)).toEqual([0])
   expect(runtime.uploadRequestTimeouts.filter(r => r.path.includes('/audio-tracks?')).every(r => r.timeout === 30000)).toBe(true)
@@ -532,4 +532,38 @@ test('read-back cannot silently move an unknown attempt off a removed last page;
   await expect(feedback(page)).toContainText('本次上传已确认')
   await expect(page.locator('.el-pager .is-active')).toHaveText('1')
   expect(state.calls[2]!.key).toBe(state.calls[0]!.key)
+})
+
+
+test('opening a new upload rereads its current row instead of freezing a previously displayed version', async ({ page }) => {
+  const state = await setup(page)
+  await open(page)
+  state.rows[0] = { ...row(), version: version(9) }
+  await choose(page)
+  await expect(page.getByText(`原提交条件版本：${version(9)}`)).toBeVisible()
+  await start(page)
+  await expect(feedback(page)).toContainText('本次上传已确认')
+  expect(state.calls[0]!.version).toBe(version(9))
+})
+
+for (const action of ['close', 'track']) test(`same-page ${action} abandonment rereads before another logical upload`, async ({ page }) => {
+  const state = await setup(page)
+  await open(page)
+  await unknown(page, state)
+  const reads = state.reads
+  state.rows[0] = { ...row(), version: version(9) }
+  state.rows[1] = { ...row('other'), version: version(8) }
+  if (action === 'close') await page.getByRole('button', { name: '关闭上传', exact: true }).click()
+  else await page.getByRole('row').filter({ has: page.getByRole('cell', { name: 'Recording other', exact: true }) }).getByRole('button', { name: '上传文件' }).click()
+  await page.getByRole('button', { name: '放弃核对并离开', exact: true }).click()
+  await expect.poll(() => state.reads).toBe(reads + 1)
+  await expect(page.getByRole('button', { name: '核对原上传结果' })).toHaveCount(0)
+  if (action === 'close') await choose(page)
+  else await page.getByLabel('选择 MP3 文件').setInputFiles({ name: 'tone.mp3', mimeType: 'audio/mpeg', buffer: bytes })
+  state.lost = false
+  state.receipt = { trackId: action === 'close' ? 'track' : 'other', version: version(10), durationSeconds: 1 }
+  await start(page)
+  await expect(feedback(page)).toContainText('本次上传已确认')
+  expect(state.calls[1]!.version).toBe(version(action === 'close' ? 9 : 8))
+  expect(state.calls[1]!.key).not.toBe(state.calls[0]!.key)
 })
