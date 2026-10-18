@@ -373,6 +373,54 @@ test('an obsolete read finally cannot hide the replacement request loading state
   await expect(page.getByRole('row').filter({ has: page.getByRole('cell', { name: 'Recording 9', exact: true }) })).toBeVisible()
 })
 
+test('switching units during a 404 context reread releases its loading and ignores the old units', async ({ page }) => {
+  const state = await setup(page, [track(1)])
+  state.units.push({ ...unit, id: 'second', number: 3 })
+  await open(page)
+  let held: Route | undefined
+  await page.route(/\/admin\/vocabulary-books\/[^/]+\/units$/, async route => { held = route; await new Promise<void>(() => {}) })
+  state.readFailure = 404
+  await page.getByRole('button', { name: '重新读取目录' }).click()
+  await expect.poll(() => Boolean(held)).toBe(true)
+  await expect(page.getByText('正在读取教材与单元…')).toBeVisible()
+  await expect(page.getByRole('button', { name: '新增录音', exact: true })).toBeDisabled()
+  state.readFailure = 0
+  state.rows = [{ ...track(9), unitId: 'second' }]
+  await page.locator('.unit-select').click()
+  await page.getByRole('option', { name: '单元 3 · Listening', exact: true }).click()
+  await expect(page.getByRole('cell', { name: 'Recording 9', exact: true })).toBeVisible()
+  await expect(page.getByText('正在读取录音目录…')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '新增录音', exact: true })).toBeEnabled({ timeout: 2000 })
+  await json(held!, { units: [unit] }).catch(() => {})
+  await expect(page.getByText('正在读取教材与单元…')).toHaveCount(0)
+  await expect(page.getByText('原单元已不存在；草稿和原目标保留。', { exact: false })).toHaveCount(0)
+  await expect(page.getByRole('cell', { name: 'Recording 9', exact: true })).toBeVisible()
+  await expect(page.getByRole('cell', { name: 'Recording 1', exact: true })).toHaveCount(0)
+  await create(page, 'Created in the replacement unit')
+  expect(writes(state)).toHaveLength(1)
+  expect(writes(state)[0]?.url.pathname).toContain('/units/second/audio-tracks')
+})
+
+test('an obsolete context finally cannot hide loading for a replacement book', async ({ page }) => {
+  const state = await setup(page, [track(1)])
+  await open(page)
+  const pending: Route[] = []
+  await page.route(/\/admin\/vocabulary-books\/[^/]+\/units$/, async route => { pending.push(route); await new Promise<void>(() => {}) })
+  state.readFailure = 404
+  await page.getByRole('button', { name: '重新读取目录' }).click()
+  await expect.poll(() => pending.length).toBe(1)
+  state.readFailure = 0
+  await page.evaluate(() => { location.hash = '/books/replacement/audio' })
+  await expect.poll(() => pending.length).toBe(2)
+  await json(pending[0]!, { units: [] }).catch(() => {})
+  await expect(page.getByText('正在读取教材与单元…')).toBeVisible()
+  await expect(page.getByRole('button', { name: '新增录音', exact: true })).toHaveCount(0)
+  await json(pending[1]!, { units: [{ ...unit, bookId: 'replacement' }] })
+  await expect(page.getByText('正在读取教材与单元…')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '新增录音', exact: true })).toBeEnabled()
+  await expect.poll(() => state.requests.at(-1)?.url.pathname).toBe('/admin/vocabulary-books/replacement/units/unit/audio-tracks')
+})
+
 test('availability enables and disables through full conditional replacements; a file reference can still receive 409', async ({ page }) => {
   const state = await setup(page, [track(1, true)])
   await open(page)

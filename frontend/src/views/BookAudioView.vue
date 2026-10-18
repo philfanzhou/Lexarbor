@@ -66,6 +66,7 @@ function invalidate(clearTotal = true) {
   writeController?.abort()
   busy.value = false
   loading.value = false
+  contextLoading.value = false
   dialog.value = false
   selected.value = null
   title.value = ''
