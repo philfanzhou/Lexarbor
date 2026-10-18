@@ -733,7 +733,7 @@ public sealed class AudioUploadEndpointTests
         var first = Put(host, revision);
         var second = Put(host, revision);
         await arrivals.Task.WaitAsync(TimeSpan.FromSeconds(10), Ct);
-        var queued = new List<Task<IDisposable?>>();
+        var queued = new List<Task<AudioUploadAdmission.Permit?>>();
         // Take request references from successive generations while all generations use the same admission.
         var references = new List<AudioOperationReference>();
         for (var i = 0; i < 8; i++)

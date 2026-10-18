@@ -585,3 +585,38 @@ uncooperative calls remain controlled tests. Run Release restore/build/test,
 formatting, the full-solution dependency audit, private-S3 integration and the
 applicable container build/smoke on the current head. A missing local Docker
 daemon or PowerShell must be recorded separately from successful CI checks.
+
+
+### Textbook conditional content uploads
+
+`TextbookMp3ValidatorTests` validates the real tone fixture and generated complete
+silent CBR/VBR Layer III streams for MPEG-1/2/2.5, CRC-protected frames, ID3v2/footer
+and ID3v1. It rejects corrupt middle frames, truncation, pseudo-headers, CRC errors,
+version/rate/channel changes, oversized tags and bad footers. False Xing/VBRI and
+LAME declarations cannot shorten validation or the server PCM duration. Controlled
+decoder injection checks short output, NaN/Infinity, monotonic expiry and cancellation
+during `ReadBits`; decoding stops inline and uses a fixed frame output buffer.
+
+`TextbookAudioUploadEndpointTests` uses the complete Host, SQLite and controlled
+storage: exact policy/receipt DTOs, server duration, both field orders and untrusted
+filename/MIME, file/duration/header/section/text/boundary limits, no-length bodies and
+preamble/epilogue overhead, pre-reservation refusal, authorization/CSRF/Bearer priority,
+security headers/no-store, SQLite busy Problem Details, original-key replay after
+replacement/deletion/restart and tighter policy, conflicts and competing publication,
+metadata edit/delete during Put, unknown/lost commit, recovery, provider failure,
+disconnect/timeouts and shared pronunciation/textbook admission. Barriers rotate
+credentials/disable storage during read/reserve/Put and test retained clients/streams
+for providers ignoring cancellation. `TextbookAudioUploadConfigurationTests` covers
+defaults, inclusive limits, disabled validation, copies/snapshots and restart-only
+changes; the startup mapping script covers both environment variables.
+
+The private S3 integration script additionally runs `TextbookContentProbe` through
+the production content HTTP parser, strict decoder, coordinator, SQLite repository
+and S3 adapter. It verifies published bytes by downloading and fully decoding them,
+exact PCM receipt and metadata, one-object replay, real denied Put and immutable
+failure, prior-file preservation, invalid media and restart with tighter limits.
+It retains the earlier real recovery/backup and pronunciation scenarios. The probe's
+isolated auth harness does not replace the complete Host security tests. Run Release
+restore/build/test, formatting, full-solution vulnerability audit, startup mapping,
+private S3 and container checks on the proposed head. A local missing Docker daemon
+or `pwsh` is recorded as an environment limit; actual PR CI must still run those checks.

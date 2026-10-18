@@ -55,6 +55,7 @@ try
     await VerifyRuntimeUploadGenerationsAsync(options, bytes);
     await VerifyRuntimeRecoveryGenerationsAsync(options, bytes);
     await TextbookRecoveryProbe.VerifyAsync(options, bytes);
+    await TextbookContentProbe.VerifyAsync(options, bytes);
     using var store = new S3AudioObjectStore(Options.Create(options), TimeProvider.System);
     Require(Mp3Validation.IsValid(bytes), "The uploaded fixture must contain complete MP3 frames.");
     using var databaseRoot = new ProbeDatabaseRoot();

@@ -200,6 +200,8 @@ public sealed class AudioRuntimeConfiguration : IDisposable
     private bool SameAdvancedSettings(AudioRuntimeSnapshot candidate) =>
         candidate.PlaybackTtlSeconds == _startup.PlaybackTtlSeconds
         && candidate.MaxUploadBytes == _startup.MaxUploadBytes
+        && candidate.MaxTextbookUploadBytes == _startup.MaxTextbookUploadBytes
+        && candidate.MaxTextbookDurationSeconds == _startup.MaxTextbookDurationSeconds
         && candidate.MaxConcurrentUploads == _startup.MaxConcurrentUploads
         && candidate.MaxQueuedUploads == _startup.MaxQueuedUploads
         && candidate.OperationTimeoutSeconds == _startup.OperationTimeoutSeconds

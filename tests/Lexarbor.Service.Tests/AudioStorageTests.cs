@@ -60,6 +60,8 @@ public sealed class AudioStorageTests
     [InlineData("Enabled", "synthetic-invalid-marker")]
     [InlineData("PlaybackTtlSeconds", "synthetic-invalid-marker")]
     [InlineData("MaxUploadBytes", "synthetic-invalid-marker")]
+    [InlineData("MaxTextbookUploadBytes", "synthetic-invalid-marker")]
+    [InlineData("MaxTextbookDurationSeconds", "synthetic-invalid-marker")]
     [InlineData("OperationTimeoutSeconds", "2147483648")]
     [InlineData("MaxUploadBytes", "9223372036854775808")]
     public async Task InvalidConfigurationTypesRejectStartupWithoutEchoingValues(string property, string value)

@@ -17,6 +17,8 @@ public sealed class AudioOptions
     public string KeyPrefix { get; set; } = "audio/";
     public int PlaybackTtlSeconds { get; set; } = 900;
     public long MaxUploadBytes { get; set; } = 5 * 1024 * 1024;
+    public long MaxTextbookUploadBytes { get; set; } = 64 * 1024 * 1024;
+    public int MaxTextbookDurationSeconds { get; set; } = 7200;
     public int MaxConcurrentUploads { get; set; } = 2;
     public int MaxQueuedUploads { get; set; } = 8;
     public int OperationTimeoutSeconds { get; set; } = 60;
@@ -40,6 +42,8 @@ public sealed class AudioOptions
         KeyPrefix = KeyPrefix,
         PlaybackTtlSeconds = PlaybackTtlSeconds,
         MaxUploadBytes = MaxUploadBytes,
+        MaxTextbookUploadBytes = MaxTextbookUploadBytes,
+        MaxTextbookDurationSeconds = MaxTextbookDurationSeconds,
         MaxConcurrentUploads = MaxConcurrentUploads,
         MaxQueuedUploads = MaxQueuedUploads,
         OperationTimeoutSeconds = OperationTimeoutSeconds,
@@ -51,7 +55,8 @@ public sealed class AudioOptions
         RecoveryRecheckSeconds = RecoveryRecheckSeconds,
     };
 
-    public bool IsValid() => !Enabled ||
+    public bool IsValid() => MaxTextbookUploadBytes is >= 1 and <= 128 * 1024 * 1024
+        && MaxTextbookDurationSeconds is >= 1 and <= 14400 && (!Enabled ||
         (ValidEndpoint(InternalEndpoint, false) && ValidEndpoint(PublicEndpoint, true)
         && !string.IsNullOrWhiteSpace(AccessKey) && !string.IsNullOrWhiteSpace(SecretKey)
         && Regex.IsMatch(Region, "^[a-z0-9-]{1,63}$", RegexOptions.CultureInvariant)
@@ -65,7 +70,7 @@ public sealed class AudioOptions
         && RecoveryLeaseSeconds is >= 30 and <= 900 && RecoveryLeaseSeconds > OperationTimeoutSeconds
         && RecoveryRetrySeconds is >= 10 and <= 3600
         && RecoveryMaxRetrySeconds >= RecoveryRetrySeconds && RecoveryMaxRetrySeconds <= 86400
-        && RecoveryRecheckSeconds is >= 3600 and <= 604800);
+        && RecoveryRecheckSeconds is >= 3600 and <= 604800));
 
     private static bool ValidEndpoint(string value, bool allowPrefix) =>
         !value.Contains("..", StringComparison.Ordinal)

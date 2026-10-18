@@ -5,10 +5,10 @@ A unit can contain several ordered tracks, including when its book is disabled o
 has no words or meanings. This catalog is independent of word/meaning pronunciation
 bindings and their accents and `sourceRevision`.
 
-Only catalog metadata management is available here. Textbook file upload,
-replacement, administrator preview, public playback and a management webpage are
-separate features. These endpoints work with `Audio:Enabled=false` and without S3
-configuration; they make no object-storage calls.
+Administrators can manage catalog metadata and conditionally upload or replace MP3
+content. Metadata management works with `Audio:Enabled=false` and without S3; it
+makes no object-storage calls. Administrator preview, public playback and a
+management webpage are separate features.
 
 ## Authentication and responses
 
@@ -129,10 +129,128 @@ or sees the deleted parent as 404. No orphan track survives.
 See [database storage](../database/README.md#textbook-audio-catalog) and
 [upgrade and backup](../development/Deployment.md#textbook-audio-catalog-upgrade).
 
+## Upload policy
+
+`GET /admin/vocabulary-books/{bookId}/units/{unitId}/audio-tracks/upload-policy`
+
+After administrator authorization, this checks the book and unit ownership in one
+read snapshot. It does not look up a track or contact S3. It remains readable while
+audio is disabled. Success contains exactly:
+
+```json
+{"success":true,"data":{"enabled":false,"maxUploadBytes":67108864,"maxDurationSeconds":7200}}
+```
+
+Limits are the bounded effective configuration captured once for this request.
+They are server configuration, separate from the online S3 settings JSON. Missing
+book/unit returns the existing 404 Problem Details; a unit belonging to another
+book returns the existing 409 Problem Details. Busy/locked SQLite reads return the
+existing 503 Problem Details with `Retry-After: 1`.
+
+## Conditionally upload or replace content
+
+`PUT /admin/vocabulary-books/{bookId}/units/{unitId}/audio-tracks/{trackId}/content`
+
+Send one canonical lowercase UUID D `Idempotency-Key` header and exactly two
+`multipart/form-data` sections:
+
+- `expectedVersion`: the current canonical lowercase UUID D version, exactly 36 UTF-8 bytes.
+- `file`: one complete MP3 file; its filename and MIME type are hints and do not establish validity.
+
+The fields may appear in either order. Unknown/duplicate fields, extra files,
+client durations, buckets, keys and URLs are refused. Cookie authentication needs
+the normal CSRF token pair in the cookie and `X-SignaCore-CSRF` header. A missing
+header is rejected without reading this route's multipart body; Bearer precedence
+is unchanged. Authorization and CSRF happen before upload admission or media parsing.
+
+A boundary has at most 128 characters; each section has at most eight headers and
+8192 header bytes. Total multipart overhead, including preamble and epilogue, is
+at most 64 KiB. Both declared lengths and streams without `Content-Length` are
+bounded. New files use `Audio:MaxTextbookUploadBytes` (default 64 MiB, range 1–128
+MiB); PCM duration uses `Audio:MaxTextbookDurationSeconds` (default 7200 seconds,
+range 1–14400). The word pronunciation limit is unchanged. Both upload types share
+one per-host admission queue, including body reads, validation and transfer. Queue
+capacity/wait refusal is 429 with `Retry-After: 1`; read/validation/transfer use the
+captured `Audio:OperationTimeoutSeconds` deadline. Media decoding is synchronous,
+checks cancellation/deadline between frames and during bit reads, and never leaves
+a background decoder running after releasing admission. A timed-out or disconnected
+request stops waiting promptly, but a storage Put that ignores cancellation keeps
+the same shared admission slot, client and input stream until it actually finishes.
+Until then, both upload types can receive 429 before body reading or reservation.
+Late storage success cannot publish the timed-out or cancelled upload.
+
+The server checks complete Layer III headers, lengths, consistent MPEG version,
+sample rate and channel mode, optional CRC-16 and sequential bit-reservoir decoding
+with NLayer 3.0.0. Each frame must produce all expected finite PCM samples. Free
+bitrate, resynchronization, incomplete output and corrupt/truncated frames are
+refused. ID3v2.2–2.4 tags are skipped within a 1 MiB bound; a v2.4 footer must match.
+An optional final 128-byte ID3v1 tag is permitted. The decoder uses a fixed 2304-float
+output buffer; frame/sample counts and input bit reads are bounded by source length
+and configured duration. There is no transcode or external decoder process.
+
+`durationSeconds` is the complete decoded PCM sample count divided by sample rate
+and channel count, including encoder delay and padding. Xing/VBRI frame counts,
+ID3 duration fields and LAME gapless trimming never shorten validation or duration.
+This measurement may be slightly longer than a player's gapless display. Validation
+does not promise detection of every still-decodable unprotected bit change, audio
+quality, or support on every player.
+
+Success is HTTP 200 and contains exactly:
+
+```json
+{"success":true,"data":{"trackId":"track-id","version":"00000000-0000-0000-0000-000000000002","durationSeconds":0.5746938775510204}}
+```
+
+Validation and hashing finish before a new reservation. The server persists its
+operation and random immutable object location, begins transfer, writes S3 outside
+SQLite transactions, then conditionally publishes the file, measured duration and
+new version together with the permanent receipt. Publication always sets
+`isAvailable=false`; title and order are preserved. Explicitly enable the recording
+through metadata after checking it. A stale version or edits/deletion during Put
+cannot replace the prior file. Published historical objects are retained.
+
+Keep the original key, target, expected version and original bytes if the response
+is lost. A known key is matched against its original size (with an absolute 128 MiB
+cap), SHA256 and versioned request fingerprint. A matching terminal operation
+replays its original success/failure receipt, even after replacement, catalog
+removal, restart or tighter new-upload limits; it is not decoded again or
+republished. A different request or matching active operation returns 409. Audio
+being disabled still rejects this request with 503. Reservation rechecks the key
+atomically to cover concurrent first requests. After 409, re-read the target; do
+not blindly generate another key when a prior result is unknown. Failed or unknown
+publication keeps its durable operation for bounded recovery.
+
+Upload-local errors use JSON, for example:
+
+```json
+{"success":false,"message":"Textbook audio file must contain complete decodable MP3 frames."}
+```
+
+| Status | Fixed upload-local message or boundary |
+| --- | --- |
+| 400 | `Textbook audio multipart body is invalid.`; invalid/missing/noncanonical idempotency header: `Idempotency-Key must be a canonical lowercase UUID.` |
+| 404 | `Textbook audio target was not found.` |
+| 409 | `Textbook audio upload conflicts with the target or idempotency key.` |
+| 413 | `Textbook audio file is too large.` (file or overhead) |
+| 415 | `Textbook audio file must contain complete decodable MP3 frames.` |
+| 422 | `Textbook audio duration exceeds the configured limit.` |
+| 429 | `Audio upload capacity is exhausted. Retry later.` with `Retry-After: 1` |
+| 503 | `Audio storage is disabled.` or `Audio storage is unavailable.` |
+
+Authentication keeps 401/403, and blank path IDs/database contention retain the
+existing Problem Details mapping, including 503 plus `Retry-After: 1` for SQLite
+busy/locked. Every success or failure is `no-store` with the administrator security
+headers. Decoder/provider exceptions, internal locations, credentials and signed
+URLs are not included in upload responses or logs. Cancellation before reservation
+creates no operation; after reservation the operation keeps its original failure
+receipt or an expiring lease. An unknown commit may have succeeded: replay the
+original request to establish its result.
+
 ## Internal conditional upload persistence
 
 `ITextbookAudioUploadRepository` provides an internal, network-free boundary for
-future content upload. It adds no HTTP route or configuration. Callers must perform
+conditional content upload. The persistence boundary itself adds no HTTP route or
+configuration. Callers must perform
 authorization and bounded media validation before reserving, and use only captured
 server storage settings and a server-measured positive finite duration. Media and
 object-storage IO must run between repository calls, outside any UnitOfWork.

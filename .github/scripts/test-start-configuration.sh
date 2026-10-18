@@ -25,6 +25,7 @@ LEXARBOR_AUDIO_PUBLIC_ENDPOINT='https://audio.test/s3/' LEXARBOR_AUDIO_ACCESS_KE
 LEXARBOR_AUDIO_SECRET_KEY=synthetic-audio-secret LEXARBOR_AUDIO_REGION=us-east-1 \
 LEXARBOR_AUDIO_BUCKET=lexarbor-audio LEXARBOR_AUDIO_KEY_PREFIX=audio/ \
 LEXARBOR_AUDIO_PLAYBACK_TTL_SECONDS=60 LEXARBOR_AUDIO_MAX_UPLOAD_BYTES=1048576 \
+LEXARBOR_AUDIO_MAX_TEXTBOOK_UPLOAD_BYTES=67108864 LEXARBOR_AUDIO_MAX_TEXTBOOK_DURATION_SECONDS=7200 \
 LEXARBOR_AUDIO_MAX_CONCURRENT_UPLOADS=1 LEXARBOR_AUDIO_MAX_QUEUED_UPLOADS=0 \
 LEXARBOR_AUDIO_OPERATION_TIMEOUT_SECONDS=3 \
 LEXARBOR_OIDC_CODE_SCOPE='openid profile' \
@@ -43,6 +44,8 @@ expected = {
     'Audio__KeyPrefix': 'audio/',
     'Audio__PlaybackTtlSeconds': '60',
     'Audio__MaxUploadBytes': '1048576',
+    'Audio__MaxTextbookUploadBytes': '67108864',
+    'Audio__MaxTextbookDurationSeconds': '7200',
     'Audio__MaxConcurrentUploads': '1',
     'Audio__MaxQueuedUploads': '0',
     'Audio__OperationTimeoutSeconds': '3',

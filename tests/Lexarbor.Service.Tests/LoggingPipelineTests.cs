@@ -14,6 +14,9 @@ namespace Lexarbor.Service.Tests;
 /// rules that cannot become overrides (request-scoped session suppression and
 /// the Data Protection None rule) still holding under the Serilog provider.
 /// </summary>
+// Console.SetOut is process-wide: other test hosts must not write startup/SQL
+// output while these assertions capture a single host. Keep all assertions active.
+[Collection("Console logging diagnostics")]
 public class LoggingPipelineTests
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
@@ -231,3 +234,6 @@ public class LoggingPipelineTests
         Assert.Equal("XMLHttpRequest", projected["X-Requested-With"]?.ToString());
     }
 }
+
+[CollectionDefinition("Console logging diagnostics", DisableParallelization = true)]
+public sealed class ConsoleLoggingDiagnosticCollection;

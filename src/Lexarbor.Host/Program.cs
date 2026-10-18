@@ -170,6 +170,8 @@ builder.Services.AddScoped<VocabularyCleanupService>();
 builder.Services.AddScoped<VocabularyDomainService>();
 builder.Services.AddScoped<VocabularyBookDomainService>();
 builder.Services.AddScoped<ITextbookAudioUploadRepository, TextbookAudioUploadRepository>();
+builder.Services.AddScoped<ITextbookAudioUploadOperationFactory, TextbookAudioUploadOperationFactory>();
+builder.Services.AddSingleton<ITextbookMp3Validator, TextbookMp3Validator>();
 builder.Services.AddScoped<ITextbookAudioTrackRepository, TextbookAudioTrackRepository>();
 builder.Services.AddScoped<TextbookAudioTrackService>();
 builder.Services.AddScoped<VocabularyBookUnitDomainService>();
@@ -777,6 +779,7 @@ app.UseStaticFiles();
 app.UseSystemSettingsNoStore();
 app.UseLexarborRateLimiting();
 app.UseMiddleware<AdminSessionFailureMiddleware>();
+app.UseMiddleware<TextbookAudioUploadCsrfMiddleware>();
 app.UseAuthentication();
 // The session-identity bridge: a hosted-login session principal receives its
 // ServiceMantle management identity here. Session-authenticated unsafe methods
@@ -798,6 +801,7 @@ adminSurface.MapVocabularyWordEditEndpoints();
 adminSurface.MapVocabularyMeaningEditEndpoints();
 adminSurface.MapVocabularyBookUnitEndpoints();
 adminSurface.MapTextbookAudioTrackEndpoints();
+adminSurface.MapTextbookAudioUploadEndpoints();
 adminSurface.MapVocabularyMeaningPositionEndpoints();
 adminSurface.MapVocabularyAdminQueryEndpoints();
 adminSurface.MapAudioAdminQueryEndpoints();
