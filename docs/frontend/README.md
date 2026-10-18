@@ -416,12 +416,64 @@ abort signals, including authentication failures and loading cleanup. The shared
 context, leaving the page or beginning logout discards its transient draft and
 invalidates requests immediately; canceling a request does not undo server work.
 Draft recovery after refresh is not promised. Writes use the shared session Cookie
-and CSRF pair; no administrator Bearer token, file, storage credential or signature
-is introduced or persisted by this page. The exact hosted-login return allowlist
+and CSRF pair; no administrator Bearer token, storage credential or signature
+is introduced or persisted by this page. Selected upload files and their request
+keys remain only in memory. The exact hosted-login return allowlist
 adds only `/books/<safeId>/audio`; unsafe opaque IDs keep the existing default
 login return behavior. API IDs remain opaque and are encoded once per component.
 
-This stage exposes catalog management only. Browser textbook upload/replacement
-and listening are separate follow-up stages, with no placeholder actions here.
+### Upload or replace one recording
+
+The page reads the exact server upload policy: enabled, maximum file bytes and
+maximum duration seconds. A failed policy read has an explicit retry; it does not
+invent limits. Disabled audio prevents new uploads while catalog editing remains
+available. Choose **上传文件** on a current row, select one MP3 and explicitly
+click **开始上传**. Opening a new upload rereads the catalog and takes the current
+row/version; closing an unconfirmed upload also rereads before a new selection.
+File name and MIME are hints only; the server validates the
+complete bytes and measures duration. Only the content request has no browser
+30-second deadline; server deadlines and **取消上传等待（结果可能未知）** still apply.
+The shared session Cookie and CSRF header authorize the multipart request.
+
+One attempt freezes the selected file, book/unit/track, original version and one
+random request key in memory. Secure UUID support requires HTTPS (localhost is also
+supported); if unavailable the page reports it before sending a file. Double-clicking
+does not send another request.
+A successful receipt confirms that operation; the page always rereads the current
+catalog rather than applying the receipt's possibly old version or duration.
+A newly published file starts unavailable. Check the current recording and use the
+administrator playback API to listen before explicitly enabling it; listening on
+this webpage follows separately. A confirmed upload followed by a failed catalog
+read remains confirmed: retry the read, not the upload.
+
+A lost/canceled response, unreadable success or server error is **上传结果未知**.
+409 may mean processing or a condition conflict; 503 cannot identify a terminal
+failure. 429 refuses this request, without proving a prior unknown attempt failed.
+**核对原上传结果** explicitly resends the same bytes, target, original version and
+key, even if the current policy was tightened or audio was disabled. It never
+creates a new key automatically and there is no receipt-query API. An old receipt
+can still confirm its operation after replacement or removal; it cannot restore
+that old row. Clear input/size/format/duration/target refusals are displayed as such;
+the current catalog remains the source of file and availability state.
+
+**放弃继续核对** first asks for confirmation and rereads the catalog before another
+explicit selection starts a new upload with the current version and a fresh key.
+Abandoning reconciliation cannot undo server work. Changing unit, track, page,
+page size, book or route while an attempt is pending asks the same question before
+clearing it; canceling navigation keeps the original target and attempt. If read-back
+finds the current page no longer exists, it preserves that page and explains that
+the attempt must first be reconciled or abandoned; it does not silently fall back
+during an unknown upload. Actual
+navigation aborts waiting and releases the file/key. Browser refresh/close uses the
+browser's leave warning; after refresh the memory attempt cannot be recovered, so
+compare the current catalog manually. Logout releases everything immediately and
+never waits for this prompt, including when the logout response is still pending.
+Late upload or authentication responses cannot affect another view or session.
+Files/keys are never written to Web Storage, logs or analytics. The upload component
+emits content-mutation, refreshed-catalog and scope-invalidated lifecycle events for
+the later single player.
+
+This stage exposes catalog management and single-file upload reconciliation.
+Textbook listening is a separate follow-up stage, with no placeholder action here.
 Vocabulary pronunciation in the detail drawer keeps its existing external-upload
 boundary and preview behavior. See the [textbook API](../api/TextbookAudio.md).
