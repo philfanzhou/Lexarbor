@@ -128,3 +128,42 @@ or sees the deleted parent as 404. No orphan track survives.
 
 See [database storage](../database/README.md#textbook-audio-catalog) and
 [upgrade and backup](../development/Deployment.md#textbook-audio-catalog-upgrade).
+
+## Internal conditional upload persistence
+
+`ITextbookAudioUploadRepository` provides an internal, network-free boundary for
+future content upload. It adds no HTTP route or configuration. Callers must perform
+authorization and bounded media validation before reserving, and use only captured
+server storage settings and a server-measured positive finite duration. Media and
+object-storage IO must run between repository calls, outside any UnitOfWork.
+
+Each canonical lowercase UUID idempotency key is permanently scoped to textbook
+uploads, independently of pronunciation uploads. Its lowercase SHA256 fingerprint
+is computed over the UTF-8 JSON array
+`["textbook-audio-upload",1,bookId,unitId,trackId,expectedVersion,sha256,byteLength]`
+in exactly that order. IDs remain trimmed opaque strings. A new reservation checks
+book, unit, track ownership and the canonical expected version, then atomically
+creates one immutable random object location and operation. Existing keys are
+resolved before looking up the current directory: matching active requests report
+in-progress, matching terminal requests replay the original receipt, and mismatched
+fingerprints conflict. A missing target or stale condition creates no asset.
+
+Publication requires a transferring operation, matching owner/fence and a lease
+strictly later than the current time, re-read after writer admission. In one commit
+it rechecks ownership/version, writes the current asset and duration, sets
+availability false, generates a new version, records first publication and stores
+the original track/version/duration receipt. Title and order are preserved.
+Metadata changes, another publication or deletion during transfer produce a fixed
+409/404 failure receipt without altering the current file. Database or commit
+failure rolls back all publication writes; an unknown commit outcome must be
+resolved with the original key. Cancellation while queued writes nothing; after
+admission the short database transaction finishes independently of cancellation.
+
+Receipts survive later replacement, target/parent deletion and cleanup. Failed
+operations retain their known object location. Only never-published failures at
+least 24 hours old, with no live upload lease and a due retry, can be conditionally
+claimed for cleanup. Cleanup uses its own owner/fence/expiry and keeps the original
+receipt. Observed deletion leaves a permanent tombstone for later rechecks; a late
+transfer cannot publish. Any asset ever marked published remains protected from
+automatic cleanup, even after replacement or removal. This boundary does not yet
+run a recovery worker or remove objects.

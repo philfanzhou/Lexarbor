@@ -410,3 +410,34 @@ objects. Before Down, take a consistent database/root-key/bucket backup. Restori
 catalog data requires that consistent backup. The existing
 `migration.version_too_new` startup rule still applies to older images; rolling
 back code alone is not data rollback. See the [catalog API](../api/TextbookAudio.md).
+
+### Textbook upload operations and permanent receipts
+
+`AddTextbookAudioUploads` adds only `textbook_audio_upload_operation` and its
+indexes. It does not alter the catalog or pronunciation state machine. Each row
+owns one shared `audio_asset` through a unique RESTRICT foreign key; historical
+book/unit/track IDs have no target foreign keys. The row retains the versioned
+request fingerprint, expected version, server-validated duration, upload lease,
+immutable terminal receipt and separate retryable cleanup progress. CHECKs enforce
+canonical lowercase UUID keys/versions, lowercase SHA256 fingerprints, positive
+finite duration, state/receipt consistency, success fields matching the original
+track/duration/asset, fixed failure codes and valid owner/fence/expiry/return state.
+
+The repository uses `ExecuteAdmittedTransactionAsync` and rejects enclosing
+transactions. Reservation creates asset and operation together. Publication
+compares the current track version after SQLite writer admission, preserving title
+and order while replacing asset/duration, making the track unavailable, generating
+a new UUID version, marking first publication and recording success atomically.
+Reads translate SQLite busy/locked errors to the normal safe storage-busy error.
+No method calls S3. The original receipt and object location are retained after
+catalog or parent deletion, retries, cleanup and observed deletion. Cleanup claims
+require a failed, never-published asset at least 24 hours old with no valid upload
+lease and due retry; a first-publication marker always prevents claims. Tombstones
+are permanent, so future recovery can detect late object writes without scanning
+the bucket or assuming that an unreferenced object may be deleted.
+
+Fresh and upgraded databases start with no textbook operations. Down drops only
+this operation table/indexes, losing its receipts and cleanup knowledge while
+retaining all shared assets, catalog references, pronunciation records and physical
+objects. Back up these records with the catalog, root key and private bucket; do
+not downgrade a live upload history or prune it as routine maintenance.

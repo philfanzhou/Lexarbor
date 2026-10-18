@@ -169,6 +169,7 @@ builder.Services.AddScoped<IVocabularyCleanupRepository, VocabularyCleanupReposi
 builder.Services.AddScoped<VocabularyCleanupService>();
 builder.Services.AddScoped<VocabularyDomainService>();
 builder.Services.AddScoped<VocabularyBookDomainService>();
+builder.Services.AddScoped<ITextbookAudioUploadRepository, TextbookAudioUploadRepository>();
 builder.Services.AddScoped<ITextbookAudioTrackRepository, TextbookAudioTrackRepository>();
 builder.Services.AddScoped<TextbookAudioTrackService>();
 builder.Services.AddScoped<VocabularyBookUnitDomainService>();
