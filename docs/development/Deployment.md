@@ -1337,7 +1337,7 @@ under existing books and units. Normal startup automatically migrates forward an
 retains all previous vocabulary, positions, administrator sessions, audit rows,
 Data Protection keys, audio assets, bindings and operation receipts. No S3 call or
 new seed is involved. The catalog metadata API works with audio disabled and no
-storage configuration. Textbook upload and playback are separate capabilities.
+storage configuration. Content upload and administrator playback require enabled private audio storage.
 
 Books and units with tracks now reject ordinary deletion and whole-book cleanup
 delete (including preview) with 409; remove the tracks explicitly first. Other
@@ -1360,7 +1360,7 @@ unchanged. See [catalog API](../api/TextbookAudio.md) and
 empty textbook operation table. It retains every existing catalog, vocabulary,
 session, key, audit and pronunciation record. The internal persistence boundary and
 bounded background recovery support conditional textbook content upload. Textbook
-playback remains a separate feature. Existing pronunciation upload semantics are unchanged. Textbook-only
+administrator playback is documented below. Existing pronunciation upload semantics are unchanged. Textbook-only
 assets and pending operations also block changes to internal endpoint, bucket or
 prefix; empty catalog metadata does not. Credential/public-address rotations use
 the existing generation references, including references held by actual provider
@@ -1408,3 +1408,22 @@ unknown result. Publication starts unavailable and preserves title/order. Publis
 historical objects are never automatically removed; continue backing up SQLite and
 the private audio bucket consistently. This HTTP feature adds no migration beyond
 `AddTextbookAudioUploads`; its rollback/backup gate still applies.
+
+
+### Textbook administrator playback
+
+The [administrator textbook playback endpoint](../api/TextbookAudio.md#administrator-playback)
+uses the current published track file even for disabled books or unavailable tracks.
+It captures ownership and that file in a completed SQLite snapshot before checking
+and signing S3. The read adds no schema or configuration. It shares the existing
+`Audio:PlaybackTtlSeconds`, `Audio:OperationTimeoutSeconds` and generation lifecycle;
+a cancelled/timed-out provider call retains its original client until it ends.
+New requests fail safely while audio is disabled. Busy/locked database reads return
+503 with `Retry-After: 1`; missing catalog files return 404, while lost or denied S3
+objects return safe 503. Metadata access still works without storage.
+
+Clients fetch a new link when starting playback and after expiration, retain it only
+in the active playback scope, and never log or persist it. Track removal, availability
+changes and book disablement do not immediately revoke existing signed links. Public
+textbook authorization and its management webpage are separate capabilities. A code
+rollback removes this new route without deleting objects or revoking short-lived links.

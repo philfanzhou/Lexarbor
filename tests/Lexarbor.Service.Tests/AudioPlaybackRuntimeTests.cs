@@ -198,6 +198,56 @@ public sealed class AudioPlaybackRuntimeTests
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }
 
+    private const string TextbookRoute = "/admin/vocabulary-books/b/units/unit/audio-tracks/track/playback";
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task Textbook_RotationOrCloseDuringStatOrSign_HoldsCapturedGeneration(bool signing, bool close)
+    {
+        await using var host = new Host(); await host.Seed(); var old = host.Stores.Created.Single();
+        var entered = Signal(); var finish = Signal();
+        async Task Pause(CancellationToken ct) { entered.SetResult(); await finish.Task.WaitAsync(ct); }
+        if (signing) old.Sign = Pause; else old.Stat = Pause;
+        var pending = host.Client.GetAsync(TextbookRoute, Ct); await entered.Task.WaitAsync(TimeSpan.FromSeconds(10), Ct);
+        await host.Change(options => { options.Enabled = !close; options.AccessKey = "synthetic-rotated-access"; options.SecretKey = "synthetic-rotated-secret"; options.PublicEndpoint = "https://new.example.test/"; });
+        Assert.Equal(0, old.Disposed);
+        using (var next = await host.Client.GetAsync(TextbookRoute, Ct))
+        {
+            Assert.Equal(close ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.OK, next.StatusCode);
+            if (!close) await Verify(next, host.Stores.Created.Last(), false);
+        }
+        finish.SetResult(); using (var completed = await pending) await Verify(completed, old, false);
+        Assert.Single(old.Signs); await Eventually(() => old.Disposed == 1);
+        if (close)
+        {
+            await host.Change(options => options.Enabled = true);
+            using var reopened = await host.Client.GetAsync(TextbookRoute, Ct); await Verify(reopened, host.Stores.Created.Last(), false);
+        }
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task Textbook_CancelOrDeadlineWithLateProvider_RetainsClientUntilActualEnd(bool signing, bool cancel)
+    {
+        await using var host = new Host(timeout: 1); await host.Seed(); var old = host.Stores.Created.Single();
+        var entered = Signal(); var finish = Signal();
+        async Task Pause(CancellationToken _) { entered.SetResult(); await finish.Task; }
+        if (signing) old.Sign = Pause; else old.Stat = Pause;
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        var pending = host.Client.GetAsync(TextbookRoute, cancellation.Token); await entered.Task.WaitAsync(TimeSpan.FromSeconds(10), Ct);
+        await host.Change(options => options.Enabled = false);
+        if (cancel) { cancellation.Cancel(); await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending); }
+        else { using var response = await pending; Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode); Assert.Equal("no-store", response.Headers.CacheControl?.ToString()); }
+        Assert.Equal(0, old.Disposed); Assert.Equal(signing ? 1 : 0, old.Signs.Count);
+        finish.SetResult(); await Eventually(() => old.Disposed == 1); Assert.Equal(signing ? 1 : 0, old.Signs.Count);
+    }
+
     private static async Task Verify(HttpResponseMessage response, Store store, bool publicAudio)
     {
         Assert.Equal(HttpStatusCode.OK, response.StatusCode); Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
@@ -321,6 +371,10 @@ public sealed class AudioPlaybackRuntimeTests
                 });
             }
             await db.SaveChangesAsync(Ct);
+            db.VocabularyBookUnits.Add(new() { Id = "unit", BookId = "b", Number = 1 });
+            db.TextbookAudioTracks.Add(new() { Id = "track", BookId = "b", UnitId = "unit", Title = "Recording", CurrentAssetId = (await db.AudioAssets.AsNoTracking().FirstAsync(Ct)).Id, DurationSeconds = 1, Version = Guid.NewGuid().ToString("D") });
+            await db.SaveChangesAsync(Ct);
+
         }
         public async ValueTask DisposeAsync() { Client.Dispose(); await App.DisposeAsync(); await Factory.DisposeAsync(); }
     }

@@ -620,3 +620,35 @@ isolated auth harness does not replace the complete Host security tests. Run Rel
 restore/build/test, formatting, full-solution vulnerability audit, startup mapping,
 private S3 and container checks on the proposed head. A local missing Docker daemon
 or `pwsh` is recorded as an environment limit; actual PR CI must still run those checks.
+
+
+### Textbook administrator playback
+
+`TextbookAudioPlaybackTests` verifies untracked published-current reads, disabled
+books/unavailable tracks, missing/unpublished files and ownership order. Injected
+SQLite busy/locked failures during open/read are safely mapped; the shared catalog
+snapshot helper also surrounds transaction begin/commit. A WAL barrier replaces the
+track between its selection and asset read to prove a consistent snapshot. Controlled
+writes after selection, during Stat and before signing replace the current asset,
+remove the track or remove its parents; all finish while storage runs, and signing
+uses only the original captured asset after the read transaction and connection end.
+
+`TextbookAudioPlaybackEndpointTests` covers the exact three-field DTO, UTC/TTL,
+Cookie GET, Bearer priority, configured roles, authorization/validation/ownership,
+missing file, disabled or failed storage, deadlines and cancellation at Stat/sign.
+Success and failures retain no-store/security headers; provider/signature values
+never appear in logs. `AudioPlaybackRuntimeTests` adds textbook requests to rotation,
+disable/reopen and uncooperative Stat/sign cancellation/deadline barriers, retaining
+old clients until actual provider completion. Existing pronunciation playback tests
+remain regression coverage.
+
+`TextbookPlaybackProbe` runs the actual textbook endpoint, SQLite read repository,
+runtime operation and private S3 adapter using a harness-published MP3 and unavailable
+track in an empty disabled book. It checks exact response fields and UTC, real download
+bytes/MIME, 206 Range, rejected expired signatures, renewed links, denied access and
+lost-object safe 503. The integration script separately decodes the MP3 downloaded
+through this textbook link in Chromium, alongside the existing pronunciation download.
+The isolated identity is only test setup; complete Host tests prove authentication.
+Run Release restore/build/test, formatting, full-solution audit, private S3 integration
+and applicable container checks on the proposed head. Missing local Docker/PowerShell
+is an environment limit; successful CI must execute these checks on that head.
