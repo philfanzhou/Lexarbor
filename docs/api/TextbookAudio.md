@@ -53,6 +53,9 @@ zero `page`/`size` default to 1/20; size is capped at 100. Negative, overflowing
 unparseable or repeated pagination values return 400. A valid empty unit returns
 `items: []`, `totalCount: 0`, `totalPage: 0`. Ownership, count and page are read from
 one SQLite snapshot without taking the global writer lock.
+An external SQLite lock can prevent opening or reading this snapshot. Such busy
+or locked failures return the same safe 503 with `Retry-After: 1` as catalog writes;
+the list request does not modify stored data and can be retried after the lock clears.
 
 ## Create a track
 

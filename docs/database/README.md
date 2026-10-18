@@ -391,6 +391,10 @@ from these rows. Metadata writes read current database state and condition updat
 or deletes on the expected version in one UnitOfWork transaction; same-value
 updates also generate a new version. Reads use a deferred SQLite snapshot for
 ownership, total and page, without the application's writer semaphore.
+SQLite busy/locked failures across connection opening, transaction creation,
+reading and commit are translated to the safe storage-busy error (HTTP 503 with
+`Retry-After: 1`), including contention from an external exclusive writer in
+rollback-journal mode. The failed list request leaves catalog data unchanged.
 
 All three parent delete services check for tracks within the write transaction;
 cleanup preview checks its read snapshot. RESTRICT foreign keys prevent a

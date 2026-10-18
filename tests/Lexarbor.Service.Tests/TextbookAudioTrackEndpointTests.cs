@@ -235,6 +235,40 @@ public sealed class TextbookAudioTrackEndpointTests
     }
 
     [Fact]
+    public async Task ExclusiveWriter_ListReturns503WithoutWrites_AndRecoversAfterUnlock()
+    {
+        var directory = VocabularyWebApplicationFactory.CreateGateSafeDirectory($"lexarbor-track-fix-306-read-busy-{Guid.NewGuid():N}");
+        var database = System.IO.Path.Combine(directory, "vocabulary.db");
+        try
+        {
+            await using var factory = new VocabularyWebApplicationFactory(databasePath: database, environment: "Testing", includeAppCredentials: true,
+                extraConfiguration: new Dictionary<string, string?> { ["ConnectionStrings:Default"] = $"Data Source={database};Pooling=False;Default Timeout=1" });
+            using var client = factory.CreateClient(); await SeedAsync(factory.Services, true); Authenticate(client, factory, false, "admin");
+            using var before = await client.GetAsync(Path, Token);
+            var original = await DataAsync(before);
+            await using var blocker = new SqliteConnection($"Data Source={database};Pooling=False"); await blocker.OpenAsync(Token);
+            await using var command = blocker.CreateCommand();
+            command.CommandText = "PRAGMA journal_mode=DELETE; BEGIN EXCLUSIVE;";
+            await command.ExecuteNonQueryAsync(Token);
+            try
+            {
+                using var response = await client.GetAsync(Path, Token);
+                await FailureAsync(response, 503);
+                Assert.Equal("1", response.Headers.GetValues("Retry-After").Single());
+                var body = await response.Content.ReadAsStringAsync(Token);
+                Assert.DoesNotContain("SQLite", body, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("SELECT", body, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain(database, body, StringComparison.Ordinal);
+            }
+            finally { command.CommandText = "ROLLBACK"; await command.ExecuteNonQueryAsync(Token); }
+            await AssertUnchangedAsync(factory.Services);
+            using var recovered = await client.GetAsync(Path, Token);
+            Assert.Equal(original.GetRawText(), (await DataAsync(recovered)).GetRawText());
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [Fact]
     public async Task ParentDeletesAndCleanupPreview_ReturnSafe409WithoutPartialVocabularyChanges()
     {
         await using var factory = new VocabularyWebApplicationFactory();

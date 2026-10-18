@@ -1,4 +1,5 @@
 using Lexarbor.Database.Entities;
+using Lexarbor.Domain.Exceptions;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 using Microsoft.Data.Sqlite;
@@ -13,16 +14,24 @@ public sealed class TextbookAudioTrackRepository(VocabularyDbContext context) : 
     public async Task<T> ReadSnapshotAsync<T>(Func<Task<T>> read, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        await context.Database.OpenConnectionAsync(cancellationToken);
         try
         {
-            await using var transaction = ((SqliteConnection)context.Database.GetDbConnection()).BeginTransaction(deferred: true);
-            await using var enlisted = await context.Database.UseTransactionAsync(transaction, cancellationToken);
-            var result = await read();
-            await transaction.CommitAsync(cancellationToken);
-            return result;
+            await context.Database.OpenConnectionAsync(cancellationToken);
+            try
+            {
+                await using var transaction = ((SqliteConnection)context.Database.GetDbConnection()).BeginTransaction(deferred: true);
+                await using var enlisted = await context.Database.UseTransactionAsync(transaction, cancellationToken);
+                var result = await read();
+                await transaction.CommitAsync(cancellationToken);
+                return result;
+            }
+            finally { await context.Database.CloseConnectionAsync(); }
         }
-        finally { await context.Database.CloseConnectionAsync(); }
+        catch (SqliteException exception) when (exception.SqliteErrorCode is 5 or 6)
+        {
+            throw new StorageBusyException(
+                "The vocabulary database is busy. Please retry the request.", exception);
+        }
     }
     public Task<bool> BookExistsAsync(string bookId, CancellationToken cancellationToken)
         => context.VocabularyBooks.AsNoTracking().AnyAsync(b => b.Id == bookId, cancellationToken);
