@@ -348,3 +348,14 @@ deployment recommendation (see
 - `IdentityService:RequireHttpsMetadata` is unchanged: it remains this
   repository's own deployment security default for the Bearer metadata channel
   (explicit override, Development/Testing off, Production loopback exemption).
+
+
+### Textbook catalog return route
+
+The protected textbook catalog adds the exact `/books/<id>/audio` return shape
+beside `/books/<id>/words`. Both frontend forwarding and the Host validator accept
+only 1–128 ASCII letters/digits/underscore/hyphen characters in this segment.
+External paths, percent encoding inside the target, control characters, traversal,
+backslashes, query strings and fragments remain refused. The transport query is
+decoded once; no wildcard book subtree or additional identity permission is added.
+Explicit safe targets complete the hosted callback to `/#/books/<id>/audio`.

@@ -8,7 +8,7 @@ bindings and their accents and `sourceRevision`.
 Administrators can manage catalog metadata and conditionally upload or replace MP3
 content. Metadata management works with `Audio:Enabled=false` and without S3; it
 makes no object-storage calls. Administrators can request short-lived preview links
-for uploaded tracks. Anonymous clients can list available tracks in enabled books and request short-lived playback links. A management webpage is a separate feature.
+for uploaded tracks. Anonymous clients can list available tracks in enabled books and request short-lived playback links. The administration webpage exposes catalog creation, conditional metadata/order/availability editing and confirmed removal; browser content upload and textbook preview are separate follow-up stages.
 
 ## Authentication and responses
 

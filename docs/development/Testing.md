@@ -696,3 +696,26 @@ setup; complete Host tests establish the public authentication and rate boundari
 Run Release/full tests, format and full-solution audit on the proposed head;
 Docker-dependent S3/container checks require actual successful execution locally
 or in that head's CI, not a controlled-store substitute.
+
+
+### Administrator textbook catalog webpage
+
+`frontend/e2e/textbook-audio.spec.ts` uses controlled administrator API responses
+to check both entry points, disabled/wordless books, units with no vocabulary,
+no-unit guidance, server paging/order/totals, two creates, complete conditional
+metadata/availability writes, missing-file enable refusal, confirmation cancellation,
+last-page fallback, UTF-16/order boundaries and duplicate-save prevention. It
+separately exercises conflict comparison, missing targets, 400/401/403/503, lost
+POST/PUT/DELETE responses, cancellation, confirmed-write/failed-read separation,
+obsolete context/session responses and loading ownership, including a delayed CSRF 401/403 while the replacement context completes its first write. Keyboard dialog close
+restores focus; polite/assertive feedback, axe WCAG 2.1 A/AA and no document overflow
+are checked at 1440 and 768 pixels. These mocks certify browser behavior, not
+SQLite, S3, actual provider authentication or server rollback.
+
+Hosted-auth browser tests verify the new exact safe audio return path and malicious
+variants alongside old paths. Complete Host tests in `AdminHostedLoginTests` and
+`AdminHostedLoginMigrationTests` exercise actual start validation and completed code
+callbacks through the existing synthetic authority, including the audio deep link.
+Production roles/CSRF and the unchanged catalog transaction contract retain their
+existing Host integration coverage. Run Release restore/build/full tests, format,
+frontend lint/types/build and applicable full browser suites on this head.

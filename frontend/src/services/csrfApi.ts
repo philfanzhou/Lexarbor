@@ -9,10 +9,11 @@ import api from './api'
  */
 
 let tokenPromise: Promise<string | null> | null = null
+let pendingIsCurrent: (() => boolean) | undefined
 
-async function fetchToken(): Promise<string | null> {
+async function fetchToken(lxIsCurrent?: () => boolean): Promise<string | null> {
   try {
-    const body = await api.get<unknown>('/admin/auth/csrf')
+    const body = await api.get<unknown>('/admin/auth/csrf', { lxIsCurrent })
     if (typeof body === 'object' && body !== null) {
       const token = (body as { token?: unknown }).token
       if (typeof token === 'string' && token.length > 0) {
@@ -28,12 +29,27 @@ async function fetchToken(): Promise<string | null> {
 }
 
 /** Returns the cached antiforgery token, fetching it once per token lifetime. */
-export function ensureCsrfToken(): Promise<string | null> {
-  tokenPromise ??= fetchToken()
+export function ensureCsrfToken(lxIsCurrent?: () => boolean): Promise<string | null> {
+  // A completed token belongs to the browser cookie and remains reusable. An
+  // in-flight fetch owned by an obsolete scope must neither redirect its
+  // replacement nor make that replacement wait on an obsolete failure. Keep
+  // this shared fetch independent of an individual consumer's abort signal.
+  if (pendingIsCurrent?.() === false) tokenPromise = null
+  if (!tokenPromise) {
+    const pending = fetchToken(lxIsCurrent)
+    tokenPromise = pending
+    pendingIsCurrent = lxIsCurrent
+    void pending.then(() => {
+      if (tokenPromise !== pending) return
+      if (lxIsCurrent?.() === false) tokenPromise = null
+      pendingIsCurrent = undefined
+    })
+  }
   return tokenPromise
 }
 
 /** Retires the cached token after the session it accompanied is gone. */
 export function resetCsrfToken(): void {
   tokenPromise = null
+  pendingIsCurrent = undefined
 }

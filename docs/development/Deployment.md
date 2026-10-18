@@ -621,7 +621,7 @@ mutation leaves the valid pending transaction intact. Creating or rejecting a
 pending transaction never changes an existing administrator session.
 
 Return targets default to `/#/books` when omitted and accept only `/books`,
-`/books/<id>/words`, `/vocabulary`, `/phrases`, `/import`, `/import/phrase` and
+`/books/<id>/words`, `/books/<id>/audio`, `/vocabulary`, `/phrases`, `/import`, `/import/phrase` and
 `/import/batch`, optionally with the `/#` prefix. IDs are 1–128 ASCII letters,
 digits, `-` or `_`; inputs are at most 256 characters. The store saves the normalized
 `/#/...` target. Queries, extra fragments, percent encoding (including double or
