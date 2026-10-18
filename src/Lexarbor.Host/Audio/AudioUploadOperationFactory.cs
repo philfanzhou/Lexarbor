@@ -21,10 +21,12 @@ public sealed class AudioUploadOperationFactory(AudioRuntimeConfiguration runtim
     // Retain its client until the actual provider call ends, even after the HTTP finally.
     internal sealed class UploadStore(AudioOperationReference operation) : IAudioObjectStore
     {
-        public async Task PutAsync(AudioObjectLocation location, Stream content, long byteLength, string contentType, CancellationToken cancellationToken)
+        public Task PutAsync(AudioObjectLocation location, Stream content, long byteLength, string contentType, CancellationToken cancellationToken)
+            => PutAsync(location, content, byteLength, contentType, AudioUploadPurpose.Vocabulary, cancellationToken);
+        public async Task PutAsync(AudioObjectLocation location, Stream content, long byteLength, string contentType, AudioUploadPurpose purpose, CancellationToken cancellationToken)
         {
             using var transfer = operation.Retain();
-            await transfer.ObjectStore.PutAsync(location, content, byteLength, contentType, cancellationToken);
+            await transfer.ObjectStore.PutAsync(location, content, byteLength, contentType, purpose, cancellationToken);
         }
         public Task<AudioObjectInfo?> StatAsync(AudioObjectLocation location, CancellationToken token) => throw new NotSupportedException();
         public Task RemoveAsync(AudioObjectLocation location, CancellationToken token) => throw new NotSupportedException();

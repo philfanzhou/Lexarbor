@@ -589,7 +589,9 @@ sealed class PlaybackProbeStore(IAudioObjectStore inner) : IAudioObjectStore
 {
     public IAudioObjectStore Inner { get; set; } = inner;
     public Task PutAsync(AudioObjectLocation location, Stream content, long size, string type, CancellationToken token)
-        => Inner.PutAsync(location, content, size, type, token);
+        => PutAsync(location, content, size, type, AudioUploadPurpose.Vocabulary, token);
+    public Task PutAsync(AudioObjectLocation location, Stream content, long size, string type, AudioUploadPurpose purpose, CancellationToken token)
+        => Inner.PutAsync(location, content, size, type, purpose, token);
     public Task<AudioObjectInfo?> StatAsync(AudioObjectLocation location, CancellationToken token) => Inner.StatAsync(location, token);
     public Task RemoveAsync(AudioObjectLocation location, CancellationToken token) => Inner.RemoveAsync(location, token);
     public Task<AudioPlaybackLink> GetPlaybackLinkAsync(AudioObjectLocation location, TimeSpan ttl, CancellationToken token)
@@ -621,13 +623,15 @@ sealed class RuntimeProbeStore(AudioOptions options, bool pause) : IAudioObjectS
     public bool Disposed { get; private set; }
     public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public TaskCompletionSource Finish { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    public async Task PutAsync(AudioObjectLocation location, Stream content, long byteLength, string contentType, CancellationToken cancellationToken)
+    public Task PutAsync(AudioObjectLocation location, Stream content, long byteLength, string contentType, CancellationToken cancellationToken)
+        => PutAsync(location, content, byteLength, contentType, AudioUploadPurpose.Vocabulary, cancellationToken);
+    public async Task PutAsync(AudioObjectLocation location, Stream content, long byteLength, string contentType, AudioUploadPurpose purpose, CancellationToken cancellationToken)
     {
         Started.TrySetResult();
         if (pause) await Finish.Task.WaitAsync(cancellationToken);
         if (Disposed || location.Bucket != Options.Bucket || !location.Key.StartsWith(Options.KeyPrefix, StringComparison.Ordinal))
             throw new InvalidOperationException("Upload generation changed during transfer.");
-        await _inner.PutAsync(location, content, byteLength, contentType, cancellationToken);
+        await _inner.PutAsync(location, content, byteLength, contentType, purpose, cancellationToken);
     }
     public Task<AudioObjectInfo?> StatAsync(AudioObjectLocation location, CancellationToken token) => _inner.StatAsync(location, token);
     public Task RemoveAsync(AudioObjectLocation location, CancellationToken token) => _inner.RemoveAsync(location, token);
@@ -664,7 +668,9 @@ sealed class PlaybackRotationProbeStore(AudioOptions options, int pauseAt) : IAu
         return await _inner.GetPlaybackLinkAsync(location, validity, token);
     }
     public Task<AudioObjectInfo?> StatAsync(AudioObjectLocation location, CancellationToken token) => _inner.StatAsync(location, token);
-    public Task PutAsync(AudioObjectLocation location, Stream content, long length, string type, CancellationToken token) => throw new NotSupportedException();
+    public Task PutAsync(AudioObjectLocation location, Stream content, long length, string type, CancellationToken token)
+        => PutAsync(location, content, length, type, AudioUploadPurpose.Vocabulary, token);
+    public Task PutAsync(AudioObjectLocation location, Stream content, long length, string type, AudioUploadPurpose purpose, CancellationToken token) => throw new NotSupportedException();
     public Task RemoveAsync(AudioObjectLocation location, CancellationToken token) => throw new NotSupportedException();
     public void Dispose() { Disposed = true; _inner.Dispose(); }
 }
@@ -688,7 +694,9 @@ sealed class RecoveryRotationProbeStore(AudioOptions options, bool pause) : IAud
     public async Task<AudioObjectInfo?> StatAsync(AudioObjectLocation location, CancellationToken token)
     { Interlocked.Increment(ref Calls); RequireClient(); return await _inner.StatAsync(location, token); }
     private void RequireClient() { if (Disposed) throw new InvalidOperationException("Recovery client was released before completion."); }
-    public Task PutAsync(AudioObjectLocation location, Stream content, long length, string type, CancellationToken token) => throw new NotSupportedException();
+    public Task PutAsync(AudioObjectLocation location, Stream content, long length, string type, CancellationToken token)
+        => PutAsync(location, content, length, type, AudioUploadPurpose.Vocabulary, token);
+    public Task PutAsync(AudioObjectLocation location, Stream content, long length, string type, AudioUploadPurpose purpose, CancellationToken token) => throw new NotSupportedException();
     public Task<AudioPlaybackLink> GetPlaybackLinkAsync(AudioObjectLocation location, TimeSpan validity, CancellationToken token) => throw new NotSupportedException();
     public void Dispose() { Disposed = true; _inner.Dispose(); DisposedSignal.TrySetResult(); }
 }

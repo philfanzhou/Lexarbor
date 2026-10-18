@@ -252,7 +252,9 @@ public sealed class TextbookAudioRecoveryTests
             Removed.Add(location); if (!KeepObject) Objects.Remove(location);
         }
         public Task<AudioObjectInfo?> StatAsync(AudioObjectLocation location, CancellationToken token) => StatFail ? throw new InvalidOperationException("synthetic-stat-provider-detail") : Task.FromResult(Objects.Contains(location) ? new AudioObjectInfo(128, "audio/mpeg") : null);
-        public Task PutAsync(AudioObjectLocation location, Stream content, long byteLength, string contentType, CancellationToken token) => throw new NotSupportedException();
+        public Task PutAsync(AudioObjectLocation location, Stream content, long byteLength, string contentType, CancellationToken token)
+            => PutAsync(location, content, byteLength, contentType, AudioUploadPurpose.Vocabulary, token);
+        public Task PutAsync(AudioObjectLocation location, Stream content, long byteLength, string contentType, AudioUploadPurpose purpose, CancellationToken token) => throw new NotSupportedException();
         public Task<AudioPlaybackLink> GetPlaybackLinkAsync(AudioObjectLocation location, TimeSpan validity, CancellationToken token) => throw new NotSupportedException();
     }
 }

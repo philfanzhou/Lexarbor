@@ -71,7 +71,7 @@ public sealed class TextbookAudioUploadService(ITextbookAudioUploadRepository re
     {
         using var transfer = retainTransfer?.Invoke();
         using var stream = new MemoryStream(bytes, writable: false);
-        await store.PutAsync(location, stream, bytes.LongLength, "audio/mpeg", token);
+        await store.PutAsync(location, stream, bytes.LongLength, "audio/mpeg", AudioUploadPurpose.Textbook, token);
     }
     private long Now() => clock.GetUtcNow().ToUnixTimeMilliseconds();
     private async Task<TextbookAudioUploadResult> ExpiredAsync(string key)

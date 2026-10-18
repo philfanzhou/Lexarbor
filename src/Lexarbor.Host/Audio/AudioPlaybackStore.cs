@@ -18,6 +18,8 @@ internal sealed class AudioPlaybackStore(AudioOperationReference operation) : IA
         return await call.ObjectStore.GetPlaybackLinkAsync(location, validity, token);
     }
     public Task PutAsync(AudioObjectLocation location, Stream content, long byteLength, string contentType, CancellationToken token)
+        => PutAsync(location, content, byteLength, contentType, AudioUploadPurpose.Vocabulary, token);
+    public Task PutAsync(AudioObjectLocation location, Stream content, long byteLength, string contentType, AudioUploadPurpose purpose, CancellationToken token)
         => throw new NotSupportedException();
     public Task RemoveAsync(AudioObjectLocation location, CancellationToken token) => throw new NotSupportedException();
 }

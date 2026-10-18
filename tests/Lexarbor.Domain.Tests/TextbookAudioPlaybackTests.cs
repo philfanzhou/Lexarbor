@@ -131,7 +131,9 @@ public sealed class TextbookAudioPlaybackTests
         { Stats.Add(location.Key); if (stat != null) await stat(); return new(128, "audio/mpeg"); }
         public async Task<AudioPlaybackLink> GetPlaybackLinkAsync(AudioObjectLocation location, TimeSpan validity, CancellationToken ct)
         { Signs.Add(location.Key); Validity = validity; if (sign != null) await sign(); return new("https://example.test/signed", DateTimeOffset.Now.Add(validity)); }
-        public Task PutAsync(AudioObjectLocation l, Stream s, long length, string type, CancellationToken ct) => throw new NotSupportedException();
+        public Task PutAsync(AudioObjectLocation l, Stream s, long length, string type, CancellationToken ct)
+            => PutAsync(l, s, length, type, AudioUploadPurpose.Vocabulary, ct);
+        public Task PutAsync(AudioObjectLocation l, Stream s, long length, string type, AudioUploadPurpose purpose, CancellationToken ct) => throw new NotSupportedException();
         public Task RemoveAsync(AudioObjectLocation l, CancellationToken ct) => throw new NotSupportedException();
     }
     private sealed class PauseAsset(TaskCompletionSource entered, TaskCompletionSource release) : DbCommandInterceptor

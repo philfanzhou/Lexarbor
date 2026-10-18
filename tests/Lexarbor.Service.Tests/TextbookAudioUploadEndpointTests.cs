@@ -33,12 +33,15 @@ public sealed class TextbookAudioUploadEndpointTests
     private sealed class Store : IAudioObjectStore, IDisposable
     {
         public int Calls, Disposals, Active, Peak;
+        public readonly ConcurrentQueue<AudioUploadPurpose> Purposes = new();
         public Func<CancellationToken, Task>? BeforePut;
         public readonly ConcurrentDictionary<string, byte[]> Objects = new();
         public void Dispose() => Interlocked.Increment(ref Disposals);
-        public async Task PutAsync(AudioObjectLocation location, Stream content, long length, string type, CancellationToken token)
+        public Task PutAsync(AudioObjectLocation location, Stream content, long length, string type, CancellationToken token)
+            => PutAsync(location, content, length, type, AudioUploadPurpose.Vocabulary, token);
+        public async Task PutAsync(AudioObjectLocation location, Stream content, long length, string type, AudioUploadPurpose purpose, CancellationToken token)
         {
-            Assert.Equal(0, Disposals); Interlocked.Increment(ref Calls);
+            Assert.Equal(0, Disposals); Purposes.Enqueue(purpose); Interlocked.Increment(ref Calls);
             var active = Interlocked.Increment(ref Active); Peak = Math.Max(Peak, active);
             try
             {
@@ -82,7 +85,7 @@ public sealed class TextbookAudioUploadEndpointTests
         public AudioRuntimeConfiguration Runtime => App.Services.GetRequiredService<AudioRuntimeConfiguration>();
         public Host(bool enabled = true, long bytes = 67108864, int seconds = 7200, int concurrency = 2, int queue = 8,
             int timeout = 60, string? database = null, string? crash = null, TimeProvider? clock = null,
-            Func<CancellationToken, Task>? reserve = null, Func<CancellationToken, Task>? read = null, ITextbookMp3Validator? validator = null)
+            Func<CancellationToken, Task>? reserve = null, Func<CancellationToken, Task>? read = null, ITextbookMp3Validator? validator = null, long wordBytes = 5 * 1024 * 1024)
         {
             Stores = new(Store);
             Factory = new("Testing", true, databasePath: database, keyContentRoot: database is null ? null : Path.Combine(Path.GetDirectoryName(database)!, "keys"), extraConfiguration: new Dictionary<string, string?>
@@ -93,6 +96,7 @@ public sealed class TextbookAudioUploadEndpointTests
                 ["Audio:AccessKey"] = "synthetic",
                 ["Audio:SecretKey"] = "synthetic",
                 ["Audio:MaxTextbookUploadBytes"] = bytes.ToString(),
+                ["Audio:MaxUploadBytes"] = wordBytes.ToString(),
                 ["Audio:MaxTextbookDurationSeconds"] = seconds.ToString(),
                 ["Audio:MaxConcurrentUploads"] = concurrency.ToString(),
                 ["Audio:MaxQueuedUploads"] = queue.ToString(),
@@ -236,6 +240,88 @@ public sealed class TextbookAudioUploadEndpointTests
                 await restarted.Publish(o => o.Enabled = false);
                 using var disabled = await Put(restarted, key: key); await Failure(disabled, 503);
                 rejects.VerifyNoOtherCalls(); Assert.Equal(0, restarted.Store.Calls);
+            }
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task IndependentUploadLimits_RejectOnlyOversizedTypeBeforeReserveAndPreserveCurrent(bool textbookLarger)
+    {
+        var size = Mp3.Length;
+        await using var host = new Host(bytes: textbookLarger ? size : size - 1, wordBytes: textbookLarger ? size - 1 : size);
+        await host.SeedAsync();
+        await host.Db(async db =>
+        {
+            db.AudioAssets.Add(new()
+            {
+                Id = "prior",
+                Bucket = "lexarbor-audio",
+                ObjectKey = "audio/" + Guid.NewGuid().ToString("N") + ".mp3",
+                Sha256 = new string('a', 64),
+                ByteLength = 1,
+                FirstPublishedAtUnixMs = 1
+            });
+            await db.SaveChangesAsync(Ct);
+            await db.TextbookAudioTracks.ExecuteUpdateAsync(s => s.SetProperty(t => t.CurrentAssetId, "prior").SetProperty(t => t.DurationSeconds, 12).SetProperty(t => t.IsAvailable, true), Ct);
+        });
+        using var policy = await host.Client.GetAsync(Root + "/upload-policy", Ct);
+        Assert.Equal(textbookLarger ? size : size - 1, (await Data(policy)).GetProperty("maxUploadBytes").GetInt64());
+        using var textbook = await Put(host);
+        if (textbookLarger) await Data(textbook); else await Failure(textbook, 413);
+        string? revision = null;
+        using (var scope = host.App.Services.CreateScope())
+        {
+            var snapshot = await scope.ServiceProvider.GetRequiredService<IAudioReadRepository>().GetSnapshotAsync("word", null, Ct);
+            revision = AudioSelectionService.Select(snapshot, AudioLocale.EnGb).SourceRevision;
+        }
+        using var body = new MultipartFormDataContent(); body.Add(new StringContent(revision), "sourceRevision");
+        body.Add(new StringContent(""), "expectedAssetId"); body.Add(new ByteArrayContent(Mp3), "file", "tone.mp3");
+        using var request = new HttpRequestMessage(HttpMethod.Put, "/admin/vocabulary/word/audio/en-GB") { Content = body };
+        request.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString());
+        using var word = await host.Client.SendAsync(request, Ct);
+        Assert.Equal(textbookLarger ? 413 : 200, (int)word.StatusCode);
+        Assert.Equal(new[] { textbookLarger ? AudioUploadPurpose.Textbook : AudioUploadPurpose.Vocabulary }, host.Store.Purposes);
+        await host.Db(async db =>
+        {
+            Assert.Equal(textbookLarger ? 1 : 0, await db.TextbookAudioUploadOperations.CountAsync(Ct));
+            Assert.Equal(textbookLarger ? 0 : 1, await db.AudioUploadOperations.CountAsync(Ct));
+            Assert.Equal(2, await db.AudioAssets.CountAsync(Ct));
+            var track = await db.TextbookAudioTracks.SingleAsync(Ct);
+            if (!textbookLarger) { Assert.Equal(Version, track.Version); Assert.Equal(12, track.DurationSeconds); Assert.True(track.IsAvailable); Assert.Equal("prior", track.CurrentAssetId); }
+        });
+    }
+
+    [Fact]
+    public async Task StoredLegacyStorageFailure_ReplaysUnchangedAfterRestartWithCorrectedLimits()
+    {
+        var directory = VocabularyWebApplicationFactory.CreateGateSafeDirectory("textbook-failed-replay-" + Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(directory, "state.db"); var key = Guid.NewGuid().ToString(); string failedReceipt, expected, current;
+        try
+        {
+            await using (var host = new Host(database: path, wordBytes: 1))
+            {
+                await host.SeedAsync(); using var first = await Put(host); expected = (await Data(first)).GetProperty("version").GetString()!;
+                current = ""; await host.Db(async db => current = (await db.TextbookAudioTracks.SingleAsync(Ct)).CurrentAssetId!);
+                host.Store.BeforePut = _ => throw new AudioStorageException("audio.storage.invalid_input", "Audio object input is invalid.");
+                using var failed = await Put(host, expected, key); await Failure(failed, 503); failedReceipt = await failed.Content.ReadAsStringAsync(Ct);
+                Assert.All(host.Store.Purposes, p => Assert.Equal(AudioUploadPurpose.Textbook, p));
+            }
+            await using (var restarted = new Host(database: path, bytes: Mp3.Length, wordBytes: 1))
+            {
+                using var replay = await Put(restarted, expected, key); await Failure(replay, 503);
+                Assert.Equal(failedReceipt, await replay.Content.ReadAsStringAsync(Ct)); Assert.Equal(0, restarted.Store.Calls);
+                await restarted.Db(async db =>
+                {
+                    var track = await db.TextbookAudioTracks.SingleAsync(Ct); Assert.Equal(current, track.CurrentAssetId); Assert.Equal(expected, track.Version);
+                    Assert.Equal(2, await db.AudioAssets.CountAsync(Ct)); Assert.Equal(1, await db.AudioAssets.CountAsync(a => a.FirstPublishedAtUnixMs != null, Ct));
+                    var old = (await new TextbookAudioUploadRepository(db).GetAsync(key, Ct))!;
+                    Assert.Equal(TextbookAudioUploadService.Fingerprint("book", "unit", "track", expected, old.Asset.Sha256, Mp3.Length), old.Operation.RequestFingerprint);
+                    Assert.Equal(503, old.Operation.Receipt!.StatusCode);
+                });
+                using var fresh = await Put(restarted, expected); await Data(fresh); Assert.Equal(new[] { AudioUploadPurpose.Textbook }, restarted.Store.Purposes);
             }
         }
         finally { Directory.Delete(directory, true); }
@@ -432,6 +518,7 @@ public sealed class TextbookAudioUploadEndpointTests
         using var policy = await host.Client.GetAsync(Root + "/upload-policy", Ct); Assert.False((await Data(policy)).GetProperty("enabled").GetBoolean());
         using var rejected = await Put(host); await Failure(rejected, 503);
         release.SetResult(); using var finished = await pending; await Data(finished);
+        Assert.Equal(new[] { AudioUploadPurpose.Textbook }, host.Store.Purposes);
         Assert.Equal(1, host.Store.Calls); Assert.Equal(1, host.Store.Disposals); Assert.Equal(0, host.Stores.All[^1].Calls);
     }
 
@@ -525,6 +612,7 @@ public sealed class TextbookAudioUploadEndpointTests
             }
             // Repeated new keys cannot accumulate actual IO or encoded file buffers.
             await RejectBothTypes(); await RejectBothTypes();
+            Assert.Equal(new[] { AudioUploadPurpose.Textbook }, host.Store.Purposes);
             Assert.Equal(1, host.Store.Calls); Assert.Equal(1, host.Store.Peak);
             await host.Db(async db => Assert.Single(await db.TextbookAudioUploadOperations.ToListAsync(Ct)));
             release.SetResult();

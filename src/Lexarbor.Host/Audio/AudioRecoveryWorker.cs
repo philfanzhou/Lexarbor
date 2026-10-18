@@ -77,6 +77,8 @@ public sealed class AudioRecoveryWorker(IServiceScopeFactory scopes, AudioRuntim
             return await call.ObjectStore.StatAsync(location, token);
         }
         public Task PutAsync(AudioObjectLocation location, Stream content, long byteLength, string contentType, CancellationToken token)
+            => PutAsync(location, content, byteLength, contentType, AudioUploadPurpose.Vocabulary, token);
+        public Task PutAsync(AudioObjectLocation location, Stream content, long byteLength, string contentType, AudioUploadPurpose purpose, CancellationToken token)
             => throw new NotSupportedException();
         public Task<AudioPlaybackLink> GetPlaybackLinkAsync(AudioObjectLocation location, TimeSpan validity, CancellationToken token)
             => throw new NotSupportedException();

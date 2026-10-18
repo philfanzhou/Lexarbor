@@ -1389,6 +1389,14 @@ audio is disabled, so the administrator upload policy always reports bounded val
 `scripts/start.sh` maps the two environment variables in the table above to their
 `Audio__...` settings without rewriting the persistent configuration file.
 
+Vocabulary `MaxUploadBytes` and textbook `MaxTextbookUploadBytes` are independent
+limits at HTTP and object-store boundaries. The captured runtime generation
+selects the exact limit for each server-side upload purpose; increasing the
+textbook limit does not increase the vocabulary limit. A storage fix or credential
+recovery does not rewrite permanent terminal receipts, including earlier 503s.
+Use the original key to resolve an unknown result; only a new logical upload after
+a confirmed terminal failure uses a new key.
+
 Pronunciation and textbook upload requests share `MaxConcurrentUploads` and
 `MaxQueuedUploads` for reading, validation and transfer. Budget for bounded encoded
 file buffers per admitted request (up to 128 MiB each, with temporary copies during
