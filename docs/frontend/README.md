@@ -426,7 +426,7 @@ login return behavior. API IDs remain opaque and are encoded once per component.
 
 The page reads the exact server upload policy: enabled, maximum file bytes and
 maximum duration seconds. A failed policy read has an explicit retry; it does not
-invent limits. Disabled audio prevents new uploads while catalog editing remains
+invent limits. Disabled audio prevents new uploads and listening while catalog editing remains
 available. Choose **上传文件** on a current row, select one MP3 and explicitly
 click **开始上传**. Opening a new upload rereads the catalog and takes the current
 row/version; closing an unconfirmed upload also rereads before a new selection.
@@ -441,9 +441,8 @@ supported); if unavailable the page reports it before sending a file. Double-cli
 does not send another request.
 A successful receipt confirms that operation; the page always rereads the current
 catalog rather than applying the receipt's possibly old version or duration.
-A newly published file starts unavailable. Check the current recording and use the
-administrator playback API to listen before explicitly enabling it; listening on
-this webpage follows separately. A confirmed upload followed by a failed catalog
+A newly published file starts unavailable. Check the current recording and click
+**试听** before explicitly enabling it. A confirmed upload followed by a failed catalog
 read remains confirmed: retry the read, not the upload.
 
 A lost/canceled response, unreadable success or server error is **上传结果未知**.
@@ -470,10 +469,31 @@ compare the current catalog manually. Logout releases everything immediately and
 never waits for this prompt, including when the logout response is still pending.
 Late upload or authentication responses cannot affect another view or session.
 Files/keys are never written to Web Storage, logs or analytics. The upload component
-emits content-mutation, refreshed-catalog and scope-invalidated lifecycle events for
-the later single player.
+emits content-mutation, refreshed-catalog and scope-invalidated lifecycle events
+that immediately stop the page player.
 
-This stage exposes catalog management and single-file upload reconciliation.
-Textbook listening is a separate follow-up stage, with no placeholder action here.
+### Listen before publishing
+
+Click a row's **试听** to request a fresh administrator link. Disabled books and
+unavailable recordings with a file can be previewed; a missing file or unknown,
+disabled or failed policy prevents starting. Use **重新读取上传限制** to recover
+from a failed policy read. A file reference does not guarantee the object is
+readable: a missing target or unavailable storage shows a local, recoverable error.
+The independent textbook response must contain a matching track ID, an absolute
+HTTP(S) URL and a parseable UTC expiry. Expired links or the first media/play
+failure get at most one new link; another failure requires a new click. A browser
+autoplay refusal asks for a click and permission without requesting another link.
+
+Only one page player exists. **停止试听**, another track, a permitted context
+change, editing/upload/removal, catalog refresh, leaving the page and the start of
+logout abort waiting, detach handlers, pause media and remove its source. Canceling
+an unconfirmed-upload leave prompt keeps the original scope; accepting it releases
+the original attempt before changing playback targets. Late links, media callbacks,
+play promises and authentication failures cannot affect a newer view or session.
+The media uses `preload="none"`; links live only in the current request/player
+scope and are never written to Web Storage, logs or analytics. Releasing the player
+does not immediately revoke a previously signed URL. Deployment must provide an
+S3 public endpoint the browser can reach.
+
 Vocabulary pronunciation in the detail drawer keeps its existing external-upload
 boundary and preview behavior. See the [textbook API](../api/TextbookAudio.md).

@@ -7,11 +7,14 @@ import { getAdminBookContent } from '@/services/adminVocabularyApi'
 import { getBookUnits } from '@/services/bookApi'
 import { getApiError } from '@/services/apiError'
 import { sessionGeneration } from '@/services/authState'
+import { createTextbookAudioPreview, textbookAudioTargetKey } from '@/services/textbookAudioPreview'
 import { createTextbookAudioTrack, getTextbookAudioTracks, removeTextbookAudioTrack, replaceTextbookAudioTrack } from '@/services/textbookAudioApi'
 import type { TextbookAudioTrack } from '@/services/textbookAudioApi'
 import type { Book, BookUnit } from '@/types'
 
 const uploader = ref<InstanceType<typeof TextbookAudioUpload>>()
+const preview = createTextbookAudioPreview()
+const isPreviewing = (trackId: string) => preview.state.target === textbookAudioTargetKey(bookId.value, unitId.value, trackId) && preview.state.phase !== 'idle'
 const route = useRoute()
 const router = useRouter()
 const bookId = computed(() => String(route.params.bookId ?? ''))
@@ -61,6 +64,7 @@ function request(controller: AbortController) {
   return { owns, config: { signal: controller.signal, lxIsCurrent: () => owns() && !controller.signal.aborted } }
 }
 function invalidate(clearTotal = true) {
+  preview.stop()
   uploader.value?.invalidate()
   generation += 1
   readGeneration += 1
@@ -85,6 +89,7 @@ function invalidate(clearTotal = true) {
   unitGone.value = false
 }
 async function loadContext() {
+  preview.stop()
   contextController?.abort()
   const controller = new AbortController()
   contextController = controller
@@ -122,6 +127,7 @@ async function loadContext() {
 }
 async function load(): Promise<boolean> {
   if (!unitId.value) return false
+  preview.stop()
   readController?.abort()
   const controller = new AbortController()
   readController = controller
@@ -182,6 +188,7 @@ async function changeSize(value: number) {
 async function openEditor(kind: 'create' | 'edit' | 'delete', event: Event, track?: TextbookAudioTrack) {
   const button = event.currentTarget as HTMLElement
   if (!await releaseUpload()) return
+  preview.stop()
   uploader.value?.invalidate()
   trigger.value = button
   mode.value = kind
@@ -213,6 +220,7 @@ function beforeClose(done: () => void) {
 async function submit() {
   if (busy.value || !unitId.value || unitGone.value || (mode.value !== 'delete' && !valid.value)) return
   if (needsReview.value && !(mode.value === 'create' && createReviewed.value)) return
+  preview.stop()
   busy.value = true
   draftError.value = ''
   writeController = new AbortController()
@@ -269,8 +277,25 @@ async function releaseUpload() {
 }
 async function allowRouteChange() {
   // Actual book watch/unmount performs cleanup after navigation succeeds.
-  return await releaseUpload()
+  const allowed = await releaseUpload()
+  if (allowed) preview.stop()
+  return allowed
 }
+async function togglePreview(track: TextbookAudioTrack) {
+  if (isPreviewing(track.id)) { preview.stop(); return }
+  const own = generation
+  const session = sessionGeneration.value
+  if (uploader.value?.hasAttempt && uploader.value.targetId() !== track.id) {
+    if (!await releaseUpload()) return
+    uploader.value.invalidate()
+    if (!await load()) return
+  }
+  if (disposed || own !== generation || session !== sessionGeneration.value || !uploader.value?.canStart) return
+  const current = items.value.find(item => item.id === track.id)
+  if (!current?.hasFile || busy.value || loading.value || (uploader.value.sending && uploader.value.targetId() === track.id)) return
+  await preview.play(bookId.value, unitId.value, track.id)
+}
+watch(() => uploader.value?.canStart, enabled => { if (!enabled) preview.stop() }, { flush: 'sync' })
 onBeforeRouteLeave(allowRouteChange)
 onBeforeRouteUpdate(allowRouteChange)
 watch(bookId, () => {
@@ -318,7 +343,11 @@ onBeforeUnmount(() => { disposed = true; invalidate() })
           <el-button ref="reloadButton" :disabled="loading || busy" @click="load">重新读取目录</el-button>
           <el-button ref="createButton" type="primary" :disabled="contextLoading || !!contextError || !unitId || unitGone || busy" @click="openEditor('create', $event)">新增录音</el-button>
         </div>
-        <TextbookAudioUpload ref="uploader" :book-id="bookId" :unit-id="unitId" :refresh="load" :current-track="id => items.find(item => item.id === id)" />
+        <TextbookAudioUpload ref="uploader" :book-id="bookId" :unit-id="unitId" :refresh="load" :current-track="id => items.find(item => item.id === id)" @before-content-mutation="preview.stop" @after-refresh="preview.stop" @scope-invalidated="preview.stop" />
+        <div class="preview-feedback" aria-live="polite">
+          <p v-if="preview.state.phase !== 'idle'" role="status">{{ preview.state.phase === 'loading' ? '正在获取试听…' : '正在播放录音' }}</p>
+          <p v-if="preview.state.error" role="alert">{{ preview.state.error }}</p>
+        </div>
         <p class="audio-feedback" role="status" aria-live="polite">{{ notice }}</p>
         <el-alert v-if="loadError" :title="loadError" type="error" :closable="false">
           <el-button @click="load">重试目录</el-button>
@@ -330,10 +359,11 @@ onBeforeUnmount(() => { disposed = true; invalidate() })
           <el-table-column label="时长（秒）" min-width="110"><template #default="{ row }">{{ row.durationSeconds === null ? '—' : row.durationSeconds.toFixed(2) }}</template></el-table-column>
           <el-table-column label="文件" min-width="100"><template #default="{ row }">{{ row.hasFile ? '已有文件' : '缺少文件' }}</template></el-table-column>
           <el-table-column label="可用状态" min-width="100"><template #default="{ row }">{{ row.isAvailable ? '可用' : '未可用' }}</template></el-table-column>
-          <el-table-column label="操作" min-width="240">
+          <el-table-column label="操作" min-width="320">
             <template #default="{ row }">
               <el-button link type="primary" :disabled="busy || loading || (uploader?.sending && uploader.targetId() === row.id)" @click="openEditor('edit', $event, row)">编辑</el-button>
               <el-button link type="primary" :disabled="busy || loading || !!loadError || !uploader?.canStart" @click="uploader?.open(row, $event)">上传文件</el-button>
+              <el-button link type="primary" :aria-label="`${isPreviewing(row.id) ? '停止' : '试听'}录音 ${row.title}`" :disabled="!row.hasFile || busy || loading || !uploader?.canStart || (uploader.sending && uploader.targetId() === row.id)" @click="togglePreview(row)">{{ isPreviewing(row.id) ? '停止试听' : '试听' }}</el-button>
               <el-button link type="danger" :disabled="busy || loading || (uploader?.sending && uploader.targetId() === row.id)" @click="openEditor('delete', $event, row)">移除</el-button>
             </template>
           </el-table-column>

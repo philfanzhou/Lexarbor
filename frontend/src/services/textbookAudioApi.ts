@@ -43,6 +43,12 @@ export function removeTextbookAudioTrack(bookId: string, unitId: string, trackId
 export function getTextbookAudioUploadPolicy(bookId: string, unitId: string, config: AxiosRequestConfig) {
   return api.get<unknown>(`${catalogPath(bookId, unitId)}/upload-policy`, config)
 }
+
+/** Separate from pronunciation locale/sourceRevision playback contracts. */
+export interface TextbookAudioPlayback { trackId: string; url: string; expiresAt: string }
+export function getTextbookAudioPlayback(bookId: string, unitId: string, trackId: string, config: AxiosRequestConfig) {
+  return api.get<unknown>(`${catalogPath(bookId, unitId)}/${encodeURIComponent(trackId)}/playback`, config)
+}
 export function uploadTextbookAudioContent(attempt: import('./textbookAudioUpload').TextbookUploadAttempt, config: AxiosRequestConfig) {
   // Each replay serializes the same immutable File and original condition. The
   // browser owns the multipart boundary; only this content call has no timeout.
