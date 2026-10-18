@@ -76,11 +76,19 @@ try {
   step = 'disabled book and unavailable tracks decode private signed MP3 in Chromium';
   await preview('First recording'); await preview('Second recording');
   const edit = async (title, order, available) => {
+    step = 'open metadata editor for ' + title;
     await row(title).getByRole('button', { name: '编辑', exact: true }).click();
+    step = 'set metadata order for ' + title;
     await page.getByRole('spinbutton', { name: '录音顺序' }).fill(String(order));
-    await page.getByRole('checkbox', { name: '设为可用' }).setChecked(available);
+    step = 'set metadata availability for ' + title;
+    const checkbox = page.getByRole('checkbox', { name: '设为可用' });
+    if (await checkbox.isChecked() !== available) await checkbox.press('Space');
+    check(await checkbox.isChecked() === available);
+    step = 'save metadata for ' + title;
     await page.getByRole('button', { name: '保存', exact: true }).click();
+    step = 'close confirmed metadata editor for ' + title;
     await page.getByRole('dialog').waitFor({ state: 'hidden' });
+    step = 'read confirmed metadata catalog for ' + title;
     await page.getByText('写操作已确认，目录已重新读取。', { exact: true }).waitFor();
   };
   step = 'explicit availability and server ordering';
