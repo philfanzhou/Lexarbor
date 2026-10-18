@@ -666,3 +666,33 @@ The isolated identity is only test setup; complete Host tests prove authenticati
 Run Release restore/build/test, formatting, full-solution audit, private S3 integration
 and applicable container checks on the proposed head. Missing local Docker/PowerShell
 is an environment limit; successful CI must execute these checks on that head.
+
+### Public textbook reads
+
+`PublicTextbookAudioEndpointTests` exercises the complete Host with actual SQLite
+and a controlled object store: anonymous/student/invalid Bearer/session calls,
+exact seven/three-field DTOs, empty books with no vocabulary, filtered stable paging,
+zero/default/capped/extreme pagination, opaque trimmed IDs, ownership and failure
+precedence, administrator-only unavailable previews, disabled runtime, shared
+public quota and no-store on success/400/404/422/429/503/500. Exclusive SQLite locks
+return safe 503 plus Retry-After and recover without writes. Metadata branches do
+not call Stat/sign/Put/Remove; lost/denied storage never becomes an empty directory.
+
+`TextbookAudioPlaybackTests` adds public selection and count/page WAL barriers,
+tracked stale state regression and busy/locked open/read failures. The shared
+snapshot helper catches contention around open, begin, read and commit. Concurrent
+replacement, hiding, book disabling and deletion do not change the captured
+selection; selected/Stat/sign boundary writes finish after the snapshot closes.
+`AudioPlaybackRuntimeTests` runs the public textbook path through credential/public
+endpoint rotation, disable/reopen, cancellation and deadlines with an uncooperative
+provider; its old client lives until actual I/O ends, without a late signature.
+
+The private S3 `TextbookPlaybackProbe` additionally uses the public mapper: disabled
+book and hidden track refusal, enabling/availability, exact list and playback
+fields, actual MP3 download/MIME/206 Range, expired signature rejection, renewal,
+denied credentials and missing-object 503. The downloaded public textbook MP3 is
+separately decoded in Chromium. Its isolated administrator identity is harness
+setup; complete Host tests establish the public authentication and rate boundaries.
+Run Release/full tests, format and full-solution audit on the proposed head;
+Docker-dependent S3/container checks require actual successful execution locally
+or in that head's CI, not a controlled-store substitute.
