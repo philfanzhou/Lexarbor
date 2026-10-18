@@ -46,7 +46,7 @@ const safeMethods = new Set(['get', 'head', 'options', 'trace'])
 
 api.interceptors.request.use(async (config) => {
   if (!safeMethods.has((config.method ?? 'get').toLowerCase())) {
-    const token = await ensureCsrfToken()
+    const token = await ensureCsrfToken(config.lxIsCurrent, config.signal)
     if (token) {
       config.headers.set('X-SignaCore-CSRF', token)
     }
@@ -70,8 +70,8 @@ api.interceptors.response.use(
     if (apiError.status === 401) {
       // The session the token was issued alongside is gone; the next write
       // must fetch a fresh pair instead of replaying the stale token.
-      resetCsrfToken()
       if (staleGuard?.() !== false) {
+        resetCsrfToken()
         onUnauthorized()
       }
     } else if (apiError.status === 403) {

@@ -114,6 +114,19 @@ public class AdminHostedLoginTests
     [InlineData(null, 302)]
     [InlineData("/books", 302)]
     [InlineData("/settings", 302)]
+    [InlineData("/books/book_1-X/audio", 302)]
+    [InlineData("/#/books/book_1-X/audio", 302)]
+    [InlineData("/books/../audio", 400)]
+    [InlineData("/books/a%2Fb/audio", 400)]
+    [InlineData("/books/a/audio?x=1", 400)]
+    [InlineData("/books/a/audio#x", 400)]
+    [InlineData("/books/a/audio/", 400)]
+    [InlineData("/books/a/audio\n", 400)]
+    [InlineData("/books/a/audio\r", 400)]
+    [InlineData("/books/a\\b/audio", 400)]
+    [InlineData("/books/a\n/audio", 400)]
+    [InlineData("/books/中文/audio", 400)]
+    [InlineData("/books/a/other", 400)]
     [InlineData("/%73ettings", 400)]
     [InlineData("/settings?x=1", 400)]
     [InlineData("/#/import/batch", 302)]
@@ -130,6 +143,15 @@ public class AdminHostedLoginTests
         using var response = await f.Client.GetAsync("/admin/auth/start" + (target is null ? "" : "?returnUrl=" + Uri.EscapeDataString(target)), Ct);
         Assert.Equal(status, (int)response.StatusCode);
         if (status == 400) Assert.False(response.Headers.Contains("Set-Cookie"));
+    }
+
+    [Fact]
+    public void TextbookReturnTarget_RequiresExactSafeIdLength()
+    {
+        var safe = "/books/" + new string('a', 128) + "/audio";
+        Assert.Equal("/#" + safe, AdminLoginReturnTarget.Normalize(safe));
+        Assert.Null(AdminLoginReturnTarget.Normalize("/books/" + new string('a', 129) + "/audio"));
+        Assert.Null(AdminLoginReturnTarget.Normalize("/books//audio"));
     }
 
     [Theory]

@@ -17,6 +17,7 @@
 | `/forbidden` | Anonymous | Non-administrator notice |
 | `/books` | Administrator | Vocabulary book management |
 | `/books/:bookId/words` | Administrator | One book's word list |
+| `/books/:bookId/audio` | Administrator | One book's unit recording catalog |
 | `/vocabulary` | Administrator | Whole-library word list |
 | `/phrases` | Administrator | Phrase positions by book, unit, section, and keyword |
 | `/import` | Administrator | Word import |
@@ -75,7 +76,7 @@ The Axios response interceptor runs the global 401/403 handling before any compo
 
 SignaCore's hosted pages are the only administrator sign-in, so the login page renders exactly one sign-in action and never asks for a password. The frontend orchestrates navigations only; every protocol value — state, nonce, PKCE verifier, code, access token, ID token, client secret — stays server-side and never enters a browser request, the URL the app controls, or web storage.
 
-The **使用 SignaCore 登录** button runs a top-level navigation to this site's `GET /admin/auth/start`, forwarding the current `redirect` query as `returnUrl` only when it exactly matches the backend's route allowlist (the six fixed routes, or `/books/<id>/words` with a safe id); otherwise the parameter is omitted and the backend default applies. One activation begins exactly one navigation: the button turns busy and a second activation is a no-op. The provider round trip and the callback are backend-driven; on success the browser lands on the stored return page, where the ordinary route guard's `GET /admin/auth/session` restore establishes the username, roles, and the one version request.
+The **使用 SignaCore 登录** button runs a top-level navigation to this site's `GET /admin/auth/start`, forwarding the current `redirect` query as `returnUrl` only when it exactly matches the backend's route allowlist (the listed fixed routes, or `/books/<id>/words` and `/books/<id>/audio` with an ASCII letters/digits/underscore/hyphen id of 1–128 characters); otherwise the parameter is omitted and the backend default applies. One activation begins exactly one navigation: the button turns busy and a second activation is a no-op. The provider round trip and the callback are backend-driven; on success the browser lands on the stored return page, where the ordinary route guard's `GET /admin/auth/session` restore establishes the username, roles, and the one version request.
 
 The login page consumes the six fixed `reason` values of the callback and logout-return routes as exactly one notice each, and ignores an unknown value harmlessly:
 
@@ -381,3 +382,46 @@ discard drafts and ignore stale replies through the existing session guard.
 Neither drafts nor credentials are stored in web storage, URLs, console output or
 analytics. The rate-limit panel keeps its own draft, notice and save operation;
 saving either panel can make the other's revision stale and cause 412.
+
+
+## Textbook recording catalog
+
+Open **教材录音** from any book row or its word-list header. The protected
+`/#/books/<bookId>/audio` page reads the administrator book and units, including
+disabled books and units with no words. Select a unit to browse its server-ordered
+tracks, with actual totals and 10/20/50/100 rows per page. A book without units
+links back to the existing book list’s **单元** entry; create a unit there first.
+Read errors have explicit retries and do not masquerade as an empty catalog.
+
+Create a title and numeric order. Titles are trimmed to 1–200 UTF-16 code units;
+order is an integer from 0 through 2147483647. Edit replaces title, order and
+availability together with the originally displayed version. A track without a
+file cannot be enabled; a file reference does not prove object readability and
+server-side conflicts can still reject enabling. Removal asks for confirmation,
+sends the original version, retains historical objects/receipts, rereads the
+server catalog and moves back from an emptied last page. Canceling confirmation
+sends no write.
+
+After a conflict or missing target, the dialog retains the draft and original
+condition. Compare it with the reread row and explicitly choose **保留草稿，采用当前版本**
+before submitting again. If the selected unit was deleted, its original target and draft stay visible; the page does not automatically select another unit. Choose another unit explicitly to discard that draft. A lost, canceled or server-error write is **结果未知**:
+the server may have completed it. Read-back shows current catalog state, without
+proving which operation caused it. There is no automatic write replay or POST
+idempotency. Creating again requires checking the catalog and explicitly accepting
+that another recording may be created. Confirmed writes followed by failed reads
+are reported separately; retry the read instead of repeating the write.
+
+All reads and writes use the current book/unit/page and session generation with
+abort signals, including authentication failures and loading cleanup. The shared CSRF fetch inherits the initiating write’s current-scope guard; a replacement write starts its own token fetch if the old fetch is still pending. A completed cookie-bound token remains reusable. Canceling a write immediately ends that caller’s token wait without canceling the shared Cookie fetch; an aborted write is never dispatched when the token later arrives. Switching
+context, leaving the page or beginning logout discards its transient draft and
+invalidates requests immediately; canceling a request does not undo server work.
+Draft recovery after refresh is not promised. Writes use the shared session Cookie
+and CSRF pair; no administrator Bearer token, file, storage credential or signature
+is introduced or persisted by this page. The exact hosted-login return allowlist
+adds only `/books/<safeId>/audio`; unsafe opaque IDs keep the existing default
+login return behavior. API IDs remain opaque and are encoded once per component.
+
+This stage exposes catalog management only. Browser textbook upload/replacement
+and listening are separate follow-up stages, with no placeholder actions here.
+Vocabulary pronunciation in the detail drawer keeps its existing external-upload
+boundary and preview behavior. See the [textbook API](../api/TextbookAudio.md).

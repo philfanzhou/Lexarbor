@@ -255,10 +255,11 @@ onMounted(() => {
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="380" fixed="right">
+        <el-table-column label="操作" width="450" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openBookWords(row)">查看单词</el-button>
             <el-button link type="primary" @click="openUnits(row)">单元</el-button>
+            <el-button link type="primary" @click="router.push({ name: 'book-audio', params: { bookId: row.id } })">教材录音</el-button>
             <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
             <el-button link type="warning" @click="openCleanup(row, 'clear')">清空内容</el-button>
             <el-button link type="danger" @click="openCleanup(row, 'delete')">删除教材及内容</el-button>
