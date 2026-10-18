@@ -422,3 +422,34 @@ for (const status of [401, 403]) test(`an obsolete CSRF ${status} cannot clear t
   expect(writes(state)).toHaveLength(1)
   expect(writes(state)[0]?.body?.title).toBe('Current draft')
 })
+
+test('a deleted unit keeps the original draft and target until an explicit unit switch', async ({ page }) => {
+  const state = await setup(page, [track(1, true)])
+  const second = { ...unit, id: 'second', number: 3 }
+  state.units.push(second)
+  await open(page)
+  await page.getByRole('button', { name: '编辑', exact: true }).click()
+  await fill(page, 'Retained after unit removal', '9')
+  state.units = [second]
+  state.failure = 404
+  state.readFailure = 404
+  await page.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(page.getByRole('dialog')).toContainText('目标已不存在')
+  await expect(page.getByRole('textbox', { name: '录音标题' })).toHaveValue('Retained after unit removal')
+  await expect(page.getByRole('dialog')).toContainText(`提交条件版本：${version(1)}`)
+  await expect(page.getByText('原单元已不存在；草稿和原目标保留。', { exact: false })).toBeVisible()
+  await expect(page.getByRole('button', { name: '保存', exact: true })).toBeDisabled()
+  expect(state.requests.some(r => r.url.pathname.includes('/units/second/'))).toBe(false)
+  expect(writes(state)).toHaveLength(1)
+  await page.getByRole('button', { name: '取消', exact: true }).click()
+  await expect(page.getByRole('button', { name: '重新读取目录' })).toBeFocused()
+  state.failure = 0
+  state.readFailure = 0
+  state.rows = []
+  await page.locator('.unit-select').click()
+  await page.getByRole('option', { name: '单元 3 · Listening', exact: true }).click()
+  await expect(page.getByText('本单元暂无录音，可新增录音目录')).toBeVisible()
+  await expect(page.getByRole('button', { name: '新增录音', exact: true })).toBeEnabled()
+  expect(state.requests.at(-1)?.url.pathname).toContain('/units/second/')
+  expect(writes(state)).toHaveLength(1)
+})

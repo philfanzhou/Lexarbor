@@ -404,7 +404,7 @@ sends no write.
 
 After a conflict or missing target, the dialog retains the draft and original
 condition. Compare it with the reread row and explicitly choose **保留草稿，采用当前版本**
-before submitting again. A lost, canceled or server-error write is **结果未知**:
+before submitting again. If the selected unit was deleted, its original target and draft stay visible; the page does not automatically select another unit. Choose another unit explicitly to discard that draft. A lost, canceled or server-error write is **结果未知**:
 the server may have completed it. Read-back shows current catalog state, without
 proving which operation caused it. There is no automatic write replay or POST
 idempotency. Creating again requires checking the catalog and explicitly accepting

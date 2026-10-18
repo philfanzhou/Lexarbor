@@ -707,7 +707,7 @@ metadata/availability writes, missing-file enable refusal, confirmation cancella
 last-page fallback, UTF-16/order boundaries and duplicate-save prevention. It
 separately exercises conflict comparison, missing targets, 400/401/403/503, lost
 POST/PUT/DELETE responses, cancellation, confirmed-write/failed-read separation,
-obsolete context/session responses and loading ownership, including a delayed CSRF 401/403 while the replacement context completes its first write. Keyboard dialog close
+a deleted unit retaining its draft and original target instead of automatically selecting another unit, obsolete context/session responses and loading ownership, including a delayed CSRF 401/403 while the replacement context completes its first write. Keyboard dialog close
 restores focus; polite/assertive feedback, axe WCAG 2.1 A/AA and no document overflow
 are checked at 1440 and 768 pixels. These mocks certify browser behavior, not
 SQLite, S3, actual provider authentication or server rollback.

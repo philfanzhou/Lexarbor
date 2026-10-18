@@ -16,6 +16,7 @@ const bookId = computed(() => String(route.params.bookId ?? ''))
 const book = ref<Book | null>(null)
 const units = ref<BookUnit[]>([])
 const unitId = ref('')
+const unitGone = ref(false)
 const page = ref(1)
 const size = ref(20)
 const items = ref<TextbookAudioTrack[]>([])
@@ -37,6 +38,7 @@ const needsReview = ref(false)
 const createReviewed = ref(false)
 const trigger = ref<HTMLElement | null>(null)
 const createButton = ref<{ $el: HTMLButtonElement }>()
+const reloadButton = ref<{ $el: HTMLButtonElement }>()
 const latest = computed(() => items.value.find(item => item.id === selected.value?.id))
 const valid = computed(() => title.value.trim().length >= 1 && title.value.trim().length <= 200
   && Number.isInteger(order.value) && order.value! >= 0 && order.value! <= 2147483647)
@@ -76,6 +78,7 @@ function invalidate(clearTotal = true) {
   items.value = []
   if (clearTotal) totalCount.value = 0
   loadError.value = ''
+  unitGone.value = false
 }
 async function loadContext() {
   contextController?.abort()
@@ -95,9 +98,15 @@ async function loadContext() {
     if (!current()) return
     book.value = content.book
     units.value = [...data.units].sort((a, b) => a.number - b.number)
-    if (!units.value.some(unit => unit.id === unitId.value)) {
+    if (!unitId.value) {
       contextLoading.value = false
       changeUnit(units.value[0]?.id ?? '')
+    } else {
+      // Re-reading after a 404 must preserve the original target and draft.
+      // Only an explicit unit choice may discard them, even when another
+      // valid unit is available. Never silently move a write to that unit.
+      unitGone.value = !units.value.some(unit => unit.id === unitId.value)
+      if (unitGone.value) items.value = []
     }
   } catch (error) {
     if (!current()) return
@@ -178,13 +187,14 @@ async function refocus() {
   await nextTick()
   if (disposed) return
   if (trigger.value?.isConnected) trigger.value.focus()
-  else createButton.value?.$el.focus()
+  else if (createButton.value && !createButton.value.$el.disabled) createButton.value.$el.focus()
+  else reloadButton.value?.$el.focus()
 }
 function beforeClose(done: () => void) {
   if (!busy.value) done()
 }
 async function submit() {
-  if (busy.value || !unitId.value || (mode.value !== 'delete' && !valid.value)) return
+  if (busy.value || !unitId.value || unitGone.value || (mode.value !== 'delete' && !valid.value)) return
   if (needsReview.value && !(mode.value === 'create' && createReviewed.value)) return
   busy.value = true
   draftError.value = ''
@@ -266,21 +276,23 @@ onBeforeUnmount(() => { disposed = true; invalidate() })
       <el-alert v-if="contextError" :title="contextError" type="error" :closable="false">
         <el-button @click="loadContext">重试教材与单元</el-button>
       </el-alert>
-      <p v-if="!contextLoading && !contextError && book && !units.length" role="status">此教材还没有单元。请返回教材列表，在该教材的「单元」入口先建单元。</p>
-      <template v-if="units.length">
+      <p v-if="!contextLoading && !contextError && book && !units.length && !unitGone" role="status">此教材还没有单元。请返回教材列表，在该教材的「单元」入口先建单元。</p>
+      <template v-if="units.length || unitGone">
+        <el-alert v-if="unitGone" title="原单元已不存在；草稿和原目标保留。请明确选择其他单元，或返回教材列表的单元入口核对。" type="warning" :closable="false" />
         <div class="audio-toolbar">
           <el-select :model-value="unitId" aria-label="录音单元" class="unit-select" @change="changeUnit">
+            <el-option v-if="unitGone" :value="unitId" label="原单元（已不存在）" disabled />
             <el-option v-for="unit in units" :key="unit.id" :value="unit.id" :label="`单元 ${unit.number}${unit.title ? ` · ${unit.title}` : ''}`" />
           </el-select>
-          <el-button :disabled="loading || busy" @click="load">重新读取目录</el-button>
-          <el-button ref="createButton" type="primary" :disabled="contextLoading || !!contextError || !unitId || busy" @click="openEditor('create', $event)">新增录音</el-button>
+          <el-button ref="reloadButton" :disabled="loading || busy" @click="load">重新读取目录</el-button>
+          <el-button ref="createButton" type="primary" :disabled="contextLoading || !!contextError || !unitId || unitGone || busy" @click="openEditor('create', $event)">新增录音</el-button>
         </div>
         <p class="audio-feedback" role="status" aria-live="polite">{{ notice }}</p>
         <el-alert v-if="loadError" :title="loadError" type="error" :closable="false">
           <el-button @click="load">重试目录</el-button>
         </el-alert>
         <p v-if="loading" role="status">正在读取录音目录…</p>
-        <el-table :data="items" stripe border row-key="id" scrollbar-tabindex="0" aria-label="单元录音目录">
+        <el-table v-if="!unitGone" :data="items" stripe border row-key="id" scrollbar-tabindex="0" aria-label="单元录音目录">
           <el-table-column prop="title" label="标题" min-width="200" />
           <el-table-column prop="displayOrder" label="顺序" min-width="90" />
           <el-table-column label="时长（秒）" min-width="110"><template #default="{ row }">{{ row.durationSeconds === null ? '—' : row.durationSeconds.toFixed(2) }}</template></el-table-column>
@@ -294,7 +306,7 @@ onBeforeUnmount(() => { disposed = true; invalidate() })
           </el-table-column>
           <template #empty><el-empty v-if="!loading && !loadError" :image-size="70" description="本单元暂无录音，可新增录音目录" /><span v-else>{{ loading ? '正在读取' : '目录读取失败' }}</span></template>
         </el-table>
-        <div class="audio-pagination">
+        <div v-if="!unitGone" class="audio-pagination">
           <el-select :model-value="size" class="page-size" aria-label="录音每页条数" @change="changeSize"><el-option v-for="value in [10, 20, 50, 100]" :key="value" :value="value" :label="`${value} 条/页`" /></el-select>
           <el-pagination :current-page="page" :page-size="size" :total="totalCount" layout="total, prev, pager, next" background @current-change="changePage" />
         </div>
@@ -319,7 +331,7 @@ onBeforeUnmount(() => { disposed = true; invalidate() })
       <template #footer>
         <el-button v-if="busy" @click="writeController?.abort()">取消等待（结果可能未知）</el-button>
         <el-button v-else @click="dialog = false">取消</el-button>
-        <el-button type="primary" :loading="busy" :disabled="(mode !== 'delete' && !valid) || (needsReview && !(mode === 'create' && createReviewed))" @click="submit">{{ mode === 'delete' ? '确认移除' : '保存' }}</el-button>
+        <el-button type="primary" :loading="busy" :disabled="unitGone || (mode !== 'delete' && !valid) || (needsReview && !(mode === 'create' && createReviewed))" @click="submit">{{ mode === 'delete' ? '确认移除' : '保存' }}</el-button>
       </template>
     </el-dialog>
   </div>
