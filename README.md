@@ -47,6 +47,8 @@ Data Protection keys are stored inside the SQLite database as ServiceMantle auth
 
 ## Audio storage
 
+The [textbook audio catalog](docs/api/TextbookAudio.md) lets administrators organize ordered recordings within existing books and units, including empty or disabled books. Catalog management works without S3; textbook upload and playback are separate features. Books and units with tracks must have those tracks removed before deletion.
+
 Optional private S3 audio storage defaults to disabled. Existing deployments need no Audio settings or credentials. The [administrator audio API](docs/api/Audio.md) supports metadata, conditional MP3 uploads, logical deletion and short-lived playback links, including disabled books and words without a book. The [public audio API](docs/api/Audio.md#public-book-authorized-playback) returns short-lived links only for words and meanings in an enabled book. Learning webpages and TTS generation are external responsibilities; see the frontend guide for administrator UI availability. See [audio storage configuration and proxy requirements](docs/development/Deployment.md#optional-audio-object-storage) and [private-bucket integration testing](docs/development/Testing.md#audio-storage-verification).
 
 ## Authentication

@@ -721,6 +721,7 @@ public class VocabularyBatchImportTests : TestBase
         IVocabularyBookUnitRepository inner,
         string deletedUnitId) : IVocabularyBookUnitRepository
     {
+        public Task<bool> HasAudioTracksAsync(string unitId) => inner.HasAudioTracksAsync(unitId);
         public async Task<List<VocabularyBookUnitModel>> GetByBookIdAsync(string bookId)
         {
             var units = await inner.GetByBookIdAsync(bookId);

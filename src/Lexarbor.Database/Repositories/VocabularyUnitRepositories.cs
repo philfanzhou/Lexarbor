@@ -16,6 +16,9 @@ public class VocabularyBookUnitRepository : IVocabularyBookUnitRepository
         _context = context;
     }
 
+    public Task<bool> HasAudioTracksAsync(string unitId)
+        => _context.TextbookAudioTracks.AnyAsync(t => t.UnitId == unitId);
+
     public async Task<VocabularyBookUnitModel?> GetByIdAsync(string id)
     {
         var entity = await _context.VocabularyBookUnits

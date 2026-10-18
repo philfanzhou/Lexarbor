@@ -388,6 +388,9 @@ public class VocabularyBookRepository : IVocabularyBookRepository
 {
     private readonly VocabularyDbContext _context;
 
+    public Task<bool> HasAudioTracksAsync(string bookId)
+        => _context.TextbookAudioTracks.AnyAsync(t => t.BookId == bookId);
+
     public VocabularyBookRepository(VocabularyDbContext context)
     {
         _context = context;

@@ -28,6 +28,8 @@ public sealed class VocabularyCleanupRepository(VocabularyDbContext context) : I
 
     public async Task<VocabularyBookModel?> GetBookAsync(string bookId, CancellationToken cancellationToken)
         => (await context.VocabularyBooks.AsNoTracking().SingleOrDefaultAsync(b => b.Id == bookId, cancellationToken))?.Adapt<VocabularyBookModel>();
+    public Task<bool> HasAudioTracksAsync(string bookId, CancellationToken cancellationToken)
+        => context.TextbookAudioTracks.AnyAsync(t => t.BookId == bookId, cancellationToken);
     public Task<bool> WordExistsAsync(string wordId, CancellationToken cancellationToken)
         => context.Vocabularies.AnyAsync(v => v.Id == wordId, cancellationToken);
     public async Task<VocabularyMeaningModel?> GetMeaningAsync(string meaningId, CancellationToken cancellationToken)
