@@ -1193,6 +1193,11 @@ hosts can upload after an administrator settings save; closing audio rejects new
 with 503 while old uploads finish. All generations share the startup admission
 instance, including valid advanced limits configured while disabled. A timed-out
 provider call that ignores cancellation retains its client until it actually ends.
+For textbook content uploads, it also retains the input stream and the same shared
+upload slot after the HTTP request times out or disconnects. Both upload routes
+continue to return 429 with `Retry-After: 1` when that retained work fills capacity;
+the slot becomes available only when the actual Put ends, successfully or with an
+error. The late result cannot publish the cancelled upload.
 
 Internal destination changes (`InternalEndpoint`, `Bucket`, `KeyPrefix`) reserve a
 short coordination gate before reading **any** asset or upload-operation record.

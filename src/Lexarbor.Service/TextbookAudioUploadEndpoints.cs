@@ -83,7 +83,7 @@ public static class TextbookAudioUploadEndpoints
                     TextbookAudioUploadService.Fingerprint(bookId, unitId, trackId, version, hash, file.LongLength)));
             var duration = validator.Validate(file, settings.MaxDurationSeconds, TimeSpan.FromSeconds(settings.TimeoutSeconds), timeout.Token);
             timeout.Token.ThrowIfCancellationRequested();
-            return Response(await operation.Service.UploadAsync(new(key, bookId, unitId, trackId, version, file, hash, duration), timeout.Token));
+            return Response(await operation.Service.UploadAsync(new(key, bookId, unitId, trackId, version, file, hash, duration), timeout.Token, permit.Retain));
         }
         catch (InputException exception) { return Error(exception.Status, exception.Message); }
         catch (TextbookMediaException exception)

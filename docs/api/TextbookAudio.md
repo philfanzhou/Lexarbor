@@ -173,7 +173,11 @@ one per-host admission queue, including body reads, validation and transfer. Que
 capacity/wait refusal is 429 with `Retry-After: 1`; read/validation/transfer use the
 captured `Audio:OperationTimeoutSeconds` deadline. Media decoding is synchronous,
 checks cancellation/deadline between frames and during bit reads, and never leaves
-a background decoder running after releasing admission.
+a background decoder running after releasing admission. A timed-out or disconnected
+request stops waiting promptly, but a storage Put that ignores cancellation keeps
+the same shared admission slot, client and input stream until it actually finishes.
+Until then, both upload types can receive 429 before body reading or reservation.
+Late storage success cannot publish the timed-out or cancelled upload.
 
 The server checks complete Layer III headers, lengths, consistent MPEG version,
 sample rate and channel mode, optional CRC-16 and sequential bit-reservoir decoding

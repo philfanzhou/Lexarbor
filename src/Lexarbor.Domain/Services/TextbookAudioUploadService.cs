@@ -24,7 +24,8 @@ public sealed class TextbookAudioUploadService(ITextbookAudioUploadRepository re
         stored.Operation.RequestFingerprint != fingerprint || stored.Operation.Receipt == null
             ? new(409, ErrorCode: "audio.target_conflict") : Receipt(stored.Operation);
 
-    public async Task<TextbookAudioUploadResult> UploadAsync(TextbookAudioUploadContent content, CancellationToken token)
+    public async Task<TextbookAudioUploadResult> UploadAsync(TextbookAudioUploadContent content, CancellationToken token,
+        Func<IDisposable>? retainTransfer = null)
     {
         if (!settings.Enabled) return new(503, ErrorCode: "audio.disabled");
         token.ThrowIfCancellationRequested();
@@ -45,8 +46,8 @@ public sealed class TextbookAudioUploadService(ITextbookAudioUploadRepository re
             timeout.CancelAfter(TimeSpan.FromSeconds(settings.TimeoutSeconds));
             try
             {
-                // Transfer owns the stream until the actual provider finishes, including ignored cancellation.
-                await TransferAsync(upload.Asset.Location, content.Bytes, timeout.Token).WaitAsync(timeout.Token);
+                // Transfer owns the stream and retained capacity until the actual provider finishes.
+                await TransferAsync(upload.Asset.Location, content.Bytes, timeout.Token, retainTransfer).WaitAsync(timeout.Token);
                 timeout.Token.ThrowIfCancellationRequested();
             }
             catch (Exception) when (!token.IsCancellationRequested)
@@ -66,8 +67,9 @@ public sealed class TextbookAudioUploadService(ITextbookAudioUploadRepository re
         }
         // A failed/unknown commit keeps its durable lease for recovery and original-key lookup.
     }
-    private async Task TransferAsync(AudioObjectLocation location, byte[] bytes, CancellationToken token)
+    private async Task TransferAsync(AudioObjectLocation location, byte[] bytes, CancellationToken token, Func<IDisposable>? retainTransfer)
     {
+        using var transfer = retainTransfer?.Invoke();
         using var stream = new MemoryStream(bytes, writable: false);
         await store.PutAsync(location, stream, bytes.LongLength, "audio/mpeg", token);
     }

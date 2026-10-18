@@ -32,17 +32,22 @@ public sealed class TextbookAudioUploadEndpointTests
     private static byte[] Mp3 => File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Fixtures/tone.mp3"));
     private sealed class Store : IAudioObjectStore, IDisposable
     {
-        public int Calls, Disposals;
+        public int Calls, Disposals, Active, Peak;
         public Func<CancellationToken, Task>? BeforePut;
         public readonly ConcurrentDictionary<string, byte[]> Objects = new();
         public void Dispose() => Interlocked.Increment(ref Disposals);
         public async Task PutAsync(AudioObjectLocation location, Stream content, long length, string type, CancellationToken token)
         {
             Assert.Equal(0, Disposals); Interlocked.Increment(ref Calls);
-            if (BeforePut != null) await BeforePut(token);
-            using var output = new MemoryStream(); await content.CopyToAsync(output, CancellationToken.None);
-            Assert.Equal(0, Disposals); Assert.Equal(length, output.Length); Assert.Equal("audio/mpeg", type);
-            Objects[location.Key] = output.ToArray();
+            var active = Interlocked.Increment(ref Active); Peak = Math.Max(Peak, active);
+            try
+            {
+                if (BeforePut != null) await BeforePut(token);
+                using var output = new MemoryStream(); await content.CopyToAsync(output, CancellationToken.None);
+                Assert.Equal(0, Disposals); Assert.Equal(length, output.Length); Assert.Equal("audio/mpeg", type);
+                Objects[location.Key] = output.ToArray();
+            }
+            finally { Interlocked.Decrement(ref Active); }
         }
         public Task<AudioObjectInfo?> StatAsync(AudioObjectLocation location, CancellationToken token) => Task.FromResult<AudioObjectInfo?>(null);
         public Task RemoveAsync(AudioObjectLocation location, CancellationToken token) => Task.CompletedTask;
@@ -156,7 +161,7 @@ public sealed class TextbookAudioUploadEndpointTests
     private sealed class ReadBarrier(Func<CancellationToken, Task> pause) : IStartupFilter
     {
         public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
-        { app.Use(async (context, invoke) => { if (context.Request.Path.Value!.EndsWith("/content", StringComparison.Ordinal)) context.Request.Body = new PausedStream(context.Request.Body, pause); await invoke(context); }); next(app); };
+        { app.Use(async (context, invoke) => { if (context.Request.Path.Value!.EndsWith("/content", StringComparison.Ordinal) || context.Request.Path.Value.Contains("/audio/", StringComparison.Ordinal)) context.Request.Body = new PausedStream(context.Request.Body, pause); await invoke(context); }); next(app); };
     }
     private sealed class PausedStream(Stream source, Func<CancellationToken, Task>? pause = null) : Stream
     {
@@ -467,21 +472,88 @@ public sealed class TextbookAudioUploadEndpointTests
         Assert.DoesNotContain(host.Logs.Messages, message => message.Contains("provider-detail-sensitive-marker", StringComparison.Ordinal));
     }
 
-    [Fact]
-    public async Task IgnoredCancellation_RetainsClientAndStreamUntilActualPutEnds_AndCannotPublish()
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task IgnoredCancellation_RetainsSharedCapacityClientAndStreamUntilActualPutEnds_AndCannotPublish(bool disconnect, bool lateFailure)
     {
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        await using var host = new Host(timeout: 1); await host.SeedAsync();
-        host.Store.BeforePut = async _ => { entered.TrySetResult(); await release.Task; };
-        var key = Guid.NewGuid().ToString(); var pending = Put(host, key: key); await entered.Task.WaitAsync(TimeSpan.FromSeconds(10), Ct);
-        await host.Publish(o => o.SecretKey = "synthetic-rotated");
-        using var timeout = await pending; await Failure(timeout, 503); Assert.Equal(0, host.Store.Disposals);
-        release.SetResult();
-        for (var i = 0; i < 100 && host.Store.Disposals == 0; i++) await Task.Delay(10, Ct);
-        Assert.Equal(1, host.Store.Disposals); Assert.Single(host.Store.Objects);
-        using var replay = await Put(host, key: key); await Failure(replay, 503); Assert.Equal(1, host.Store.Calls);
-        await host.Db(async db => { Assert.Null((await db.TextbookAudioTracks.SingleAsync(Ct)).CurrentAssetId); Assert.Null((await db.AudioAssets.SingleAsync(Ct)).FirstPublishedAtUnixMs); });
+        var reads = 0; var reservations = 0;
+        await using var host = new Host(timeout: disconnect ? 60 : 1, concurrency: 1, queue: 0,
+            read: _ => { Interlocked.Increment(ref reads); return Task.CompletedTask; },
+            reserve: _ => { Interlocked.Increment(ref reservations); return Task.CompletedTask; });
+        await host.SeedAsync();
+        host.Store.BeforePut = async _ =>
+        {
+            entered.TrySetResult(); await release.Task;
+            if (lateFailure) throw new IOException("provider-detail-sensitive-marker");
+        };
+        using var cancel = new CancellationTokenSource();
+        var key = Guid.NewGuid().ToString(); var pending = Put(host, key: key, token: cancel.Token);
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(10), Ct);
+            await host.Publish(o => o.SecretKey = "synthetic-rotated");
+            if (disconnect)
+            {
+                cancel.Cancel();
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending.WaitAsync(TimeSpan.FromSeconds(5), Ct));
+            }
+            else { using var timeout = await pending.WaitAsync(TimeSpan.FromSeconds(5), Ct); await Failure(timeout, 503); }
+            // Client cancellation can precede the server's durable abandonment.
+            int? receipt = null;
+            for (var i = 0; i < 500 && receipt is null; i++)
+            {
+                await host.Db(async db => receipt = (await db.TextbookAudioUploadOperations.SingleAsync(Ct)).ReceiptStatusCode);
+                if (receipt is null) await Task.Delay(10, Ct);
+            }
+            Assert.Equal(503, receipt); Assert.Equal(0, host.Store.Disposals); Assert.Equal(1, host.Store.Active);
+            var readCount = reads;
+            async Task RejectBothTypes()
+            {
+                using var textbook = await Put(host); await Failure(textbook, 429);
+                Assert.Equal(TimeSpan.FromSeconds(1), textbook.Headers.RetryAfter!.Delta);
+                using var wordBody = new MultipartFormDataContent(); wordBody.Add(new StringContent("bad"), "sourceRevision");
+                using var wordRequest = new HttpRequestMessage(HttpMethod.Put, "/admin/vocabulary/word/audio/en-GB") { Content = wordBody };
+                wordRequest.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString());
+                using var word = await host.Client.SendAsync(wordRequest, Ct); await Failure(word, 429);
+                Assert.Equal(TimeSpan.FromSeconds(1), word.Headers.RetryAfter!.Delta);
+                Assert.Equal(readCount, reads); Assert.Equal(1, reservations);
+            }
+            // Repeated new keys cannot accumulate actual IO or encoded file buffers.
+            await RejectBothTypes(); await RejectBothTypes();
+            Assert.Equal(1, host.Store.Calls); Assert.Equal(1, host.Store.Peak);
+            await host.Db(async db => Assert.Single(await db.TextbookAudioUploadOperations.ToListAsync(Ct)));
+            release.SetResult();
+            var admission = host.App.Services.GetRequiredService<AudioUploadAdmission>();
+            IDisposable? recovered = null;
+            for (var i = 0; i < 500 && recovered is null; i++)
+            {
+                recovered = await admission.EnterAsync(Ct);
+                if (recovered is null) await Task.Delay(10, Ct);
+            }
+            using (recovered)
+            {
+                Assert.NotNull(recovered); Assert.Equal(0, host.Store.Active); Assert.Equal(1, host.Store.Disposals);
+                Assert.Equal(lateFailure ? 0 : 1, host.Store.Objects.Count);
+                // An over-release would allow a second request alongside this held slot.
+                await RejectBothTypes();
+                recovered.Dispose(); recovered.Dispose();
+            }
+            using var replay = await Put(host, key: key); await Failure(replay, 503); Assert.Equal(1, host.Store.Calls);
+            await host.Db(async db =>
+            {
+                Assert.Null((await db.TextbookAudioTracks.SingleAsync(Ct)).CurrentAssetId);
+                Assert.Null((await db.AudioAssets.SingleAsync(Ct)).FirstPublishedAtUnixMs);
+            });
+            using var success = await Put(host); await Data(success);
+            Assert.Equal(1, host.Stores.All[^1].Calls); Assert.Equal(1, host.Store.Peak);
+            Assert.DoesNotContain(host.Logs.Messages, message => message.Contains("provider-detail-sensitive-marker", StringComparison.Ordinal));
+        }
+        finally { release.TrySetResult(); }
     }
 
     [Fact]
