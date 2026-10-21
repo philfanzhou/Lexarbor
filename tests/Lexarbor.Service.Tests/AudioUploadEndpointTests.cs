@@ -36,9 +36,7 @@ public sealed class AudioUploadEndpointTests
         public void Dispose() => Interlocked.Increment(ref Disposals);
         public Func<CancellationToken, Task>? BeforePut;
         public readonly Dictionary<string, byte[]> Objects = [];
-        public Task PutAsync(AudioObjectLocation location, Stream stream, long length, string type, CancellationToken token)
-            => PutAsync(location, stream, length, type, AudioUploadPurpose.Vocabulary, token);
-        public async Task PutAsync(AudioObjectLocation location, Stream stream, long length, string type, AudioUploadPurpose purpose, CancellationToken token)
+        public async Task PutAsync(AudioObjectLocation location, Stream stream, long length, string type, CancellationToken token)
         {
             lock (Locations) Locations.Add(location);
             Assert.Equal(0, Disposals);
@@ -735,7 +733,7 @@ public sealed class AudioUploadEndpointTests
         var first = Put(host, revision);
         var second = Put(host, revision);
         await arrivals.Task.WaitAsync(TimeSpan.FromSeconds(10), Ct);
-        var queued = new List<Task<AudioUploadAdmission.Permit?>>();
+        var queued = new List<Task<IDisposable?>>();
         // Take request references from successive generations while all generations use the same admission.
         var references = new List<AudioOperationReference>();
         for (var i = 0; i < 8; i++)

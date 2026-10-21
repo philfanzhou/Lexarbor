@@ -145,16 +145,13 @@ public class AdminHostedLoginMigrationTests
         Assert.Equal("/", callback.Headers.Location!.OriginalString);
     }
 
-    [Theory]
-    [InlineData("/settings")]
-    [InlineData("/books/book_1-X/audio")]
-    [InlineData("/#/books/book_1-X/audio")]
-    public async Task LocalReturnTarget_CompletesHostedCallback(string target)
+    [Fact]
+    public async Task SettingsReturnTarget_CompletesHostedCallback()
     {
         using var f = new HostedLoginMigrationFixture();
-        var transaction = await f.Start(target);
+        var transaction = await f.Start("/settings");
         using var callback = await f.Callback(transaction);
-        Assert.Equal(target.StartsWith("/#", StringComparison.Ordinal) ? target : "/#" + target, callback.Headers.Location!.OriginalString);
+        Assert.Equal("/#/settings", callback.Headers.Location!.OriginalString);
     }
 
     private sealed class HostedLoginMigrationFixture : IDisposable

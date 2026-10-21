@@ -56,13 +56,11 @@ public sealed class AudioRecoveryWorkerTests
     }
 
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    [InlineData(true, true)]
-    public async Task RotationAndDisableDuringRemoveOrStat_EntireBatchKeepsOldClient(bool stat, bool mixed)
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RotationAndDisableDuringRemoveOrStat_EntireBatchKeepsOldClient(bool stat)
     {
-        using var f = new Fixture(candidates: 2, mixed: mixed);
+        using var f = new Fixture(candidates: 2);
         var old = f.Stores.Created[0]; old.PauseAt = stat ? "stat" : "remove";
         await f.Worker.StartAsync(Ct); await old.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5), Ct);
         await f.Change(o => { o.SecretKey = "synthetic-rotated-secret"; o.PublicEndpoint = "https://new.example.test/"; o.Enabled = false; });
@@ -83,17 +81,13 @@ public sealed class AudioRecoveryWorkerTests
     }
 
     [Theory]
-    [InlineData(false, false, false)]
-    [InlineData(true, false, false)]
-    [InlineData(false, true, false)]
-    [InlineData(true, true, false)]
-    [InlineData(false, false, true)]
-    [InlineData(true, false, true)]
-    [InlineData(false, true, true)]
-    [InlineData(true, true, true)]
-    public async Task UncooperativeRemoveOrStat_TimeoutOrShutdownRetainsClientUntilActualCompletion(bool stat, bool timeout, bool textbook)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task UncooperativeRemoveOrStat_TimeoutOrShutdownRetainsClientUntilActualCompletion(bool stat, bool timeout)
     {
-        using var f = new Fixture(candidates: 1, timeout: 1, textbook: textbook);
+        using var f = new Fixture(candidates: 1, timeout: 1);
         var old = f.Stores.Created[0]; old.PauseAt = stat ? "stat" : "remove";
         await f.Worker.StartAsync(Ct); await old.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5), Ct);
         await f.Change(o => { o.SecretKey = "synthetic-rotated-secret"; o.Enabled = false; });
@@ -161,29 +155,6 @@ public sealed class AudioRecoveryWorkerTests
         finally { Directory.Delete(root, true); }
     }
 
-    [Theory]
-    [InlineData(1)]
-    [InlineData(2)]
-    [InlineData(3)]
-    public async Task SustainedMixedCandidates_AlternateFirstTypeAcrossFreshBatchScopes(int batchSize)
-    {
-        using var f = new Fixture(candidates: 8, mixed: true, batchSize: batchSize);
-        await f.Worker.StartAsync(Ct);
-        await f.Clock.Created.Reader.ReadAsync(Ct);
-        Assert.Equal(batchSize, f.Claims.Count);
-        Assert.Equal("vocabulary", f.Claims[0]);
-        f.Clock.Fire(); await f.Clock.Created.Reader.ReadAsync(Ct);
-        Assert.Equal(2 * batchSize, f.Claims.Count);
-        Assert.Equal("textbook", f.Claims[batchSize]);
-        Assert.Equal(2, f.Scopes.Count);
-        for (var i = 0; i < batchSize; i++)
-        {
-            Assert.Equal(i % 2 == 0 ? "vocabulary" : "textbook", f.Claims[i]);
-            Assert.Equal(i % 2 == 0 ? "textbook" : "vocabulary", f.Claims[batchSize + i]);
-        }
-        await f.Worker.StopAsync(Ct);
-    }
-
     private sealed class FailedFileStore(string root, bool replace) : PersistentConfigurationFileStore(root)
     {
         protected override async Task WriteTemporaryAsync(string path, byte[] bytes, CancellationToken token)
@@ -244,15 +215,14 @@ public sealed class AudioRecoveryWorkerTests
         public readonly Channel<int> Batch = Channel.CreateUnbounded<int>(); public readonly TaskCompletionSource Released = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public readonly AudioRuntimeConfiguration Runtime; public readonly AudioRecoveryWorker Worker; private readonly ServiceProvider _provider;
         public int Batches; public int Observed; public int Failures; public bool RepositoryFailure;
-        public readonly List<string> Claims = []; public readonly HashSet<Guid> Scopes = [];
-        public Fixture(bool enabled = true, int candidates = 0, int timeout = 3, bool textbook = false, bool mixed = false, int batchSize = 2)
+        public Fixture(bool enabled = true, int candidates = 0, int timeout = 3)
         {
             var options = AudioStorageTests.ValidOptions(); options.Enabled = enabled; options.OperationTimeoutSeconds = timeout;
-            options.RecoveryBatchSize = batchSize; options.RecoveryLeaseSeconds = 40; options.RecoveryRetrySeconds = 17; options.RecoveryRecheckSeconds = 4000;
+            options.RecoveryBatchSize = 2; options.RecoveryLeaseSeconds = 40; options.RecoveryRetrySeconds = 17; options.RecoveryRecheckSeconds = 4000;
             Runtime = new(Options.Create(options), Stores);
-            var uploads = Enumerable.Range(0, textbook ? 0 : mixed ? candidates / 2 : candidates).Select(_ => Upload(options.Bucket)).ToArray();
+            var uploads = Enumerable.Range(0, candidates).Select(_ => Upload(options.Bucket)).ToArray();
             var repo = new Mock<IAudioUploadRepository>();
-            repo.Setup(r => r.FindRecoverableAsync(It.IsAny<long>(), batchSize, It.IsAny<CancellationToken>())).Returns(() =>
+            repo.Setup(r => r.FindRecoverableAsync(It.IsAny<long>(), 2, It.IsAny<CancellationToken>())).Returns(() =>
             {
                 var count = Interlocked.Increment(ref Batches); Batch.Writer.TryWrite(count);
                 if (RepositoryFailure) throw new InvalidOperationException("synthetic-provider-secret");
@@ -260,40 +230,19 @@ public sealed class AudioRecoveryWorkerTests
             });
             repo.Setup(r => r.ClaimCleanupAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<long>(), It.IsAny<long>(), It.IsAny<CancellationToken>()))
                 .Returns((string key, string owner, long now, long expiry, CancellationToken ct) =>
-                { Claims.Add("vocabulary"); Assert.Equal(now + 40000, expiry); return Task.FromResult<AudioStoredUpload?>(uploads.Single(u => u.Operation.IdempotencyKey == key)); });
+                { Assert.Equal(now + 40000, expiry); return Task.FromResult<AudioStoredUpload?>(uploads.Single(u => u.Operation.IdempotencyKey == key)); });
             repo.Setup(r => r.ObserveCleanupAsync(It.IsAny<string>(), It.IsAny<AudioLease>(), It.IsAny<long>(), It.IsAny<long>(), It.IsAny<CancellationToken>()))
                 .Returns((string key, AudioLease lease, long now, long next, CancellationToken ct) =>
                 { Assert.Equal(now + 4000000, next); Interlocked.Increment(ref Observed); return Task.FromResult(true); });
             repo.Setup(r => r.ReleaseCleanupAsync(It.IsAny<string>(), It.IsAny<AudioLease>(), It.IsAny<long>(), It.IsAny<long>(), "audio.cleanup_failed", It.IsAny<CancellationToken>()))
                 .Returns((string key, AudioLease lease, long now, long next, string error, CancellationToken ct) =>
                 { Assert.Equal(now + 17000, next); Interlocked.Increment(ref Failures); Released.TrySetResult(); return Task.FromResult(true); });
-            var texts = Enumerable.Range(0, textbook ? candidates : mixed ? candidates - candidates / 2 : 0).Select(_ => TextbookUpload(options.Bucket)).ToArray();
-            var textRepo = new Mock<ITextbookAudioUploadRepository>();
-            textRepo.Setup(r => r.FindRecoverableAsync(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
-                .ReturnsAsync(texts);
-            textRepo.Setup(r => r.ClaimCleanupAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<long>(), It.IsAny<long>(), It.IsAny<CancellationToken>()))
-                .Returns((string key, string owner, long now, long expiry, CancellationToken ct) =>
-                { Claims.Add("textbook"); Assert.Equal(now + 40000, expiry); return Task.FromResult<TextbookAudioStoredUpload?>(texts.Single(u => u.Operation.IdempotencyKey == key)); });
-            textRepo.Setup(r => r.ObserveCleanupAsync(It.IsAny<string>(), It.IsAny<AudioLease>(), It.IsAny<long>(), It.IsAny<long>(), It.IsAny<CancellationToken>()))
-                .Returns((string key, AudioLease lease, long now, long next, CancellationToken ct) =>
-                { Assert.Equal(now + 4000000, next); Interlocked.Increment(ref Observed); return Task.FromResult(true); });
-            textRepo.Setup(r => r.ReleaseCleanupAsync(It.IsAny<string>(), It.IsAny<AudioLease>(), It.IsAny<long>(), It.IsAny<long>(), "audio.cleanup_failed", It.IsAny<CancellationToken>()))
-                .Returns((string key, AudioLease lease, long now, long next, string error, CancellationToken ct) =>
-                { Assert.Equal(now + 17000, next); Interlocked.Increment(ref Failures); Released.TrySetResult(); return Task.FromResult(true); });
-            var services = new ServiceCollection(); services.AddScoped(_ => { Scopes.Add(Guid.NewGuid()); return repo.Object; }); services.AddScoped(_ => textRepo.Object); _provider = services.BuildServiceProvider();
+            var services = new ServiceCollection(); services.AddScoped(_ => repo.Object); _provider = services.BuildServiceProvider();
             Worker = new(_provider.GetRequiredService<IServiceScopeFactory>(), Runtime, Clock, Logger.Object);
         }
         public async Task Change(Action<AudioOptions> change)
         { var options = Runtime.CopyCurrentOptions(); change(options); using var config = Config(options); using var prepared = await Runtime.PrepareAsync(config, Ct); Assert.NotNull(prepared); prepared.Publish(); }
         public void Dispose() { Worker.Dispose(); _provider.Dispose(); Runtime.Dispose(); }
-        private static TextbookAudioStoredUpload TextbookUpload(string bucket)
-        {
-            var id = Guid.NewGuid().ToString(); var lease = new AudioLease("cleanup", 1, 40000);
-            return new(new(id, "hash", "book", "unit", "track", Guid.NewGuid().ToString(), 10, id,
-                AudioUploadState.Abandoned, 0, 0, new(null, 1, null), new(503, null, null, null, null, "audio.upload_failed", 0),
-                new(lease, AudioUploadState.Abandoned, 1, 0, null, null)),
-                new(id, new(bucket, $"audio/{id.Replace("-", "")}.mp3"), "hash", 128, "audio/mpeg", 0, null));
-        }
         private static AudioStoredUpload Upload(string bucket)
         {
             var id = Guid.NewGuid().ToString(); var lease = new AudioLease("cleanup", 1, 40000);
@@ -314,9 +263,7 @@ public sealed class AudioRecoveryWorkerTests
         private async Task Call(string name) { Assert.Equal(0, Disposed); Calls.Add(name); Called.TrySetResult(); if (name == PauseAt) { PauseAt = null; Entered.TrySetResult(); await Finish.Task; } Assert.Equal(0, Disposed); }
         public async Task RemoveAsync(AudioObjectLocation location, CancellationToken token) { Assert.Equal(Options.Bucket, location.Bucket); await Call("remove"); }
         public async Task<AudioObjectInfo?> StatAsync(AudioObjectLocation location, CancellationToken token) { await Call("stat"); return null; }
-        public Task PutAsync(AudioObjectLocation location, Stream content, long length, string type, CancellationToken token)
-            => PutAsync(location, content, length, type, AudioUploadPurpose.Vocabulary, token);
-        public Task PutAsync(AudioObjectLocation location, Stream content, long length, string type, AudioUploadPurpose purpose, CancellationToken token) => throw new NotSupportedException();
+        public Task PutAsync(AudioObjectLocation location, Stream content, long length, string type, CancellationToken token) => throw new NotSupportedException();
         public Task<AudioPlaybackLink> GetPlaybackLinkAsync(AudioObjectLocation location, TimeSpan validity, CancellationToken token) => throw new NotSupportedException();
         public void Dispose() { Interlocked.Increment(ref Disposed); DisposedSignal.TrySetResult(); }
     }

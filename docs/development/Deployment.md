@@ -621,7 +621,7 @@ mutation leaves the valid pending transaction intact. Creating or rejecting a
 pending transaction never changes an existing administrator session.
 
 Return targets default to `/#/books` when omitted and accept only `/books`,
-`/books/<id>/words`, `/books/<id>/audio`, `/vocabulary`, `/phrases`, `/import`, `/import/phrase` and
+`/books/<id>/words`, `/vocabulary`, `/phrases`, `/import`, `/import/phrase` and
 `/import/batch`, optionally with the `/#` prefix. IDs are 1–128 ASCII letters,
 digits, `-` or `_`; inputs are at most 256 characters. The store saves the normalized
 `/#/...` target. Queries, extra fragments, percent encoding (including double or
@@ -1158,8 +1158,6 @@ When `Audio:Enabled=true`, invalid local settings fail startup with a fixed Engl
 | `Audio:KeyPrefix` | `LEXARBOR_AUDIO_KEY_PREFIX` | `audio/`; 1–4 directory segments of lowercase letters/digits/hyphens, each 1–32 characters, each starting alphanumeric |
 | `Audio:PlaybackTtlSeconds` | `LEXARBOR_AUDIO_PLAYBACK_TTL_SECONDS` | `900`; 60–3600 |
 | `Audio:MaxUploadBytes` | `LEXARBOR_AUDIO_MAX_UPLOAD_BYTES` | `5242880` (5 MiB); 1–20971520 (20 MiB) |
-| `Audio:MaxTextbookUploadBytes` | `LEXARBOR_AUDIO_MAX_TEXTBOOK_UPLOAD_BYTES` | `67108864` (64 MiB); 1–134217728 (128 MiB) |
-| `Audio:MaxTextbookDurationSeconds` | `LEXARBOR_AUDIO_MAX_TEXTBOOK_DURATION_SECONDS` | `7200`; 1–14400 seconds of complete decoded PCM |
 | `Audio:MaxConcurrentUploads` | `LEXARBOR_AUDIO_MAX_CONCURRENT_UPLOADS` | `2`; 1–8 |
 | `Audio:MaxQueuedUploads` | `LEXARBOR_AUDIO_MAX_QUEUED_UPLOADS` | `8`; 0–8 |
 | `Audio:OperationTimeoutSeconds` | `LEXARBOR_AUDIO_OPERATION_TIMEOUT_SECONDS` | `60`; 1–120 per operation |
@@ -1193,11 +1191,6 @@ hosts can upload after an administrator settings save; closing audio rejects new
 with 503 while old uploads finish. All generations share the startup admission
 instance, including valid advanced limits configured while disabled. A timed-out
 provider call that ignores cancellation retains its client until it actually ends.
-For textbook content uploads, it also retains the input stream and the same shared
-upload slot after the HTTP request times out or disconnects. Both upload routes
-continue to return 429 with `Retry-After: 1` when that retained work fills capacity;
-the slot becomes available only when the actual Put ends, successfully or with an
-error. The late result cannot publish the cancelled upload.
 
 Internal destination changes (`InternalEndpoint`, `Bucket`, `KeyPrefix`) reserve a
 short coordination gate before reading **any** asset or upload-operation record.
@@ -1254,14 +1247,6 @@ Keep S3 objects and a consistent SQLite backup together. Published objects are r
 When audio is enabled, a background worker starts after database initialization and
 runs one bounded batch immediately, then waits the configured interval after every
 batch, including failures. Audio disabled means no recovery database or S3 calls.
-Pronunciation and textbook operations share `RecoveryBatchSize` as a total
-processing limit. Each type reads at most that many candidates; the worker
-alternates types and the first type of successive batches, so a batch size of one
-does not starve either queue. Empty queues leave capacity to the other type.
-Each batch uses a fresh database scope and one captured configuration/client;
-disablement stops new batches while an already started batch finishes on its
-original generation. Continuous process restarts do not guarantee a fairness
-deadline.
 Storage outage never stops the host or its existing health/business routes; logs
 contain only fixed messages and counts, without provider exceptions, keys, URLs or
 credentials. The worker shares the upload repository's conditional state transitions,
@@ -1281,8 +1266,7 @@ Shutdown cancels network waits; incomplete claims expire and are recovered after
 restart. A stale worker cannot publish or change another owner's cleanup result.
 
 Before restoring SQLite, pause Lexarbor and preserve both the database (including
-all shared audio assets, pronunciation operations and permanent
-`textbook_audio_upload_operation` records) and the private S3 bucket.
+all audio assets and upload-operation recovery records) and the private S3 bucket.
 Restore a consistent database backup, keep its original bucket/prefix configuration,
 and restart the new service; pending operations resume from their persisted leases
 and retry times. Published objects remain readable from historical backups even
@@ -1330,124 +1314,44 @@ administrator/public playback to establish remote connectivity. See the
 [frontend settings guide](../frontend/README.md#audio-storage-s3) and
 [API contract](../api/SystemSettings.md#audio-storage-s3).
 
-## Textbook audio catalog upgrade
+## Textbook recording removal
 
-The additive `AddTextbookAudioTracks` migration creates an empty recording catalog
-under existing books and units. Normal startup automatically migrates forward and
-retains all previous vocabulary, positions, administrator sessions, audit rows,
-Data Protection keys, audio assets, bindings and operation receipts. No S3 call or
-new seed is involved. The catalog metadata API works with audio disabled and no
-storage configuration. Content upload and administrator playback require enabled private audio storage.
+Textbook recording catalog management, MP3 uploads, upload-policy reads,
+administrator previews and public playback are removed. The former
+`/admin/vocabulary-books/{bookId}/units/{unitId}/audio-tracks` and
+`/api/vocabulary-books/{bookId}/units/{unitId}/audio-tracks` routes, including their
+subroutes, now use the existing unknown-route responses: public requests return
+404; administrator requests require the existing administrator authorization and
+then return 404. The administration webpage no longer offers recording entries or
+accepts `/books/{bookId}/audio` as a hosted-login return target. Word and meaning
+pronunciation, storage settings, admission limits and recovery remain available.
 
-Books and units with tracks now reject ordinary deletion and whole-book cleanup
-delete (including preview) with 409; remove the tracks explicitly first. Other
-vocabulary cleanup actions preserve tracks and current file references. Track
-deletion retains generic assets, historical operations and physical files.
+Before deploying this version, stop every old instance and in-flight upload, then
+back up SQLite using its backup API (or stop the service and include any retained
+WAL), the persistent configuration, the Data Protection root key and the private
+S3 bucket. Export any recording metadata or upload receipts needed later. Do not
+run old and new versions against the same database during this upgrade.
 
-Back up SQLite consistently before upgrade, preserving the matching root key and
-audio bucket when present. Before explicit Down, stop writes and retain a
-consistent backup: Down drops only the catalog table and indexes, permanently
-removing its metadata but retaining generic assets/receipts and physical objects.
-Restore the consistent backup to recover the catalog. The previous image is not
-required to run a newer schema: `migration.version_too_new` still refuses it. A
-code rollback alone does not restore data. Paths and `/app/data` permissions are
-unchanged. See [catalog API](../api/TextbookAudio.md) and
-[database constraints](../database/README.md#textbook-audio-catalog).
+Startup automatically applies `RemoveTextbookAudio`, which drops
+`textbook_audio_track`, `textbook_audio_upload_operation` and their triggers and
+indexes. It preserves vocabulary, books, units, pronunciation bindings and
+operations, and **every shared `audio_asset` row**, including published recordings,
+unpublished uploads and their object locations. It neither contacts S3 nor deletes
+any object. Retained assets continue to block changes to the storage destination;
+the application no longer recovers retired recording uploads. Any later archival
+or cleanup must be a separate, deliberate operation using the pre-upgrade export;
+never infer deletion safety from missing vocabulary bindings or scan-and-delete a
+bucket. Previously issued S3 playback links remain valid until expiry.
 
-### Textbook upload persistence upgrade
+`Audio:MaxTextbookUploadBytes`, `Audio:MaxTextbookDurationSeconds`,
+`LEXARBOR_AUDIO_MAX_TEXTBOOK_UPLOAD_BYTES` and
+`LEXARBOR_AUDIO_MAX_TEXTBOOK_DURATION_SECONDS` are no longer supported. Remove
+these obsolete settings from deployment overrides; retained JSON keys are ignored.
+The pronunciation `Audio:MaxUploadBytes` limit is unchanged.
 
-`AddTextbookAudioUploads` is an additive, automatic forward migration creating an
-empty textbook operation table. It retains every existing catalog, vocabulary,
-session, key, audit and pronunciation record. The internal persistence boundary and
-bounded background recovery support conditional textbook content upload. Textbook
-administrator playback is documented below. Existing pronunciation upload semantics are unchanged. Textbook-only
-assets and pending operations also block changes to internal endpoint, bucket or
-prefix; empty catalog metadata does not. Credential/public-address rotations use
-the existing generation references, including references held by actual provider
-IO that outlives a timeout. No bucket scan or unreferenced-object purge is added.
-
-Keep textbook operation receipts and cleanup tombstones permanently with shared
-assets. Back up SQLite, its matching root key and the private audio bucket
-consistently; replacement or track/parent removal does not authorize deleting
-previously published files. Stop writes and take a consistent backup before an
-explicit Down. Down removes only the new operation structure and loses replay and
-cleanup history, retaining shared assets/current catalog references and physical
-objects. Restore the matching backup to recover that history. The existing
-`migration.version_too_new` gate still rejects a newer schema in an older image;
-rolling back code alone does not roll back data. `/app/data` paths and permissions
-remain unchanged. See [internal persistence](../api/TextbookAudio.md#internal-conditional-upload-persistence).
-
-### Textbook content upload limits
-
-The [textbook content API](../api/TextbookAudio.md#conditionally-upload-or-replace-content)
-requires enabled private audio storage. Uploads use complete bounded Layer III
-validation and NLayer 3.0.0 decoding; no external codec is installed or invoked.
-`Audio:MaxTextbookUploadBytes` and `Audio:MaxTextbookDurationSeconds` are advanced
-settings requiring a process restart. They are copied into every runtime generation
-and cannot be changed by an online S3 settings save. Both remain validated while
-audio is disabled, so the administrator upload policy always reports bounded values.
-`scripts/start.sh` maps the two environment variables in the table above to their
-`Audio__...` settings without rewriting the persistent configuration file.
-
-Vocabulary `MaxUploadBytes` and textbook `MaxTextbookUploadBytes` are independent
-limits at HTTP and object-store boundaries. The captured runtime generation
-selects the exact limit for each server-side upload purpose; increasing the
-textbook limit does not increase the vocabulary limit. A storage fix or credential
-recovery does not rewrite permanent terminal receipts, including earlier 503s.
-Use the original key to resolve an unknown result; only a new logical upload after
-a confirmed terminal failure uses a new key.
-
-Pronunciation and textbook upload requests share `MaxConcurrentUploads` and
-`MaxQueuedUploads` for reading, validation and transfer. Budget for bounded encoded
-file buffers per admitted request (up to 128 MiB each, with temporary copies during
-buffer growth), plus a fixed frame PCM buffer. Set reverse-proxy request limits to
-at least the configured file limit plus 64 KiB of multipart overhead, and suitable
-proxy timeouts; the server's endpoint-specific limit also handles chunked bodies.
-The default server duration counts decoder delay and padding; it can be longer than
-a gapless player's display. Tightening limits after restart affects new keys;
-matching old permanent receipts still use their original size/hash without redecoding.
-
-Content upload captures one configuration generation for its entire request.
-Disabling storage rejects new uploads; an admitted upload continues with its captured
-store. A timed-out provider cannot publish and retains its client and input stream
-until the actual IO ends. Failed or unknown submissions retain their durable operation
-for the existing recovery worker; keep the original request/key when establishing an
-unknown result. Publication starts unavailable and preserves title/order. Published
-historical objects are never automatically removed; continue backing up SQLite and
-the private audio bucket consistently. This HTTP feature adds no migration beyond
-`AddTextbookAudioUploads`; its rollback/backup gate still applies.
-
-
-### Textbook administrator playback
-
-The [administrator textbook playback endpoint](../api/TextbookAudio.md#administrator-playback)
-uses the current published track file even for disabled books or unavailable tracks.
-It captures ownership and that file in a completed SQLite snapshot before checking
-and signing S3. The read adds no schema or configuration. It shares the existing
-`Audio:PlaybackTtlSeconds`, `Audio:OperationTimeoutSeconds` and generation lifecycle;
-a cancelled/timed-out provider call retains its original client until it ends.
-New requests fail safely while audio is disabled. Busy/locked database reads return
-503 with `Retry-After: 1`; missing catalog files return 404, while lost or denied S3
-objects return safe 503. Metadata access still works without storage.
-
-Clients fetch a new link when starting playback and after expiration, retain it only
-in the active playback scope, and never log or persist it. Track removal, availability
-changes and book disablement do not immediately revoke existing signed links. Public
-textbook authorization and its management webpage are separate capabilities. A code
-rollback removes this new route without deleting objects or revoking short-lived links.
-
-### Public textbook playback access
-
-The [public textbook API](../api/TextbookAudio.md#public-track-list-and-playback)
-uses the existing anonymous `/api/*` boundary and public rate budget. Enabled books
-and explicitly available tracks with published current files are readable without
-student identity; administrator preview permissions are broader. Both public list
-and playback responses, including errors and 429, are `no-store`. Lists perform no
-S3 checks, so metadata availability does not establish object readability. Playback
-returns a short-lived URL through the captured `Audio:PublicEndpoint`; keep that
-endpoint reachable by consumers while the bucket remains private. Downstream apps
-own their login and must avoid persisting or logging signatures. Disabling a book,
-hiding/replacing/removing a track, or disabling audio rejects subsequent requests
-but does not revoke a previously signed URL before S3 expiry. No new configuration,
-schema or persistent directory is introduced; backups retain the existing SQLite
-and private bucket consistency requirements.
+Historical migrations remain in the repository so both fresh installations and
+existing databases can reach the current schema. A migration downgrade recreates
+empty recording tables and their constraints and triggers; it cannot recover
+removed rows. For a full rollback, stop the service and restore the pre-upgrade
+database, matching root key and configuration before starting the older version.
+Clear `admin_session` after restoring a historical database as described above.

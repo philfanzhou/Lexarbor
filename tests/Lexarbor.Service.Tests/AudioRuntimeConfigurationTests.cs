@@ -492,9 +492,7 @@ public sealed class AudioRuntimeConfigurationTests : IDisposable
             await (number == 1 ? Finish.Task : FinishSecond.Task).WaitAsync(cancellationToken);
             Assert.Equal(0, DisposeCount);
         }
-        public Task PutAsync(AudioObjectLocation location, Stream content, long byteLength, string contentType, CancellationToken cancellationToken)
-            => PutAsync(location, content, byteLength, contentType, AudioUploadPurpose.Vocabulary, cancellationToken);
-        public Task PutAsync(AudioObjectLocation location, Stream content, long byteLength, string contentType, AudioUploadPurpose purpose, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task PutAsync(AudioObjectLocation location, Stream content, long byteLength, string contentType, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task<AudioObjectInfo?> StatAsync(AudioObjectLocation location, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task<AudioPlaybackLink> GetPlaybackLinkAsync(AudioObjectLocation location, TimeSpan validity, CancellationToken cancellationToken) => throw new NotSupportedException();
         public void Dispose() { Interlocked.Increment(ref DisposeCount); OnDispose?.Invoke(); }

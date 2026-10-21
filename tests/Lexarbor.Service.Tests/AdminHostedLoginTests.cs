@@ -114,8 +114,8 @@ public class AdminHostedLoginTests
     [InlineData(null, 302)]
     [InlineData("/books", 302)]
     [InlineData("/settings", 302)]
-    [InlineData("/books/book_1-X/audio", 302)]
-    [InlineData("/#/books/book_1-X/audio", 302)]
+    [InlineData("/books/book_1-X/audio", 400)]
+    [InlineData("/#/books/book_1-X/audio", 400)]
     [InlineData("/books/../audio", 400)]
     [InlineData("/books/a%2Fb/audio", 400)]
     [InlineData("/books/a/audio?x=1", 400)]
@@ -146,12 +146,12 @@ public class AdminHostedLoginTests
     }
 
     [Fact]
-    public void TextbookReturnTarget_RequiresExactSafeIdLength()
+    public void BookWordsReturnTarget_RequiresExactSafeIdLength()
     {
-        var safe = "/books/" + new string('a', 128) + "/audio";
+        var safe = "/books/" + new string('a', 128) + "/words";
         Assert.Equal("/#" + safe, AdminLoginReturnTarget.Normalize(safe));
-        Assert.Null(AdminLoginReturnTarget.Normalize("/books/" + new string('a', 129) + "/audio"));
-        Assert.Null(AdminLoginReturnTarget.Normalize("/books//audio"));
+        Assert.Null(AdminLoginReturnTarget.Normalize("/books/" + new string('a', 129) + "/words"));
+        Assert.Null(AdminLoginReturnTarget.Normalize("/books//words"));
     }
 
     [Theory]

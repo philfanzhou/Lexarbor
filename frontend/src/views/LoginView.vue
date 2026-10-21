@@ -40,12 +40,12 @@ const hostedReturnRoutes = new Set([
   '/import/phrase',
   '/import/batch'
 ])
-const hostedBookRoute = /^\/books\/[A-Za-z0-9_-]{1,128}\/(?:words|audio)$/
+const hostedBookWordsRoute = /^\/books\/[A-Za-z0-9_-]{1,128}\/words$/
 
 function hostedStartUrl() {
   const redirect = route.query.redirect
   const target = typeof redirect === 'string'
-    && (hostedReturnRoutes.has(redirect) || hostedBookRoute.exec(redirect)?.[0] === redirect)
+    && (hostedReturnRoutes.has(redirect) || hostedBookWordsRoute.exec(redirect)?.[0] === redirect)
     ? redirect
     : null
   return target === null

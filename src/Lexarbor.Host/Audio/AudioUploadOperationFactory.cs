@@ -19,14 +19,12 @@ public sealed class AudioUploadOperationFactory(AudioRuntimeConfiguration runtim
 
     // The domain deadline can stop waiting for a provider that ignores cancellation.
     // Retain its client until the actual provider call ends, even after the HTTP finally.
-    internal sealed class UploadStore(AudioOperationReference operation) : IAudioObjectStore
+    private sealed class UploadStore(AudioOperationReference operation) : IAudioObjectStore
     {
-        public Task PutAsync(AudioObjectLocation location, Stream content, long byteLength, string contentType, CancellationToken cancellationToken)
-            => PutAsync(location, content, byteLength, contentType, AudioUploadPurpose.Vocabulary, cancellationToken);
-        public async Task PutAsync(AudioObjectLocation location, Stream content, long byteLength, string contentType, AudioUploadPurpose purpose, CancellationToken cancellationToken)
+        public async Task PutAsync(AudioObjectLocation location, Stream content, long byteLength, string contentType, CancellationToken cancellationToken)
         {
             using var transfer = operation.Retain();
-            await transfer.ObjectStore.PutAsync(location, content, byteLength, contentType, purpose, cancellationToken);
+            await transfer.ObjectStore.PutAsync(location, content, byteLength, contentType, cancellationToken);
         }
         public Task<AudioObjectInfo?> StatAsync(AudioObjectLocation location, CancellationToken token) => throw new NotSupportedException();
         public Task RemoveAsync(AudioObjectLocation location, CancellationToken token) => throw new NotSupportedException();

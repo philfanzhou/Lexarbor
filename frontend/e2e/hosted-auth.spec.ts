@@ -187,7 +187,7 @@ for (const { redirect, expected } of [
   { redirect: '/settings', expected: '/admin/auth/start?returnUrl=%2Fsettings' },
   { redirect: '/%73ettings', expected: '/admin/auth/start' },
   { redirect: '/books/abc-123_X/words', expected: '/admin/auth/start?returnUrl=%2Fbooks%2Fabc-123_X%2Fwords' },
-  { redirect: '/books/abc-123_X/audio', expected: '/admin/auth/start?returnUrl=%2Fbooks%2Fabc-123_X%2Faudio' },
+  { redirect: '/books/abc-123_X/audio', expected: '/admin/auth/start' },
   { redirect: '/books/../audio', expected: '/admin/auth/start' },
   { redirect: '/books/a%2Fb/audio', expected: '/admin/auth/start' },
   { redirect: '/books/a/audio?x=1', expected: '/admin/auth/start' },

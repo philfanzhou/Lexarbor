@@ -162,7 +162,7 @@ public static class AdminLoginReturnTarget
         if (route.Any(c => c is '%' or '?' or '#' or '\\' || char.IsControl(c))) return null;
         if (Routes.Contains(route)) return "/#" + route;
         var segments = route.Split('/');
-        if (segments.Length == 4 && segments[0] == "" && segments[1] == "books" && segments[3] is "words" or "audio"
+        if (segments.Length == 4 && segments[0] == "" && segments[1] == "books" && segments[3] == "words"
             && segments[2].Length is >= 1 and <= 128 && segments[2].All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_'))
             return "/#" + route;
         return null;

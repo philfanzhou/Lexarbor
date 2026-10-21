@@ -5,7 +5,7 @@ public sealed class AudioUploadAdmission(int concurrency, int queueCapacity, Tim
 {
     private readonly SemaphoreSlim _slots = new(concurrency, concurrency);
     private int _waiting;
-    public async Task<Permit?> EnterAsync(CancellationToken cancellationToken)
+    public async Task<IDisposable?> EnterAsync(CancellationToken cancellationToken)
     {
         if (_slots.Wait(0)) return new Permit(_slots);
         if (Interlocked.Increment(ref _waiting) > queueCapacity)
@@ -20,35 +20,9 @@ public sealed class AudioUploadAdmission(int concurrency, int queueCapacity, Tim
         }
         finally { Interlocked.Decrement(ref _waiting); }
     }
-    /// <summary>Request and actual transfer references share one capacity slot.</summary>
-    public sealed class Permit : IDisposable
+    private sealed class Permit(SemaphoreSlim semaphore) : IDisposable
     {
-        private sealed class Capacity(SemaphoreSlim semaphore)
-        {
-            public readonly SemaphoreSlim Semaphore = semaphore;
-            public int References = 1;
-        }
-        private readonly Capacity _capacity;
-        private bool _disposed;
-        internal Permit(SemaphoreSlim semaphore) : this(new Capacity(semaphore)) { }
-        private Permit(Capacity capacity) => _capacity = capacity;
-        public IDisposable Retain()
-        {
-            lock (_capacity)
-            {
-                ObjectDisposedException.ThrowIf(_disposed, this);
-                _capacity.References++;
-                return new Permit(_capacity);
-            }
-        }
-        public void Dispose()
-        {
-            lock (_capacity)
-            {
-                if (_disposed) return;
-                _disposed = true;
-                if (--_capacity.References == 0) _capacity.Semaphore.Release();
-            }
-        }
+        private int _released;
+        public void Dispose() { if (Interlocked.Exchange(ref _released, 1) == 0) semaphore.Release(); }
     }
 }

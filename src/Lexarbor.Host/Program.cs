@@ -169,13 +169,6 @@ builder.Services.AddScoped<IVocabularyCleanupRepository, VocabularyCleanupReposi
 builder.Services.AddScoped<VocabularyCleanupService>();
 builder.Services.AddScoped<VocabularyDomainService>();
 builder.Services.AddScoped<VocabularyBookDomainService>();
-builder.Services.AddScoped<ITextbookAudioUploadRepository, TextbookAudioUploadRepository>();
-builder.Services.AddScoped<ITextbookAudioUploadOperationFactory, TextbookAudioUploadOperationFactory>();
-builder.Services.AddSingleton<ITextbookMp3Validator, TextbookMp3Validator>();
-builder.Services.AddScoped<ITextbookAudioPlaybackReadRepository, TextbookAudioPlaybackReadRepository>();
-builder.Services.AddScoped<ITextbookAudioPlaybackOperationFactory, TextbookAudioPlaybackOperationFactory>();
-builder.Services.AddScoped<ITextbookAudioTrackRepository, TextbookAudioTrackRepository>();
-builder.Services.AddScoped<TextbookAudioTrackService>();
 builder.Services.AddScoped<VocabularyBookUnitDomainService>();
 builder.Services.Configure<RouteHandlerOptions>(options =>
 {
@@ -779,10 +772,8 @@ app.UseStaticFiles();
 // than a JWT validation, which for a cookie-bearing request can reach out to the
 // identity provider for signing keys.
 app.UseSystemSettingsNoStore();
-app.UsePublicTextbookAudioNoStore();
 app.UseLexarborRateLimiting();
 app.UseMiddleware<AdminSessionFailureMiddleware>();
-app.UseMiddleware<TextbookAudioUploadCsrfMiddleware>();
 app.UseAuthentication();
 // The session-identity bridge: a hosted-login session principal receives its
 // ServiceMantle management identity here. Session-authenticated unsafe methods
@@ -803,9 +794,6 @@ adminSurface.MapSystemSettingsEndpoints();
 adminSurface.MapVocabularyWordEditEndpoints();
 adminSurface.MapVocabularyMeaningEditEndpoints();
 adminSurface.MapVocabularyBookUnitEndpoints();
-adminSurface.MapTextbookAudioTrackEndpoints();
-adminSurface.MapTextbookAudioUploadEndpoints();
-adminSurface.MapTextbookAudioPlaybackEndpoints();
 adminSurface.MapVocabularyMeaningPositionEndpoints();
 adminSurface.MapVocabularyAdminQueryEndpoints();
 adminSurface.MapAudioAdminQueryEndpoints();
@@ -813,7 +801,6 @@ adminSurface.MapAudioUploadEndpoints();
 adminSurface.MapAudioUnbindEndpoints();
 adminSurface.MapAudioAdminPlaybackEndpoints();
 adminSurface.MapVocabularyCleanupEndpoints();
-app.MapPublicTextbookAudioEndpoints(RateLimitingExtensions.PublicApiPolicy);
 app.MapAudioPublicPlaybackEndpoints(
     RateLimitingExtensions.PublicApiPolicy);
 app.MapVocabularyHttpEndpoints(

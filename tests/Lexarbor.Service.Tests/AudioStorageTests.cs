@@ -60,8 +60,6 @@ public sealed class AudioStorageTests
     [InlineData("Enabled", "synthetic-invalid-marker")]
     [InlineData("PlaybackTtlSeconds", "synthetic-invalid-marker")]
     [InlineData("MaxUploadBytes", "synthetic-invalid-marker")]
-    [InlineData("MaxTextbookUploadBytes", "synthetic-invalid-marker")]
-    [InlineData("MaxTextbookDurationSeconds", "synthetic-invalid-marker")]
     [InlineData("OperationTimeoutSeconds", "2147483648")]
     [InlineData("MaxUploadBytes", "9223372036854775808")]
     public async Task InvalidConfigurationTypesRejectStartupWithoutEchoingValues(string property, string value)
@@ -287,46 +285,6 @@ public sealed class AudioStorageTests
             Assert.DoesNotContain(options.InternalEndpoint, error.ToString());
             Assert.DoesNotContain(options.SecretKey, error.ToString());
         }
-    }
-
-    [Theory]
-    [InlineData(2, 4, AudioUploadPurpose.Vocabulary)]
-    [InlineData(2, 4, AudioUploadPurpose.Textbook)]
-    [InlineData(4, 2, AudioUploadPurpose.Vocabulary)]
-    [InlineData(4, 2, AudioUploadPurpose.Textbook)]
-    public async Task UploadPurposeUsesExactCapturedLimit_InclusiveAndIndependent(long wordLimit, long textbookLimit, AudioUploadPurpose purpose)
-    {
-        using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
-        var options = ValidOptions(); options.MaxUploadBytes = wordLimit; options.MaxTextbookUploadBytes = textbookLimit;
-        options.InternalEndpoint = $"http://127.0.0.1:{((IPEndPoint)listener.LocalEndpoint).Port}/";
-        using var store = new S3AudioObjectStore(Options.Create(options), TimeProvider.System);
-        // Mutating the source options cannot change this store's captured policy.
-        options.MaxUploadBytes = 1; options.MaxTextbookUploadBytes = 1;
-        var limit = purpose == AudioUploadPurpose.Vocabulary ? wordLimit : textbookLimit;
-        using var input = new MemoryStream(new byte[8]); using var cancelled = new CancellationTokenSource(); cancelled.Cancel();
-        // A cancelled valid call gets past input validation. No provider request is needed for this boundary assertion.
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => store.PutAsync(Location(), input, limit, "audio/mpeg", purpose, cancelled.Token));
-        var error = await Assert.ThrowsAsync<AudioStorageException>(() => store.PutAsync(Location(), input, limit + 1, "audio/mpeg", purpose, cancelled.Token));
-        Assert.Equal("audio.storage.invalid_input", error.Code); Assert.False(listener.Pending());
-        if (purpose == AudioUploadPurpose.Vocabulary)
-        {
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => store.PutAsync(Location(), input, wordLimit, "audio/mpeg", cancelled.Token));
-            var legacy = await Assert.ThrowsAsync<AudioStorageException>(() => store.PutAsync(Location(), input, wordLimit + 1, "audio/mpeg", cancelled.Token));
-            Assert.Equal("audio.storage.invalid_input", legacy.Code); Assert.False(listener.Pending());
-        }
-    }
-
-    [Theory]
-    [InlineData(-1)]
-    [InlineData(2)]
-    [InlineData(int.MaxValue)]
-    public async Task UnknownUploadPurposeIsRejectedBeforeNetwork(int purpose)
-    {
-        using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
-        var options = ValidOptions(); options.InternalEndpoint = $"http://127.0.0.1:{((IPEndPoint)listener.LocalEndpoint).Port}/";
-        using var store = new S3AudioObjectStore(Options.Create(options), TimeProvider.System); using var input = new MemoryStream([1]);
-        var error = await Assert.ThrowsAsync<AudioStorageException>(() => store.PutAsync(Location(), input, 1, "audio/mpeg", (AudioUploadPurpose)purpose, TestContext.Current.CancellationToken));
-        Assert.Equal("audio.storage.invalid_input", error.Code); Assert.Null(error.InnerException); Assert.False(listener.Pending());
     }
 
     private sealed class RecordingLogs : ILoggerProvider

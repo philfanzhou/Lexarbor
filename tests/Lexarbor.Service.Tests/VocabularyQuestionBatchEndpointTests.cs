@@ -461,7 +461,6 @@ public class VocabularyQuestionBatchEndpointTests :
         Func<Task> onGetById,
         Task release) : IVocabularyBookRepository
     {
-        public Task<bool> HasAudioTracksAsync(string bookId) => inner.HasAudioTracksAsync(bookId);
         public async Task<VocabularyBookModel?> GetByIdAsync(string id)
         {
             await onGetById();

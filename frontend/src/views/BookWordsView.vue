@@ -393,7 +393,6 @@ const emptyDescription = computed(() =>
       :description="book ? `${book.bookName} 的单词与释义` : '正在加载教材信息…'"
     >
       <template #actions>
-        <el-button @click="router.push({ name: 'book-audio', params: { bookId } })">教材录音</el-button>
         <el-button @click="backToBooks">返回教材列表</el-button>
       </template>
     </PageHeader>

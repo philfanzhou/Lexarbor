@@ -68,18 +68,9 @@ public sealed class S3AudioObjectStore : IAudioObjectStore, IDisposable
 
     public Task PutAsync(AudioObjectLocation location, Stream content, long byteLength, string contentType,
         CancellationToken cancellationToken)
-        => PutAsync(location, content, byteLength, contentType, AudioUploadPurpose.Vocabulary, cancellationToken);
-    public Task PutAsync(AudioObjectLocation location, Stream content, long byteLength, string contentType,
-        AudioUploadPurpose purpose, CancellationToken cancellationToken)
     {
         ValidateLocation(location);
-        var maxBytes = purpose switch
-        {
-            AudioUploadPurpose.Vocabulary => _options.MaxUploadBytes,
-            AudioUploadPurpose.Textbook => _options.MaxTextbookUploadBytes,
-            _ => throw new AudioStorageException("audio.storage.invalid_input", "Audio object input is invalid.")
-        };
-        if (byteLength < 1 || byteLength > maxBytes || contentType != "audio/mpeg" || !content.CanRead)
+        if (byteLength < 1 || byteLength > _options.MaxUploadBytes || contentType != "audio/mpeg" || !content.CanRead)
             throw new AudioStorageException("audio.storage.invalid_input", "Audio object input is invalid.");
         return RunAsync(async token =>
         {

@@ -17,10 +17,6 @@ public class VocabularyDbContext : DbContext
     public DbSet<VocabularyBookUnitEntity> VocabularyBookUnits { get; set; } = null!;
     public DbSet<VocabularyMeaningUnitEntity> VocabularyMeaningUnits { get; set; } = null!;
 
-    public DbSet<TextbookAudioTrackEntity> TextbookAudioTracks { get; set; } = null!;
-
-    public DbSet<TextbookAudioUploadOperationEntity> TextbookAudioUploadOperations { get; set; } = null!;
-
     public DbSet<AudioAssetEntity> AudioAssets { get; set; } = null!;
     public DbSet<VocabularyAudioBindingEntity> VocabularyAudioBindings { get; set; } = null!;
     public DbSet<AudioUploadOperationEntity> AudioUploadOperations { get; set; } = null!;
@@ -31,8 +27,6 @@ public class VocabularyDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
         AudioModelConfiguration.Configure(modelBuilder);
-        TextbookAudioModelConfiguration.Configure(modelBuilder);
-        TextbookAudioUploadModelConfiguration.Configure(modelBuilder);
         // Data Protection keys live in the business database as authenticated
         // envelopes (sm:v1:) scoped to the lexarbor service id, replacing the
         // former plaintext file ring under data/admin-keys.

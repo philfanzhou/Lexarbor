@@ -3,7 +3,6 @@ import type { RouteRecordRaw } from 'vue-router'
 import { getApiError } from '@/services/apiError'
 import { isAuthenticated, restoreSession } from '@/services/authState'
 import BatchImportView from '@/views/BatchImportView.vue'
-import BookAudioView from '@/views/BookAudioView.vue'
 import BookWordsView from '@/views/BookWordsView.vue'
 import BooksView from '@/views/BooksView.vue'
 import ForbiddenView from '@/views/ForbiddenView.vue'
@@ -20,7 +19,6 @@ const routes: RouteRecordRaw[] = [
   { path: '/forbidden', name: 'forbidden', component: ForbiddenView, meta: { public: true } },
   { path: '/settings', name: 'settings', component: SettingsView },
   { path: '/books', name: 'books', component: BooksView },
-  { path: '/books/:bookId/audio', name: 'book-audio', component: BookAudioView },
   { path: '/books/:bookId/words', name: 'book-words', component: BookWordsView },
   { path: '/vocabulary', name: 'vocabulary', component: VocabularyView },
   { path: '/phrases', name: 'phrase-positions', component: PhrasePositionsView },
