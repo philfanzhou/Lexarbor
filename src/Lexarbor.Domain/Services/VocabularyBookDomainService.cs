@@ -78,8 +78,6 @@ public class VocabularyBookDomainService
     {
         _ = await _bookRepository.GetByIdAsync(id)
             ?? throw new ResourceNotFoundException("Vocabulary book was not found.");
-        if (await _bookRepository.HasAudioTracksAsync(id))
-            throw new ConflictException("A vocabulary book with audio tracks cannot be deleted. Remove its audio tracks first.");
         if (await _bookRepository.HasMeaningsAsync(id))
             throw new ConflictException("A vocabulary book with meanings cannot be deleted. Disable it instead.");
         await _bookRepository.DeleteAsync(id);

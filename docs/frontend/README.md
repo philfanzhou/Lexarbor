@@ -17,7 +17,6 @@
 | `/forbidden` | Anonymous | Non-administrator notice |
 | `/books` | Administrator | Vocabulary book management |
 | `/books/:bookId/words` | Administrator | One book's word list |
-| `/books/:bookId/audio` | Administrator | One book's unit recording catalog |
 | `/vocabulary` | Administrator | Whole-library word list |
 | `/phrases` | Administrator | Phrase positions by book, unit, section, and keyword |
 | `/import` | Administrator | Word import |
@@ -76,7 +75,7 @@ The Axios response interceptor runs the global 401/403 handling before any compo
 
 SignaCore's hosted pages are the only administrator sign-in, so the login page renders exactly one sign-in action and never asks for a password. The frontend orchestrates navigations only; every protocol value — state, nonce, PKCE verifier, code, access token, ID token, client secret — stays server-side and never enters a browser request, the URL the app controls, or web storage.
 
-The **使用 SignaCore 登录** button runs a top-level navigation to this site's `GET /admin/auth/start`, forwarding the current `redirect` query as `returnUrl` only when it exactly matches the backend's route allowlist (the listed fixed routes, or `/books/<id>/words` and `/books/<id>/audio` with an ASCII letters/digits/underscore/hyphen id of 1–128 characters); otherwise the parameter is omitted and the backend default applies. One activation begins exactly one navigation: the button turns busy and a second activation is a no-op. The provider round trip and the callback are backend-driven; on success the browser lands on the stored return page, where the ordinary route guard's `GET /admin/auth/session` restore establishes the username, roles, and the one version request.
+The **使用 SignaCore 登录** button runs a top-level navigation to this site's `GET /admin/auth/start`, forwarding the current `redirect` query as `returnUrl` only when it exactly matches the backend's route allowlist (the six fixed routes, or `/books/<id>/words` with a safe id); otherwise the parameter is omitted and the backend default applies. One activation begins exactly one navigation: the button turns busy and a second activation is a no-op. The provider round trip and the callback are backend-driven; on success the browser lands on the stored return page, where the ordinary route guard's `GET /admin/auth/session` restore establishes the username, roles, and the one version request.
 
 The login page consumes the six fixed `reason` values of the callback and logout-return routes as exactly one notice each, and ignores an unknown value harmlessly:
 
@@ -383,117 +382,12 @@ Neither drafts nor credentials are stored in web storage, URLs, console output o
 analytics. The rate-limit panel keeps its own draft, notice and save operation;
 saving either panel can make the other's revision stale and cause 412.
 
+## Textbook recording removal
 
-## Textbook recording catalog
-
-Open **教材录音** from any book row or its word-list header. The protected
-`/#/books/<bookId>/audio` page reads the administrator book and units, including
-disabled books and units with no words. Select a unit to browse its server-ordered
-tracks, with actual totals and 10/20/50/100 rows per page. A book without units
-links back to the existing book list’s **单元** entry; create a unit there first.
-Read errors have explicit retries and do not masquerade as an empty catalog.
-
-Create a title and numeric order. Titles are trimmed to 1–200 UTF-16 code units;
-order is an integer from 0 through 2147483647. Edit replaces title, order and
-availability together with the originally displayed version. A track without a
-file cannot be enabled; a file reference does not prove object readability and
-server-side conflicts can still reject enabling. Removal asks for confirmation,
-sends the original version, retains historical objects/receipts, rereads the
-server catalog and moves back from an emptied last page. Canceling confirmation
-sends no write.
-
-After a conflict or missing target, the dialog retains the draft and original
-condition. Compare it with the reread row and explicitly choose **保留草稿，采用当前版本**
-before submitting again. If the selected unit was deleted, its original target and draft stay visible; the page does not automatically select another unit. Choose another unit explicitly to discard that draft. A lost, canceled or server-error write is **结果未知**:
-the server may have completed it. Read-back shows current catalog state, without
-proving which operation caused it. There is no automatic write replay or POST
-idempotency. Creating again requires checking the catalog and explicitly accepting
-that another recording may be created. Confirmed writes followed by failed reads
-are reported separately; retry the read instead of repeating the write.
-
-All reads and writes use the current book/unit/page and session generation with
-abort signals, including authentication failures and loading cleanup. The shared CSRF fetch inherits the initiating write’s current-scope guard; a replacement write starts its own token fetch if the old fetch is still pending. A completed cookie-bound token remains reusable. Canceling a write immediately ends that caller’s token wait without canceling the shared Cookie fetch; an aborted write is never dispatched when the token later arrives. Switching
-context, leaving the page or beginning logout discards its transient draft and
-invalidates requests immediately; canceling a request does not undo server work.
-Draft recovery after refresh is not promised. Writes use the shared session Cookie
-and CSRF pair; no administrator Bearer token, storage credential or signature
-is introduced or persisted by this page. Selected upload files and their request
-keys remain only in memory. The exact hosted-login return allowlist
-adds only `/books/<safeId>/audio`; unsafe opaque IDs keep the existing default
-login return behavior. API IDs remain opaque and are encoded once per component.
-
-### Upload or replace one recording
-
-The page reads the exact server upload policy: enabled, maximum file bytes and
-maximum duration seconds. A failed policy read has an explicit retry; it does not
-invent limits. Disabled audio prevents new uploads and listening while catalog editing remains
-available. Choose **上传文件** on a current row, select one MP3 and explicitly
-click **开始上传**. Opening a new upload rereads the catalog and takes the current
-row/version; closing an unconfirmed upload also rereads before a new selection.
-File name and MIME are hints only; the server validates the
-complete bytes and measures duration. Only the content request has no browser
-30-second deadline; server deadlines and **取消上传等待（结果可能未知）** still apply.
-The shared session Cookie and CSRF header authorize the multipart request.
-
-One attempt freezes the selected file, book/unit/track, original version and one
-random request key in memory. Secure UUID support requires HTTPS (localhost is also
-supported); if unavailable the page reports it before sending a file. Double-clicking
-does not send another request.
-A successful receipt confirms that operation; the page always rereads the current
-catalog rather than applying the receipt's possibly old version or duration.
-A newly published file starts unavailable. Check the current recording and click
-**试听** before explicitly enabling it. A confirmed upload followed by a failed catalog
-read remains confirmed: retry the read, not the upload.
-
-A lost/canceled response, unreadable success or server error is **上传结果未知**.
-409 may mean processing or a condition conflict; 503 cannot identify a terminal
-failure. 429 refuses this request, without proving a prior unknown attempt failed.
-**核对原上传结果** explicitly resends the same bytes, target, original version and
-key, even if the current policy was tightened or audio was disabled. It never
-creates a new key automatically and there is no receipt-query API. An old receipt
-can still confirm its operation after replacement or removal; it cannot restore
-that old row. Clear input/size/format/duration/target refusals are displayed as such;
-the current catalog remains the source of file and availability state.
-
-**放弃继续核对** first asks for confirmation and rereads the catalog before another
-explicit selection starts a new upload with the current version and a fresh key.
-Abandoning reconciliation cannot undo server work. Changing unit, track, page,
-page size, book or route while an attempt is pending asks the same question before
-clearing it; canceling navigation keeps the original target and attempt. If read-back
-finds the current page no longer exists, it preserves that page and explains that
-the attempt must first be reconciled or abandoned; it does not silently fall back
-during an unknown upload. Actual
-navigation aborts waiting and releases the file/key. Browser refresh/close uses the
-browser's leave warning; after refresh the memory attempt cannot be recovered, so
-compare the current catalog manually. Logout releases everything immediately and
-never waits for this prompt, including when the logout response is still pending.
-Late upload or authentication responses cannot affect another view or session.
-Files/keys are never written to Web Storage, logs or analytics. The upload component
-emits content-mutation, refreshed-catalog and scope-invalidated lifecycle events
-that immediately stop the page player.
-
-### Listen before publishing
-
-Click a row's **试听** to request a fresh administrator link. Disabled books and
-unavailable recordings with a file can be previewed; a missing file or unknown,
-disabled or failed policy prevents starting. Use **重新读取上传限制** to recover
-from a failed policy read. A file reference does not guarantee the object is
-readable: a missing target or unavailable storage shows a local, recoverable error.
-The independent textbook response must contain a matching track ID, an absolute
-HTTP(S) URL and a parseable UTC expiry. Expired links or the first media/play
-failure get at most one new link; another failure requires a new click. A browser
-autoplay refusal asks for a click and permission without requesting another link.
-
-Only one page player exists. **停止试听**, another track, a permitted context
-change, editing/upload/removal, catalog refresh, leaving the page and the start of
-logout abort waiting, detach handlers, pause media and remove its source. Canceling
-an unconfirmed-upload leave prompt keeps the original scope; accepting it releases
-the original attempt before changing playback targets. Late links, media callbacks,
-play promises and authentication failures cannot affect a newer view or session.
-The media uses `preload="none"`; links live only in the current request/player
-scope and are never written to Web Storage, logs or analytics. Releasing the player
-does not immediately revoke a previously signed URL. Deployment must provide an
-S3 public endpoint the browser can reach.
-
-Vocabulary pronunciation in the detail drawer keeps its existing external-upload
-boundary and preview behavior. See the [textbook API](../api/TextbookAudio.md).
+The book catalog and book-word page no longer offer **教材录音**. The
+`/books/:bookId/audio` route, recording catalog editor, MP3 upload and preview
+components and their API clients have been removed. Hosted login no longer
+forwards this route. Word and meaning pronunciation previews and the S3 storage
+settings panel remain available. See the
+[upgrade instructions](../development/Deployment.md#textbook-recording-removal)
+for retained files and recording metadata backups.

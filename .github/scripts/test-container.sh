@@ -450,15 +450,16 @@ import sys
 with sqlite3.connect(sys.argv[1]) as connection:
     columns = {row[1]: row[2] for row in connection.execute("PRAGMA table_info(admin_session)")}
     assert columns == {"handle_hash": "TEXT", "expires_at_unix_ms": "INTEGER", "protected_payload": "TEXT"}
-    assert connection.execute("SELECT COUNT(*) FROM textbook_audio_upload_operation").fetchone()[0] == 0
-    assert any(row[1] == "IX_textbook_audio_upload_operation_asset_id" and row[2] == 1 for row in connection.execute("PRAGMA index_list(textbook_audio_upload_operation)"))
+    assert connection.execute("SELECT name FROM sqlite_master WHERE name LIKE 'textbook_audio_%'").fetchall() == []
     assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
     assert connection.execute("SELECT COUNT(*) FROM admin_session").fetchone()[0] == 0
     assert any(row[1] == "IX_admin_session_expires_at_unix_ms_handle_hash" for row in connection.execute("PRAGMA index_list(admin_session)"))
-    # Exercise this additive persistence upgrade through the actual container startup.
-    # Historical textbook metadata and the shared published asset must survive.
-    connection.execute("DROP TABLE textbook_audio_upload_operation")
-    connection.execute("DELETE FROM __EFMigrationsHistory WHERE MigrationId LIKE '%_AddTextbookAudioUploads'")
+    # Simulate the retired catalog at the previous migration boundary. Domain
+    # migration tests exercise the complete historical schema and upload states.
+    connection.execute("DELETE FROM __EFMigrationsHistory WHERE MigrationId LIKE '%_RemoveTextbookAudio'")
+    connection.execute("CREATE TABLE textbook_audio_track (id TEXT PRIMARY KEY, book_id TEXT REFERENCES vocabulary_book(id), unit_id TEXT REFERENCES vocabulary_book_unit(id), title TEXT, display_order INTEGER, current_asset_id TEXT REFERENCES audio_asset(id), duration_seconds REAL, is_available INTEGER, version TEXT)")
+    connection.execute("CREATE TABLE textbook_audio_upload_operation (idempotency_key TEXT PRIMARY KEY, asset_id TEXT REFERENCES audio_asset(id))")
+    connection.execute("CREATE TRIGGER textbook_audio_track_retain_publication BEFORE UPDATE OF first_published_at_unix_ms ON audio_asset WHEN NEW.first_published_at_unix_ms IS NULL AND EXISTS (SELECT 1 FROM textbook_audio_track WHERE current_asset_id=NEW.id AND is_available=1) BEGIN SELECT RAISE(ABORT, 'Retain publication.'); END")
     connection.execute("DROP TABLE admin_session")
     connection.execute("DELETE FROM __EFMigrationsHistory WHERE MigrationId LIKE '%_AddAdminSessions'")
     # A pre-key-repository database also predates the ServiceMantle key table;
@@ -471,7 +472,8 @@ with sqlite3.connect(sys.argv[1]) as connection:
     connection.execute("INSERT INTO vocabulary_book_unit (id,book_id,number,created_at,updated_at) VALUES ('retained-unit','retained-book',1,'2026-01-01','2026-01-01')")
     connection.execute("INSERT INTO audio_asset (id,bucket,object_key,sha256,byte_length,content_type,created_at_unix_ms,first_published_at_unix_ms) VALUES ('retained-asset','test-audio','audio/retained.mp3',?,128,'audio/mpeg',1,2)", ('0' * 64,))
     connection.execute("INSERT INTO textbook_audio_track (id,book_id,unit_id,title,display_order,current_asset_id,duration_seconds,is_available,version) VALUES ('retained-track','retained-book','retained-unit','Retained track',3,'retained-asset',42,1,'11111111-1111-1111-1111-111111111111')")
-    snapshot = {table: connection.execute(f"SELECT * FROM {table}").fetchall() for table in ("vocabulary_book", "vocabulary", "vocabulary_book_unit", "audio_asset", "textbook_audio_track")}
+    connection.execute("INSERT INTO textbook_audio_upload_operation VALUES ('retired-upload','retained-asset')")
+    snapshot = {table: connection.execute(f"SELECT * FROM {table}").fetchall() for table in ("vocabulary_book", "vocabulary", "vocabulary_book_unit", "audio_asset")}
     with open(sys.argv[2], "w", encoding="utf-8") as output:
         json.dump(snapshot, output)
 PYSQL
@@ -488,8 +490,7 @@ with sqlite3.connect(sys.argv[1]) as connection:
         before = json.load(source)
     for table, rows in before.items():
         assert [list(row) for row in connection.execute(f"SELECT * FROM {table}")] == rows
-    assert connection.execute("SELECT COUNT(*) FROM textbook_audio_upload_operation").fetchone()[0] == 0
-    assert any(row[1] == "IX_textbook_audio_upload_operation_asset_id" and row[2] == 1 for row in connection.execute("PRAGMA index_list(textbook_audio_upload_operation)"))
+    assert connection.execute("SELECT name FROM sqlite_master WHERE name LIKE 'textbook_audio_%'").fetchall() == []
     assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
     assert connection.execute("SELECT COUNT(*) FROM admin_session").fetchone()[0] == 0
     assert any(row[1] == "IX_admin_session_expires_at_unix_ms_handle_hash" for row in connection.execute("PRAGMA index_list(admin_session)"))

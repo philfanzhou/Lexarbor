@@ -11,7 +11,6 @@ public sealed class AudioRecoveryWorker(IServiceScopeFactory scopes, AudioRuntim
     {
         // Host startup completes independently of storage availability.
         await Task.Yield();
-        var textbookFirst = false;
         try
         {
             while (!stoppingToken.IsCancellationRequested)
@@ -25,14 +24,11 @@ public sealed class AudioRecoveryWorker(IServiceScopeFactory scopes, AudioRuntim
                         try
                         {
                             await using var scope = scopes.CreateAsyncScope();
-                            var first = textbookFirst;
-                            textbookFirst = !textbookFirst;
                             var service = new AudioRecoveryService(scope.ServiceProvider.GetRequiredService<IAudioUploadRepository>(),
-                                scope.ServiceProvider.GetRequiredService<ITextbookAudioUploadRepository>(),
                                 new RecoveryStore(operation), new(true, snapshot.Bucket, snapshot.KeyPrefix, snapshot.RecoveryBatchSize,
                                     snapshot.OperationTimeoutSeconds, snapshot.RecoveryLeaseSeconds, snapshot.RecoveryRetrySeconds,
                                     snapshot.RecoveryMaxRetrySeconds, snapshot.RecoveryRecheckSeconds), clock);
-                            var result = await service.RunBatchAsync(stoppingToken, first);
+                            var result = await service.RunBatchAsync(stoppingToken);
                             if (result.Failed > 0) logger.LogWarning("Audio recovery will retry {Count} object operations.", result.Failed);
                         }
                         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
@@ -77,8 +73,6 @@ public sealed class AudioRecoveryWorker(IServiceScopeFactory scopes, AudioRuntim
             return await call.ObjectStore.StatAsync(location, token);
         }
         public Task PutAsync(AudioObjectLocation location, Stream content, long byteLength, string contentType, CancellationToken token)
-            => PutAsync(location, content, byteLength, contentType, AudioUploadPurpose.Vocabulary, token);
-        public Task PutAsync(AudioObjectLocation location, Stream content, long byteLength, string contentType, AudioUploadPurpose purpose, CancellationToken token)
             => throw new NotSupportedException();
         public Task<AudioPlaybackLink> GetPlaybackLinkAsync(AudioObjectLocation location, TimeSpan validity, CancellationToken token)
             => throw new NotSupportedException();

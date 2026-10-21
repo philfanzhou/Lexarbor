@@ -354,17 +354,14 @@ batch-import, authentication, HTTP routes, or automatic startup migration policy
 ## Failed-upload recovery execution
 
 `AudioRecoveryService` and the host's `AudioRecoveryWorker` execute the existing
-conditional transitions above for both pronunciation and textbook operations.
-The narrow adapters carry recovery facts only, preserving each protocol's own
-targets and permanent receipts. There is no extra schema migration or alternate
+conditional transitions above. There is no extra schema migration or alternate
 state machine. The worker uses a fresh scoped SQLite context for each bounded batch;
 Remove/Stat run only after a successful database cleanup claim, outside write
 transactions. Configuration defaults, retry intervals and restoration steps are in
 [deployment recovery](../development/Deployment.md#failed-upload-recovery).
 
-Never prune `audio_asset`, `audio_upload_operation` or
-`textbook_audio_upload_operation` merely because no current binding or catalog
-track references them. First-publication stamps permanently prevent automatic
+Never prune `audio_asset` or `audio_upload_operation` merely because no current
+binding references them. First-publication stamps permanently prevent automatic
 physical deletion, preserving objects referenced by historical SQLite backups.
 CleanupObserved retains the original immutable failure receipt and object location
 and schedules another check even after a successful Remove, covering late remote
@@ -373,83 +370,14 @@ persisted retries; it does not rebind an old request, scan S3, clear a bucket or
 published objects. Preserve these tables and the private bucket together when
 backing up or restoring the database.
 
-Each type queries at most `RecoveryBatchSize` candidates in stable creation/key
-order. Processing alternates between types under one shared batch limit; an empty
-type gives its unused capacity to the other. The worker alternates the first type
-between batches, including a batch size of one. Fairness holds during normal
-process execution; repeated crashes do not promise a completion deadline. A fresh
-context and one runtime reference cover each batch. Shared assets also ensure
-that textbook-only pending operations and published history protect the configured
-storage destination; empty catalog metadata alone does not.
+## Retired textbook recording schema
 
-## Textbook audio catalog
-
-`AddTextbookAudioTracks` adds only `textbook_audio_track` and its indexes. Its
-fields are `id`, `book_id`, `unit_id`, `title`, `display_order`, nullable
-`current_asset_id`, nullable `duration_seconds`, `is_available`, and `version`.
-The composite unit foreign key `(unit_id, book_id)` references the existing
-`(id, book_id)` key and prevents cross-book ownership. Book, unit and current
-asset references use RESTRICT deletion. The `(unit_id, display_order, id)` index
-supports stable pagination, including repeated orders.
-
-CHECK constraints reject blank titles, negative/noninteger orders, invalid booleans
-and noncanonical UUID versions. With no file, duration must be null and availability
-false. With a file, duration must be positive and finite, and its asset must exist.
-The domain additionally trims and limits titles to 200 UTF-16 code units and
-checks asset publication before enabling. SQLite triggers also reject available
-tracks with unpublished assets and removal of publication from an available track's
-asset. Object readability is never inferred
-from these rows. Metadata writes read current database state and condition updates
-or deletes on the expected version in one UnitOfWork transaction; same-value
-updates also generate a new version. Reads use a deferred SQLite snapshot for
-ownership, total and page, without the application's writer semaphore.
-SQLite busy/locked failures across connection opening, transaction creation,
-reading and commit are translated to the safe storage-busy error (HTTP 503 with
-`Retry-After: 1`), including contention from an external exclusive writer in
-rollback-journal mode. The failed list request leaves catalog data unchanged.
-
-All three parent delete services check for tracks within the write transaction;
-cleanup preview checks its read snapshot. RESTRICT foreign keys prevent a
-check/delete race even for direct SQL. Whole-book cleanup delete rolls back all
-changes on conflict; vocabulary-only cleanup preserves tracks. Removing a track
-keeps `audio_asset`, `audio_upload_operation`, pronunciation bindings and objects.
-
-Fresh initialization and upgrade from `AddVocabularyAudio` create an empty catalog
-and no new seed, retaining all earlier business, session, audit, key and audio rows.
-Restart applies no extra changes. Down removes only the catalog table/indexes,
-losing its metadata and references; it does not delete generic assets, receipts or
-objects. Before Down, take a consistent database/root-key/bucket backup. Restoring
-catalog data requires that consistent backup. The existing
-`migration.version_too_new` startup rule still applies to older images; rolling
-back code alone is not data rollback. See the [catalog API](../api/TextbookAudio.md).
-
-### Textbook upload operations and permanent receipts
-
-`AddTextbookAudioUploads` adds only `textbook_audio_upload_operation` and its
-indexes. It does not alter the catalog or pronunciation state machine. Each row
-owns one shared `audio_asset` through a unique RESTRICT foreign key; historical
-book/unit/track IDs have no target foreign keys. The row retains the versioned
-request fingerprint, expected version, server-validated duration, upload lease,
-immutable terminal receipt and separate retryable cleanup progress. CHECKs enforce
-canonical lowercase UUID keys/versions, lowercase SHA256 fingerprints, positive
-finite duration, state/receipt consistency, success fields matching the original
-track/duration/asset, fixed failure codes and valid owner/fence/expiry/return state.
-
-The repository uses `ExecuteAdmittedTransactionAsync` and rejects enclosing
-transactions. Reservation creates asset and operation together. Publication
-compares the current track version after SQLite writer admission, preserving title
-and order while replacing asset/duration, making the track unavailable, generating
-a new UUID version, marking first publication and recording success atomically.
-Reads translate SQLite busy/locked errors to the normal safe storage-busy error.
-No method calls S3. The original receipt and object location are retained after
-catalog or parent deletion, retries, cleanup and observed deletion. Cleanup claims
-require a failed, never-published asset at least 24 hours old with no valid upload
-lease and due retry; a first-publication marker always prevents claims. Tombstones
-are permanent, so future recovery can detect late object writes without scanning
-the bucket or assuming that an unreferenced object may be deleted.
-
-Fresh and upgraded databases start with no textbook operations. Down drops only
-this operation table/indexes, losing its receipts and cleanup knowledge while
-retaining all shared assets, catalog references, pronunciation records and physical
-objects. Back up these records with the catalog, root key and private bucket; do
-not downgrade a live upload history or prune it as routine maintenance.
+`RemoveTextbookAudio` removes the recording catalog and upload-operation tables,
+including the publication-retention trigger on `audio_asset`. Vocabulary data,
+pronunciation bindings and upload receipts, and all shared audio assets remain
+unchanged. The retained object locations still protect the storage destination.
+No S3 operation runs during migration. Fresh installations run the retained
+historical migrations followed by this removal and end with the same schema as
+upgrades. Downgrading recreates empty tables and publication triggers only; restore
+a pre-upgrade backup to recover recording metadata and receipts. See
+[deployment and rollback](../development/Deployment.md#textbook-recording-removal).

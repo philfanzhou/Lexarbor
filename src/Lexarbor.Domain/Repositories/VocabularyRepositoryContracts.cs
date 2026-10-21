@@ -61,7 +61,6 @@ public interface IVocabularyBookRepository
     Task<List<string>> GetDistinctGradesAsync();
     Task<List<string>> GetDistinctGradesByEducationLevelAsync(string educationLevel);
     Task<bool> HasMeaningsAsync(string bookId);
-    Task<bool> HasAudioTracksAsync(string bookId);
     Task<(List<VocabularyModel> Items, int TotalCount)> GetWordsAsync(string bookId, int page, int size);
     Task AddAsync(VocabularyBookModel model);
     Task UpdateAsync(VocabularyBookModel model);
@@ -93,7 +92,6 @@ public interface IVocabularyMeaningRepository
 
 public interface IVocabularyBookUnitRepository
 {
-    Task<bool> HasAudioTracksAsync(string unitId);
     Task<VocabularyBookUnitModel?> GetByIdAsync(string id);
     Task<List<VocabularyBookUnitModel>> GetByBookIdAsync(string bookId);
     /// <summary>

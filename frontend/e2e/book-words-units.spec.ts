@@ -173,6 +173,7 @@ async function openBookWords(page: Page, book = bookA) {
   await page.goto(`/#/books/${book.id}/words`)
   await expect(page.locator('.session')).toContainText(admin.username)
   await expect(page.locator('.el-table')).toContainText('apple')
+  await expect(page.getByRole('button', { name: '教材录音', exact: true })).toHaveCount(0)
 }
 
 async function pickUnit(page: Page, label: string) {

@@ -231,9 +231,7 @@ public sealed class AudioAdminRuntimeTests
         public AudioOptions Options { get; } = options; public int Disposed; public int Calls;
         public readonly TaskCompletionSource DisposedSignal = Signal();
         private Task<T> Unexpected<T>() { Interlocked.Increment(ref Calls); throw new InvalidOperationException("Metadata/unbind must not call S3."); }
-        public Task PutAsync(AudioObjectLocation location, Stream input, long length, string type, CancellationToken token)
-            => PutAsync(location, input, length, type, AudioUploadPurpose.Vocabulary, token);
-        public Task PutAsync(AudioObjectLocation location, Stream input, long length, string type, AudioUploadPurpose purpose, CancellationToken token) => Unexpected<bool>();
+        public Task PutAsync(AudioObjectLocation location, Stream input, long length, string type, CancellationToken token) => Unexpected<bool>();
         public Task RemoveAsync(AudioObjectLocation location, CancellationToken token) => Unexpected<bool>();
         public Task<AudioObjectInfo?> StatAsync(AudioObjectLocation location, CancellationToken token) => Unexpected<AudioObjectInfo?>();
         public Task<AudioPlaybackLink> GetPlaybackLinkAsync(AudioObjectLocation location, TimeSpan validity, CancellationToken token) => Unexpected<AudioPlaybackLink>();

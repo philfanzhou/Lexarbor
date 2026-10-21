@@ -68,6 +68,7 @@ test('restores an administrator session and displays the catalog', async ({ page
   await expect(page.locator('.brand')).toHaveText('Lexarbor')
   await expect(page.locator('.session')).toContainText(admin.username)
   await expect(page.locator('.el-table')).toContainText(starterBook.bookName)
+  await expect(page.getByRole('button', { name: '教材录音', exact: true })).toHaveCount(0)
 })
 
 test('submits a new catalog book through the administration UI', async ({ page }) => {
