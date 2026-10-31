@@ -118,6 +118,10 @@ Let R be the meanings selected by book and action, and A the distinct word IDs i
 
 A single instance remains the supported deployment. SQLite serializes external writers; busy/constraint failures keep existing 503/409 mappings. Preview counts can become stale between requests. These destructive commands offer no undo, replay safety or automatic orphan sweep.
 
+## Meaning submissions
+
+`AddMeaningSubmissions` adds only the independent `meaning_submission` table. A row is a definition an integration client proposed: `word`, `part_of_speech`, `meaning`, `example`, the client `source`, a `status` (0 pending, 1 approved, 2 rejected, enforced by `CK_meaning_submission_status`), the `result_*` location and text once approved, and Unix-millisecond `created_at_unix_ms`, `updated_at_unix_ms` and `reviewed_at_unix_ms`. Stored generated columns `normalized_word` (`lower(trim(word))`), `normalized_part_of_speech` (`lower(trim(coalesce(part_of_speech, '')))`) and `normalized_meaning` (`trim(meaning)`) use the catalog's own normalization. The filtered unique index `IX_meaning_submission_pending_key` allows one pending row per normalized definition; `IX_meaning_submission_status_created_at_unix_ms` serves the review queues. The table has no foreign key to the catalog: an approved row keeps its result IDs even if the meaning is later edited or deleted. Approval writes the meaning through the import path and updates the row in one `UnitOfWork` transaction.
+
 ## ServiceMantle Data Protection keys
 
 `AddServiceDataProtectionKeys` adds only the independent

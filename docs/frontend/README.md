@@ -19,6 +19,7 @@
 | `/books/:bookId/words` | Administrator | One book's word list |
 | `/vocabulary` | Administrator | Whole-library word list |
 | `/phrases` | Administrator | Phrase positions by book, unit, section, and keyword |
+| `/submissions` | Administrator | Meaning submission review queue |
 | `/import` | Administrator | Word import |
 | `/import/batch` | Administrator | Mixed vocabulary batch import (legacy default) |
 | `/import/batch/words` | Administrator | Explicit word batch import |
@@ -156,6 +157,8 @@ A refused write keeps the entered values: 400 shows the server's reason (a dupli
 
 ## Batch import page
 
+`/submissions` (投稿审核) reads `GET /admin/meaning-submissions` by status tab (待审核, 已通过, 已驳回) in pages of 20. A missing `MeaningSubmissions:BookId` shows a warning and disables review. 审核 opens a dialog prefilled with the submitted word, part of speech, definition and example plus empty UK/US phonetics; 通过 posts the edited values to `/approve`, and 驳回 asks for confirmation before `/reject`. When the review assistant is configured, AI 审核建议 shows the advice and 采用建议 copies its part of speech, definition and phonetics into the form; nothing is approved without the administrator. The approved tab shows the stored text and marks changed definitions. `e2e/meaning-submissions.spec.ts` covers advice, approval and the unconfigured warning.
+
 The three batch routes share one parser, preview, and submission flow. `/import/batch` defaults to mixed vocabulary; `/import/batch/words` selects word mode and `/import/batch/phrases` selects phrase mode. The on-page mode switch changes the route without discarding the raw text or workbook. Administrator sessions can open or refresh each deep link with the same mode. The existing hosted-login return allowlist is unchanged: if an unauthenticated administrator starts at a new uniform-mode deep link, signing in returns to the default book page, from which the mode's navigation entry is available; that round trip does not restore the new mode route.
 
 | Mode | File kind | Final kind | Unit resolution |
@@ -268,7 +271,7 @@ Once signed in, every page sits in one shell:
 
 - A 56 px header across the page holds `.brand` (`Lexarbor`) on the left, the low-key build-version button beside it, and `.session` (the username and the **退出登录** button) on the right.
 - Below it, a side navigation `<nav aria-label="主导航">` is grouped by task. Each group is a `role="group"` labelled by its title, and each entry is a real link (`RouterLink`), not a menu item:
-  - **教材**: 教材管理 (`/books`), 单词管理 (`/vocabulary`), and 短语管理 (`/phrases`).
+  - **教材**: 教材管理 (`/books`), 单词管理 (`/vocabulary`), 短语管理 (`/phrases`), and 投稿审核 (`/submissions`).
   - **词汇导入**: 单条导入 (`/import`), 新增短语 (`/import/phrase`), 批量导入 (`/import/batch`), 批量单词导入 (`/import/batch/words`), and 批量短语导入 (`/import/batch/phrases`).
 - A side navigation rather than header links, because the groups need to be visible and later pages need vertical room; three links in the header can show neither.
 - The current page's link is highlighted and carries `aria-current="page"`, for an exact route match only.

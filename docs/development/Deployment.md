@@ -1314,6 +1314,25 @@ administrator/public playback to establish remote connectivity. See the
 [frontend settings guide](../frontend/README.md#audio-storage-s3) and
 [API contract](../api/SystemSettings.md#audio-storage-s3).
 
+## Meaning submissions
+
+Meaning submissions are off unless a supplementary book is configured. See the [API](../api/MeaningSubmissions.md) and [ADR-009](../adr/ADR-009-meaning-submissions.md).
+
+| Setting | Description |
+|---|---|
+| `MeaningSubmissions:BookId` | ID of an existing, enabled book that receives approved submissions. Unset: submissions and approval answer `503`, and the review page shows a warning |
+| `MeaningSubmissions:Integration:Issuer` / `Subject` | Required when a public key is configured; must equal the client's `iss` and `sub`. Non-empty, no whitespace |
+| `MeaningSubmissions:Integration:Audience` | Default `urn:lexarbor:integration` |
+| `MeaningSubmissions:Integration:PublicKeys:<n>:KeyId` | Unique, 1–128 letters, digits, `.`, `_` or `-` |
+| `MeaningSubmissions:Integration:PublicKeys:<n>:PublicKeyPath` | PEM RSA public key (at least 2048 bits). A file containing a private key is refused |
+| `MeaningSubmissions:Ai:Endpoint` / `Model` | Optional OpenAI-compatible base URL (for example `https://api.example.com/v1`) and model; both set enables review advice |
+| `MeaningSubmissions:Ai:ApiKey` | Optional bearer key for the endpoint; inject it through an environment variable (`MeaningSubmissions__Ai__ApiKey`), never the persistent settings file |
+| `MeaningSubmissions:Ai:TimeoutSeconds` | 1–300, default 30 |
+
+An invalid value stops startup with a message naming the setting only. Without any public key the integration routes answer `401`. Settings are read once at startup; key rotation means adding the new public key to the ring, restarting, switching the client's signing key, then removing the old key and restarting again.
+
+The upgrade adds the `meaning_submission` table only (migration `AddMeaningSubmissions`). Rolling back the code ignores the table; migration Down drops it together with every submission. The review advice sends only the submission's word, part of speech, definition and example to the configured endpoint.
+
 ## Textbook recording removal
 
 Textbook recording catalog management, MP3 uploads, upload-policy reads,

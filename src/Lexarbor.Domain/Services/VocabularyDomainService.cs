@@ -20,6 +20,8 @@ public class VocabularyDomainService
     private readonly IVocabularyBookUnitRepository _unitRepository;
     private readonly IVocabularyMeaningUnitRepository _membershipRepository;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly MeaningSubmissionSettings? _submissionSettings;
+    private readonly IMeaningSubmissionRepository? _submissionRepository;
 
     public VocabularyDomainService(
         IVocabularyRepository vocabularyRepository,
@@ -27,8 +29,12 @@ public class VocabularyDomainService
         IVocabularyMeaningRepository meaningRepository,
         IVocabularyBookUnitRepository unitRepository,
         IVocabularyMeaningUnitRepository membershipRepository,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        MeaningSubmissionSettings? submissionSettings = null,
+        IMeaningSubmissionRepository? submissionRepository = null)
     {
+        _submissionSettings = submissionSettings;
+        _submissionRepository = submissionRepository;
         _vocabularyRepository = vocabularyRepository;
         _bookRepository = bookRepository;
         _meaningRepository = meaningRepository;
@@ -297,7 +303,7 @@ public class VocabularyDomainService
     /// caller owns. It also reports whether the meaning was inserted rather than
     /// matched, which the batch import counts and the single path discards.
     /// </summary>
-    private async Task<(VocabularyModel Word, VocabularyMeaningModel Meaning, bool MeaningCreated)>
+    internal async Task<(VocabularyModel Word, VocabularyMeaningModel Meaning, bool MeaningCreated)>
         AddOrUpdateCoreAsync(VocabularyModel vocabulary, VocabularyMeaningModel meaning)
     {
         var normalizedWord = NormalizeWord(vocabulary.Word);
@@ -437,6 +443,17 @@ public class VocabularyDomainService
                 correctMeaning.Meaning,
                 3,
                 scope);
+            if (distractors.Count < 3 && IsSupplementaryBook(bookId))
+            {
+                distractors = TopUp(
+                    distractors,
+                    await _submissionRepository!.GetCatalogWordDistractorsAsync(
+                        word.Word.Trim().ToLowerInvariant(),
+                        correctMeaning.Meaning.Trim().ToLowerInvariant(),
+                        3),
+                    item => item.Word.Trim().ToLowerInvariant());
+            }
+
             questionText = correctMeaning.Meaning;
             options =
             [
@@ -468,6 +485,17 @@ public class VocabularyDomainService
                     correctMeaning.Meaning,
                     3,
                     scope);
+            if (distractors.Count < 3 && IsSupplementaryBook(bookId))
+            {
+                distractors = TopUp(
+                    distractors,
+                    await _submissionRepository!.GetCatalogMeaningDistractorsAsync(
+                        word.Word.Trim().ToLowerInvariant(),
+                        correctMeaning.Meaning.Trim().ToLowerInvariant(),
+                        3),
+                    item => item.Meaning.Trim());
+            }
+
             questionText = word.Word;
             options =
             [
@@ -508,6 +536,37 @@ public class VocabularyDomainService
             ChineseToEnglish = chineseToEnglish,
             Options = options
         };
+    }
+
+    /// <summary>
+    /// The supplementary book collects definitions no other book had, so it is
+    /// often too small to supply three distractors of its own. Its questions are
+    /// topped up from every enabled book rather than refused; every other book
+    /// keeps drawing from itself alone.
+    /// </summary>
+    private bool IsSupplementaryBook(string bookId) =>
+        _submissionRepository != null
+        && _submissionSettings is { IsConfigured: true }
+        && string.Equals(_submissionSettings.BookId!.Trim(), bookId, StringComparison.Ordinal);
+
+    private static List<T> TopUp<T>(List<T> drawn, List<T> extra, Func<T, string> text)
+    {
+        var seen = drawn.Select(text).ToHashSet(StringComparer.Ordinal);
+        var combined = new List<T>(drawn);
+        foreach (var item in extra)
+        {
+            if (combined.Count == 3)
+            {
+                break;
+            }
+
+            if (seen.Add(text(item)))
+            {
+                combined.Add(item);
+            }
+        }
+
+        return combined;
     }
 
     private async Task<VocabularyModel> ResolveVocabularyAsync(
