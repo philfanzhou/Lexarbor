@@ -139,6 +139,13 @@ public sealed class MeaningSubmissionEndpointTests : IAsyncLifetime
         var found = Assert.Single(lookup.GetProperty("items").EnumerateArray());
         Assert.Equal("supplementary", found.GetProperty("resultBookId").GetString());
 
+        using var search = new HttpRequestMessage(HttpMethod.Get, "/integration/vocabulary/search?keyword=Seren");
+        search.Headers.Authorization = new("Bearer", Token());
+        var matches = await Data(await _client.SendAsync(search, Ct));
+        var match = Assert.Single(matches.GetProperty("items").EnumerateArray());
+        Assert.Equal("supplementary", match.GetProperty("bookId").GetString());
+        Assert.Equal("意外发现", match.GetProperty("meaningKey").GetString());
+
         var advice = await Post($"/admin/meaning-submissions/{id}/advice", new { }, _factory.CreateToken("admin"));
         Assert.Equal(HttpStatusCode.UnprocessableEntity, advice.StatusCode);
     }

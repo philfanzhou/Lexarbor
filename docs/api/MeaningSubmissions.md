@@ -13,7 +13,9 @@ All responses use the usual envelope: `{"success": true, "data": ...}` or `{"suc
 | `status` | `pending`, `approved` or `rejected` |
 | `resultBookId`, `resultWordId`, `resultMeaningId` | Where the approved definition is stored; set only when approved |
 | `resultWord`, `resultPartOfSpeech`, `resultMeaning` | The approved text, possibly corrected by the administrator |
-| `definitionKept` | `true` when approved with the submitted spelling and definition, ignoring case and surrounding whitespace |
+| `definitionKept` | `true` when approved with the submitted spelling and definition, compared by their catalog keys |
+| `wordKey`, `meaningKey` | Catalog keys of the submitted text: `lower(trim(...))` with ASCII-only folding, the same rule as `normalizedWord` and `meaningKey` in `GET /api/vocabulary-books/{bookId}/entries` |
+| `resultWordKey`, `resultMeaningKey` | Catalog keys of the approved text; set only when approved |
 | `createdAt`, `reviewedAt` | UTC timestamps |
 
 ## Integration routes
@@ -25,6 +27,10 @@ These routes require an integration service token (see [Authentication](#integra
 Body: `{"word": "serendipity", "partOfSpeech": "n.", "meaning": "意外发现", "example": null}`. `word` (≤100 characters) and `meaning` (≤500) are required; `partOfSpeech` ≤32, `example` ≤1000.
 
 Answers the submission. An equivalent submission — same normalized word and part of speech and the same trimmed definition — that is pending, or approved with `definitionKept`, is answered instead of a new one. When the supplementary book already holds the equivalent definition, the answer is an approved submission pointing at it. A rejected definition can be submitted again and becomes a new pending submission.
+
+### `GET /integration/vocabulary/search?keyword=...`
+
+Lets the client offer existing meanings before it submits. `keyword` (1–100 characters) is compared by its catalog key; the answer is `{"items": [...]}` with every meaning in an enabled book (the supplementary book included) of up to 10 words spelled exactly like the keyword or starting with it — the exact spelling first, then shorter words. Each item has `wordId`, `word`, `wordKey`, `phoneticUk`, `phoneticUs`, `bookId`, `bookName`, `meaningId`, `partOfSpeech`, `meaning` and `meaningKey`.
 
 ### `POST /integration/meaning-submissions/lookup`
 

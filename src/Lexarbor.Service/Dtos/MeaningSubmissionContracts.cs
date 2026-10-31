@@ -51,6 +51,17 @@ public sealed class MeaningSubmissionDto
     public string? ResultPartOfSpeech { get; set; }
     public string? ResultMeaning { get; set; }
     public bool DefinitionKept { get; set; }
+
+    /// <summary>The catalog keys of the submitted text (<c>lower(trim(...))</c>, ASCII folding).</summary>
+    public string WordKey { get; set; } = string.Empty;
+
+    public string MeaningKey { get; set; } = string.Empty;
+
+    /// <summary>The catalog keys of the approved text; set only when approved.</summary>
+    public string? ResultWordKey { get; set; }
+
+    public string? ResultMeaningKey { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? ReviewedAt { get; set; }
 
@@ -69,6 +80,10 @@ public sealed class MeaningSubmissionDto
         ResultPartOfSpeech = model.ResultPartOfSpeech,
         ResultMeaning = model.ResultMeaning,
         DefinitionKept = model.DefinitionKept,
+        WordKey = CatalogKeys.Of(model.Word),
+        MeaningKey = CatalogKeys.Of(model.Meaning),
+        ResultWordKey = model.ResultWord == null ? null : CatalogKeys.Of(model.ResultWord),
+        ResultMeaningKey = model.ResultMeaning == null ? null : CatalogKeys.Of(model.ResultMeaning),
         CreatedAt = model.CreatedAt,
         ReviewedAt = model.ReviewedAt
     };

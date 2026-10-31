@@ -54,8 +54,44 @@ public class MeaningSubmissionModel
         && string.Equals(Normalize(ResultWord), Normalize(Word), StringComparison.Ordinal)
         && string.Equals(Normalize(ResultMeaning), Normalize(Meaning), StringComparison.Ordinal);
 
-    public static string Normalize(string value) => value.Trim().ToLowerInvariant();
+    private static string Normalize(string value) => CatalogKeys.Of(value);
 }
+
+/// <summary>
+/// The comparison key the public entries read calls <c>normalizedWord</c> and
+/// <c>meaningKey</c>: SQLite's <c>lower(trim(text))</c>, which folds ASCII letters
+/// only. Computed in process for text that is not stored yet, so a client keying
+/// its records by these values sees one rule.
+/// </summary>
+public static class CatalogKeys
+{
+    public static string Of(string text)
+    {
+        var trimmed = text.Trim(' ');
+        return string.Create(trimmed.Length, trimmed, static (span, source) =>
+        {
+            for (var index = 0; index < source.Length; index++)
+            {
+                var character = source[index];
+                span[index] = character is >= 'A' and <= 'Z' ? (char)(character + 32) : character;
+            }
+        });
+    }
+}
+
+/// <summary>One meaning of a word in an enabled book, as the catalog search answers it.</summary>
+public sealed record CatalogMeaningMatch(
+    string WordId,
+    string Word,
+    string WordKey,
+    string? PhoneticUk,
+    string? PhoneticUs,
+    string BookId,
+    string BookName,
+    string MeaningId,
+    string? PartOfSpeech,
+    string Meaning,
+    string MeaningKey);
 
 /// <summary>The definition an administrator approves, possibly corrected.</summary>
 public sealed record MeaningSubmissionApproval(

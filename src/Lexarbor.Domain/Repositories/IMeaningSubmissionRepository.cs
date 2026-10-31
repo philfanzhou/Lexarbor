@@ -31,6 +31,16 @@ public interface IMeaningSubmissionRepository
     Task UpdateAsync(MeaningSubmissionModel submission, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Every meaning in an enabled book of the first <paramref name="wordLimit"/>
+    /// words spelled exactly like, or starting with, the normalized keyword; the
+    /// exact spelling first, then shorter words.
+    /// </summary>
+    Task<List<CatalogMeaningMatch>> SearchCatalogAsync(
+        string normalizedKeyword,
+        int wordLimit,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Up to <paramref name="count"/> distinct words from any enabled book, none
     /// spelled like <paramref name="excludeNormalizedWord"/> and none carrying the
     /// definition <paramref name="excludeNormalizedMeaning"/>.

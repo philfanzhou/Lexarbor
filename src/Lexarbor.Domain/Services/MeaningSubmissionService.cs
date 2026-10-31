@@ -112,6 +112,17 @@ public sealed class MeaningSubmissionService
         }, cancellationToken);
     }
 
+    /// <summary>
+    /// The meanings an integration client can reference instead of submitting:
+    /// every enabled book's meanings of the words matching the keyword, the
+    /// supplementary book included.
+    /// </summary>
+    public Task<List<CatalogMeaningMatch>> SearchCatalogAsync(string? keyword, CancellationToken cancellationToken = default)
+    {
+        var normalized = CatalogKeys.Of(Required(keyword, MaxWordLength, "Keyword"));
+        return _submissions.SearchCatalogAsync(normalized, 10, cancellationToken);
+    }
+
     public async Task<List<MeaningSubmissionModel>> LookupAsync(
         IReadOnlyCollection<string>? ids,
         CancellationToken cancellationToken = default)

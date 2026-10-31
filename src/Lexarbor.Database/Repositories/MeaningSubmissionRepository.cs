@@ -83,6 +83,40 @@ public sealed class MeaningSubmissionRepository : IMeaningSubmissionRepository
         }
     }
 
+    public async Task<List<CatalogMeaningMatch>> SearchCatalogAsync(
+        string normalizedKeyword,
+        int wordLimit,
+        CancellationToken cancellationToken = default)
+    {
+        var enabledWords = _context.Vocabularies.AsNoTracking()
+            .Where(word => _context.VocabularyMeanings.Any(meaning =>
+                meaning.VocabularyId == word.Id
+                && _context.VocabularyBooks.Any(book => book.Id == meaning.BookId && book.Status)));
+        var words = await enabledWords
+            .Where(word => word.NormalizedWord == normalizedKeyword || word.NormalizedWord.StartsWith(normalizedKeyword))
+            .OrderByDescending(word => word.NormalizedWord == normalizedKeyword)
+            .ThenBy(word => word.NormalizedWord.Length)
+            .ThenBy(word => word.NormalizedWord)
+            .ThenBy(word => word.Id)
+            .Take(wordLimit)
+            .Select(word => new { word.Id, word.Word, word.NormalizedWord, word.PhoneticUk, word.PhoneticUs })
+            .ToListAsync(cancellationToken);
+        var ids = words.Select(word => word.Id).ToList();
+        var meanings = await (
+                from meaning in _context.VocabularyMeanings.AsNoTracking()
+                join book in _context.VocabularyBooks.AsNoTracking() on meaning.BookId equals book.Id
+                where book.Status && ids.Contains(meaning.VocabularyId)
+                orderby book.DisplayOrder, book.BookName, book.Id, meaning.NormalizedPartOfSpeech, meaning.NormalizedMeaning
+                select new { meaning.VocabularyId, meaning.Id, meaning.BookId, book.BookName, meaning.PartOfSpeech, meaning.Meaning, Key = meaning.NormalizedMeaning.ToLower() })
+            .ToListAsync(cancellationToken);
+        return words.SelectMany(word => meanings
+                .Where(meaning => meaning.VocabularyId == word.Id)
+                .Select(meaning => new CatalogMeaningMatch(
+                    word.Id, word.Word, word.NormalizedWord, word.PhoneticUk, word.PhoneticUs,
+                    meaning.BookId, meaning.BookName, meaning.Id, meaning.PartOfSpeech, meaning.Meaning, meaning.Key)))
+            .ToList();
+    }
+
     public async Task<List<VocabularyModel>> GetCatalogWordDistractorsAsync(
         string excludeNormalizedWord,
         string excludeNormalizedMeaning,

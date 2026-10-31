@@ -33,6 +33,10 @@ public static class MeaningSubmissionEndpoints
                 source, request.Word, request.PartOfSpeech, request.Meaning, request.Example, cancellationToken);
             return VocabularyHttpResponse.Ok(MeaningSubmissionDto.From(submission));
         });
+        app.MapGet("/integration/vocabulary/search", async ([FromQuery] string? keyword,
+            MeaningSubmissionService service, CancellationToken cancellationToken) =>
+            VocabularyHttpResponse.Ok(new { items = await service.SearchCatalogAsync(keyword, cancellationToken) }))
+            .RequireAuthorization(IntegrationPolicyName);
         group.MapPost("/lookup", async ([FromBody] MeaningSubmissionLookupRequest request,
             MeaningSubmissionService service, CancellationToken cancellationToken) =>
         {

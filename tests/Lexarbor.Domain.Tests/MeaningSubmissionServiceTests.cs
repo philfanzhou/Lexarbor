@@ -193,4 +193,32 @@ public class MeaningSubmissionServiceTests : TestBase
         await Assert.ThrowsAsync<DomainValidationException>(
             () => service.LookupAsync(Enumerable.Range(0, 101).Select(index => index.ToString()).ToList(), Ct));
     }
+
+    [Fact]
+    public async Task SearchCatalogAsync_AnswersEnabledMeaningsWithTheExactSpellingFirst()
+    {
+        var (book, main) = await SeedAsync();
+        var (service, vocabulary) = Create(book);
+        var disabled = await CreateBookAsync();
+        await vocabulary.AddOrUpdateAsync(new VocabularyModel { Word = "Apples" },
+            new VocabularyMeaningModel { BookId = main, Meaning = "复数苹果" });
+        var (_, hidden) = await vocabulary.AddOrUpdateAsync(new VocabularyModel { Word = "apple" },
+            new VocabularyMeaningModel { BookId = disabled.Id, Meaning = "停用书里的苹果" });
+        disabled.Status = false;
+        await _bookRepository.UpdateAsync(disabled);
+        await _unitOfWork.SaveChangesAsync(Ct);
+
+        var matches = await service.SearchCatalogAsync(" APPLE ", Ct);
+
+        Assert.Equal(["apple", "apples"], matches.Select(match => match.WordKey).Distinct());
+        Assert.DoesNotContain(matches, match => match.MeaningId == hidden.Id);
+        Assert.Equal("苹果", matches[0].MeaningKey);
+    }
+
+    [Fact]
+    public void CatalogKeys_FoldAsciiOnly_LikeSqliteLower()
+    {
+        Assert.Equal("serendipity 意外", CatalogKeys.Of("  SerenDipity 意外 "));
+        Assert.Equal("École", CatalogKeys.Of("École"));
+    }
 }
