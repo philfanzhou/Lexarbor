@@ -3,7 +3,7 @@ import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { EditPen, Notebook, Reading, Upload, Setting } from '@element-plus/icons-vue'
+import { Checked, EditPen, Notebook, Reading, Upload, Setting } from '@element-plus/icons-vue'
 import { currentUser, isAuthenticated, logout } from '@/services/authState'
 import { versionInfo, versionLabel, versionStatus } from '@/services/systemVersion'
 import { getApiError } from '@/services/apiError'
@@ -20,7 +20,8 @@ const navigation = [
     links: [
       { to: '/books', label: '教材管理', icon: Notebook },
       { to: '/vocabulary', label: '单词管理', icon: Reading },
-      { to: '/phrases', label: '短语管理', icon: Reading }
+      { to: '/phrases', label: '短语管理', icon: Reading },
+      { to: '/submissions', label: '投稿审核', icon: Checked }
     ]
   },
   {

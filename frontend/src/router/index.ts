@@ -9,6 +9,7 @@ import ForbiddenView from '@/views/ForbiddenView.vue'
 import ImportView from '@/views/ImportView.vue'
 import PhraseImportView from '@/views/PhraseImportView.vue'
 import LoginView from '@/views/LoginView.vue'
+import MeaningSubmissionsView from '@/views/MeaningSubmissionsView.vue'
 import PhrasePositionsView from '@/views/PhrasePositionsView.vue'
 import SettingsView from '@/views/SettingsView.vue'
 import VocabularyView from '@/views/VocabularyView.vue'
@@ -22,6 +23,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/books/:bookId/words', name: 'book-words', component: BookWordsView },
   { path: '/vocabulary', name: 'vocabulary', component: VocabularyView },
   { path: '/phrases', name: 'phrase-positions', component: PhrasePositionsView },
+  { path: '/submissions', name: 'meaning-submissions', component: MeaningSubmissionsView },
   { path: '/import', name: 'import', component: ImportView },
   { path: '/import/phrase', name: 'phrase-import', component: PhraseImportView },
   { path: '/import/batch', name: 'batch-import', component: BatchImportView, props: { mode: 'mixed' } },

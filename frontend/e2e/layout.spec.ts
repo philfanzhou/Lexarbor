@@ -27,6 +27,7 @@ const navLinks = [
   { name: '教材管理', path: '/books' },
   { name: '单词管理', path: '/vocabulary' },
   { name: '短语管理', path: '/phrases' },
+  { name: '投稿审核', path: '/submissions' },
   { name: '单条导入', path: '/import' },
   { name: '新增短语', path: '/import/phrase' },
   { name: '批量导入', path: '/import/batch' },
@@ -51,6 +52,11 @@ async function mockAdministrator(page: Page) {
     json(route, {
       success: true,
       data: { version: '1.2.3', revision: null, channel: 'release' }
+    }))
+  await page.route(/\/admin\/meaning-submissions(?:\?.*)?$/, (route) =>
+    json(route, {
+      success: true,
+      data: { configured: true, bookId: 'book-s', assistantEnabled: false, items: [], totalCount: 0, totalPage: 0 }
     }))
   await page.route('**/admin/vocabulary-books/categories', (route) =>
     json(route, { success: true, data: { items: ['English'] } }))

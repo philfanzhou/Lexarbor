@@ -23,6 +23,8 @@ public class VocabularyDbContext : DbContext
 
     public DbSet<AdminSessionEntity> AdminSessions { get; set; } = null!;
 
+    public DbSet<MeaningSubmissionEntity> MeaningSubmissions { get; set; } = null!;
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -106,6 +108,36 @@ public class VocabularyDbContext : DbContext
             // already satisfy.
             entity.HasIndex(e => new { e.Id, e.BookId }).IsUnique();
             entity.HasIndex(e => new { e.Id, e.VocabularyId }).IsUnique();
+        });
+
+        modelBuilder.Entity<MeaningSubmissionEntity>(entity =>
+        {
+            // The same normalization the catalog applies to a word and to the
+            // logical key of a meaning, so a submission can be matched against
+            // both. Stored, as the table is created with them.
+            entity.Property(e => e.NormalizedWord)
+                .HasComputedColumnSql("lower(trim(word))", stored: true);
+            entity.Property(e => e.NormalizedPartOfSpeech)
+                .HasComputedColumnSql("lower(trim(coalesce(part_of_speech, '')))", stored: true);
+            entity.Property(e => e.NormalizedMeaning)
+                .HasComputedColumnSql("trim(meaning)", stored: true);
+            entity.Property(e => e.Status).HasConversion<int>();
+
+            entity.HasIndex(
+                e => new { e.NormalizedWord, e.NormalizedPartOfSpeech, e.NormalizedMeaning },
+                "IX_meaning_submission_key");
+            entity.HasIndex(e => new { e.Status, e.CreatedAtUnixMs });
+
+            // At most one pending submission per definition: equivalent proposals
+            // merge into it rather than queueing twice for review.
+            entity.HasIndex(
+                    e => new { e.NormalizedWord, e.NormalizedPartOfSpeech, e.NormalizedMeaning },
+                    "IX_meaning_submission_pending_key")
+                .HasFilter("status = 0")
+                .IsUnique();
+
+            entity.ToTable(table => table.HasCheckConstraint(
+                "CK_meaning_submission_status", "status IN (0, 1, 2)"));
         });
 
         modelBuilder.Entity<VocabularyBookUnitEntity>(entity =>
