@@ -91,7 +91,8 @@ public sealed record CatalogMeaningMatch(
     string MeaningId,
     string? PartOfSpeech,
     string Meaning,
-    string MeaningKey);
+    string MeaningKey,
+    VocabularyPronunciation Pronunciation);
 
 /// <summary>The definition an administrator approves, possibly corrected.</summary>
 public sealed record MeaningSubmissionApproval(

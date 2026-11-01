@@ -8,6 +8,17 @@ namespace Lexarbor.Domain.Services;
 /// <summary>One input and revision rule shared by every future audio caller.</summary>
 public static class AudioSelectionService
 {
+    public static VocabularyPronunciation GetPronunciation(AudioWordInput word, AudioMeaningInput? meaning)
+    {
+        VocabularyPronunciationAccent Accent(AudioLocale locale)
+        {
+            var phonetic = GetInput(word, meaning, locale).Phonetic;
+            return new(string.IsNullOrWhiteSpace(phonetic) ? null : phonetic,
+                string.IsNullOrWhiteSpace(GetSpecificPhonetic(meaning, locale)) ? "default" : "meaning");
+        }
+        return new(Accent(AudioLocale.EnGb), Accent(AudioLocale.EnUs));
+    }
+
     public static AudioGenerationInput GetInput(AudioWordInput word, AudioMeaningInput? meaning, AudioLocale locale)
     {
         _ = locale.ToCode();

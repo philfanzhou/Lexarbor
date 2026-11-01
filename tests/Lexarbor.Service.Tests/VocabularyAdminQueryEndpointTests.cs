@@ -196,10 +196,10 @@ public class VocabularyAdminQueryEndpointTests
         var otherBookUnits = detailMeanings[2].GetProperty("units").EnumerateArray().ToList();
         Assert.Equal("ub", Assert.Single(otherBookUnits).GetProperty("unitId").GetString());
 
-        // The public detail is untouched by the administrative extension.
+        // The public detail has pronunciation metadata, but no administrative unit extension.
         using var publicDetail = await GetAsync(client, "/api/vocabulary/shared?bookId=A");
         var publicMeaning = publicDetail.RootElement.GetProperty("meanings")[0];
-        Assert.Equal(new[] { "bookId", "example", "id", "meaning", "partOfSpeech", "vocabularyId" },
+        Assert.Equal(new[] { "bookId", "example", "id", "meaning", "partOfSpeech", "pronunciation", "vocabularyId" },
             publicMeaning.EnumerateObject().Select(p => p.Name).Order());
 
         // Whole-book content counts are unchanged by unit assignments.

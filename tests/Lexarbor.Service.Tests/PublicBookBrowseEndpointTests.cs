@@ -208,12 +208,41 @@ public class PublicBookBrowseEndpointTests
 
         Assert.All(items, item => Assert.Equal(
             ["example", "meaning", "meaningId", "meaningKey", "normalizedWord", "partOfSpeech",
-                "phoneticUk", "phoneticUs", "positions", "word", "wordId"],
+                "phoneticUk", "phoneticUs", "positions", "pronunciation", "word", "wordId"],
             item.EnumerateObject().Select(property => property.Name).Order()));
         Assert.Equal("/æp/", byId["m-apple-1"].GetProperty("phoneticUk").GetString());
         Assert.Equal("/æp2/", byId["m-apple-1"].GetProperty("phoneticUs").GetString());
         Assert.Equal("n.", byId["m-apple-1"].GetProperty("partOfSpeech").GetString());
         Assert.Equal("An apple a day.", byId["m-apple-1"].GetProperty("example").GetString());
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("?unitId=u3")]
+    public async Task Entries_PronunciationProjectsEachAccentWithoutChangingWordDefaults(string query)
+    {
+        await using var factory = new VocabularyWebApplicationFactory();
+        await SeedAsync(factory);
+        using var client = factory.CreateClient();
+        using var response = await client.GetAsync("/api/vocabulary-books/A/entries" + query,
+            TestContext.Current.CancellationToken);
+        response.EnsureSuccessStatusCode();
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        var items = body.RootElement.GetProperty("data").GetProperty("items");
+        var apple = items.EnumerateArray().Single(item => item.GetProperty("meaningId").GetString() == "m-apple-1");
+        Assert.Equal("/æp/", apple.GetProperty("phoneticUk").GetString());
+        Assert.Equal("/æp2/", apple.GetProperty("phoneticUs").GetString());
+        Assert.Equal("/special/", apple.GetProperty("pronunciation").GetProperty("uk").GetProperty("phonetic").GetString());
+        Assert.Equal("meaning", apple.GetProperty("pronunciation").GetProperty("uk").GetProperty("source").GetString());
+        Assert.Equal("/æp2/", apple.GetProperty("pronunciation").GetProperty("us").GetProperty("phonetic").GetString());
+        Assert.Equal("default", apple.GetProperty("pronunciation").GetProperty("us").GetProperty("source").GetString());
+        var banana = items.EnumerateArray().Single(item => item.GetProperty("meaningId").GetString() == "m-banana-1");
+        foreach (var accent in new[] { "uk", "us" })
+        {
+            var pronunciation = banana.GetProperty("pronunciation").GetProperty(accent);
+            Assert.Null(pronunciation.GetProperty("phonetic").GetString());
+            Assert.Equal("default", pronunciation.GetProperty("source").GetString());
+        }
     }
 
     [Theory]
@@ -307,6 +336,8 @@ public class PublicBookBrowseEndpointTests
                 VocabularyId = "apple-w",
                 BookId = "A",
                 PartOfSpeech = "n.",
+                PhoneticUk = "/special/",
+                PhoneticUs = " \t ",
                 Meaning = "Sweet FRUIT",
                 Example = "An apple a day."
             },

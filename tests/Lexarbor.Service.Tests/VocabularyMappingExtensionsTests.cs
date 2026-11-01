@@ -113,7 +113,7 @@ public class VocabularyMappingExtensionsTests
             UpdatedAt = new DateTimeOffset(2026, 1, 2, 0, 0, 0, TimeSpan.Zero)
         };
 
-        var dto = model.ToDto();
+        var dto = model.ToDto(new VocabularyModel { PhoneticUk = "default-uk" });
 
         Assert.Equal("meaning-1", dto.Id);
         Assert.Equal("vocab-1", dto.VocabularyId);
@@ -121,6 +121,21 @@ public class VocabularyMappingExtensionsTests
         Assert.Equal("v", dto.PartOfSpeech);
         Assert.Equal("苹果公司", dto.Meaning);
         Assert.Equal("Apple is a tech company.", dto.Example);
+        Assert.Equal(new VocabularyPronunciationAccent("default-uk", "default"), dto.Pronunciation.Uk);
+        Assert.Equal(new VocabularyPronunciationAccent(null, "default"), dto.Pronunciation.Us);
+    }
+
+    [Fact]
+    public void MeaningProjection_IsReadOnlyWhenDeserializedAndMappedBack()
+    {
+        var dto = System.Text.Json.JsonSerializer.Deserialize<VocabularyMeaningDto>("""
+            {"id":"m","phoneticUk":"injected","phoneticUs":"injected",
+             "pronunciation":{"uk":{"phonetic":"injected","source":"meaning"},
+                              "us":{"phonetic":"injected","source":"meaning"}}}
+            """, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
+        Assert.Null(dto.Pronunciation.Uk.Phonetic);
+        Assert.Null(dto.ToEntity().PhoneticUk);
+        Assert.Null(dto.ToEntity().PhoneticUs);
     }
 
     // ==================== VocabularyBookDto <-> VocabularyBookModel ====================

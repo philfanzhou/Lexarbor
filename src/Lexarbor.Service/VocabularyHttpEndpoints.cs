@@ -99,7 +99,7 @@ public static partial class VocabularyHttpEndpoints
 
         var (word, meanings) = await vocabularyService.GetDetailAsync(wordId, bookId);
         var dto = word.ToDto();
-        dto.Meanings.AddRange(meanings.Select(meaning => meaning.ToDto()));
+        dto.Meanings.AddRange(meanings.Select(meaning => meaning.ToDto(word)));
         return VocabularyHttpResponse.Ok(dto);
     }
 
@@ -576,7 +576,8 @@ public static partial class VocabularyHttpEndpoints
             entry.MeaningKey,
             entry.Example,
             entry.Positions.Select(position => new VocabularyPublicEntryPositionDto(
-                position.UnitId, position.UnitNumber, position.Section, position.EntryKind)).ToList())));
+                position.UnitId, position.UnitNumber, position.Section, position.EntryKind)).ToList(),
+            entry.Pronunciation)));
         return VocabularyHttpResponse.Ok(result);
     }
 

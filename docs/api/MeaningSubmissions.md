@@ -30,7 +30,15 @@ Answers the submission. An equivalent submission — same normalized word and pa
 
 ### `GET /integration/vocabulary/search?keyword=...`
 
-Lets the client offer existing meanings before it submits. `keyword` (1–100 characters) is compared by its catalog key; the answer is `{"items": [...]}` with every meaning in an enabled book (the supplementary book included) of up to 10 words spelled exactly like the keyword or starting with it — the exact spelling first, then shorter words. Each item has `wordId`, `word`, `wordKey`, `phoneticUk`, `phoneticUs`, `bookId`, `bookName`, `meaningId`, `partOfSpeech`, `meaning` and `meaningKey`.
+Lets the client offer existing meanings before it submits. `keyword` (1–100 characters) is compared by its catalog key; the answer is `{"items": [...]}` with every meaning in an enabled book (the supplementary book included) of up to 10 words spelled exactly like the keyword or starting with it — the exact spelling first, then shorter words. Each item has `wordId`, `word`, `wordKey`, `phoneticUk`, `phoneticUs`, `bookId`, `bookName`, `meaningId`, `partOfSpeech`, `meaning`, `meaningKey` and read-only `pronunciation`.
+
+The old phonetic fields remain word defaults. `pronunciation.uk` and `.us` each
+contain `{phonetic, source}` with the effective phonetic (null when empty) and
+`default`/`meaning` inheritance source, following the same
+[projection as public detail and entries](Audio.md#read-only-pronunciation-metadata).
+Pass this item's `meaningId` and `bookId` to public playback to hear that meaning;
+an explicit differing pronunciation with no own audio returns `missing`.
+Submission and approval bodies do not accept this projection as a phonetic edit.
 
 ### `POST /integration/meaning-submissions/lookup`
 
