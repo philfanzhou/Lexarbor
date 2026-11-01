@@ -20,6 +20,12 @@ public class VocabularyMeaningEntity
     [Column("part_of_speech")]
     public string? PartOfSpeech { get; set; }
 
+    [Column("phonetic_uk")]
+    public string? PhoneticUk { get; set; }
+
+    [Column("phonetic_us")]
+    public string? PhoneticUs { get; set; }
+
     [Column("meaning")]
     public string Meaning { get; set; } = string.Empty;
 

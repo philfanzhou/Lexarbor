@@ -75,7 +75,7 @@ Example response for a word with no audio:
 }
 ```
 
-This example is a filtered one-target page (for example, with `locale=en-GB`). Default inputs preserve the displayed spelling and include only the requested accent's phonetic. Meaning inputs additionally include part of speech and definition. Examples, textbook enablement, positions and timestamps do not affect the version. Revisions are opaque, deterministic SHA-256 values computed from the versioned spoken input: edits and batch imports both affect them without separate invalidation writes.
+This example is a filtered one-target page (for example, with `locale=en-GB`). Default inputs preserve the displayed spelling and include only the requested accent's phonetic. Meaning inputs use that accent's nonblank meaning-specific phonetic when present, otherwise the word default, and additionally include part of speech and definition. Examples, textbook enablement, positions and timestamps do not affect the version. Revisions are opaque, deterministic SHA-256 values computed from the versioned spoken input: edits and batch imports both affect them without separate invalidation writes. Default targets and meanings with a null/blank specific phonetic retain their previous input encoding and exact revision.
 
 ## Word and first-override metadata
 
@@ -87,7 +87,35 @@ Omit `meaningId` for defaults; supply an owned meaning ID to inspect an existing
 
 For a first meaning override, `ownBinding` is null even when `effectiveBinding` points at the word's default audio. Use the own binding's asset ID as the upload's `expectedAssetId`; use an empty expected asset when own binding is null. Never substitute the fallback asset ID. The fallback's version is compared with current **default** input, while the returned target version describes the meaning input.
 
-`source` is `default`, `meaning`, or null when missing. A same-accent meaning override wins even when stale. An absent override falls back only to the same accent's default; there is no cross-accent fallback. `missing`, `ready` and `stale` describe the selected binding's content version. They do not prove the remote object exists or is playable, because queries make no S3 calls.
+`source` is `default`, `meaning`, or null when missing. Selection follows the rules below. `missing`, `ready` and `stale` describe the selected binding's content version. They do not prove the remote object exists or is playable, because queries make no S3 calls.
+
+### Meaning-specific pronunciation selection
+
+UK and US are evaluated independently by metadata and both playback APIs:
+
+| Request and explicit phonetic | Selected audio |
+| --- | --- |
+| No `meaningId` | The requested accent's default only. |
+| Meaning-specific phonetic is null or whitespace | The default only, even if a legacy own binding exists. |
+| Nonblank specific phonetic and an own binding exists | The own binding, including its ordinary stale state. |
+| Nonblank specific phonetic, no own binding, equivalent nonempty default phonetic | The same-accent default, if it exists. |
+| Nonblank specific phonetic, no own binding, different or absent default phonetic | `missing`; a known different pronunciation is never substituted. |
+
+An absent selected binding is `missing`; accents never fall back to each other.
+For equivalence only, each value is normalized to Unicode NFC and trimmed, one
+matching outer `/.../` or `[...]` pair is removed, then the interior is trimmed.
+Both results must be nonempty and equal with ordinal comparison. Case, internal
+spaces, stress, phonemes and vowel length remain significant; no AI comparison
+or compatibility normalization is used. This comparison does not rewrite stored
+values or normalize revision input: a nonblank specific value enters the revision
+exactly as stored and affects only that meaning and accent.
+
+The `AddMeaningPhonetics` upgrade initializes both specific fields to null. It
+preserves legacy assets, bindings, receipts and revisions, but intentionally stops
+playing legacy overrides until an explicit specific phonetic exists. Such a
+binding remains visible as `ownBinding` for conditional upload and logical delete;
+`effectiveBinding` may be the default or null. This upgrade introduces no public
+phonetic write fields, administrator editor or automatic generation.
 
 ## Errors and cancellation
 
@@ -134,7 +162,7 @@ while a delete already started keeps its original enabled decision. Metadata
 remains readable while disabled; a query spanning a configuration change reports
 its own captured `enabled`. Neither path calls S3 or removes asset/upload history.
 
-Success is `{ "success": true, "data": { "removed": true } }`. Only the selected binding is removed. Deleting a meaning override restores same-accent default selection; deleting a default leaves existing overrides and the other accent untouched. A missing target, wrong meaning ownership or absent own binding returns 404 (including a repeated delete); a different current own asset returns 409. On 409, reread metadata before deciding whether to delete the newer binding.
+Success is `{ "success": true, "data": { "removed": true } }`. Only the selected binding is removed. Deleting a meaning override re-evaluates the selection rules above: a different explicit pronunciation without its own audio becomes `missing`; inheritance or an equivalent nonempty default can use the default. Deleting a default leaves existing overrides and the other accent untouched. A missing target, wrong meaning ownership or absent own binding returns 404 (including a repeated delete); a different current own asset returns 409. On 409, reread metadata before deciding whether to delete the newer binding.
 
 Deletion competes with replacements in one short SQLite write transaction. If replacement wins, the old `If-Match` cannot remove its new binding. If deletion wins while replacement is transferring, that replacement's old-asset condition prevents publication. Cancellation before write admission changes nothing; once the short write is admitted it finishes under the existing commit semantics, even if the response is lost.
 
@@ -146,7 +174,7 @@ Audio disabled returns fixed 503. Deletion makes no S3 calls and retains all ass
 
 An administrator can listen to words in disabled books and words with no book. `meaningId`, when supplied, must belong to the requested word; wrong ownership or an absent target returns 404. The locale must be exactly `en-GB` or `en-US`; invalid locale or blank meaning ID returns 400. The existing administrator role and Bearer-over-cookie priority apply. GET requires no CSRF token and keeps existing rate-limit policies. Audio disabled returns `503` with `Audio storage is disabled.`.
 
-Selection uses one completed database read snapshot. The same-locale meaning override wins, even if stale; otherwise the same-locale default is selected. There is no cross-accent fallback. Storage Stat and signing run after that snapshot has ended, with request cancellation and a bounded combined deadline (`Audio:OperationTimeoutSeconds`, default 60 seconds). They hold no SQLite write transaction or global write lock. A concurrent replacement can leave the link pointing to the snapshot's retained old asset, which is valid until its expiry.
+Selection uses one completed database read snapshot and the [meaning-specific rules](#meaning-specific-pronunciation-selection). Storage Stat and signing run after that snapshot has ended, with request cancellation and a bounded combined deadline (`Audio:OperationTimeoutSeconds`, default 60 seconds). They hold no SQLite write transaction or global write lock. A concurrent replacement can leave the link pointing to the snapshot's retained old asset, which is valid until its expiry.
 
 A successful response is `{success:true,data:...}` with these fields:
 
@@ -170,7 +198,7 @@ Playback responses use `Cache-Control: no-store`. The URL points to the configur
 
 This anonymous endpoint uses the existing public API rate limit and `Retry-After` on 429. It requires `bookId`; omit `locale` to request both `en-GB` and `en-US`, or specify exactly one. A supplied `meaningId` must belong to both this word and this book. Without a meaning ID, the word must have at least one meaning in this book. Missing/blank book ID, invalid locale or blank meaning ID returns 400; missing book/word/meaning or membership returns 404; a disabled book returns the existing business-rule 422. A word belonging only to another disabled book cannot be requested through an enabled book. Audio disabled returns safe 503. Other public route DTOs and authentication are unchanged.
 
-An enabled book, target membership, current inputs and both accent bindings are read in one SQLite snapshot. Same-accent meaning overrides take priority, including stale overrides; otherwise selection falls back to that accent's default. No cross-accent fallback is performed. Responses contain `data.items` in British/American order (one item when locale is specified), with the same fields as administrator playback:
+An enabled book, target membership, current inputs and both accent bindings are read in one SQLite snapshot. Selection follows the same [meaning-specific rules](#meaning-specific-pronunciation-selection), including inheritance for blank specific phonetics and `missing` for a different explicit pronunciation without its own audio. Responses contain `data.items` in British/American order (one item when locale is specified), with the same fields as administrator playback:
 
 ```json
 {

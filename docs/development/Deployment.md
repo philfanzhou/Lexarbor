@@ -244,6 +244,25 @@ Startup prepares the database through a fixed, fail-closed gate. Before any migr
 
 With `Database:InitializeOnStartup=false` the gate is skipped entirely: the application performs no write at startup, keeps running, and readiness honestly reports `notStarted` while migrations are pending. A pre-mounted placeholder file is never rewritten in this mode.
 
+### Meaning-specific phonetic upgrade
+
+`AddMeaningPhonetics` adds nullable UK/US phonetics to each meaning. Existing
+values start null; IDs, word-default phonetics, audio assets/bindings, receipts and
+old input revisions remain unchanged. Playback deliberately changes: a blank
+specific phonetic inherits the default and ignores a retained legacy override.
+An explicit different pronunciation with no own audio is missing, not a default
+substitute. See the [selection contract](../api/Audio.md#meaning-specific-pronunciation-selection).
+No AI, automatic generation, editor or additional configuration is enabled.
+
+Back up the database and matching audio objects before upgrading, using the same
+fixed `/app/data` bind mount or named volume when replacing a container. An older
+image refuses this migration with `migration.version_too_new`. For an explicit
+rollback, stop writes, preserve a backup, and use current migration tooling to
+return to `20261031172216_AddMeaningSubmissions` before deploying that image.
+Down loses the two specific phonetic values while preserving old data and audio
+history; restore the pre-upgrade backup instead when that is the required recovery
+point. Old-image direct access to an upgraded database is not supported.
+
 ### Rollback journal
 
 The database runs under SQLite's default rollback journal. The earlier releases kept it in write-ahead logging; this one normalizes every database back to the rollback journal before the startup gate observes it: opening a database that still carries the WAL header replays any committed frames of a leftover `vocabulary.db-wal` file, one checkpoint folds them into the database, the header switches to the rollback journal, and the sidecar files are deleted. Every committed transaction survives the conversion, a database restored later from an old WAL backup is converted the same way, and no operator action is needed. A database that is missing is created by the gate already in the rollback mode, and a normalization that cannot complete stops startup with a fixed safe diagnostic without changing the file.
@@ -1239,7 +1258,7 @@ Provision a separate **private** audio bucket and credentials limited to reading
 
 For example, `InternalEndpoint=http://seaweedfs:8333/` and `PublicEndpoint=https://audio.example.com/s3/` let the host upload on its internal network while clients use a public address. Signatures are generated for the public origin, then prefixed with `/s3/`; the reverse proxy **must preserve the signed Host (including a non-default port)** and strip exactly that prefix before forwarding to S3. Do not redirect signed requests or rewrite their query. An arbitrary proxy arrangement is not guaranteed; run the actual integration check. Avoid logging full signed query strings in proxies, telemetry or browser analytics. Signed links are credentials until expiry; disabling a book or removing a binding cannot revoke an already issued link immediately.
 
-Keep S3 objects and a consistent SQLite backup together. Published objects are retained even after replacing/removing bindings, so an older database backup can still reference them. Restarting or upgrading Lexarbor does not scan or clear the bucket. The recovery worker deletes only database-authorized, known objects that have never been published and have no valid upload lease. None of this changes normal automatic database upgrade or adds an old-program compatibility requirement.
+Keep S3 objects and a consistent SQLite backup together. Existing manual replacement/removal and the phonetic migration retain published objects, so an older database backup can still reference them. Retain matching remote backups for the required restore window. Restarting or upgrading Lexarbor does not scan or clear the bucket. The recovery worker deletes only database-authorized, known objects that have never been published and have no valid upload lease. Normal automatic upgrades and the newer-schema refusal still apply.
 
 
 ### Failed-upload recovery

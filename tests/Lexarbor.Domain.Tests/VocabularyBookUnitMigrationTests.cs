@@ -71,37 +71,14 @@ public sealed class VocabularyBookUnitMigrationTests : IDisposable
                 CreatedAt = now,
                 UpdatedAt = now
             });
-            context.VocabularyMeanings.Add(new VocabularyMeaningEntity
-            {
-                Id = "meaning-1",
-                VocabularyId = "word-apple",
-                BookId = "book-a",
-                PartOfSpeech = "n.",
-                Meaning = "苹果",
-                CreatedAt = now,
-                UpdatedAt = now
-            });
-            context.VocabularyMeanings.Add(new VocabularyMeaningEntity
-            {
-                Id = "meaning-2",
-                VocabularyId = "word-come-true",
-                BookId = "book-a",
-                PartOfSpeech = "phrase",
-                Meaning = "（梦想等）实现",
-                CreatedAt = now,
-                UpdatedAt = now
-            });
-            context.VocabularyMeanings.Add(new VocabularyMeaningEntity
-            {
-                Id = "meaning-3",
-                VocabularyId = "word-apple",
-                BookId = "book-b",
-                PartOfSpeech = "n.",
-                Meaning = "苹果",
-                CreatedAt = now,
-                UpdatedAt = now
-            });
             await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+            // The current model has columns absent from this historical schema.
+            await context.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO vocabulary_meaning (id,vocabulary_id,book_id,part_of_speech,meaning,created_at,updated_at)
+                VALUES ('meaning-1','word-apple','book-a','n.','苹果',{now},{now}),
+                       ('meaning-2','word-come-true','book-a','phrase','（梦想等）实现',{now},{now}),
+                       ('meaning-3','word-apple','book-b','n.','苹果',{now},{now});
+                """, TestContext.Current.CancellationToken);
         }
 
         var before = await ReadSnapshotAsync(databasePath);

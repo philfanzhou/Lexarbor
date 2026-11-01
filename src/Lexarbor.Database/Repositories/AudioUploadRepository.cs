@@ -249,7 +249,7 @@ public sealed class AudioUploadRepository(VocabularyDbContext context, TimeProvi
         {
             var row = await context.VocabularyMeanings.AsNoTracking().SingleOrDefaultAsync(row => row.Id == meaningId && row.VocabularyId == wordId);
             if (row == null) return null;
-            meaning = new(row.Id, row.PartOfSpeech, row.Meaning);
+            meaning = new(row.Id, row.PartOfSpeech, row.Meaning, row.PhoneticUk, row.PhoneticUs);
         }
         var revision = AudioSelectionService.ComputeRevision(AudioSelectionService.GetInput(new(word.Id, word.Word, word.PhoneticUk, word.PhoneticUs), meaning, locale));
         var own = await context.VocabularyAudioBindings.AsNoTracking().SingleOrDefaultAsync(row => row.WordId == wordId && row.MeaningId == meaningId && row.Locale == locale);

@@ -31,8 +31,8 @@ public sealed class AudioReadRepositoryTests
     [InlineData("uk", true, false, true, false)]
     [InlineData("us", false, true, false, true)]
     [InlineData("word", true, true, true, true)]
-    [InlineData("pos", false, false, true, true)]
-    [InlineData("meaning", false, false, true, true)]
+    [InlineData("pos", false, false, false, false)]
+    [InlineData("meaning", false, false, false, false)]
     [InlineData("example", false, false, false, false)]
     [InlineData("positions", false, false, false, false)]
     [InlineData("book-disabled", false, false, false, false)]
@@ -123,7 +123,7 @@ public sealed class AudioReadRepositoryTests
         Assert.True(interceptor.Changed); Assert.Equal("uk", first.Word.PhoneticUk);
         AssertStatus(first, AudioLocale.EnGb, false);
         var second = await repository.GetSnapshotAsync("word", "meaning", Token);
-        Assert.Equal("concurrent-uk", second.Word.PhoneticUk); AssertStatus(second, AudioLocale.EnGb, false);
+        Assert.Equal("concurrent-uk", second.Word.PhoneticUk); AssertStatus(second, AudioLocale.EnGb, true);
         Assert.NotEqual(AudioSelectionService.Select(first, AudioLocale.EnGb).SourceRevision, AudioSelectionService.Select(second, AudioLocale.EnGb).SourceRevision);
     }
 
@@ -145,9 +145,10 @@ public sealed class AudioReadRepositoryTests
         Assert.Equal(2, first.TotalCount);
         Assert.All(first.Items, item => Assert.Equal("uk", item.Selection.Input.Phonetic));
         var second = await repository.SearchTargetsAsync(query, Token);
-        Assert.Equal(1, second.TotalCount);
-        Assert.Equal("meaning", second.Items[0].MeaningId);
-        Assert.Equal("concurrent-uk", second.Items[0].Selection.Input.Phonetic);
+        // The legacy override's freshly updated revision cannot make an
+        // inherited target ready while its selected default is stale.
+        Assert.Equal(0, second.TotalCount);
+        Assert.Empty(second.Items);
         using var cancelled = new CancellationTokenSource(); cancelled.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => repository.SearchTargetsAsync(query, cancelled.Token));
         Assert.Equal(4, await db.VocabularyAudioBindings.CountAsync(Token));

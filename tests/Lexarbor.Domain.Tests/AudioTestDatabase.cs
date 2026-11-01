@@ -31,8 +31,14 @@ internal sealed class AudioTestDatabase : IDisposable
         db.VocabularyBooks.Add(new() { Id = "book", BookName = "Audio test", Status = true });
         db.Vocabularies.AddRange(new VocabularyEntity { Id = "word", Word = "Apple", PhoneticUk = "uk", PhoneticUs = "us" },
             new VocabularyEntity { Id = "other", Word = "other" });
-        db.VocabularyMeanings.AddRange(new VocabularyMeaningEntity { Id = "meaning", VocabularyId = "word", BookId = "book", PartOfSpeech = "n.", Meaning = "fruit" },
-            new VocabularyMeaningEntity { Id = "other-meaning", VocabularyId = "other", BookId = "book", Meaning = "other" });
+        await db.SaveChangesAsync(Token);
+        // This fixture also seeds pre-audio schemas. Name only historical
+        // columns so the current EF model need not exist in those databases.
+        await db.Database.ExecuteSqlRawAsync("""
+            INSERT INTO vocabulary_meaning (id, vocabulary_id, book_id, part_of_speech, meaning, created_at, updated_at)
+            VALUES ('meaning', 'word', 'book', 'n.', 'fruit', '0001-01-01 00:00:00+00:00', '0001-01-01 00:00:00+00:00'),
+                   ('other-meaning', 'other', 'book', NULL, 'other', '0001-01-01 00:00:00+00:00', '0001-01-01 00:00:00+00:00');
+            """, Token);
         db.VocabularyBookUnits.Add(new() { Id = "unit", BookId = "book", Number = 1 });
         db.VocabularyMeaningUnits.Add(new() { UnitId = "unit", MeaningId = "meaning", BookId = "book" });
         await db.SaveChangesAsync(Token);

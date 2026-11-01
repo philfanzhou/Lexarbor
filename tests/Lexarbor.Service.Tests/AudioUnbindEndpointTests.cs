@@ -65,7 +65,7 @@ public sealed class AudioUnbindEndpointTests
             using var scope = App.Services.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
             db.Vocabularies.AddRange(new() { Id = "w", Word = "take off", PhoneticUk = "uk", PhoneticUs = "us" }, new() { Id = "other", Word = "other" });
             db.VocabularyBooks.Add(new() { Id = "disabled", BookName = "Disabled", Status = false });
-            db.VocabularyMeanings.AddRange(new() { Id = "m", VocabularyId = "w", BookId = "disabled", PartOfSpeech = "v.", Meaning = "leave" },
+            db.VocabularyMeanings.AddRange(new() { Id = "m", VocabularyId = "w", BookId = "disabled", PartOfSpeech = "v.", Meaning = "leave", PhoneticUk = "uk", PhoneticUs = "us" },
                 new() { Id = "other-m", VocabularyId = "other", BookId = "disabled", Meaning = "other" });
             await db.SaveChangesAsync(Ct);
         }

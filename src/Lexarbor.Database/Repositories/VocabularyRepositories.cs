@@ -716,6 +716,8 @@ public class VocabularyMeaningRepository : IVocabularyMeaningRepository
                     vocabulary_id,
                     book_id,
                     part_of_speech,
+                    phonetic_uk,
+                    phonetic_us,
                     meaning,
                     normalized_part_of_speech,
                     normalized_meaning,

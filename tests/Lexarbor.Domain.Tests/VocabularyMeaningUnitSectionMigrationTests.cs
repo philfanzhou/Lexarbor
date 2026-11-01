@@ -60,27 +60,6 @@ public sealed class VocabularyMeaningUnitSectionMigrationTests : IDisposable
                 CreatedAt = now,
                 UpdatedAt = now
             });
-            context.VocabularyMeanings.AddRange(
-                new VocabularyMeaningEntity
-                {
-                    Id = "meaning-1",
-                    VocabularyId = "word-apple",
-                    BookId = "book-a",
-                    PartOfSpeech = "n.",
-                    Meaning = "苹果",
-                    CreatedAt = now,
-                    UpdatedAt = now
-                },
-                new VocabularyMeaningEntity
-                {
-                    Id = "meaning-2",
-                    VocabularyId = "word-apple",
-                    BookId = "book-a",
-                    PartOfSpeech = "n.",
-                    Meaning = "另一种苹果",
-                    CreatedAt = now,
-                    UpdatedAt = now
-                });
             context.VocabularyBookUnits.AddRange(
                 new VocabularyBookUnitEntity
                 {
@@ -99,6 +78,12 @@ public sealed class VocabularyMeaningUnitSectionMigrationTests : IDisposable
                     UpdatedAt = now
                 });
             await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+            // The current model has columns absent from this historical schema.
+            await context.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO vocabulary_meaning (id,vocabulary_id,book_id,part_of_speech,meaning,created_at,updated_at)
+                VALUES ('meaning-1','word-apple','book-a','n.','苹果',{now},{now}),
+                       ('meaning-2','word-apple','book-a','n.','另一种苹果',{now},{now});
+                """, TestContext.Current.CancellationToken);
             await context.Database.ExecuteSqlRawAsync("""
                 INSERT INTO vocabulary_meaning_unit (unit_id, meaning_id, book_id) VALUES
                 ('unit-2', 'meaning-1', 'book-a'),

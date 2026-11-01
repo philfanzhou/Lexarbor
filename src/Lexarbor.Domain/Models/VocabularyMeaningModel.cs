@@ -8,6 +8,8 @@ public class VocabularyMeaningModel
     public string VocabularyId { get; set; } = string.Empty;
     public string BookId { get; set; } = string.Empty;
     public string? PartOfSpeech { get; set; }
+    public string? PhoneticUk { get; set; }
+    public string? PhoneticUs { get; set; }
     public string Meaning { get; set; } = string.Empty;
     public string? Example { get; set; }
     public DateTimeOffset CreatedAt { get; set; }

@@ -81,6 +81,28 @@ public sealed class AudioAdminQueryEndpointTests
     }
 
     [Fact]
+    public async Task LegacyOverrideWithoutSpecificPhonetic_RemainsManageableButSelectsDefault()
+    {
+        await using var factory = new VocabularyWebApplicationFactory();
+        await SeedAsync(factory.Services);
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+            await db.VocabularyMeanings.Where(row => row.Id == "override")
+                .ExecuteUpdateAsync(set => set.SetProperty(row => row.PhoneticUk, (string?)null), Token);
+        }
+        using var client = Admin(factory);
+        using var metadata = await GetAsync(client, "/admin/vocabulary/w/audio?meaningId=override");
+        var item = metadata.RootElement.GetProperty("items")[0];
+        Assert.Equal("ready", item.GetProperty("status").GetString());
+        Assert.Equal("default", item.GetProperty("source").GetString());
+        Assert.Equal("override-gb", item.GetProperty("ownBinding").GetProperty("assetId").GetString());
+        Assert.Equal("default-gb", item.GetProperty("effectiveBinding").GetProperty("assetId").GetString());
+        using var ready = await GetAsync(client, "/admin/audio-targets?status=ready");
+        Assert.Equal(2, ready.RootElement.GetProperty("totalCount").GetInt32());
+    }
+
+    [Fact]
     public async Task List_OnlyDefaultsAndExistingLocales_AreSortedFilteredAndPaged()
     {
         await using var factory = new VocabularyWebApplicationFactory();
@@ -174,13 +196,13 @@ public sealed class AudioAdminQueryEndpointTests
     }
 
     [Theory]
-    [InlineData("uk", true, false, true, false)]
-    [InlineData("us", false, true, false, true)]
+    [InlineData("uk", true, false, false, false)]
+    [InlineData("us", false, true, false, false)]
     [InlineData("word", true, true, true, true)]
     [InlineData("pos", false, false, true, true)]
     [InlineData("meaning", false, false, true, true)]
     [InlineData("example", false, false, false, false)]
-    [InlineData("import", true, false, true, false)]
+    [InlineData("import", true, false, false, false)]
     public async Task ExistingEditsAndImport_ChangeOnlyTheAffectedHttpStates(string change,
         bool defaultGb, bool defaultUs, bool overrideGb, bool overrideUs)
     {
@@ -259,7 +281,7 @@ public sealed class AudioAdminQueryEndpointTests
         db.Vocabularies.AddRange(new VocabularyEntity { Id = "w", Word = "Apple", PhoneticUk = "uk", PhoneticUs = "us" },
             new VocabularyEntity { Id = "orphan", Word = "orphan" });
         db.VocabularyMeanings.AddRange(new VocabularyMeaningEntity { Id = "first", VocabularyId = "w", BookId = "disabled", PartOfSpeech = "n.", Meaning = "first definition" },
-            new VocabularyMeaningEntity { Id = "override", VocabularyId = "w", BookId = "disabled", PartOfSpeech = "v.", Meaning = "override definition" });
+            new VocabularyMeaningEntity { Id = "override", VocabularyId = "w", BookId = "disabled", PartOfSpeech = "v.", Meaning = "override definition", PhoneticUk = "uk", PhoneticUs = "us" });
         foreach (var (id, meaning, revision) in new[] { ("default-gb", (string?)null, AudioSelectionService.ComputeRevision(AudioSelectionService.GetInput(new("w", "Apple", "uk", "us"), null, AudioLocale.EnGb))), ("override-gb", "override", new string('b', 64)) })
         {
             db.AudioAssets.Add(new AudioAssetEntity { Id = id, Bucket = "test-audio", ObjectKey = "audio/internal/" + id + ".mp3", Sha256 = new string('a', 64), ByteLength = 128, CreatedAtUnixMs = 1, FirstPublishedAtUnixMs = 2 });

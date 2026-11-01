@@ -118,7 +118,12 @@ public sealed class TextbookAudioRemovalMigrationTests
         var rows = new List<object?[]>();
         foreach (var table in new[] { "vocabulary_book", "vocabulary_book_unit", "vocabulary", "vocabulary_meaning",
                      "vocabulary_meaning_unit", "audio_asset", "vocabulary_audio_binding", "audio_upload_operation" })
-            rows.Add(await file.RowsAsync($"SELECT * FROM {table} ORDER BY 1"));
+        {
+            var columns = table == "vocabulary_meaning"
+                ? "id,vocabulary_id,book_id,part_of_speech,meaning,normalized_part_of_speech,normalized_meaning,example,created_at,updated_at"
+                : "*";
+            rows.Add(await file.RowsAsync($"SELECT {columns} FROM {table} ORDER BY 1"));
+        }
         return JsonSerializer.Serialize(rows);
     }
 }
