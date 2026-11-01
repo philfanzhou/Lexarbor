@@ -697,9 +697,12 @@ public sealed class AudioUploadEndpointTests
     [Fact]
     public async Task DestinationCommittedBeforeFirstUpload_ReservesAndPutsAtNewLocation()
     {
-        await using var host = new Host(); await host.SeedAsync();
+        // Make the intended no-active-operation condition explicit: an enabled
+        // recovery batch also owns a runtime reference, even on an empty queue.
+        await using var host = new Host(enabled: false); await host.SeedAsync();
         await host.PublishAsync(options =>
         {
+            options.Enabled = true;
             options.InternalEndpoint = "http://127.0.0.1:19/";
             options.Bucket = "new-bucket";
             options.KeyPrefix = "new/";

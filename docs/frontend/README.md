@@ -420,3 +420,16 @@ unknown save outcome. GET exposes `hasApiKey`, source/editable metadata and
 [System settings](../api/SystemSettings.md#review-assistant-and-enrichment) for the
 complete nested payload and keep/replace/clear contract. Incomplete locale settings
 can be saved and are not evidence of completed generation.
+
+
+### Specific-audio cleanup foundation
+
+Exact invalidation cleanup is an internal durable operation, with no new UI or
+browser credential. Manual audio removal remains logical-only. A later shared
+specific-phonetic edit boundary supplies atomic unbinding and explicit cleanup
+authority; this foundation does not expose that editor. Default/other references
+wait, and arbitrary historical objects remain retained. Clients continue to handle
+missing audio or a safe storage failure and refresh links when playing; issued
+links and downloaded files cannot be immediately revoked. Historical restoration
+of an explicitly deleted specific object needs its matching remote backup. See
+[the audio contract](../api/Audio.md#explicit-specific-audio-cleanup).

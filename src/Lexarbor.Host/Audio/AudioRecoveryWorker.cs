@@ -29,6 +29,15 @@ public sealed class AudioRecoveryWorker(IServiceScopeFactory scopes, AudioRuntim
                                     snapshot.OperationTimeoutSeconds, snapshot.RecoveryLeaseSeconds, snapshot.RecoveryRetrySeconds,
                                     snapshot.RecoveryMaxRetrySeconds, snapshot.RecoveryRecheckSeconds), clock);
                             var result = await service.RunBatchAsync(stoppingToken);
+                            // Each queue gets a bounded batch so abandoned uploads
+                            // cannot starve explicitly authorized invalidations.
+                            var invalidations = new AudioInvalidationRecoveryService(
+                                scope.ServiceProvider.GetRequiredService<IAudioInvalidationRepository>(), new RecoveryStore(operation),
+                                new(true, snapshot.Bucket, snapshot.KeyPrefix, snapshot.RecoveryBatchSize,
+                                    snapshot.OperationTimeoutSeconds, snapshot.RecoveryLeaseSeconds, snapshot.RecoveryRetrySeconds,
+                                    snapshot.RecoveryMaxRetrySeconds, snapshot.RecoveryRecheckSeconds), clock);
+                            var invalidated = await invalidations.RunBatchAsync(stoppingToken);
+                            if (invalidated.Failed > 0) logger.LogWarning("Audio invalidation will retry {Count} object operations.", invalidated.Failed);
                             if (result.Failed > 0) logger.LogWarning("Audio recovery will retry {Count} object operations.", result.Failed);
                         }
                         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }

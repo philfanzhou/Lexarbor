@@ -186,13 +186,13 @@ file and existing operations intact.
 |---|---|
 | 200 | Complete candidate committed and published immediately |
 | 400 | Invalid body, If-Match, enabled configuration, or local client construction |
-| 409 | Requested deployment override, or destination change with any audio asset/upload record or active operation |
+| 409 | Requested deployment override, or destination change with any audio asset/upload/invalidation record or active operation |
 | 412 | Stale shared revision, concurrent save, or offline disk edit |
 | 413 | Body exceeds 16384 bytes, including streamed requests |
 | 428 | Missing If-Match |
 | 503 | Unsafe/unavailable configuration storage; previous runtime remains active |
 
-InternalEndpoint, Bucket and KeyPrefix changes require no asset/upload records
+InternalEndpoint, Bucket and KeyPrefix changes require no asset/upload/invalidation records
 and no active audio operations, including retired client generations. Existing
 history needs a separate migration; unbinding does not remove this protection.
 Credential, region, public endpoint and enabled changes keep old operations on

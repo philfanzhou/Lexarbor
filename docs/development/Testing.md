@@ -527,3 +527,16 @@ that the catalog and book-word pages no longer offer recording entries; existing
 pronunciation upload, recovery and preview suites remain active. The container
 smoke test also checks startup removal of retired tables and the external
 publication trigger while retaining vocabulary and shared asset rows.
+
+
+`AudioInvalidationTests` uses real temporary SQLite files and a simulated object
+store to verify exact published-specific authority, reference protection,
+transaction rollback, replay without rebinding, persistent tombstones, dual
+connection claim/reference ordering, unknown Delete/Stat outcomes, retries beyond
+five failures, cancellation/timeout/expired fences, restart, path rejection and
+writer availability during S3 waits. `AudioInvalidationMigrationTests` checks
+upgrade/Down, failure rollback, fresh schema equality, existing rows/receipts,
+no retrospective authority and defensive destination protection. Worker generation
+tests cover both queues. The private S3 probe exercises actual invalidation deletion
+and receipt retention; the container persistence check recreates a container with
+waiting and claimed authority and verifies every field survives disabled storage.

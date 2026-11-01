@@ -149,6 +149,7 @@ builder.Services.AddScoped<VocabularyAdminQueryService>();
 builder.Services.AddScoped<IAudioReadRepository, AudioReadRepository>();
 builder.Services.AddScoped<AudioAdminQueryService>();
 builder.Services.AddScoped<IAudioUploadRepository, AudioUploadRepository>();
+builder.Services.AddScoped<IAudioInvalidationRepository, AudioInvalidationRepository>();
 builder.Services.AddScoped<IEnrichmentTaskRepository, EnrichmentTaskRepository>();
 builder.Services.AddScoped<IAudioRecordExistenceRepository, AudioRecordExistenceRepository>();
 builder.Services.AddScoped<IAudioUploadOperationFactory, AudioUploadOperationFactory>();

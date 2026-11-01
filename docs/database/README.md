@@ -391,12 +391,13 @@ transactions. Configuration defaults, retry intervals and restoration steps are 
 [deployment recovery](../development/Deployment.md#failed-upload-recovery).
 
 Never prune `audio_asset` or `audio_upload_operation` merely because no current
-binding references them. First-publication stamps permanently prevent automatic
-physical deletion, preserving objects referenced by historical SQLite backups.
+binding references them. First-publication stamps prevent failed-upload cleanup from deleting published
+objects. The explicit specific-phonetic invalidation authority below is a separate,
+limited exception; absence of a binding alone never grants deletion authority.
 CleanupObserved retains the original immutable failure receipt and object location
 and schedules another check even after a successful Remove, covering late remote
 writes. A restart expires abandoned upload/cleanup leases conditionally and resumes
-persisted retries; it does not rebind an old request, scan S3, clear a bucket or delete
+persisted retries; it does not rebind an old request, scan S3, clear a bucket or authorize deletion of
 published objects. Preserve these tables and the private bucket together when
 backing up or restoring the database.
 
@@ -495,3 +496,61 @@ triggers, losing all queue rounds, plans, counts and history; it preserves old
 vocabulary/audio data and upload receipts and performs no S3 operation. Stop writes
 and retain a pre-Down backup, or restore a matching pre-upgrade backup before
 running an older image. See [deployment](../development/Deployment.md#enrichment-task-upgrade).
+
+
+## Specific-audio invalidation recovery
+
+`AddAudioInvalidations` adds one initially empty `audio_invalidation` table and
+seven safety triggers. It preserves every existing ID, default phonetic, asset,
+binding, upload receipt and enrichment round; it creates no historical authority
+and performs no S3 operation. The table records the exact asset/bucket/key,
+word/meaning/accent, `specific_phonetic_changed` reason and authorization epoch,
+plus owner/fence/expiry, attempts, next retry, safe error and observation times.
+Target IDs have no foreign key so deletion cannot erase the authority. Its asset
+foreign key restricts removal. Locations are internal and never public task data.
+
+`AuthorizeInTransactionAsync` requires the caller's actual serialized writer
+transaction on the same scoped context. Call it while the exact old **specific**
+binding still exists, then remove that binding in the same transaction. It does
+not commit, edit phonetics, invalidate enrichment work or contact storage. The
+later shared phonetic-edit boundary owns those coordinated actions. A default
+asset, arbitrary orphan, wrong target/accent, or unpublished asset cannot be
+independently authorized. A matching repeat is idempotent. A later edit of another live specific binding
+sharing that same asset reuses its retained authority without replacing the
+original target/epoch; each edit still unbinds only its own reference. Without a
+matching live binding, different target/epoch data cannot grant new authority.
+
+Claiming rechecks the exact published asset/location and absence of **all** current
+bindings under SQLite's writer transaction. Current default, other meaning or
+other accent references defer deletion without consuming an attempt. Once a claim
+wins, the permanent `delete_started_at_unix_ms` tombstone prevents INSERT or UPDATE
+of any new binding to that asset, including direct SQL and future publication
+paths. A competing writer either commits a reference first (claim waits), or is
+rejected after the tombstone commits. Triggers also protect claim eligibility,
+immutable authority/location and retention. Upload publication checks the tombstone
+in its own transaction. Success receipts remain replayable and never restore a
+binding. Failed-upload cleanup retains its original never-published requirement.
+
+`AudioInvalidationRecoveryService` shares the worker's captured S3 generation,
+controlled UUID-MP3 path guard, timeout, lease and exponential retry settings.
+Remove/Stat happen after claim commit, outside SQLite transactions. Unknown Delete
+responses are checked by Stat; an absent exact key can be observed, while failed
+Stat or a remaining object retries. Cancellation/timeout never counts as observed;
+expired claims retain the tombstone and use a new fence. Observed records and
+receipts stay permanent and are rechecked, including after restart. Attempts have
+no finite cutoff and are separate from enrichment's five-failure budget.
+
+The worker processes a bounded batch from each queue per interval, regardless of
+enrichment switches. Disabled audio starts no recovery DB/S3 work; saved enablement
+resumes persisted work. Authority/observed records also block storage destination
+changes, even if an external writer bypassed asset foreign keys.
+
+An explicit Down to `20261101163649_AddEnrichmentTasks` drops only this table and
+its seven triggers, losing all deletion authority, retries and tombstones. It
+preserves vocabulary, assets, bindings, enrichment history and permanent upload
+receipts and never accesses S3. Stop all writes/recovery and preserve a backup
+before Down. Older images reject the newer migration history; a matching database
+and remote-object backup is required for restoration. An intentionally deleted
+specific object can be absent from an older database backup: this exception needs
+an independent remote backup, and Down cannot recreate it. Do not prune tombstones
+or run a general orphan/bucket purge. See [deployment recovery](../development/Deployment.md#specific-audio-invalidation-recovery).

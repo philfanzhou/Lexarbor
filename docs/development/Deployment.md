@@ -1278,7 +1278,8 @@ re-enablement wakes recovery. A batch already started uses its old generation
 through every Delete and Stat. Non-cooperative provider calls retain the old
 client even after batch timeout or host cancellation, until actual IO ends.
 Enabled credential rotations do not skip the configured batch interval; retry,
-lease/fence and never-published-only cleanup semantics remain unchanged.
+lease/fence and failed-upload never-published cleanup semantics remain unchanged.
+The separate explicit specific-audio invalidation queue uses the same generation.
 S3 configuration can be saved through the protected settings API without restart.
 Keep old remote credentials valid until all
 old operations end; revocation can still make an older operation fail.
@@ -1287,7 +1288,7 @@ Provision a separate **private** audio bucket and credentials limited to reading
 
 For example, `InternalEndpoint=http://seaweedfs:8333/` and `PublicEndpoint=https://audio.example.com/s3/` let the host upload on its internal network while clients use a public address. Signatures are generated for the public origin, then prefixed with `/s3/`; the reverse proxy **must preserve the signed Host (including a non-default port)** and strip exactly that prefix before forwarding to S3. Do not redirect signed requests or rewrite their query. An arbitrary proxy arrangement is not guaranteed; run the actual integration check. Avoid logging full signed query strings in proxies, telemetry or browser analytics. Signed links are credentials until expiry; disabling a book or removing a binding cannot revoke an already issued link immediately.
 
-Keep S3 objects and a consistent SQLite backup together. Existing manual replacement/removal and the phonetic migration retain published objects, so an older database backup can still reference them. Retain matching remote backups for the required restore window. Restarting or upgrading Lexarbor does not scan or clear the bucket. The recovery worker deletes only database-authorized, known objects that have never been published and have no valid upload lease. Normal automatic upgrades and the newer-schema refusal still apply.
+Keep S3 objects and a consistent SQLite backup together. Existing manual replacement/removal and the phonetic migration retain published objects, so an older database backup can still reference them. Retain matching remote backups for the required restore window. Restarting or upgrading Lexarbor does not scan or clear the bucket. Failed-upload recovery deletes only known objects that have never been published and have no valid upload lease. A separate exact specific-phonetic invalidation authority can delete a published specific object after every current reference is released; it never authorizes arbitrary historical objects. Normal automatic upgrades and the newer-schema refusal still apply.
 
 
 ### Failed-upload recovery
@@ -1317,13 +1318,53 @@ Before restoring SQLite, pause Lexarbor and preserve both the database (includin
 all audio assets and upload-operation recovery records) and the private S3 bucket.
 Restore a consistent database backup, keep its original bucket/prefix configuration,
 and restart the new service; pending operations resume from their persisted leases
-and retry times. Published objects remain readable from historical backups even
-if current bindings were replaced, logically removed, or removed by vocabulary SQL
-cleanup. Do not manually discard CleanupObserved records, change buckets/prefixes
+and retry times. Ordinary replaced, logically removed or vocabulary-cleanup published objects
+remain retained. Explicitly invalidated specific objects are the limited exception
+below and require a matching remote backup for historical restoration. Do not manually discard CleanupObserved records, change buckets/prefixes
 without migration, apply a general orphan-object purge, or configure a bucket lifecycle
 rule that removes published audio. Recovery cannot recreate files removed outside
 Lexarbor. No new permanent local directory, full-bucket scan, image-bucket access,
 or automatic historical published-object collection is introduced.
+
+### Specific-audio invalidation recovery
+
+`AddAudioInvalidations` creates an empty durable deletion-authority table and
+seven safety triggers. It does not retroactively authorize deletion, change a
+manual DELETE, edit a phonetic or start AI/TTS. The later shared phonetic-edit
+boundary supplies exact authority in the same transaction as the edit/unbind.
+Only an authorized old specific binding is eligible, and every remaining default
+or other binding defers deletion. Claiming permanently blocks new references to
+the old asset; asset metadata, deletion tombstones and upload receipts are retained.
+
+The existing recovery worker runs up to `RecoveryBatchSize` failed-upload records
+and up to `RecoveryBatchSize` specific invalidations each interval. It uses the same
+captured S3 client for the whole batch, UUID-MP3 controlled paths, operation timeout,
+lease expiry, capped exponential retries and periodic observed-key rechecks.
+Delete/Stat run outside writer transactions. A lost Delete response is reconciled
+by Stat; unknown/cancelled outcomes never report completion. Cleanup retries are
+independent of generation settings and its five-failure budget. Turning enrichment
+off does not cancel authority. Turning audio off persists it without DB/S3 recovery
+calls; saved re-enablement resumes processing. Retained invalidation records also
+protect InternalEndpoint/Bucket/KeyPrefix changes, including observed tombstones.
+
+Reuse the same bind mount or named volume at `/app/data` across container/image
+replacement. The full `vocabulary.db` keeps authority, leases, retries, observations
+and receipts; no new directory or settings section is needed. Stop writes or use a
+consistent SQLite backup, and independently back up the matching private objects.
+An explicitly invalidated published specific object may no longer exist for an old
+database backup. Database restoration and migration Down cannot recreate that MP3;
+restore its matching remote backup when historical playback is required. Ordinary
+manual unbinding/replacement still retains published objects. No bucket scan or
+general history purge is permitted.
+
+For explicit rollback, stop writes and recovery, preserve the pre-Down backup,
+then use current tooling to migrate to `20261101163649_AddEnrichmentTasks` before
+running the matching older image. Down loses only this queue and its safety
+triggers, including deletion tombstones and retry/observation progress; it preserves
+prior vocabulary/audio/enrichment data and permanent upload receipts and makes no
+S3 calls. The newer-schema startup gate remains in force. Prefer restoring a
+matching pre-upgrade database/object backup when queue history must be preserved.
+See [the database contract](../database/README.md#specific-audio-invalidation-recovery).
 
 ### Public learning playback
 

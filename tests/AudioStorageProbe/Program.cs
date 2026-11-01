@@ -52,6 +52,7 @@ try
     var bytes = await File.ReadAllBytesAsync(Path.Combine(AppContext.BaseDirectory, "Fixtures/tone.mp3"));
     await SettingsApiProbe.VerifyAsync(options, bytes);
     Console.WriteLine("Private S3 settings API save/upload/playback/disable/re-enable/recovery/restart passed.");
+    await VerifyInvalidationAsync(options, bytes);
     await VerifyRuntimeUploadGenerationsAsync(options, bytes);
     await VerifyRuntimeRecoveryGenerationsAsync(options, bytes);
     using var store = new S3AudioObjectStore(Options.Create(options), TimeProvider.System);
@@ -211,6 +212,7 @@ static async Task VerifyRuntimeRecoveryGenerationsAsync(AudioOptions initial, by
     var stores = new RecoveryRotationProbeFactory();
     using var runtime = new AudioRuntimeConfiguration(Options.Create(options), stores);
     var services = new ServiceCollection(); services.AddScoped(_ => new VocabularyDbContext(dbOptions));
+    services.AddScoped<IAudioInvalidationRepository>(sp => new AudioInvalidationRepository(sp.GetRequiredService<VocabularyDbContext>(), clock));
     services.AddScoped<IAudioUploadRepository>(sp => new AudioUploadRepository(sp.GetRequiredService<VocabularyDbContext>(), clock));
     await using var provider = services.BuildServiceProvider();
     using var worker = new AudioRecoveryWorker(provider.GetRequiredService<IServiceScopeFactory>(), runtime, clock,
@@ -352,6 +354,71 @@ static async Task<IReadOnlyList<AudioPlaybackResult>> AdminResults(AudioPlayback
     => new[] { await playback.GetAsync("runtime-word", null, AudioLocale.EnGb, default) };
 static IConfiguration RuntimeConfig(AudioOptions options) => new ConfigurationBuilder()
     .AddJsonStream(new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(new { Audio = options }))).Build();
+
+static async Task VerifyInvalidationAsync(AudioOptions options, byte[] bytes)
+{
+    using var root = new ProbeDatabaseRoot();
+    var dbOptions = new DbContextOptionsBuilder<VocabularyDbContext>().UseSqlite($"Data Source={root.Path};Pooling=False").Options;
+    var clock = new RecoveryProbeClock { Now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() };
+    using var store = new S3AudioObjectStore(Options.Create(options), clock);
+    var deniedOptions = JsonSerializer.Deserialize<AudioOptions>(JsonSerializer.Serialize(options))!;
+    deniedOptions.AccessKey = "synthetic-denied-access"; deniedOptions.SecretKey = "synthetic-denied-secret";
+    using var denied = new S3AudioObjectStore(Options.Create(deniedOptions), clock);
+    AudioStoredUpload old; AudioUploadRequest request;
+    await using (var db = new VocabularyDbContext(dbOptions))
+    {
+        await db.Database.MigrateAsync();
+        db.VocabularyBooks.Add(new() { Id = "invalidation-book", BookName = "Invalidation probe", Status = true });
+        db.Vocabularies.Add(new() { Id = "invalidation-word", Word = "tone" });
+        db.VocabularyMeanings.Add(new() { Id = "invalidation-meaning", VocabularyId = "invalidation-word", BookId = "invalidation-book", Meaning = "tone", PhoneticUk = "tone" });
+        await db.SaveChangesAsync(); db.ChangeTracker.Clear();
+        var revision = AudioSelectionService.ComputeRevision(AudioSelectionService.GetInput(new("invalidation-word", "tone", null, null),
+            new("invalidation-meaning", null, "tone", "tone"), AudioLocale.EnGb));
+        request = new(Guid.NewGuid().ToString(), new string('a', 64), "invalidation-word", "invalidation-meaning", AudioLocale.EnGb,
+            revision, null, Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes)), bytes.Length, options.Bucket);
+        var uploads = new AudioUploadRepository(db, clock);
+        old = (await uploads.ReserveAsync(request, "uploader", clock.Now, clock.Now + 300000, default)).Upload!;
+        await uploads.BeginTransferAsync(request.IdempotencyKey, old.Operation.UploadLease, clock.Now, default);
+        using (var content = new MemoryStream(bytes)) await store.PutAsync(old.Asset.Location, content, bytes.Length, "audio/mpeg", default);
+        Require((await uploads.CompleteAsync(request.IdempotencyKey, old.Operation.UploadLease, clock.Now, default))?.Receipt?.StatusCode == 200, "Specific probe upload must publish.");
+        db.VocabularyAudioBindings.Add(new() { Id = "invalidation-default", WordId = "invalidation-word", Locale = AudioLocale.EnGb,
+            AssetId = old.Asset.Id, SourceRevision = revision });
+        await db.SaveChangesAsync(); db.ChangeTracker.Clear();
+        var authority = new AudioInvalidationRepository(db, clock);
+        await new UnitOfWork(db).ExecuteInTransactionAsync(async () =>
+        {
+            Require(await authority.AuthorizeInTransactionAsync(new("invalidation-word", "invalidation-meaning", AudioLocale.EnGb, old.Asset.Id, 1), clock.Now, default), "Specific authority must be durable.");
+            return await db.VocabularyAudioBindings.Where(row => row.MeaningId == "invalidation-meaning").ExecuteDeleteAsync();
+        });
+        var settings = new AudioRecoverySettings(true, options.Bucket, options.KeyPrefix, TimeoutSeconds: 3);
+        Require((await new AudioInvalidationRecoveryService(authority, store, settings with { Enabled = false }, clock).RunBatchAsync(default)).Examined == 0,
+            "Disabled audio must retain invalidation without contacting S3.");
+        Require((await new AudioInvalidationRecoveryService(authority, store, settings, clock).RunBatchAsync(default)).Observed == 0
+            && await store.StatAsync(old.Asset.Location, default) != null, "Current default reference must protect a real object.");
+        await db.VocabularyAudioBindings.Where(row => row.Id == "invalidation-default").ExecuteDeleteAsync();
+        clock.Now = (await authority.GetAsync(old.Asset.Id, default))!.NextAttemptAtUnixMs;
+        Require((await new AudioInvalidationRecoveryService(authority, denied, settings, clock).RunBatchAsync(default)).Failed == 1,
+            "Real Delete/Stat denial must remain retryable.");
+        var failed = (await authority.GetAsync(old.Asset.Id, default))!;
+        Require(failed.ErrorCode == "audio.invalidation_failed" && failed.DeleteStartedAtUnixMs != null, "Denied invalidation must retain safe state and tombstone.");
+        clock.Now = failed.NextAttemptAtUnixMs;
+    }
+    await using (var restarted = new VocabularyDbContext(dbOptions))
+    {
+        var authority = new AudioInvalidationRepository(restarted, clock);
+        var settings = new AudioRecoverySettings(true, options.Bucket, options.KeyPrefix, TimeoutSeconds: 3);
+        Require((await new AudioInvalidationRecoveryService(authority, store, settings, clock).RunBatchAsync(default)).Observed == 1
+            && await store.StatAsync(old.Asset.Location, default) == null, "Restart must remove the explicitly authorized real published object.");
+        var replay = await new AudioUploadRepository(restarted, clock).ReserveAsync(request, "retry", clock.Now, clock.Now + 300000, default);
+        Require(replay.Disposition == AudioReservationDisposition.Replay && replay.Upload?.Operation.Receipt?.StatusCode == 200
+            && !await restarted.VocabularyAudioBindings.AnyAsync(), "Permanent receipt must replay without resurrecting deleted audio.");
+        Require(await new AudioRecordExistenceRepository(restarted).HasAnyAsync(default), "Observed authority must retain destination protection.");
+        clock.Now = (await authority.GetAsync(old.Asset.Id, default))!.NextAttemptAtUnixMs;
+        Require((await new AudioInvalidationRecoveryService(authority, store, settings, clock).RunBatchAsync(default)).Observed == 1,
+            "Repeated deletion of an absent real object must remain safe.");
+    }
+    Console.WriteLine("Private S3 published-specific invalidation, reference wait, denial, restart, absence and receipt replay passed.");
+}
 
 static async Task VerifyRecoveryAsync(VocabularyDbContext db, string databasePath, AudioUploadRepository liveRepository,
     IAudioObjectStore store, IAudioObjectStore denied, string bucket, byte[] bytes,

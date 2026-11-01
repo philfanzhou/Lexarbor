@@ -362,6 +362,55 @@ for path_and_count in 'admin/auth/start 11' 'api/does-not-exist 301'; do
 done
 docker rm -f "$FRESH_CONTAINER" >/dev/null
 
+echo "Checking specific-audio deletion authority survives container recreation"
+invalidation_data="$TEST_ROOT/audio-invalidation"
+mkdir -p "$invalidation_data"
+chmod 700 "$invalidation_data"
+cp "$fresh_data/appsettings.json" "$fresh_data/vocabulary.db" "$fresh_data/data-protection-root-key" "$invalidation_data/"
+python3 - "$invalidation_data/vocabulary.db" "$TEST_ROOT/invalidation-before.json" <<'PYSQL'
+import json
+import sqlite3
+import sys
+
+with sqlite3.connect(sys.argv[1]) as connection:
+    connection.execute("PRAGMA foreign_keys=ON")
+    connection.execute("INSERT INTO vocabulary_book (id,book_name,display_order,status,created_at,updated_at) VALUES ('cleanup-book','Cleanup probe',0,1,'2026-01-01','2026-01-01')")
+    connection.execute("INSERT INTO vocabulary (id,word,created_at,updated_at) VALUES ('cleanup-word','Cleanup probe','2026-01-01','2026-01-01')")
+    connection.execute("INSERT INTO vocabulary_meaning (id,vocabulary_id,book_id,meaning,created_at,updated_at) VALUES ('cleanup-meaning','cleanup-word','cleanup-book','Synthetic cleanup meaning','2026-01-01','2026-01-01')")
+    for index, state in enumerate(('Waiting', 'Claimed', 'Observed'), 1):
+        asset = f'cleanup-{index}'
+        key = f'audio/{index:032x}.mp3'
+        connection.execute("INSERT INTO audio_asset VALUES (?,?,?, ?,128,'audio/mpeg',1,2)", (asset, 'test-audio', key, '0' * 64))
+        connection.execute("INSERT INTO vocabulary_audio_binding VALUES (?,'cleanup-word','cleanup-meaning','en-GB',?,?)", (asset, asset, '0' * 64))
+        connection.execute("INSERT INTO audio_upload_operation (idempotency_key,request_fingerprint,word_id,meaning_id,locale,source_revision,asset_id,state,created_at_unix_ms,updated_at_unix_ms,upload_lease_fence,receipt_status_code,receipt_asset_id,receipt_source_revision,completed_at_unix_ms,cleanup_lease_fence,cleanup_attempts) VALUES (?,?,'cleanup-word','cleanup-meaning','en-GB',?,?,'Succeeded',1,2,1,200,?,?,2,0,0)", (f'00000000-0000-0000-0000-{index:012x}', '0' * 64, '0' * 64, asset, asset, '0' * 64))
+        connection.execute("INSERT INTO audio_invalidation (asset_id,bucket,object_key,word_id,meaning_id,locale,authorization_epoch,reason,state,created_at_unix_ms,updated_at_unix_ms,lease_fence,attempts,next_attempt_at_unix_ms) VALUES (?,'test-audio',?,'cleanup-word','cleanup-meaning','en-GB',7,'specific_phonetic_changed','Waiting',3,3,0,0,4)", (asset, key))
+        connection.execute("DELETE FROM vocabulary_audio_binding WHERE asset_id=?", (asset,))
+        if state != 'Waiting':
+            connection.execute("UPDATE audio_invalidation SET state='Claimed',delete_started_at_unix_ms=4,updated_at_unix_ms=4,lease_owner='interrupted',lease_fence=2,lease_expires_at_unix_ms=5,attempts=6 WHERE asset_id=?", (asset,))
+        if state == 'Observed':
+            connection.execute("UPDATE audio_invalidation SET state='Observed',observed_at_unix_ms=5,updated_at_unix_ms=5,lease_owner=NULL,lease_expires_at_unix_ms=NULL,next_attempt_at_unix_ms=6 WHERE asset_id=?", (asset,))
+    snapshot = {table: connection.execute(f"SELECT * FROM {table} ORDER BY 1").fetchall() for table in ('audio_asset', 'audio_upload_operation', 'audio_invalidation')}
+    with open(sys.argv[2], 'w', encoding='utf-8') as output:
+        json.dump(snapshot, output)
+PYSQL
+for recreation in 1 2; do
+  start_bind_mounted_container "$EXISTING_CONTAINER" "$invalidation_data"
+  docker rm -f "$EXISTING_CONTAINER" >/dev/null
+  python3 - "$invalidation_data/vocabulary.db" "$TEST_ROOT/invalidation-before.json" <<'PYSQL'
+import json
+import sqlite3
+import sys
+with open(sys.argv[2], encoding='utf-8') as source:
+    before = json.load(source)
+with sqlite3.connect(sys.argv[1]) as connection:
+    for table, rows in before.items():
+        assert [list(row) for row in connection.execute(f"SELECT * FROM {table} ORDER BY 1")] == rows
+    assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+    assert connection.execute("SELECT COUNT(*) FROM vocabulary_audio_binding").fetchone()[0] == 0
+    assert connection.execute("SELECT COUNT(*) FROM audio_invalidation WHERE delete_started_at_unix_ms IS NOT NULL").fetchone()[0] == 2
+PYSQL
+done
+
 # Both explicit values must survive upgrade, and higher-priority overrides must
 # not modify the operator's file. Tiny quotas make both policies observable.
 echo "Checking persisted request switches and environment/argument precedence"
