@@ -255,6 +255,282 @@ namespace Lexarbor.Database.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Lexarbor.Database.Entities.EnrichmentCallEntity", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ErrorCode")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("error_code");
+
+                    b.Property<long?>("FinishedAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("finished_at_unix_ms");
+
+                    b.Property<string>("Result")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("result");
+
+                    b.Property<int>("Round")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("round");
+
+                    b.Property<string>("Service")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("service");
+
+                    b.Property<long>("StartedAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("started_at_unix_ms");
+
+                    b.Property<string>("TargetId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("target_id");
+
+                    b.Property<string>("UploadIdempotencyKey")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("upload_idempotency_key");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UploadIdempotencyKey")
+                        .IsUnique()
+                        .HasFilter("upload_idempotency_key IS NOT NULL");
+
+                    b.HasIndex("TargetId", "Round")
+                        .IsUnique()
+                        .HasFilter("result = 'Started'");
+
+                    b.ToTable("enrichment_call", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_enrichment_call_result", "result IN ('Started','Succeeded','Throttled','TransientFailure','TerminalFailure')");
+
+                            t.HasCheckConstraint("CK_enrichment_call_service", "service IN ('text','tts')");
+
+                            t.HasCheckConstraint("CK_enrichment_call_times", "started_at_unix_ms >= 0 AND ((result = 'Started' AND finished_at_unix_ms IS NULL) OR (result != 'Started' AND finished_at_unix_ms >= started_at_unix_ms))");
+                        });
+                });
+
+            modelBuilder.Entity("Lexarbor.Database.Entities.EnrichmentRoundEntity", b =>
+                {
+                    b.Property<string>("TargetId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("target_id");
+
+                    b.Property<int>("Number")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("number");
+
+                    b.Property<string>("ConfigurationVersion")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("configuration_version");
+
+                    b.Property<int>("ConsumedFailures")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("consumed_failures");
+
+                    b.Property<long>("CreatedAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("created_at_unix_ms");
+
+                    b.Property<string>("ErrorCode")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("error_code");
+
+                    b.Property<int>("FailureBudget")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("failure_budget");
+
+                    b.Property<string>("InputRevision")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("input_revision");
+
+                    b.Property<long?>("LeaseExpiresAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("lease_expires_at_unix_ms");
+
+                    b.Property<long>("LeaseFence")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("lease_fence");
+
+                    b.Property<string>("LeaseOwner")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("lease_owner");
+
+                    b.Property<long?>("NextAttemptAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("next_attempt_at_unix_ms");
+
+                    b.Property<string>("OwnAssetId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("own_asset_id");
+
+                    b.Property<string>("PlanJson")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("plan_json");
+
+                    b.Property<int>("RequestCount")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("request_count");
+
+                    b.Property<string>("RetryKey")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("retry_key");
+
+                    b.Property<string>("SourceRevision")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("source_revision");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("state");
+
+                    b.Property<long>("UpdatedAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("updated_at_unix_ms");
+
+                    b.Property<string>("WaitReason")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("wait_reason");
+
+                    b.HasKey("TargetId", "Number");
+
+                    b.HasIndex("State", "NextAttemptAtUnixMs");
+
+                    b.HasIndex("TargetId", "RetryKey")
+                        .IsUnique()
+                        .HasFilter("retry_key IS NOT NULL");
+
+                    b.ToTable("enrichment_round", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_enrichment_round_config", "length(configuration_version) BETWEEN 1 AND 128");
+
+                            t.HasCheckConstraint("CK_enrichment_round_counts", "failure_budget BETWEEN 1 AND 20 AND consumed_failures BETWEEN 0 AND failure_budget AND request_count >= consumed_failures AND lease_fence >= 0");
+
+                            t.HasCheckConstraint("CK_enrichment_round_input", "length(input_revision) = 64 AND input_revision NOT GLOB '*[^0-9a-f]*' AND length(source_revision) = 64 AND source_revision NOT GLOB '*[^0-9a-f]*'");
+
+                            t.HasCheckConstraint("CK_enrichment_round_lease", "(state = 'Running' AND lease_owner IS NOT NULL AND lease_fence > 0 AND lease_expires_at_unix_ms IS NOT NULL) OR (state != 'Running' AND lease_owner IS NULL AND lease_expires_at_unix_ms IS NULL)");
+
+                            t.HasCheckConstraint("CK_enrichment_round_plan", "plan_json IS NULL OR length(plan_json) <= 16384");
+
+                            t.HasCheckConstraint("CK_enrichment_round_state", "state IN ('Pending','Running','Waiting','Succeeded','Failed','Superseded','Cancelled')");
+
+                            t.HasCheckConstraint("CK_enrichment_round_times", "created_at_unix_ms >= 0 AND updated_at_unix_ms >= created_at_unix_ms");
+
+                            t.HasCheckConstraint("CK_enrichment_round_wait", "wait_reason IS NULL OR wait_reason IN ('Disabled','ConfigurationMissing','StorageDisabled','ServicePaused','Throttled','Retry','LeaseExpired')");
+                        });
+                });
+
+            modelBuilder.Entity("Lexarbor.Database.Entities.EnrichmentTargetEntity", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("id");
+
+                    b.Property<int>("CurrentRound")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("current_round");
+
+                    b.Property<bool>("Deleted")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("deleted");
+
+                    b.Property<long>("Epoch")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("epoch");
+
+                    b.Property<string>("Locale")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("locale");
+
+                    b.Property<string>("MeaningId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("meaning_id");
+
+                    b.Property<string>("Step")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("step");
+
+                    b.Property<string>("WordId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("word_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WordId", "Locale", "Step")
+                        .IsUnique()
+                        .HasFilter("meaning_id IS NULL");
+
+                    b.HasIndex("WordId", "MeaningId", "Locale", "Step")
+                        .IsUnique()
+                        .HasFilter("meaning_id IS NOT NULL");
+
+                    b.ToTable("enrichment_target", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_enrichment_target_locale", "locale IN ('en-GB','en-US')");
+
+                            t.HasCheckConstraint("CK_enrichment_target_step", "step IN ('Prepare','Fields','Audio') AND (meaning_id IS NULL OR step != 'Fields')");
+
+                            t.HasCheckConstraint("CK_enrichment_target_version", "current_round > 0 AND epoch > 0");
+                        });
+                });
+
+            modelBuilder.Entity("Lexarbor.Database.Entities.EnrichmentWaitEntity", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ErrorCode")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("error_code");
+
+                    b.Property<long>("NextAttemptAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("next_attempt_at_unix_ms");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("reason");
+
+                    b.Property<long>("RecordedAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("recorded_at_unix_ms");
+
+                    b.Property<int>("Round")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("round");
+
+                    b.Property<string>("TargetId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("target_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TargetId", "Round");
+
+                    b.ToTable("enrichment_wait", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_enrichment_wait_reason", "reason IN ('Disabled','ConfigurationMissing','StorageDisabled','ServicePaused','Throttled','Retry','LeaseExpired')");
+
+                            t.HasCheckConstraint("CK_enrichment_wait_times", "recorded_at_unix_ms >= 0 AND next_attempt_at_unix_ms >= recorded_at_unix_ms");
+                        });
+                });
+
             modelBuilder.Entity("Lexarbor.Database.Entities.MeaningSubmissionEntity", b =>
                 {
                     b.Property<string>("Id")
@@ -812,6 +1088,33 @@ namespace Lexarbor.Database.Migrations
                         .WithMany()
                         .HasForeignKey("AssetId")
                         .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Lexarbor.Database.Entities.EnrichmentCallEntity", b =>
+                {
+                    b.HasOne("Lexarbor.Database.Entities.EnrichmentRoundEntity", null)
+                        .WithMany()
+                        .HasForeignKey("TargetId", "Round")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Lexarbor.Database.Entities.EnrichmentRoundEntity", b =>
+                {
+                    b.HasOne("Lexarbor.Database.Entities.EnrichmentTargetEntity", null)
+                        .WithMany()
+                        .HasForeignKey("TargetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Lexarbor.Database.Entities.EnrichmentWaitEntity", b =>
+                {
+                    b.HasOne("Lexarbor.Database.Entities.EnrichmentRoundEntity", null)
+                        .WithMany()
+                        .HasForeignKey("TargetId", "Round")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 

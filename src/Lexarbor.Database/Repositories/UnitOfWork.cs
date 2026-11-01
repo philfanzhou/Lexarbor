@@ -32,6 +32,8 @@ public class UnitOfWork : IUnitOfWork
     /// </summary>
     private static readonly AsyncLocal<bool> HoldsWriteLock = new();
     internal static bool IsWriteInProgress => HoldsWriteLock.Value;
+    private static readonly AsyncLocal<VocabularyDbContext?> WriteContext = new();
+    internal static bool OwnsWriteContext(VocabularyDbContext context) => HoldsWriteLock.Value && ReferenceEquals(WriteContext.Value, context);
 
     private readonly VocabularyDbContext _dbContext;
 
@@ -65,6 +67,7 @@ public class UnitOfWork : IUnitOfWork
         await WriteLock.WaitAsync(cancellationToken);
         if (finishAfterAdmission) cancellationToken = CancellationToken.None;
         HoldsWriteLock.Value = true;
+        WriteContext.Value = _dbContext;
         try
         {
             return await TranslateStorageErrorsAsync(async () =>
@@ -80,6 +83,7 @@ public class UnitOfWork : IUnitOfWork
         }
         finally
         {
+            WriteContext.Value = null;
             HoldsWriteLock.Value = false;
             WriteLock.Release();
         }
@@ -100,12 +104,14 @@ public class UnitOfWork : IUnitOfWork
 
         await WriteLock.WaitAsync(cancellationToken);
         HoldsWriteLock.Value = true;
+        WriteContext.Value = _dbContext;
         try
         {
             return await TranslateStorageErrorsAsync(() => _dbContext.SaveChangesAsync(cancellationToken));
         }
         finally
         {
+            WriteContext.Value = null;
             HoldsWriteLock.Value = false;
             WriteLock.Release();
         }
