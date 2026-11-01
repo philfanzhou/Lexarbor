@@ -199,7 +199,7 @@ test('clears a book through preview and confirmation, and cancelling commits not
   await expect(dialog(page)).toContainText('预计 2 个单词将因此失去全部教材引用并被删除')
   await expect(dialog(page)).toContainText('计数为估计值')
   await expect(dialog(page)).toContainText('其他教材（包括停用教材）中的释义与共享单词会保留')
-  expect(previews).toHaveLength(1)
+  await expect.poll(() => previews.length).toBe(1)
   expect(previews[0].body).toEqual({ action: 'clear' })
   expect(previews[0].url.pathname).toBe(`/admin/vocabulary-books/${bookA.id}/cleanup/preview`)
 
@@ -212,7 +212,7 @@ test('clears a book through preview and confirmation, and cancelling commits not
   await expect(dialog(page)).toContainText('涉及释义 5 条')
   await dialog(page).getByRole('button', { name: '确认清理' }).click()
 
-  expect(commits).toHaveLength(1)
+  await expect.poll(() => commits.length).toBe(1)
   expect(commits[0].body).toEqual({ action: 'clear' })
   await expect(page.locator('.el-message--success')).toContainText('删除释义 5 条、单词 2 个，教材已保留')
 })
@@ -251,7 +251,7 @@ test('deleting a book requires its exact name and sends it with the commit', asy
   await confirmButton.click()
 
   expect(previews[0].body).toEqual({ action: 'delete' })
-  expect(commits).toHaveLength(1)
+  await expect.poll(() => commits.length).toBe(1)
   expect(commits[0].body).toEqual({ action: 'delete', confirmedBookName: legacyBook.bookName })
   await expect(page.locator('.el-message--success')).toContainText('已删除教材「Starter English 300」及内容：删除释义 420 条、单词 300 个')
   // The list re-queries and the deleted legacy book is gone.
@@ -274,10 +274,10 @@ test('a rename between preview and commit is refused and asks for a fresh previe
   const error = dialog(page).locator('.el-alert--error').last()
   await expect(error).toContainText('The confirmed book name does not match.')
   await expect(error).toContainText('重新预览')
-  expect(commits).toHaveLength(1)
+  await expect.poll(() => commits.length).toBe(1)
 
   await error.getByRole('button', { name: '重新预览' }).click()
-  await expect(previews).toHaveLength(2)
+  await expect.poll(() => previews.length).toBe(2)
 })
 
 test('removes the current page selection without extending it and drops the selection on paging', async ({ page }) => {
@@ -298,11 +298,11 @@ test('removes the current page selection without extending it and drops the sele
 
   await removeButton.click()
   await expect(dialog(page)).toContainText('清理操作：从本教材移除所选单词')
-  expect(previews).toHaveLength(1)
+  await expect.poll(() => previews.length).toBe(1)
   expect((previews[0].body as { wordIds: string[] }).wordIds.sort()).toEqual(['word-apple', 'word-cherry'])
 
   await dialog(page).getByRole('button', { name: '确认清理' }).click()
-  expect(commits).toHaveLength(1)
+  await expect.poll(() => commits.length).toBe(1)
   expect((commits[0].body as { wordIds: string[] }).wordIds.sort()).toEqual(['word-apple', 'word-cherry'])
   await expect(page.locator('.el-message--success')).toContainText('删除释义 3 条')
   // The reload starts unselected again.
@@ -325,6 +325,7 @@ test('removes one word from its row', async ({ page }) => {
   expect(previews[0].body).toEqual({ action: 'removeWords', wordIds: ['word-banana'] })
 
   await dialog(page).getByRole('button', { name: '确认清理' }).click()
+  await expect.poll(() => commits.length).toBe(1)
   expect(commits[0].body).toEqual({ action: 'removeWords', wordIds: ['word-banana'] })
   await expect(page.locator('.el-message--success')).toContainText('0 个单词失去全部教材引用一并删除')
 })
@@ -420,14 +421,14 @@ test('deletes one meaning from the drawer with its own three ids', async ({ page
 
   await drawer.locator('.word-detail__meaning', { hasText: '苹果树' }).getByRole('button', { name: '删除' }).click()
   await expect(dialog(page)).toContainText('清理操作：删除这条释义')
-  expect(previews).toHaveLength(1)
+  await expect.poll(() => previews.length).toBe(1)
   expect(previews[0].url.pathname).toBe(`/admin/vocabulary-books/${bookA.id}/cleanup/preview`)
   expect(previews[0].body).toEqual({ action: 'removeMeaning', wordId: 'word-apple', meaningId: 'meaning-a2' })
 
   // The server state changes with the commit; the re-read must serve it.
   detailData = { ...appleDetail, meanings: [meaningsA[0]] }
   await dialog(page).getByRole('button', { name: '确认清理' }).click()
-  expect(commits).toHaveLength(1)
+  await expect.poll(() => commits.length).toBe(1)
   expect(commits[0].body).toEqual({ action: 'removeMeaning', wordId: 'word-apple', meaningId: 'meaning-a2' })
 
   await expect(drawer).not.toContainText('苹果树')
@@ -501,7 +502,7 @@ test('edits one meaning and then deletes the edited row through the same drawer'
   // C second: the same drawer deletes the edited row by its own three ids.
   await drawer.locator('.word-detail__meaning', { hasText: '一种红色水果' }).getByRole('button', { name: '删除' }).click()
   await expect(dialog(page)).toContainText('清理操作：删除这条释义')
-  expect(previews).toHaveLength(1)
+  await expect.poll(() => previews.length).toBe(1)
   expect(previews[0].url.pathname).toBe(`/admin/vocabulary-books/${bookA.id}/cleanup/preview`)
   expect(previews[0].body).toEqual({ action: 'removeMeaning', wordId: 'word-apple', meaningId: 'meaning-a1' })
 

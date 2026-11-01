@@ -246,41 +246,47 @@ async function focusedText(page: Page) {
 }
 
 /**
- * Holds every matching request until the test answers it, in arrival order,
- * so out-of-order and late answers can be orchestrated deliberately.
+ * Holds every matching request until the test answers that method and target,
+ * so out-of-order and late answers do not depend on request arrival timing.
  */
 function useDeferredRoute(page: Page, pattern: RegExp) {
-  const pending: Array<(answer: { data: unknown; status: number }) => void> = []
-  const requests: URL[] = []
+  const pending: Array<{
+    method: string
+    pathname: string
+    answer: (data: unknown, status: number) => Promise<void>
+  }> = []
+
+  const findRequest = (method: string, pathname: string) =>
+    pending.findIndex((request) => request.method === method && request.pathname === pathname)
+
+  const waitFor = async (method: string, pathname: string) => {
+    await expect.poll(() => findRequest(method, pathname)).toBeGreaterThanOrEqual(0)
+  }
 
   void page.route(pattern, (route) => {
-    requests.push(new URL(route.request().url()))
+    const request = route.request()
     return new Promise<void>((resolve) => {
-      pending.push((answer) => {
-        json(route, { success: answer.status < 400, data: answer.data }, answer.status).catch(() => undefined)
-        resolve()
+      pending.push({
+        method: request.method(),
+        pathname: new URL(request.url()).pathname,
+        async answer(data, status) {
+          await json(route, { success: status < 400, data }, status).catch(() => undefined)
+          resolve()
+        }
       })
     })
   })
 
   return {
-    requests,
-    answerNext(data: unknown, status = 200) {
-      const answer = pending.shift()
-      if (!answer) {
-        throw new Error('No request is waiting for an answer.')
+    waitFor,
+    async answer(method: string, pathname: string, data: unknown, status = 200) {
+      await waitFor(method, pathname)
+      const request = pending.splice(findRequest(method, pathname), 1)[0]
+      if (!request) {
+        throw new Error('No matching request is waiting for an answer.')
       }
 
-      answer({ data, status })
-    },
-    /** Answers the most recent request first, so a late one can stay late. */
-    answerLast(data: unknown, status = 200) {
-      const answer = pending.pop()
-      if (!answer) {
-        throw new Error('No request is waiting for an answer.')
-      }
-
-      answer({ data, status })
+      await request.answer(data, status)
     }
   }
 }
@@ -562,16 +568,17 @@ test('a late answer cannot paint the word that replaced it', async ({ page }) =>
   await page.goto('/#/vocabulary')
 
   await page.locator('.el-table__row', { hasText: 'apple' }).getByRole('button', { name: '详情' }).click()
+  await detail.waitFor('GET', '/admin/vocabulary/word-apple')
   await page.keyboard.press('Escape')
   await page.locator('.el-table__row', { hasText: 'cherry' }).getByRole('button', { name: '详情' }).click()
 
   // cherry's request is answered first; apple's late success arrives after a
   // new target owns the drawer and must not replace it.
-  detail.answerLast(cherry)
+  await detail.answer('GET', '/admin/vocabulary/word-cherry', cherry)
   const drawer = page.locator('.el-drawer')
   await expect(drawer).toContainText('cherry')
 
-  detail.answerNext(appleDetail)
+  await detail.answer('GET', '/admin/vocabulary/word-apple', appleDetail)
   await page.waitForTimeout(200)
   await expect(drawer).toContainText('cherry')
   await expect(drawer).not.toContainText('苹果树')
@@ -585,16 +592,17 @@ test('a late book answer cannot paint the book that replaced it', async ({ page 
 
   await page.locator('.el-table__row', { hasText: bookA.bookName }).getByRole('button', { name: '查看单词' }).click()
   await expect(page).toHaveURL(new RegExp(`#/books/${bookA.id}/words$`))
+  await content.waitFor('GET', `/admin/vocabulary-books/${bookA.id}/content`)
 
   // A same-document switch straight to another book's list reuses the page
   // component; only the generation guard keeps the late answer out.
   await page.goto(`/#/books/${bookB.id}/words`)
 
-  content.answerLast(contentB)
+  await content.answer('GET', `/admin/vocabulary-books/${bookB.id}/content`, contentB)
   await expect(page.locator('.page-header__description')).toContainText('CI Old Book B')
   await expect(page.locator('.el-table')).toContainText('banana')
 
-  content.answerNext(contentA)
+  await content.answer('GET', `/admin/vocabulary-books/${bookA.id}/content`, contentA)
   await page.waitForTimeout(200)
   await expect(page.locator('.page-header__description')).toContainText('CI Old Book B')
   await expect(page.locator('.el-table')).not.toContainText('苹果树')
@@ -608,19 +616,20 @@ test('an answer that lands after leaving the page writes nothing', async ({ page
 
   await page.locator('.el-table__row', { hasText: bookA.bookName }).getByRole('button', { name: '查看单词' }).click()
   await expect(page).toHaveURL(new RegExp(`#/books/${bookA.id}/words$`))
+  await content.waitFor('GET', `/admin/vocabulary-books/${bookA.id}/content`)
 
   await page.getByRole('button', { name: '返回教材列表' }).click()
   await expect(page).toHaveURL(/#\/books$/)
 
   // The unmounted page's request is answered late; nothing may throw and the
   // books list stays itself.
-  content.answerNext(contentA)
+  await content.answer('GET', `/admin/vocabulary-books/${bookA.id}/content`, contentA)
   await page.waitForTimeout(200)
   await expect(page.locator('.page-header h1')).toHaveText('教材管理')
 
   // Returning loads fresh state for the current target.
   await page.locator('.el-table__row', { hasText: bookA.bookName }).getByRole('button', { name: '查看单词' }).click()
-  content.answerNext(contentA)
+  await content.answer('GET', `/admin/vocabulary-books/${bookA.id}/content`, contentA)
   await expect(page.locator('.el-table')).toContainText('apple')
 })
 
@@ -949,12 +958,12 @@ test('switching targets drops the draft and a late save answer cannot land', asy
   await mockSession(page)
   await mockBooksList(page)
   await mockLibrary(page)
-  // One deferred route holds both the reads and the save, in arrival order.
+  // One deferred route distinguishes the reads and the save by method and target.
   const detail = useDeferredRoute(page, /\/admin\/vocabulary\/[^/]+$/)
   await page.goto('/#/vocabulary')
 
   await page.locator('.el-table__row', { hasText: 'apple' }).getByRole('button', { name: '详情' }).click()
-  detail.answerNext(appleDetail)
+  await detail.answer('GET', '/admin/vocabulary/word-apple', appleDetail)
   const drawer = page.locator('.el-drawer')
   await expect(drawer).toContainText('apple')
 
@@ -962,16 +971,17 @@ test('switching targets drops the draft and a late save answer cannot land', asy
   await drawer.getByRole('textbox', { name: '单词拼写' }).fill('apples')
   await drawer.getByRole('button', { name: '保存拼写与音标' }).click()
   await page.locator('.el-message-box').getByRole('button', { name: '保存' }).click()
+  await detail.waitFor('PUT', '/admin/vocabulary/word-apple')
 
   await page.keyboard.press('Escape')
   await page.locator('.el-table__row', { hasText: 'cherry' }).getByRole('button', { name: '详情' }).click()
 
   // The new target owns the drawer; the pending save belongs to the old one.
-  detail.answerLast({ ...cherry, meanings: [{ id: 'meaning-c1', vocabularyId: 'word-cherry', bookId: bookA.id, partOfSpeech: 'n.', meaning: '樱桃', example: null }] })
+  await detail.answer('GET', '/admin/vocabulary/word-cherry', { ...cherry, meanings: [{ id: 'meaning-c1', vocabularyId: 'word-cherry', bookId: bookA.id, partOfSpeech: 'n.', meaning: '樱桃', example: null }] })
   await expect(drawer).toContainText('cherry')
   await expect(drawer.getByRole('button', { name: '编辑拼写与音标' })).toHaveCount(1)
 
-  detail.answerNext({ success: true })
+  await detail.answer('PUT', '/admin/vocabulary/word-apple', { success: true })
   await page.waitForTimeout(200)
   await expect(drawer).toContainText('cherry')
   await expect(drawer).not.toContainText('apples')
