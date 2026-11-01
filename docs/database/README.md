@@ -258,21 +258,39 @@ array `["lexarbor.audio.source.v1", word, locale, phonetic, targetKind, partOfSp
 meaning]`, using System.Text.Json UTF-8 encoding with explicit nulls. `targetKind`
 is `default` or `meaning`; default input has null part of speech and meaning.
 Display spelling retains casing. Only the locale's phonetic is included; meaning
-overrides additionally include their part of speech and definition. Examples,
+targets use their nonblank specific phonetic or inherit the default and
+additionally include their part of speech and definition. Examples,
 IDs, timestamps, positions and book enablement do not affect the revision. Reading
 actual current input covers word/meaning replacement and batch import without
 changing their existing write results.
 
-An override wins within its accent even when stale. Without one, selection falls
-back to that accent's default, whose revision is compared with default input.
+`AddMeaningPhonetics` adds nullable `phonetic_uk` and `phonetic_us` columns to
+`vocabulary_meaning`, mapped through the internal meaning model and audio input.
+It does not fill them, call AI, delete assets or alter existing IDs, default
+phonetics, bindings or upload receipts. Null/blank means inheritance. Default
+targets and inherited meaning targets retain the exact `source.v1` encoding and
+revision; a nonblank specific value replaces only that meaning/accent's raw
+phonetic input. Explicit SQL entity projections include both new columns.
+
+A request without a meaning selects only its default. A meaning with a blank
+specific phonetic also selects only the default, even with a retained legacy
+override. A nonblank specific phonetic selects its own binding, including stale
+audio; without one it can fall back only when its nonempty normalized phonetic
+equals the default's. Otherwise it is missing. Comparison uses NFC, outer
+whitespace trimming and removal of exactly one matching `/.../` or `[...]` pair,
+then ordinal comparison; stress, phonemes, length, case and internal spaces remain.
+A fallback's revision is compared with default input, without normalizing the
+revision's raw input.
 There is no cross-accent fallback. No selected binding means `missing`; matching
 revision means `ready`; otherwise `stale`. Own and effective bindings remain
 separate so later upload conditions cannot accidentally use a fallback asset.
 These are content states, not proof that an object exists or a playable URL.
 
-Back up SQLite and the independent audio bucket consistently. Keep every asset
-that has ever been published, including superseded or unbound objects: historical
-SQLite backups can still reference them. This slice performs no object deletion.
+Back up SQLite and the independent audio bucket consistently. The phonetic
+migration and existing manual replacement/unbind operations retain published
+objects, including legacy overrides that are no longer selected. Historical
+SQLite backups may reference them, so retain matching remote backups for the
+required restore window. This migration performs no object deletion.
 A database restore does not restore missing remote files, and a bucket change
 requires an explicit object migration.
 
@@ -285,6 +303,14 @@ removes only these three new tables and the new meaning index; it does not chang
 existing rows or touch S3. Preserve the pre-Down backup to retain audio bindings,
 receipts and recovery metadata. See [deployment](../development/Deployment.md#database)
 for the existing startup gate and [backups](../development/Deployment.md) for recovery.
+
+For a rollback of `AddMeaningPhonetics` alone, stop writes and preserve SQLite and
+S3 backups, then explicitly migrate to `20261031172216_AddMeaningSubmissions`
+with tooling that knows the new migration. Down drops the two new phonetic
+columns and loses any specific values; old fields, assets, bindings and receipts
+remain. An older image still refuses the upgraded history with
+`migration.version_too_new`; additive columns do not bypass that gate. Restoring
+the pre-upgrade backup is the alternative when those values must be retained.
 
 
 ## Conditional audio persistence

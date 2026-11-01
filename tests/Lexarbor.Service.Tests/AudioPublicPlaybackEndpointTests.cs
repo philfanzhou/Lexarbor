@@ -99,7 +99,7 @@ public sealed class AudioPublicPlaybackEndpointTests
                 new() { Id = "orphan", Word = "orphan" }, new() { Id = "other", Word = "other" });
             db.VocabularyBooks.AddRange(new() { Id = "enabled", BookName = "Enabled", Status = true },
                 new() { Id = "disabled", BookName = "Disabled", Status = false });
-            db.VocabularyMeanings.AddRange(new() { Id = "m", VocabularyId = "w", BookId = "enabled", PartOfSpeech = "v.", Meaning = "leave" },
+            db.VocabularyMeanings.AddRange(new() { Id = "m", VocabularyId = "w", BookId = "enabled", PartOfSpeech = "v.", Meaning = "leave", PhoneticUk = "uk", PhoneticUs = "us" },
                 new() { Id = "foreign-m", VocabularyId = "w", BookId = "disabled", Meaning = "foreign" },
                 new() { Id = "other-m", VocabularyId = "other", BookId = "disabled", Meaning = "other" });
             await db.SaveChangesAsync(Ct);
@@ -164,6 +164,41 @@ public sealed class AudioPublicPlaybackEndpointTests
         using var scope = host.App.Services.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
         var asset = await db.AudioAssets.SingleAsync(x => x.Id == (own ?? fallback), Ct);
         Assert.DoesNotContain(asset.ObjectKey, await response.Content.ReadAsStringAsync(Ct));
+    }
+
+    [Theory]
+    [InlineData("en-GB", null, true, "default")]
+    [InlineData("en-US", " \t ", true, "default")]
+    [InlineData("en-GB", " /uk/ ", false, "default")]
+    [InlineData("en-US", "[us]", false, "default")]
+    [InlineData("en-GB", "different", false, null)]
+    [InlineData("en-US", "different", false, null)]
+    [InlineData("en-GB", "different", true, "meaning")]
+    [InlineData("en-US", "different", true, "meaning")]
+    public async Task AnonymousMeaningSpecificSelection_KeepsMissingAndInheritanceContracts(string locale, string? phonetic, bool hasOwn, string? source)
+    {
+        await using var host = new Host(); await host.SeedAsync();
+        host.Client.DefaultRequestHeaders.Authorization = null;
+        using (var scope = host.App.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+            var meaning = await db.VocabularyMeanings.SingleAsync(row => row.Id == "m", Ct);
+            if (locale == "en-GB") meaning.PhoneticUk = phonetic; else meaning.PhoneticUs = phonetic;
+            await db.SaveChangesAsync(Ct);
+        }
+        var baseline = await host.Bind(locale);
+        var own = hasOwn ? await host.Bind(locale, "m") : null;
+        using var response = await host.Client.GetAsync(Route(locale, "m"), Ct); using var json = await Read(response);
+        var data = Assert.Single(json.RootElement.GetProperty("data").GetProperty("items").EnumerateArray());
+        Assert.Equal(new[] { "assetId", "expiresAt", "locale", "source", "sourceRevision", "status", "url" },
+            data.EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal));
+        Assert.Equal(source, data.GetProperty("source").GetString());
+        Assert.Equal(source == null ? "missing" : "ready", data.GetProperty("status").GetString());
+        Assert.Equal(source == "meaning" ? own : source == "default" ? baseline : null, data.GetProperty("assetId").GetString());
+        Assert.Equal(source == null ? 0 : 1, host.Store.Stats.Count);
+        Assert.Equal(host.Store.Stats, host.Store.Signs);
+        if (source == null)
+            foreach (var key in new[] { "sourceRevision", "url", "expiresAt" }) Assert.Equal(JsonValueKind.Null, data.GetProperty(key).ValueKind);
     }
 
     [Fact]

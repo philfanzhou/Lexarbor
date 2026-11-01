@@ -66,7 +66,7 @@ public sealed class AudioReadRepository(VocabularyDbContext context) : IAudioRea
                 {
                     var word = words[meaning.VocabularyId];
                     var snapshot = new AudioReadSnapshot(new(word.Id, word.Word, word.PhoneticUk, word.PhoneticUs),
-                        new(meaning.Id, meaning.PartOfSpeech, meaning.Meaning), bindings.Where(binding => binding.WordId == word.Id
+                        new(meaning.Id, meaning.PartOfSpeech, meaning.Meaning, meaning.PhoneticUk, meaning.PhoneticUs), bindings.Where(binding => binding.WordId == word.Id
                             && (binding.MeaningId == null || binding.MeaningId == meaning.Id)).ToList());
                     foreach (var locale in Enum.GetValues<AudioLocale>())
                         if (snapshot.Bindings.Any(binding => binding.MeaningId == meaning.Id && binding.Locale == locale))
@@ -131,7 +131,7 @@ public sealed class AudioReadRepository(VocabularyDbContext context) : IAudioRea
                 var row = await context.VocabularyMeanings.AsNoTracking()
                     .SingleOrDefaultAsync(row => row.Id == meaningId && row.VocabularyId == wordId, cancellationToken)
                     ?? throw new ResourceNotFoundException("Vocabulary meaning was not found.");
-                meaning = new(row.Id, row.PartOfSpeech, row.Meaning);
+                meaning = new(row.Id, row.PartOfSpeech, row.Meaning, row.PhoneticUk, row.PhoneticUs);
             }
             var bindings = await (from binding in context.VocabularyAudioBindings.AsNoTracking()
                                   join asset in context.AudioAssets.AsNoTracking() on binding.AssetId equals asset.Id

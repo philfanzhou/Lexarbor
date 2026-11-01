@@ -116,7 +116,15 @@ public sealed class AudioMigrationTests
     private static async Task<string> CaptureOldAsync(AudioTestDatabase file)
     {
         var all = new List<object?>();
-        foreach (var table in OldTables) all.Add(await file.RowsAsync($"SELECT * FROM {table} ORDER BY 1"));
+        foreach (var table in OldTables)
+        {
+            // Later migrations may add meaning columns; this historical test
+            // compares every column that existed before AddVocabularyAudio.
+            var columns = table == "vocabulary_meaning"
+                ? "id,vocabulary_id,book_id,part_of_speech,meaning,normalized_part_of_speech,normalized_meaning,example,created_at,updated_at"
+                : "*";
+            all.Add(await file.RowsAsync($"SELECT {columns} FROM {table} ORDER BY 1"));
+        }
         return JsonSerializer.Serialize(all);
     }
 }

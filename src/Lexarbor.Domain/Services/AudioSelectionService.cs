@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Lexarbor.Domain.Models;
 
@@ -10,7 +11,10 @@ public static class AudioSelectionService
     public static AudioGenerationInput GetInput(AudioWordInput word, AudioMeaningInput? meaning, AudioLocale locale)
     {
         _ = locale.ToCode();
-        return new(word.Word, locale, locale == AudioLocale.EnGb ? word.PhoneticUk : word.PhoneticUs,
+        var specific = GetSpecificPhonetic(meaning, locale);
+        var phonetic = string.IsNullOrWhiteSpace(specific)
+            ? locale == AudioLocale.EnGb ? word.PhoneticUk : word.PhoneticUs : specific;
+        return new(word.Word, locale, phonetic,
             meaning != null, meaning?.PartOfSpeech, meaning?.Meaning);
     }
 
@@ -33,16 +37,38 @@ public static class AudioSelectionService
         var revision = ComputeRevision(input);
         var own = snapshot.Bindings.SingleOrDefault(binding => binding.Locale == locale
             && binding.MeaningId == snapshot.Meaning?.MeaningId);
-        var effective = own ?? snapshot.Bindings.SingleOrDefault(binding => binding.Locale == locale
-            && binding.MeaningId == null);
+        var baseline = snapshot.Bindings.SingleOrDefault(binding => binding.Locale == locale && binding.MeaningId == null);
+        var specific = GetSpecificPhonetic(snapshot.Meaning, locale);
+        var defaultPhonetic = locale == AudioLocale.EnGb ? snapshot.Word.PhoneticUk : snapshot.Word.PhoneticUs;
+        var effective = string.IsNullOrWhiteSpace(specific) ? baseline
+            : own ?? (PhoneticsMatch(specific, defaultPhonetic) ? baseline : null);
         var source = effective == null ? (AudioBindingSource?)null
             : effective.MeaningId == null ? AudioBindingSource.Default : AudioBindingSource.Meaning;
         // A default fallback is compared with DEFAULT input, never with the
-        // requested meaning's input. A stale override still wins selection.
+        // requested meaning's input. An explicit stale override still wins;
+        // an inherited target keeps its own binding only for management.
         var effectiveRevision = effective?.MeaningId == null
             ? ComputeRevision(GetInput(snapshot.Word, null, locale)) : revision;
         var status = effective == null ? AudioContentStatus.Missing
             : effective.SourceRevision == effectiveRevision ? AudioContentStatus.Ready : AudioContentStatus.Stale;
         return new(locale, input, revision, own, effective, source, status);
+    }
+
+    private static string? GetSpecificPhonetic(AudioMeaningInput? meaning, AudioLocale locale)
+        => locale == AudioLocale.EnGb ? meaning?.PhoneticUk : meaning?.PhoneticUs;
+
+    private static bool PhoneticsMatch(string? specific, string? baseline)
+    {
+        var left = NormalizePhonetic(specific);
+        var right = NormalizePhonetic(baseline);
+        return left.Length > 0 && right.Length > 0 && string.Equals(left, right, StringComparison.Ordinal);
+    }
+
+    private static string NormalizePhonetic(string? phonetic)
+    {
+        var value = phonetic?.Normalize(NormalizationForm.FormC).Trim() ?? string.Empty;
+        if (value.Length >= 2 && (value[0] == '/' && value[^1] == '/' || value[0] == '[' && value[^1] == ']'))
+            value = value[1..^1].Trim();
+        return value;
     }
 }

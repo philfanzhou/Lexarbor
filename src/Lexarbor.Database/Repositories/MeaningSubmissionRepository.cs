@@ -170,7 +170,7 @@ public sealed class MeaningSubmissionRepository : IMeaningSubmissionRepository
                     WHERE b.status = 1
                       AND lower(trim(v.word)) <> {excludeNormalizedWord}
                       AND lower(trim(m.meaning)) <> {excludeNormalizedMeaning})
-                SELECT id, vocabulary_id, book_id, part_of_speech, meaning,
+                SELECT id, vocabulary_id, book_id, part_of_speech, phonetic_uk, phonetic_us, meaning,
                        normalized_part_of_speech, normalized_meaning, example, created_at, updated_at
                 FROM per_word
                 WHERE word_rank = 1

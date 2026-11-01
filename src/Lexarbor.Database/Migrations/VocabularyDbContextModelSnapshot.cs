@@ -15,7 +15,7 @@ namespace Lexarbor.Database.Migrations
         protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
-            modelBuilder.HasAnnotation("ProductVersion", "10.0.12");
+            modelBuilder.HasAnnotation("ProductVersion", "10.0.14");
 
             modelBuilder.Entity("Lexarbor.Database.Entities.AdminSessionEntity", b =>
                 {
@@ -592,6 +592,14 @@ namespace Lexarbor.Database.Migrations
                     b.Property<string>("PartOfSpeech")
                         .HasColumnType("TEXT")
                         .HasColumnName("part_of_speech");
+
+                    b.Property<string>("PhoneticUk")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("phonetic_uk");
+
+                    b.Property<string>("PhoneticUs")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("phonetic_us");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("TEXT")

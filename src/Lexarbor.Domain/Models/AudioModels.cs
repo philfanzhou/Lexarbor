@@ -29,7 +29,8 @@ public sealed record AudioAsset(string Id, AudioObjectLocation Location, string 
 public sealed record AudioBinding(string WordId, string? MeaningId, AudioLocale Locale,
     AudioAsset Asset, string SourceRevision);
 public sealed record AudioWordInput(string WordId, string Word, string? PhoneticUk, string? PhoneticUs);
-public sealed record AudioMeaningInput(string MeaningId, string? PartOfSpeech, string Meaning);
+public sealed record AudioMeaningInput(string MeaningId, string? PartOfSpeech, string Meaning,
+    string? PhoneticUk = null, string? PhoneticUs = null);
 public sealed record AudioReadSnapshot(AudioWordInput Word, AudioMeaningInput? Meaning,
     IReadOnlyList<AudioBinding> Bindings);
 public sealed record AudioGenerationInput(string Word, AudioLocale Locale, string? Phonetic,
