@@ -283,3 +283,68 @@ TTL and timeout settings remain restart-only. The administrator S3 settings API
 commits and publishes complete candidates
 without restart; its schema, credential operations and save errors are documented
 in [System settings](SystemSettings.md#audio-storage-s3).
+
+## Pronunciation preparation
+
+The internal `IPronunciationPreparationClient` prepares one explicit target and
+`en-GB` or `en-US` accent per call. It does not expose a new HTTP route, write the
+catalog or queue, call TTS, or start automatic generation. Callers supply the current
+`EnrichmentInputVersion` from the task repository, complete meaning/position context
+and the explicit target. A mismatching source revision is rejected before dispatch.
+An empty meaning-specific phonetic returns `InheritsDefault` without a supplier call
+or plan; the caller uses the default target and its own version instead. It never
+creates a specific phonetic or checks all meanings for equivalent pronunciation.
+
+Task executors supply the `beforeDispatch` callback to check the captured input/text
+configuration versions and persist the request record immediately before dispatch.
+Local waiting, inheritance and invalid inputs never invoke it. Returning false yields
+`Superseded`, no plan and no request. The callback must finish its transaction before
+returning; network IO never runs inside it. Persistence failures propagate to the caller.
+
+A ready result carries bounded `EnrichmentPlan` content, its original input/version,
+the captured opaque text-configuration version, classification basis and mandatory
+human IPA constraint. The existing plan format remains suitable for queue persistence;
+this client itself persists nothing. A later speech adapter must consume the prepared
+text and constraints and stop if it cannot express them. Failed, uncertain, inherited
+or waiting results have no usable plan: never substitute the raw headword.
+
+Explicit position kinds take precedence over inference. Any `word` position permits
+shared default IPA; exclusively `phrase` positions prohibit it. An unclassified
+position keeps the existing shared-field permission, while a meaning with any phrase
+position receives no new POS. Inference is plan data, never a new position. Only
+missing applicable default IPA/POS can be returned as writable candidates, and only
+with `fieldsEnabled`. Existing nonempty human IPA remains an enforced speech constraint;
+a contradictory model candidate is rejected. Phrase plans return no writable IPA/POS.
+Default-reading uncertainty stops the item instead of choosing a meaning's special
+reading. Preparation expands `sb.`/`sth.`, resolves template slash alternatives and
+provides pronunciation directions for proper names. Semantic quality is still subject
+to the separate real-supplier listening acceptance; fixed HTTP fixtures do not prove it.
+
+Requests and responses are limited to 64 KiB, including streamed responses without a
+length header. There are at most 100 meanings/position kinds and POS candidates;
+spoken text is at most 4096 characters, human/candidate IPA 512, classification basis
+512 and supplier pronunciation hint 1024. The complete stored plan is at most 16384
+characters, matching task persistence. The configured text timeout (1–300 seconds)
+covers dispatch and body reads; caller cancellation propagates without fallback.
+Truncated completions, malformed/duplicate/unknown plan fields, unresolved templates,
+oversized data and changed human constraints have no usable plan.
+
+Safe results distinguish disabled/missing configuration (waiting, no request), inherited
+default (no request), semantic uncertainty/invalid plan, HTTP 429 or recognized
+HTTP-200 business throttling (`error.code=rate_limit_exceeded` or `slow_down`),
+timeout/connection/HTTP 408/5xx service faults, and terminal credential/parameter
+rejection. Positive `Retry-After` delays are preserved, including values above the
+normal throttle interval. The caller owns budgets/backoff; `RequestMade` distinguishes
+attempted dispatch from local waiting, and throttling must not consume a failure slot.
+The client makes no automatic retries. Unknown business-error formats fail safely.
+
+Catalog/model text is data in separate JSON chat messages. Credentials stay in the
+authorization header of the captured server-only snapshot. Redirects and cookies are
+disabled; HTTP client loggers and OpenTelemetry instrumentation are suppressed for
+preparation. Complete supplier responses, exception details and credentials are never
+returned or persisted; failures expose fixed codes. A response reflecting the current
+API key is rejected. No model/provider combination is enabled for speech by this client.
+
+Protocol references: [Chat Completions](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create),
+[JSON mode limitations](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=chat),
+and [error codes](https://developers.openai.com/api/docs/guides/error-codes).

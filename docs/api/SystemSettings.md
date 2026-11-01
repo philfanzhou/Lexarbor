@@ -264,6 +264,13 @@ models, voices or pronunciation instructions. There is no bypass-preparation or
 ignore-pronunciation switch. Unsupported combinations must stop safely in the
 provider adapter rather than send an unconstrained request.
 
+The internal pronunciation preparation client uses only `Enrichment:Text`, independently
+of the review assistant. It posts to `<endpoint>/chat/completions` with JSON mode
+(`response_format.type=json_object`) and validates every field locally; compatibility
+does not imply JSON Schema support. See the [preparation contract](Audio.md#pronunciation-preparation)
+for bounds, explicit targets and safe failure results. Registration alone starts no
+calls, worker or TTS. Audio-only mode runs preparation with no writable field candidates.
+
 Additional `enrichment` fields and defaults:
 
 | Field | Default | Allowed |
