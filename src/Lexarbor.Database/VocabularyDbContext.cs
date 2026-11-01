@@ -14,6 +14,7 @@ public class VocabularyDbContext : DbContext
     public DbSet<VocabularyEntity> Vocabularies { get; set; } = null!;
     public DbSet<VocabularyBookEntity> VocabularyBooks { get; set; } = null!;
     public DbSet<VocabularyMeaningEntity> VocabularyMeanings { get; set; } = null!;
+    public DbSet<MeaningPhoneticEpochEntity> MeaningPhoneticEpochs { get; set; } = null!;
     public DbSet<VocabularyBookUnitEntity> VocabularyBookUnits { get; set; } = null!;
     public DbSet<VocabularyMeaningUnitEntity> VocabularyMeaningUnits { get; set; } = null!;
 

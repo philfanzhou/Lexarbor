@@ -1330,7 +1330,7 @@ or automatic historical published-object collection is introduced.
 
 `AddAudioInvalidations` creates an empty durable deletion-authority table and
 seven safety triggers. It does not retroactively authorize deletion, change a
-manual DELETE, edit a phonetic or start AI/TTS. The later shared phonetic-edit
+manual DELETE, edit a phonetic or start AI/TTS. The shared phonetic-edit
 boundary supplies exact authority in the same transaction as the edit/unbind.
 Only an authorized old specific binding is eligible, and every remaining default
 or other binding defers deletion. Claiming permanently blocks new references to
@@ -1521,3 +1521,38 @@ empty recording tables and their constraints and triggers; it cannot recover
 removed rows. For a full rollback, stop the service and restore the pre-upgrade
 database, matching root key and configuration before starting the older version.
 Clear `admin_session` after restoring a historical database as described above.
+
+
+### Specific-phonetic edit upgrade
+
+`AddMeaningPhoneticEpochs` adds an empty per-meaning/accent epoch table and a
+zero-initialized captured epoch column on upload operations. Existing vocabulary,
+IDs, default/specific phonetics, bindings, source revisions, upload receipts and
+queue history are preserved; the migration contacts no provider or S3 service.
+There is no new setting, directory, public editor or running generator in this
+foundation. The shared edit boundary is available to the later administrator
+editor and executor/scheduler; both enrichment switches remain default-off.
+
+A real specific edit immediately releases only the matching old specific binding,
+records exact cleanup authority and persists preparation/audio work in one SQLite
+transaction, regardless of generation/configuration/storage readiness. Clearing
+resumes default selection and cancels specific work. Equivalent submissions create
+no new work. Epochs prevent old uploads or task executions from becoming valid
+after A→B→A, and final background publication checks both independent leases.
+Cleanup retries never restore the binding or consume generation failures. New
+playback cannot select it, but already issued URLs/downloads cannot be revoked.
+
+Reuse the same bind mount/named volume at `/app/data` when replacing containers or
+images. A lost notification or restart retains pending work, epochs and deletion
+state in the full database. Back up SQLite consistently with persistent settings
+and matching private audio objects; a deleted specific MP3 cannot be recovered by
+restoring SQLite alone. The newer-schema gate still rejects older images.
+
+For a deliberate downgrade, stop writes, uploads, generation and recovery, retain
+pre-Down database/object backups, then use current tooling to migrate to
+`20261101185722_AddAudioInvalidations` before deploying its matching older image.
+Down loses the independent epochs and captured upload epochs while retaining edited
+phonetics, tasks, deletion authority/tombstones and permanent receipts. Never resume
+interrupted old executions across Down; prefer restoring a matched pre-upgrade
+backup. Neither Down nor image rollback reconstructs deleted MP3 objects. See
+[the persistence contract](../database/README.md#atomic-specific-phonetic-edits).

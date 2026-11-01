@@ -10,6 +10,14 @@ internal static class AudioModelConfiguration
     public static void Configure(ModelBuilder modelBuilder)
     {
         var locale = new ValueConverter<AudioLocale, string>(value => value.ToCode(), value => AudioLocales.FromCode(value));
+        modelBuilder.Entity<MeaningPhoneticEpochEntity>(entity =>
+        {
+            entity.HasKey(row => new { row.MeaningId, row.Locale });
+            entity.Property(row => row.Locale).HasConversion(locale);
+            entity.HasOne<VocabularyMeaningEntity>().WithMany().HasForeignKey(row => new { row.MeaningId, row.WordId })
+                .HasPrincipalKey(row => new { row.Id, row.VocabularyId }).OnDelete(DeleteBehavior.Cascade);
+            entity.ToTable(table => table.HasCheckConstraint("CK_meaning_phonetic_epoch", "epoch > 0 AND locale IN ('en-GB','en-US')"));
+        });
         modelBuilder.Entity<AudioAssetEntity>(entity =>
         {
             entity.HasIndex(asset => new { asset.Bucket, asset.ObjectKey }).IsUnique();
@@ -59,6 +67,7 @@ internal static class AudioModelConfiguration
             entity.Property(operation => operation.Locale).HasConversion(locale);
             entity.Property(operation => operation.State).HasConversion<string>();
             entity.Property(operation => operation.CleanupReturnState).HasConversion<string>();
+            entity.Property(operation => operation.MeaningPhoneticEpoch).HasDefaultValue(0L);
             // No target FK: deletion must keep request receipts and the known
             // object location recoverable. Only the independent asset is linked.
             entity.HasOne<AudioAssetEntity>().WithMany().HasForeignKey(operation => operation.AssetId).OnDelete(DeleteBehavior.Restrict);

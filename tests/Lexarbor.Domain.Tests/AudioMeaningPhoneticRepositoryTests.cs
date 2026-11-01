@@ -99,7 +99,13 @@ public sealed class AudioMeaningPhoneticRepositoryTests
         var meanings = new VocabularyMeaningRepository(db);
         var meaning = Assert.IsType<VocabularyMeaningModel>(await meanings.GetByIdAsync("other-meaning"));
         meaning.PhoneticUk = "other-uk"; meaning.PhoneticUs = "other-us";
-        await meanings.UpdateAsync(meaning); await db.SaveChangesAsync(Token); db.ChangeTracker.Clear();
+        var phonetics = new MeaningPhoneticRepository(db, new AudioInvalidationRepository(db), new EnrichmentTaskRepository(db));
+        var edits = new List<MeaningPhoneticEdit>();
+        foreach (var locale in new[] { AudioLocale.EnGb, AudioLocale.EnUs })
+            edits.Add(new("book", "other", "other-meaning", locale, true, locale == AudioLocale.EnGb ? "other-uk" : "other-us",
+                await phonetics.ReadAsync("book", "other", "other-meaning", locale, Token)));
+        await new MeaningPhoneticEditService(phonetics, new UnitOfWork(db)).ApplyAsync(edits, new("config", "config", "config"), 1, Token);
+        db.ChangeTracker.Clear();
         // There is only one eligible word, so requesting two forces the
         // exhaustive SQL projection rather than accepting the sampled window.
         var distractor = Assert.Single(await meanings.GetRandomDistinctVocabularyExceptAsync("book", "word", "fruit", 2));

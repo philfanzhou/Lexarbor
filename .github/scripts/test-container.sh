@@ -362,7 +362,7 @@ for path_and_count in 'admin/auth/start 11' 'api/does-not-exist 301'; do
 done
 docker rm -f "$FRESH_CONTAINER" >/dev/null
 
-echo "Checking specific-audio deletion authority survives container recreation"
+echo "Checking specific-audio edit epochs, regeneration and deletion authority survive container recreation"
 invalidation_data="$TEST_ROOT/audio-invalidation"
 mkdir -p "$invalidation_data"
 chmod 700 "$invalidation_data"
@@ -389,7 +389,14 @@ with sqlite3.connect(sys.argv[1]) as connection:
             connection.execute("UPDATE audio_invalidation SET state='Claimed',delete_started_at_unix_ms=4,updated_at_unix_ms=4,lease_owner='interrupted',lease_fence=2,lease_expires_at_unix_ms=5,attempts=6 WHERE asset_id=?", (asset,))
         if state == 'Observed':
             connection.execute("UPDATE audio_invalidation SET state='Observed',observed_at_unix_ms=5,updated_at_unix_ms=5,lease_owner=NULL,lease_expires_at_unix_ms=NULL,next_attempt_at_unix_ms=6 WHERE asset_id=?", (asset,))
-    snapshot = {table: connection.execute(f"SELECT * FROM {table} ORDER BY 1").fetchall() for table in ('audio_asset', 'audio_upload_operation', 'audio_invalidation')}
+    connection.execute("UPDATE vocabulary_meaning SET phonetic_uk='edited-specific' WHERE id='cleanup-meaning'")
+    connection.execute("INSERT INTO meaning_phonetic_epoch (meaning_id,word_id,locale,epoch) VALUES ('cleanup-meaning','cleanup-word','en-GB',7)")
+    connection.execute("UPDATE audio_upload_operation SET meaning_phonetic_epoch=6")
+    for step in ('Prepare', 'Audio'):
+        target = f'edit-{step}'
+        connection.execute("INSERT INTO enrichment_target (id,word_id,meaning_id,locale,step,current_round,epoch,deleted) VALUES (?,'cleanup-word','cleanup-meaning','en-GB',?,1,7,0)", (target, step))
+        connection.execute("INSERT INTO enrichment_round (target_id,number,state,input_revision,source_revision,configuration_version,failure_budget,request_count,consumed_failures,lease_fence,created_at_unix_ms,updated_at_unix_ms) VALUES (?,1,'Pending',?,?,'persisted-edit-config',5,0,0,0,3,3)", (target, '0' * 64, '0' * 64))
+    snapshot = {table: connection.execute(f"SELECT * FROM {table} ORDER BY 1").fetchall() for table in ('audio_asset', 'audio_upload_operation', 'audio_invalidation', 'meaning_phonetic_epoch', 'enrichment_target', 'enrichment_round')}
     with open(sys.argv[2], 'w', encoding='utf-8') as output:
         json.dump(snapshot, output)
 PYSQL
@@ -408,6 +415,9 @@ with sqlite3.connect(sys.argv[1]) as connection:
     assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
     assert connection.execute("SELECT COUNT(*) FROM vocabulary_audio_binding").fetchone()[0] == 0
     assert connection.execute("SELECT COUNT(*) FROM audio_invalidation WHERE delete_started_at_unix_ms IS NOT NULL").fetchone()[0] == 2
+    assert connection.execute("SELECT epoch FROM meaning_phonetic_epoch").fetchone()[0] == 7
+    assert connection.execute("SELECT COUNT(*) FROM enrichment_round WHERE state='Pending'").fetchone()[0] == 2
+    assert connection.execute("SELECT COUNT(*) FROM audio_upload_operation WHERE meaning_phonetic_epoch=6").fetchone()[0] == 3
 PYSQL
 done
 

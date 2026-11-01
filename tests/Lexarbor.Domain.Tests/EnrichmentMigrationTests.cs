@@ -24,10 +24,10 @@ public sealed class EnrichmentMigrationTests
         await db.GetService<IMigrator>().MigrateAsync(Previous, Token); await AudioTestDatabase.SeedAsync(db);
         db.AudioAssets.Add(AudioTestDatabase.Asset("existing"));
         db.VocabularyAudioBindings.Add(AudioTestDatabase.Binding("existing", AudioLocale.EnGb, null, AudioTestDatabase.Revision(AudioLocale.EnGb)));
-        db.AudioUploadOperations.Add(AudioTestDatabase.Operation("existing", AudioUploadState.Succeeded));
-        await db.SaveChangesAsync(Token); db.ChangeTracker.Clear(); var before = await OldRowsAsync(file);
+        await db.SaveChangesAsync(Token); await AudioTestDatabase.SeedSucceededOperationAsync(db, "existing"); db.ChangeTracker.Clear(); var before = await OldRowsAsync(file);
         await db.GetService<IMigrator>().MigrateAsync(Migration, Token);
         Assert.False(db.Database.HasPendingModelChanges()); Assert.Equal(before, await OldRowsAsync(file));
+        await db.Database.MigrateAsync(Token); // Current repositories require the current schema.
         var repo = new EnrichmentTaskRepository(db);
         var task = Assert.IsType<EnrichmentTask>(await repo.EnsureAsync(new("word", null, AudioLocale.EnGb, EnrichmentStep.Audio), "config", 1, Token));
         Assert.Single(task.Rounds); Assert.Empty(task.Calls);
@@ -87,15 +87,13 @@ public sealed class EnrichmentMigrationTests
     private static async Task<string> OldRowsAsync(AudioTestDatabase file)
     {
         var rows = new List<object?>();
-        var tables = await file.RowsAsync("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'enrichment_%' AND name != '__EFMigrationsHistory' ORDER BY name");
+        var tables = await file.RowsAsync("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'enrichment_%' AND name NOT IN ('__EFMigrationsHistory','audio_invalidation','meaning_phonetic_epoch') ORDER BY name");
         foreach (var item in tables)
         {
             var values = Assert.IsType<object?[]>(item);
             var table = Assert.IsType<string>(values[0]);
             var quoted = "\"" + table.Replace("\"", "\"\"") + "\"";
-            var columns = await file.RowsAsync($"PRAGMA table_info({quoted})");
-            var order = string.Join(",", Enumerable.Range(1, columns.Length));
-            rows.Add(await file.RowsAsync($"SELECT * FROM {quoted} ORDER BY {order}"));
+            rows.Add(await file.RowsAsync($"SELECT {await file.PreEpochColumnsAsync(table)} FROM {quoted} ORDER BY 1"));
         }
         return JsonSerializer.Serialize(rows);
     }

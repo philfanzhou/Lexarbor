@@ -265,6 +265,12 @@ namespace Lexarbor.Database.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("meaning_id");
 
+                    b.Property<long>("MeaningPhoneticEpoch")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(0L)
+                        .HasColumnName("meaning_phonetic_epoch");
+
                     b.Property<string>("Producer")
                         .HasColumnType("TEXT")
                         .HasColumnName("producer");
@@ -633,6 +639,35 @@ namespace Lexarbor.Database.Migrations
                             t.HasCheckConstraint("CK_enrichment_wait_reason", "reason IN ('Disabled','ConfigurationMissing','StorageDisabled','ServicePaused','Throttled','Retry','LeaseExpired')");
 
                             t.HasCheckConstraint("CK_enrichment_wait_times", "recorded_at_unix_ms >= 0 AND next_attempt_at_unix_ms >= recorded_at_unix_ms");
+                        });
+                });
+
+            modelBuilder.Entity("Lexarbor.Database.Entities.MeaningPhoneticEpochEntity", b =>
+                {
+                    b.Property<string>("MeaningId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("meaning_id");
+
+                    b.Property<string>("Locale")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("locale");
+
+                    b.Property<long>("Epoch")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("epoch");
+
+                    b.Property<string>("WordId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("word_id");
+
+                    b.HasKey("MeaningId", "Locale");
+
+                    b.HasIndex("MeaningId", "WordId");
+
+                    b.ToTable("meaning_phonetic_epoch", t =>
+                        {
+                            t.HasCheckConstraint("CK_meaning_phonetic_epoch", "epoch > 0 AND locale IN ('en-GB','en-US')");
                         });
                 });
 
@@ -1228,6 +1263,16 @@ namespace Lexarbor.Database.Migrations
                     b.HasOne("Lexarbor.Database.Entities.EnrichmentRoundEntity", null)
                         .WithMany()
                         .HasForeignKey("TargetId", "Round")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Lexarbor.Database.Entities.MeaningPhoneticEpochEntity", b =>
+                {
+                    b.HasOne("Lexarbor.Database.Entities.VocabularyMeaningEntity", null)
+                        .WithMany()
+                        .HasForeignKey("MeaningId", "WordId")
+                        .HasPrincipalKey("Id", "VocabularyId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

@@ -385,11 +385,14 @@ static async Task VerifyInvalidationAsync(AudioOptions options, byte[] bytes)
             AssetId = old.Asset.Id, SourceRevision = revision });
         await db.SaveChangesAsync(); db.ChangeTracker.Clear();
         var authority = new AudioInvalidationRepository(db, clock);
-        await new UnitOfWork(db).ExecuteInTransactionAsync(async () =>
-        {
-            Require(await authority.AuthorizeInTransactionAsync(new("invalidation-word", "invalidation-meaning", AudioLocale.EnGb, old.Asset.Id, 1), clock.Now, default), "Specific authority must be durable.");
-            return await db.VocabularyAudioBindings.Where(row => row.MeaningId == "invalidation-meaning").ExecuteDeleteAsync();
-        });
+        var phonetics = new MeaningPhoneticRepository(db, authority, new EnrichmentTaskRepository(db, clock));
+        var beforeEdit = await phonetics.ReadAsync("invalidation-book", "invalidation-word", "invalidation-meaning", AudioLocale.EnGb, default);
+        var edited = await new MeaningPhoneticEditService(phonetics, new UnitOfWork(db)).ApplyAsync(
+            [new("invalidation-book", "invalidation-word", "invalidation-meaning", AudioLocale.EnGb, true, "new-tone", beforeEdit)],
+            new("probe-text", "probe-uk", "probe-us"), clock.Now, default);
+        Require(edited[0].Changed && edited[0].Current.Epoch == 1 && edited[0].Current.OwnAssetId == null
+            && await db.EnrichmentTargets.CountAsync() == 2 && await authority.GetAsync(old.Asset.Id, default) != null,
+            "Atomic phonetic edit must persist its epoch, exact authority and preparation/audio work.");
         var settings = new AudioRecoverySettings(true, options.Bucket, options.KeyPrefix, TimeoutSeconds: 3);
         Require((await new AudioInvalidationRecoveryService(authority, store, settings with { Enabled = false }, clock).RunBatchAsync(default)).Examined == 0,
             "Disabled audio must retain invalidation without contacting S3.");
@@ -405,6 +408,9 @@ static async Task VerifyInvalidationAsync(AudioOptions options, byte[] bytes)
     }
     await using (var restarted = new VocabularyDbContext(dbOptions))
     {
+        Require(await restarted.MeaningPhoneticEpochs.CountAsync(row => row.Epoch == 1) == 1
+            && await restarted.EnrichmentRounds.CountAsync(row => row.State == EnrichmentState.Pending) == 2,
+            "Real-store cleanup must not lose the edit's pending generation work after restart.");
         var authority = new AudioInvalidationRepository(restarted, clock);
         var settings = new AudioRecoverySettings(true, options.Bucket, options.KeyPrefix, TimeoutSeconds: 3);
         Require((await new AudioInvalidationRecoveryService(authority, store, settings, clock).RunBatchAsync(default)).Observed == 1
@@ -417,7 +423,7 @@ static async Task VerifyInvalidationAsync(AudioOptions options, byte[] bytes)
         Require((await new AudioInvalidationRecoveryService(authority, store, settings, clock).RunBatchAsync(default)).Observed == 1,
             "Repeated deletion of an absent real object must remain safe.");
     }
-    Console.WriteLine("Private S3 published-specific invalidation, reference wait, denial, restart, absence and receipt replay passed.");
+    Console.WriteLine("Private S3 atomic phonetic edit, persisted regeneration, reference wait, denial, restart, absence and receipt replay passed.");
 }
 
 static async Task VerifyRecoveryAsync(VocabularyDbContext db, string databasePath, AudioUploadRepository liveRepository,

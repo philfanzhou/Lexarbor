@@ -28,8 +28,7 @@ public sealed class MeaningPhoneticMigrationTests
         db.VocabularyAudioBindings.AddRange(
             AudioTestDatabase.Binding("default", AudioLocale.EnGb, null, AudioTestDatabase.Revision(AudioLocale.EnGb)),
             AudioTestDatabase.Binding("legacy", AudioLocale.EnGb, "meaning", AudioTestDatabase.Revision(AudioLocale.EnGb, true)));
-        db.AudioUploadOperations.Add(AudioTestDatabase.Operation("legacy", AudioUploadState.Succeeded));
-        await db.SaveChangesAsync(Token);
+        await db.SaveChangesAsync(Token); await AudioTestDatabase.SeedSucceededOperationAsync(db, "legacy");
         var before = await CaptureOldAsync(file);
 
         await db.GetService<IMigrator>().MigrateAsync(Migration, Token);
@@ -48,7 +47,10 @@ public sealed class MeaningPhoneticMigrationTests
         var meanings = new VocabularyMeaningRepository(db);
         var meaning = Assert.IsType<VocabularyMeaningModel>(await meanings.GetByIdAsync("meaning"));
         meaning.PhoneticUk = " /uk/ "; meaning.PhoneticUs = "specific-us";
-        await meanings.UpdateAsync(meaning); await db.SaveChangesAsync(Token); db.ChangeTracker.Clear();
+        // This test deliberately runs the historical schema, which predates
+        // the common edit boundary. Seed its columns directly, then verify reads.
+        await db.Database.ExecuteSqlRawAsync("UPDATE vocabulary_meaning SET phonetic_uk=' /uk/ ',phonetic_us='specific-us' WHERE id='meaning'", Token);
+        db.ChangeTracker.Clear();
         var reread = Assert.IsType<VocabularyMeaningModel>(await meanings.GetByIdAsync("meaning"));
         Assert.Equal(" /uk/ ", reread.PhoneticUk); Assert.Equal("specific-us", reread.PhoneticUs);
 
