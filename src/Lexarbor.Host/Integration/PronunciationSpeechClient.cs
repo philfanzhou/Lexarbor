@@ -62,7 +62,24 @@ public sealed class PronunciationSpeechClient(IHttpClientFactory clients, Enrich
             using var suppression = SuppressInstrumentationScope.Begin();
             using var response = await client.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
             var retry = RetryAfter(response);
-            if (response.StatusCode == HttpStatusCode.TooManyRequests) return Failure(PronunciationSpeechOutcome.Throttled, "rate_limited", true, retry);
+            if (response.StatusCode == HttpStatusCode.TooManyRequests)
+            {
+                if (!native)
+                {
+                    // OpenAI also uses 429 for billing/spend/usage blocks.
+                    // Inspect a bounded error, never reinterpret a failed or
+                    // unreadable 429 body as a consumed service failure.
+                    try
+                    {
+                        var error = await ReadBoundedAsync(response.Content, 65536, timeout.Token);
+                        if (error != null && OpenAiCompatibleSpeechAdapter.IsBillingBlock(error))
+                            return Failure(PronunciationSpeechOutcome.Rejected, "balance_required", true);
+                    }
+                    catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { }
+                    catch (Exception error) when (error is JsonException or InvalidOperationException or FormatException or IOException or HttpRequestException) { }
+                }
+                return Failure(PronunciationSpeechOutcome.Throttled, "rate_limited", true, retry);
+            }
             if ((int)response.StatusCode >= 500 || response.StatusCode == HttpStatusCode.RequestTimeout)
                 return Failure(PronunciationSpeechOutcome.ServiceFailure, "service_unavailable", true);
             if (!response.IsSuccessStatusCode) return Failure(PronunciationSpeechOutcome.Rejected,

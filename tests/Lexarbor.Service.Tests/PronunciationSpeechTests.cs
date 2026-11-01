@@ -186,6 +186,47 @@ public sealed class PronunciationSpeechTests
     }
 
     [Theory]
+    [InlineData("credit_balance_exhausted")]
+    [InlineData("organization_spend_limit_exceeded")]
+    [InlineData("project_spend_limit_exceeded")]
+    [InlineData("organization_usage_limit_exceeded")]
+    [InlineData("insufficient_quota")]
+    public async Task Billing429_IsTerminalRatherThanRecoverableThrottling(string code)
+    {
+        using var f = new Fixture(); f.Handler.Respond = (_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.TooManyRequests)
+        { Content = JsonContent.Create(new { error = new { code, type = "insufficient_quota", message = Secret } }) });
+        var result = await f.Client.GenerateAsync(f.Plan(), Ct);
+        Assert.Equal(PronunciationSpeechOutcome.Rejected, result.Outcome); Assert.Equal("balance_required", result.ErrorCode);
+        Assert.True(result.RequestMade); Assert.Null(result.Audio); Assert.Single(f.Handler.Bodies);
+        Assert.DoesNotContain(Secret, JsonSerializer.Serialize(result));
+    }
+
+    [Theory]
+    [InlineData("malformed")]
+    [InlineData("oversized")]
+    [InlineData("timeout")]
+    [InlineData("duplicate-code")]
+    public async Task Unreadable429_RemainsThrottledWithoutConsumingAServiceFailure(string scenario)
+    {
+        using var f = new Fixture(timeout: 1);
+        f.Handler.Respond = (_, _) =>
+        {
+            HttpContent body = scenario switch
+            {
+                "oversized" => new StreamContent(new UnknownLengthStream(new byte[65537])),
+                "timeout" => new StreamContent(new WaitingStream()),
+                "duplicate-code" => new StringContent("{\"error\":{\"code\":\"credit_balance_exhausted\",\"code\":\"slow_down\"}}"),
+                _ => new StringContent("not json")
+            };
+            var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests) { Content = body };
+            response.Headers.RetryAfter = new(TimeSpan.FromMinutes(10)); return Task.FromResult(response);
+        };
+        var result = await f.Client.GenerateAsync(f.Plan(), Ct);
+        Assert.Equal(PronunciationSpeechOutcome.Throttled, result.Outcome); Assert.Equal(TimeSpan.FromMinutes(10), result.RetryAfter);
+        Assert.True(result.RequestMade); Assert.Null(result.Audio);
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task RetryAfterDate_IsPreservedBeyondNormalThrottleCap(bool native)

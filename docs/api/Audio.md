@@ -398,7 +398,7 @@ IO; false returns `Superseded` without dispatch, and persistence failures propag
 In-flight calls retain their captured settings. Final field/binding authorization,
 call persistence, budgets and scheduling belong to the executor and scheduler.
 
-HTTP 429 and recognized HTTP-200 business throttling return `Throttled` with positive
+HTTP 429 rate limits and recognized HTTP-200 business throttling return `Throttled` with positive
 `Retry-After` delta/date preserved, without sleeping or retrying. MiniMax checks
 `base_resp.status_code` before accepting audio: 1002/1039/concurrency or growth limits
 are throttling; authentication, balance, parameters and unsupported models stop hot
@@ -407,6 +407,12 @@ return `ServiceFailure`; malformed responses/audio return `InvalidAudio`. Unknow
 business errors fail safely with fixed reasons. `RequestMade` distinguishes local
 waiting/rejection from attempted dispatch. Throttling must not consume the caller's
 failure budget, and service recovery must not reset exhausted tasks.
+OpenAI also uses 429 for credit, spend and usage blocks: recognized billing codes
+(`credit_balance_exhausted`, organization/project spend limits, organization usage
+limits and legacy `insufficient_quota`) return terminal `balance_required`. Error
+inspection is capped at 64 KiB; malformed, oversized or timed-out 429 error bodies
+retain the throttle result instead of consuming a service-failure slot. Caller
+cancellation still propagates. See [OpenAI error classifications](https://developers.openai.com/api/docs/guides/error-codes).
 
 Responses are bounded while reading, including unknown-length streams: binary audio
 at most 5 MiB; native JSON at most 10 MiB + 64 KiB; decoded native audio at most 5 MiB.

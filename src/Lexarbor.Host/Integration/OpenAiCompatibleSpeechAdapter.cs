@@ -53,12 +53,23 @@ internal static class OpenAiCompatibleSpeechAdapter
                 {
                     "rate_limit_exceeded" or "slow_down" => PronunciationSpeechClient.Failure(PronunciationSpeechOutcome.Throttled, "rate_limited", true, retry),
                     "invalid_api_key" => PronunciationSpeechClient.Failure(PronunciationSpeechOutcome.Rejected, "credentials_rejected", true),
-                    "insufficient_quota" => PronunciationSpeechClient.Failure(PronunciationSpeechOutcome.Rejected, "balance_required", true),
+                    "insufficient_quota" or "credit_balance_exhausted" or "organization_spend_limit_exceeded"
+                        or "project_spend_limit_exceeded" or "organization_usage_limit_exceeded" => PronunciationSpeechClient.Failure(PronunciationSpeechOutcome.Rejected, "balance_required", true),
                     "server_error" => PronunciationSpeechClient.Failure(PronunciationSpeechOutcome.ServiceFailure, "service_unavailable", true),
                     _ => PronunciationSpeechClient.Failure(PronunciationSpeechOutcome.Rejected, "request_rejected", true)
                 };
             }
         }
         return PronunciationSpeechClient.ValidateAudio(bytes);
+    }
+
+    public static bool IsBillingBlock(byte[] bytes)
+    {
+        using var document = JsonDocument.Parse(bytes, new JsonDocumentOptions { MaxDepth = 16 });
+        var root = document.RootElement;
+        return PronunciationSpeechClient.UniqueProperties(root) && root.TryGetProperty("error", out var error)
+            && error.ValueKind == JsonValueKind.Object && error.TryGetProperty("code", out var code) && code.ValueKind == JsonValueKind.String
+            && code.GetString() is "insufficient_quota" or "credit_balance_exhausted" or "organization_spend_limit_exceeded"
+                or "project_spend_limit_exceeded" or "organization_usage_limit_exceeded";
     }
 }
