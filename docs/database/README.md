@@ -411,3 +411,87 @@ historical migrations followed by this removal and end with the same schema as
 upgrades. Downgrading recreates empty tables and publication triggers only; restore
 a pre-upgrade backup to recover recording metadata and receipts. See
 [deployment and rollback](../development/Deployment.md#textbook-recording-removal).
+
+
+## Enrichment task persistence
+
+`AddEnrichmentTasks` adds `enrichment_target`, `enrichment_round`,
+`enrichment_call` and `enrichment_wait`. It does not rewrite vocabulary, assets,
+bindings or permanent upload receipts, and does not start a worker or contact a
+provider. No public HTTP route, authentication policy or browser contract changes.
+
+A target is unique by word, optional owned meaning, accent and step (`Prepare`,
+`Fields`, `Audio`). Separate partial unique indexes cover default and meaning
+identities so SQLite NULL semantics cannot create duplicate default work. Empty
+specific phonetics mean inheritance: no meaning generation target is created for
+them, and meaning-specific field filling is not a step. Each accent/step has its
+own round and budget; a successful step or accent remains recorded when another
+fails. Plans contain only bounded spoken text, pronunciation hints and proposed
+fields needed for recovery. Raw provider responses, credentials, key fingerprints,
+object locations and signed URLs do not belong in this history.
+
+Rounds capture current input, the relevant opaque durable configuration version,
+failure budget (default five including the first failure), request count, consumed
+failures, plan, safe error/wait reason, next attempt and owner/fence/expiry. Input
+uses the shared audio source revision; preparation/fields also include explicit
+position kinds and current definitions/parts of speech. Audio guards compare the
+target's **own** asset, never a default playback fallback. Other accents' phonetics
+and configuration versions do not reset this target. A normal scan, restart,
+service recovery or budget setting change preserves its existing round and
+exhaustion. A changed relevant input/configuration or a distinct explicit single
+retry opens a new round; retry UUIDs are deduplicated across retained history.
+Already successful unchanged steps are not reopened by configuration changes or
+explicit retries. Completed rounds and old calls are retained. A same-round successful field/binding
+write advances expected input rather than creating another round.
+
+`BeginCallAsync` durably records each dispatch immediately before the external
+request, using a fresh request ID and, for an audio attempt, a fresh upload
+idempotency key. A `Started` call has an unknown outcome after a crash: it is not
+proof of failure or permission to send again. Counts describe recorded request
+dispatches, not guaranteed exactly-once provider billing. Call completion is
+idempotent. 429 and HTTP-200 business throttling record a request and a wait, but
+consume no failures. A transient actual failure consumes one; the fifth becomes
+failed and cannot be claimed again after service recovery. Unsupported capability
+or invalid configuration can stop without making a request. Disabled, missing
+configuration/storage and service-pause waits consume neither requests nor failure
+budget. Every wait event retains its reason, time and next attempt separately from
+the latest round state. Network I/O and waiting occur outside writer transactions.
+
+`ClaimAsync` atomically admits only one owner and increments its fencing token;
+expiry is exclusive. It can reclaim an expired running round without clearing its
+plan, calls or budget. Time is read from `TimeProvider` after SQLite writer
+admission, including the process write queue. Old owners, fences, rounds, epochs,
+changed input, changed own bindings and deleted targets cannot complete or mutate
+queue work. `ValidateInTransactionAsync` is the shared authorization boundary for
+later field and final binding writers: it requires the **same scoped context and
+actual serialized UnitOfWork transaction** as the mutation. A standalone or prior
+transaction check cannot authorize a later write. After a successful conditional
+mutation, `AdvanceInputInTransactionAsync` accepts its new input only when the same
+transaction validated the old guard; a failed check must abort the mutation and
+roll back. These ports do not themselves implement field filling or audio upload.
+The separate upload lease continues to protect upload operations.
+
+Relevant content changes use `InvalidateInTransactionAsync` with the content edit
+in that same transaction. It advances a persistent epoch independently of hashes,
+so A-to-B-to-A cannot revive an old executor. Clearing a specific phonetic cancels
+its active work without generating a new specific value. Deletion triggers cancel
+active rounds and tombstone target identities on word/meaning deletion, including
+cascading cleanup, while retaining round/call/wait history. Discovery cannot
+resurrect those deleted identities.
+
+A committed upload with a lost task-completion response is reconciled through
+`RecoverPublishedAsync`: it requires that round's recorded upload key, the
+permanent successful upload receipt, unchanged current input and the exact current
+own binding. It then records success without another request. A receipt from an
+older round, another target, changed input or a replaced/unbound asset cannot
+complete current work. Unpublished upload cleanup remains on the existing upload
+recovery path; this migration grants no authority to delete published objects.
+
+Back up the full SQLite database and persistent configuration together, plus the
+matching private audio objects. The startup version gate continues to reject
+unknown migration history in older images. An explicit Down to
+`20261101125550_AddMeaningPhonetics` drops these four tables and the deletion
+triggers, losing all queue rounds, plans, counts and history; it preserves old
+vocabulary/audio data and upload receipts and performs no S3 operation. Stop writes
+and retain a pre-Down backup, or restore a matching pre-upgrade backup before
+running an older image. See [deployment](../development/Deployment.md#enrichment-task-upgrade).

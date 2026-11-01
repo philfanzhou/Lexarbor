@@ -263,6 +263,35 @@ Down loses the two specific phonetic values while preserving old data and audio
 history; restore the pre-upgrade backup instead when that is the required recovery
 point. Old-image direct access to an upgraded database is not supported.
 
+### Enrichment task upgrade
+
+`AddEnrichmentTasks` creates four empty task/round/call/wait tables and deletion
+triggers in `/app/data/vocabulary.db`. It preserves all existing vocabulary IDs,
+phonetics, assets, bindings and permanent upload receipts. This foundation adds
+no scheduler, AI/TTS request, manual batch action, HTTP API or browser feature;
+existing disabled deployments continue to start without new configuration.
+See [the persistence contract](../database/README.md#enrichment-task-persistence)
+for per-step budgets, durable waits and final-transaction execution guards.
+
+Use the same fixed `/app/data` bind mount or named volume across container/image
+replacement. Back up the complete database, `/app/data/appsettings.json`, matching
+root key and private audio bucket consistently. Plans, separate dispatch/failure
+counts, all rounds/wait history, lease fences, content epochs and upload receipts
+survive restart; restart or a recovered provider does not reset exhausted work.
+Expired ownership can be reclaimed, while unknown published results are reconciled
+against their permanent upload receipt before another generation attempt. The
+service remains single-instance; task leases do not enable a multi-instance
+SQLite deployment or exactly-once remote billing.
+
+An older image refuses the upgraded schema with `migration.version_too_new`.
+For an explicit rollback, stop all writes and generation, preserve a backup, and
+use current migration tooling to return to
+`20261101125550_AddMeaningPhonetics`. Down removes the four task tables and deletion
+triggers, losing plans, budgets, waits and call/round history while retaining
+vocabulary and all prior audio data/receipts; no remote object is removed. Restore
+a matching pre-upgrade backup instead when historical queue data must be retained.
+Never start an old image directly against the upgraded database.
+
 ### Rollback journal
 
 The database runs under SQLite's default rollback journal. The earlier releases kept it in write-ahead logging; this one normalizes every database back to the rollback journal before the startup gate observes it: opening a database that still carries the WAL header replays any committed frames of a leftover `vocabulary.db-wal` file, one checkpoint folds them into the database, the header switches to the rollback journal, and the sidecar files are deleted. Every committed transaction survives the conversion, a database restored later from an old WAL backup is converted the same way, and no operator action is needed. A database that is missing is created by the gate already in the rollback mode, and a normalization that cannot complete stops startup with a fixed safe diagnostic without changing the file.
