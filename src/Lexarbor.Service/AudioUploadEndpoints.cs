@@ -124,7 +124,7 @@ public static class AudioUploadEndpoints
         var producer = fields.GetValueOrDefault("producer"); var voice = fields.GetValueOrDefault("voice");
         if (new[] { producer, voice }.Any(value => value != null && (value.Length > 128 || value.Any(char.IsControl))))
             throw new UploadInputException(400, "Audio producer and voice must be at most 128 characters without control characters.");
-        if (!Mp3Validation.IsValid(file)) throw new UploadInputException(415, "Audio file must contain complete MP3 frames.");
+        if (!AudioUploadContentValidation.IsValid(file, maxBytes)) throw new UploadInputException(415, "Audio file must contain complete MP3 frames.");
         token.ThrowIfCancellationRequested();
         return new(key, wordId, meaningId, locale, revision, expected == "" ? null : expected, file, producer, voice);
     }

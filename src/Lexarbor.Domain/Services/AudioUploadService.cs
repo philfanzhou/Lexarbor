@@ -14,8 +14,11 @@ public sealed record AudioUploadResult(int StatusCode, string? AssetId = null, s
 public sealed class AudioUploadService(IAudioUploadRepository repository, IAudioObjectStore store,
     AudioUploadSettings settings, TimeProvider clock)
 {
-    public async Task<AudioUploadResult> UploadAsync(AudioUploadContent content, CancellationToken cancellationToken)
+    public async Task<AudioUploadResult> UploadAsync(AudioUploadContent content, CancellationToken cancellationToken,
+        EnrichmentExecutionGuard? executionGuard = null)
     {
+        if (executionGuard != null && repository is not IAudioGuardedPublicationRepository)
+            throw new InvalidOperationException("Background audio requires guarded publication.");
         if (!settings.Enabled) return new(503, ErrorCode: "audio.disabled");
         cancellationToken.ThrowIfCancellationRequested();
         var hash = Convert.ToHexStringLower(SHA256.HashData(content.Bytes));
@@ -55,7 +58,10 @@ public sealed class AudioUploadService(IAudioUploadRepository repository, IAudio
                 return abandoned ? await ReadFailureAsync(content.IdempotencyKey) : await ExpiredAsync(content.IdempotencyKey);
             }
             // The repository observes cancellation before admission, then completes an admitted atomic commit.
-            var completed = await repository.CompleteAsync(content.IdempotencyKey, upload.Operation.UploadLease, Now(), cancellationToken);
+            var completed = executionGuard == null
+                ? await repository.CompleteAsync(content.IdempotencyKey, upload.Operation.UploadLease, Now(), cancellationToken)
+                : await ((IAudioGuardedPublicationRepository)repository).CompleteGuardedAsync(content.IdempotencyKey,
+                    upload.Operation.UploadLease, executionGuard, Now(), cancellationToken);
             return completed == null ? await ExpiredAsync(content.IdempotencyKey) : Receipt(completed);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

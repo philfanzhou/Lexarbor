@@ -57,11 +57,14 @@ public sealed class EnrichmentTaskRepository(VocabularyDbContext context, TimePr
         if (target != null)
         {
             previous = await Rounds.SingleAsync(row => row.TargetId == target.Id && row.Number == target.CurrentRound);
-            if (!invalidate && previous.State == EnrichmentState.Succeeded && Version(previous) == input)
+            var missingEnvelope = key.Step == EnrichmentStep.Prepare && previous.State == EnrichmentState.Succeeded
+                && (previous.PlanJson == null || JsonSerializer.Deserialize<EnrichmentPlan>(previous.PlanJson)?.Preparation == null);
+            if (!invalidate && !missingEnvelope && previous.State == EnrichmentState.Succeeded && Version(previous) == input
+                && (key.Step != EnrichmentStep.Prepare || previous.ConfigurationVersion == config))
                 return await GetCoreAsync(target.Id, CancellationToken.None);
             if (retryKey != null && await Rounds.AnyAsync(row => row.TargetId == target.Id && row.RetryKey == retryKey))
                 return await GetCoreAsync(target.Id, CancellationToken.None);
-            if (!invalidate && retryKey == null && Version(previous) == input && previous.ConfigurationVersion == config && previous.State != EnrichmentState.Cancelled)
+            if (!invalidate && !missingEnvelope && retryKey == null && Version(previous) == input && previous.ConfigurationVersion == config && previous.State != EnrichmentState.Cancelled)
                 return await GetCoreAsync(target.Id, CancellationToken.None);
             if (previous.State is EnrichmentState.Pending or EnrichmentState.Running or EnrichmentState.Waiting)
                 await RoundQuery(target.Id, target.CurrentRound).ExecuteUpdateAsync(set => set
@@ -146,6 +149,16 @@ public sealed class EnrichmentTaskRepository(VocabularyDbContext context, TimePr
     {
         Bounded(plan.SpokenText, 4096); Optional(plan.PronunciationHint, 2048); Optional(plan.Phonetic, 512);
         if (plan.InferredEntryKind is not (null or "word" or "phrase")) throw new ArgumentException("Enrichment entry kind is invalid.", nameof(plan));
+        if (plan.Preparation is { } preparation)
+        {
+            Bounded(preparation.ConfigurationVersion, 128); Bounded(preparation.ClassificationBasis, 512);
+            Bounded(preparation.Input.Word, 4096); Optional(preparation.Input.Phonetic, 512);
+            Optional(preparation.RequiredPhonetic, 512); Optional(preparation.SpeechPhonetic, 512);
+            if (preparation.InputVersion != guard.Input || preparation.InputVersion.SourceRevision != AudioSelectionService.ComputeRevision(preparation.Input)
+                || preparation.EntryKind is not ("word" or "phrase") || !Enum.IsDefined(preparation.Control)
+                || preparation.ConflictingMeaningIds?.Count > 100)
+                throw new ArgumentException("Enrichment preparation is invalid.", nameof(plan));
+        }
         if (plan.PartsOfSpeech != null)
         {
             if (plan.PartsOfSpeech.Count > 100 || plan.PartsOfSpeech.Select(value => value.MeaningId).Distinct(StringComparer.Ordinal).Count() != plan.PartsOfSpeech.Count)
@@ -231,7 +244,7 @@ public sealed class EnrichmentTaskRepository(VocabularyDbContext context, TimePr
     public Task<bool> WaitAsync(EnrichmentExecutionGuard guard, EnrichmentWaitReason reason, long now,
         long nextAttemptAt, CancellationToken cancellationToken)
     {
-        if (!Enum.IsDefined(reason) || reason is EnrichmentWaitReason.Throttled or EnrichmentWaitReason.Retry or EnrichmentWaitReason.LeaseExpired)
+        if (!Enum.IsDefined(reason) || reason is EnrichmentWaitReason.Retry or EnrichmentWaitReason.LeaseExpired)
             throw new ArgumentOutOfRangeException(nameof(reason));
         ValidateExpiry(now, nextAttemptAt);
         return WriteAsync(async () =>
