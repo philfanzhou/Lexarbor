@@ -62,7 +62,22 @@ internal static class EnrichmentModelConfiguration
         wait.HasKey(row => row.Id);
         wait.Property(row => row.Reason).HasConversion<string>();
         wait.HasOne<EnrichmentRoundEntity>().WithMany().HasForeignKey(row => new { row.TargetId, row.Round }).OnDelete(DeleteBehavior.Cascade);
-        foreach (var entity in new[] { target.Metadata, round.Metadata, call.Metadata, wait.Metadata })
+        var discovery = builder.Entity<EnrichmentDiscoveryEntity>();
+        discovery.ToTable("enrichment_discovery"); discovery.HasKey(row => row.Id);
+        var service = builder.Entity<EnrichmentServiceEntity>();
+        service.ToTable("enrichment_service", table =>
+        {
+            table.HasCheckConstraint("CK_enrichment_service_counts", "consecutive_failures >= 0 AND throttle_seconds >= 0 AND pause_seconds >= 0 AND next_attempt_at_unix_ms >= 0");
+            table.HasCheckConstraint("CK_enrichment_service_lease", "(lease_id IS NULL) = (lease_expires_at_unix_ms IS NULL)");
+        });
+        service.HasKey(row => row.Id);
+        var probe = builder.Entity<EnrichmentServiceProbeEntity>();
+        probe.ToTable("enrichment_service_probe", table => table.HasCheckConstraint("CK_enrichment_service_probe_times",
+            "started_at_unix_ms >= 0 AND (finished_at_unix_ms IS NULL OR finished_at_unix_ms >= started_at_unix_ms)"));
+        probe.HasKey(row => row.Id);
+        probe.HasOne<EnrichmentServiceEntity>().WithMany().HasForeignKey(row => row.ServiceId).OnDelete(DeleteBehavior.Cascade);
+        probe.HasIndex(row => new { row.ServiceId, row.StartedAtUnixMs });
+        foreach (var entity in new[] { target.Metadata, round.Metadata, call.Metadata, wait.Metadata, discovery.Metadata, service.Metadata, probe.Metadata })
             foreach (var property in entity.GetProperties())
                 property.SetColumnName(Regex.Replace(property.Name, "([a-z0-9])([A-Z])", "$1_$2").ToLowerInvariant());
     }

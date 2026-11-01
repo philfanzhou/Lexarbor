@@ -427,6 +427,27 @@ namespace Lexarbor.Database.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Lexarbor.Database.Entities.EnrichmentDiscoveryEntity", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Cursor")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("cursor");
+
+                    b.Property<string>("UpperBound")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("upper_bound");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("enrichment_discovery", (string)null);
+                });
+
             modelBuilder.Entity("Lexarbor.Database.Entities.EnrichmentRoundEntity", b =>
                 {
                     b.Property<string>("TargetId")
@@ -538,6 +559,97 @@ namespace Lexarbor.Database.Migrations
                             t.HasCheckConstraint("CK_enrichment_round_times", "created_at_unix_ms >= 0 AND updated_at_unix_ms >= created_at_unix_ms");
 
                             t.HasCheckConstraint("CK_enrichment_round_wait", "wait_reason IS NULL OR wait_reason IN ('Disabled','ConfigurationMissing','StorageDisabled','ServicePaused','Throttled','Retry','LeaseExpired')");
+                        });
+                });
+
+            modelBuilder.Entity("Lexarbor.Database.Entities.EnrichmentServiceEntity", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("Blocked")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("blocked");
+
+                    b.Property<string>("ConfigurationVersion")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("configuration_version");
+
+                    b.Property<int>("ConsecutiveFailures")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("consecutive_failures");
+
+                    b.Property<long?>("LeaseExpiresAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("lease_expires_at_unix_ms");
+
+                    b.Property<string>("LeaseId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("lease_id");
+
+                    b.Property<long>("NextAttemptAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("next_attempt_at_unix_ms");
+
+                    b.Property<int>("PauseSeconds")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("pause_seconds");
+
+                    b.Property<bool>("Paused")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("paused");
+
+                    b.Property<int>("ThrottleSeconds")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("throttle_seconds");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("enrichment_service", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_enrichment_service_counts", "consecutive_failures >= 0 AND throttle_seconds >= 0 AND pause_seconds >= 0 AND next_attempt_at_unix_ms >= 0");
+
+                            t.HasCheckConstraint("CK_enrichment_service_lease", "(lease_id IS NULL) = (lease_expires_at_unix_ms IS NULL)");
+                        });
+                });
+
+            modelBuilder.Entity("Lexarbor.Database.Entities.EnrichmentServiceProbeEntity", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("id");
+
+                    b.Property<long?>("FinishedAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("finished_at_unix_ms");
+
+                    b.Property<bool>("RequestMade")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("request_made");
+
+                    b.Property<string>("Result")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("result");
+
+                    b.Property<string>("ServiceId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("service_id");
+
+                    b.Property<long>("StartedAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("started_at_unix_ms");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ServiceId", "StartedAtUnixMs");
+
+                    b.ToTable("enrichment_service_probe", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_enrichment_service_probe_times", "started_at_unix_ms >= 0 AND (finished_at_unix_ms IS NULL OR finished_at_unix_ms >= started_at_unix_ms)");
                         });
                 });
 
@@ -1254,6 +1366,15 @@ namespace Lexarbor.Database.Migrations
                     b.HasOne("Lexarbor.Database.Entities.EnrichmentTargetEntity", null)
                         .WithMany()
                         .HasForeignKey("TargetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Lexarbor.Database.Entities.EnrichmentServiceProbeEntity", b =>
+                {
+                    b.HasOne("Lexarbor.Database.Entities.EnrichmentServiceEntity", null)
+                        .WithMany()
+                        .HasForeignKey("ServiceId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

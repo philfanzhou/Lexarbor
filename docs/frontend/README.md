@@ -433,3 +433,14 @@ missing audio or a safe storage failure and refresh links when playing; issued
 links and downloaded files cannot be immediately revoked. Historical restoration
 of an explicitly deleted specific object needs its matching remote backup. See
 [the audio contract](../api/Audio.md#explicit-specific-audio-cleanup).
+
+
+## Autonomous enrichment
+
+The host now discovers and processes missing default fields/audio and explicit
+nonempty specific-audio targets when an enrichment switch is enabled. Normal
+approval/import/edit flows do not select a range or start a batch. Empty specific
+phonetics continue to inherit. Browser credentials and existing routes are unchanged;
+this stage adds no task query, retry controls or progress UI. Administrator observation
+and single-item retry remain separate work. See [scheduler behavior](../api/Audio.md#autonomous-enrichment-scheduling)
+for waiting, shared throttling and exhausted-budget recovery.

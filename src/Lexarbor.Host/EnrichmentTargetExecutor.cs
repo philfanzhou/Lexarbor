@@ -12,7 +12,7 @@ namespace Lexarbor.Host;
 public sealed class EnrichmentTargetExecutor(IEnrichmentTaskRepository tasks, IEnrichmentExecutionRepository catalog,
     IAudioUploadRepository uploads, IPronunciationPreparationClient preparation, IPronunciationSpeechClient speech,
     IAudioUploadOperationFactory operations, AudioUploadAdmission admission, EnrichmentRuntimeConfiguration runtime,
-    TimeProvider clock)
+    TimeProvider clock, EnrichmentServiceGate? services = null)
 {
     private long Now => clock.GetUtcNow().ToUnixTimeMilliseconds();
     // Stable relevant versions, independent of the HTTP settings ETag. Audio
@@ -118,17 +118,33 @@ public sealed class EnrichmentTargetExecutor(IEnrichmentTaskRepository tasks, IE
         {
             var callId = Guid.NewGuid().ToString();
             var called = false;
+            var callFinished = false;
+            EnrichmentServiceAdmission? service = null;
             var result = await preparation.PrepareAsync(current.Request, token, async (dispatch, ct) =>
             {
                 if (dispatch.InputVersion != guard.Input || dispatch.ConfigurationVersion != runtime.Current.TextVersion
                     || ConfigurationVersion(task.Target, runtime.Current) != round.ConfigurationVersion) return false;
+                if (services != null)
+                {
+                    service = await services.EnterAsync("text", false, ct);
+                    if (service.LeaseId == null) return false;
+                }
                 called = await tasks.BeginCallAsync(guard, callId, "text", null, Now, ct);
                 return called;
             });
+            if (service?.WaitReason is { } reason)
+                return await WaitAsync(guard, reason, Math.Max(1000, service.NextAttemptAtUnixMs - Now), token);
+            if (service?.LeaseId != null)
+            {
+                var completion = called && result.RequestMade ? Completion(guard, callId, "text", result.Outcome.ToString(), result.ErrorCode, result.RetryAfter) : null;
+                var next = await services!.FinishAsync(service, result.Outcome.ToString(), result.ErrorCode, called && result.RequestMade, result.RetryAfter, token, completion);
+                callFinished = completion != null;
+                if (result.Outcome == PronunciationPreparationOutcome.Throttled) result = result with { RetryAfter = TimeSpan.FromMilliseconds(Math.Max(1000, next - Now)) };
+            }
             if (result.Outcome != PronunciationPreparationOutcome.Ready || result.Plan == null)
             {
                 await RecordAsync(guard, callId, called, "text", result.Outcome.ToString(), result.ErrorCode,
-                    result.RetryAfter, token);
+                    result.RetryAfter, token, callFinished);
                 return await RefreshOrGetAsync(task, result.Outcome == PronunciationPreparationOutcome.Superseded, token);
             }
             stored = EnrichmentPreparedPlans.Store(result.Plan, current.OwnAssetId);
@@ -194,17 +210,33 @@ public sealed class EnrichmentTargetExecutor(IEnrichmentTaskRepository tasks, IE
         using var permit = await admission.EnterAsync(token);
         if (permit == null) return await WaitAsync(guard, EnrichmentWaitReason.Throttled, 1000, token);
         var callId = Guid.NewGuid().ToString(); var uploadKey = Guid.NewGuid().ToString(); var called = false;
+        var callFinished = false;
+        EnrichmentServiceAdmission? service = null;
         var result = await speech.GenerateAsync(new(PronunciationPreparationOutcome.Ready, prepared), token, async (dispatch, ct) =>
         {
             if (dispatch.InputVersion != guard.Input || dispatch.TextConfigurationVersion != runtime.Current.TextVersion
                 || dispatch.TtsConfigurationVersion != (task.Target.Locale == AudioLocale.EnGb ? runtime.Current.UkTtsVersion : runtime.Current.UsTtsVersion)
                 || ConfigurationVersion(task.Target, runtime.Current) != round.ConfigurationVersion) return false;
+            if (services != null)
+            {
+                service = await services.EnterAsync("tts", false, ct);
+                if (service.LeaseId == null) return false;
+            }
             called = await tasks.BeginCallAsync(guard, callId, "tts", uploadKey, Now, ct);
             return called;
         });
+        if (service?.WaitReason is { } reason)
+            return await WaitAsync(guard, reason, Math.Max(1000, service.NextAttemptAtUnixMs - Now), token);
+        if (service?.LeaseId != null)
+        {
+            var completion = called && result.RequestMade ? Completion(guard, callId, "tts", result.Outcome.ToString(), result.ErrorCode, result.RetryAfter) : null;
+            var next = await services!.FinishAsync(service, result.Outcome.ToString(), result.ErrorCode, called && result.RequestMade, result.RetryAfter, token, completion);
+            callFinished = completion != null;
+            if (result.Outcome == PronunciationSpeechOutcome.Throttled) result = result with { RetryAfter = TimeSpan.FromMilliseconds(Math.Max(1000, next - Now)) };
+        }
         if (result.Outcome != PronunciationSpeechOutcome.Ready || result.Audio == null)
         {
-            await RecordAsync(guard, callId, called, "tts", result.Outcome.ToString(), result.ErrorCode, result.RetryAfter, token);
+            await RecordAsync(guard, callId, called, "tts", result.Outcome.ToString(), result.ErrorCode, result.RetryAfter, token, callFinished);
             return await RefreshOrGetAsync(task, result.Outcome == PronunciationSpeechOutcome.Superseded, token);
         }
         if (!AudioUploadContentValidation.IsValid(result.Audio, operation.Settings.MaxBytes, generated: true))
@@ -224,7 +256,7 @@ public sealed class EnrichmentTargetExecutor(IEnrichmentTaskRepository tasks, IE
     }
 
     private async Task RecordAsync(EnrichmentExecutionGuard guard, string callId, bool called, string service,
-        string outcome, string? error, TimeSpan? retry, CancellationToken token)
+        string outcome, string? error, TimeSpan? retry, CancellationToken token, bool finished = false)
     {
         var code = service + "." + (error ?? "failed");
         if (outcome == "Superseded") return;
@@ -235,11 +267,21 @@ public sealed class EnrichmentTargetExecutor(IEnrichmentTaskRepository tasks, IE
             else await tasks.StopAsync(guard, code, Now, token);
             return;
         }
+        if (finished) return;
+        var completion = Completion(guard, callId, service, outcome, error, retry)!;
+        await tasks.FinishCallAsync(guard, callId, completion.Result, completion.ErrorCode, Now, completion.NextAttemptAtUnixMs, token);
+    }
+
+    private EnrichmentCallCompletion? Completion(EnrichmentExecutionGuard guard, string callId, string service,
+        string outcome, string? error, TimeSpan? retry)
+    {
+        if (outcome is "Ready" or "Superseded") return null;
         var terminal = outcome is "Rejected" or "InvalidInput" or "InvalidPlan";
         var throttled = outcome == "Throttled";
         var next = Now + Math.Max(1000, (long)(retry ?? TimeSpan.FromSeconds(throttled ? runtime.Current.Enrichment.ThrottleInitialSeconds : 30)).TotalMilliseconds);
-        await tasks.FinishCallAsync(guard, callId, throttled ? EnrichmentCallResult.Throttled
-            : terminal ? EnrichmentCallResult.TerminalFailure : EnrichmentCallResult.TransientFailure, code, Now, terminal ? null : next, token);
+        return new(guard, callId, throttled ? EnrichmentCallResult.Throttled
+            : terminal ? EnrichmentCallResult.TerminalFailure : EnrichmentCallResult.TransientFailure,
+            service + "." + (error ?? "failed"), terminal ? null : next);
     }
 
     private Task<EnrichmentTask?> GetAsync(string id, CancellationToken token) => tasks.GetAsync(id, token);

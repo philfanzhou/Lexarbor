@@ -287,12 +287,12 @@ SQLite deployment or exactly-once remote billing.
 
 The internal single-target executor can now prepare, conditionally fill missing
 default fields and generate/publish one explicit accent target. It is registered for
-internal callers only: this stage starts no discovery/hosted generation worker and
-adds no public route or normal-operation batch action. The existing default-off
+the autonomous worker described below and internal callers. It adds no public
+route or normal-operation batch action. The existing default-off
 switches, administrator authorization and server-only credentials remain unchanged.
 See [the execution contract](../api/Audio.md#single-target-enrichment-execution).
 
-No migration is added. The bounded existing plan JSON now preserves the full prepared
+The executor itself adds no migration. Its bounded existing plan JSON preserves the full prepared
 envelope and optional field-conflict IDs for recovery; old content-only plans are
 prepared again before speech. Its own field commit advances the same round input
 atomically. Text and per-accent TTS versions remain durable across restarts; changing
@@ -1583,3 +1583,46 @@ phonetics, tasks, deletion authority/tombstones and permanent receipts. Never re
 interrupted old executions across Down; prefer restoring a matched pre-upgrade
 backup. Neither Down nor image rollback reconstructs deleted MP3 objects. See
 [the persistence contract](../database/README.md#atomic-specific-phonetic-edits).
+
+
+### Autonomous enrichment worker upgrade
+
+`AddEnrichmentScheduler` adds durable discovery cursors, shared service gates and
+independent probe history to `/app/data/vocabulary.db`; existing catalog/audio
+IDs, task rounds, failure/request counts and receipts are preserved. Configuration
+initialization and database startup finish before hosted work starts. Both
+`Enrichment:FieldsEnabled` and `Enrichment:AudioEnabled` remain false by default;
+legacy deployments need no new configuration and make no automatic AI/TTS calls.
+When enabled, approvals/imports/edits wake a bounded queue only after commit, and
+periodic bounded discovery covers lost notifications, historical work and R03
+specific regeneration. No manual scope selection or full-library start is needed.
+
+Existing administrator-only settings control concurrency (default 1, range 1–8),
+discovery batch size (20) and scan interval (30 seconds). New arrivals have priority
+with reserved historical discovery/execution capacity. Pending work is retained
+when generation is disabled; it resumes on enablement without resetting budgets.
+With only fields enabled, audio targets wait; with storage disabled, field completion
+can continue independently while audio-only work and TTS probes wait.
+
+The default service policy is five consecutive transport/timeout/5xx failures before
+pause, independent probes at 60 seconds doubling to 600 seconds, and throttling at
+8 seconds doubling to 120 seconds (longer `Retry-After` wins). These existing
+`Enrichment` settings remain configurable. UK/US share one TTS service gate;
+review AI and enrichment text are independent. A relevant service configuration
+correction releases a blocked service, while accent voice/speed and enable switches
+do not reset shared outage state. An internal durable TTS service version is stored
+with the existing private version metadata; no credential or digest is exposed.
+
+Keep the same fixed `/app/data` bind mount or named volume and matching private
+audio bucket across restart/image replacement. The container smoke checks exact
+retention of cursor, throttle/pause/probe state alongside specific-edit tasks and
+permanent upload receipts across two container recreations. Restart, scanning and
+provider recovery do not revive exhausted targets. Real MiniMax and supported
+OpenAI-compatible listening acceptance remains separate.
+
+For explicit Down, stop workers/writes, back up database/configuration/objects,
+then use current tooling to migrate to `20261101194034_AddMeaningPhoneticEpochs`.
+This loses only scheduler cursor/service/probe history; prior tasks/receipts remain.
+The newer-database gate and matching-backup recovery policy still apply. See
+[database persistence](../database/README.md#autonomous-scheduler-persistence) and
+[the execution behavior](../api/Audio.md#autonomous-enrichment-scheduling).

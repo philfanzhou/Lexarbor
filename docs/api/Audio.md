@@ -394,10 +394,9 @@ and [error codes](https://developers.openai.com/api/docs/guides/error-codes).
 
 ## Single-target enrichment execution
 
-`EnrichmentTargetExecutor` is an internal, explicitly invoked service. It adds no
-HTTP parameters, batch action or hosted scheduler. Automatic discovery and startup
-remain a separate stage; merely configuring the two default-off switches does not
-start this executor.
+`EnrichmentTargetExecutor` executes one internal target. The hosted scheduler now
+discovers work automatically when either default-off enrichment switch is enabled.
+There are no new HTTP parameters, manual batch actions or selection steps.
 
 Preparation is a separate durable step and budget for each explicit target/accent.
 It captures current catalog/position data, records dispatch through `beforeDispatch`,
@@ -551,3 +550,45 @@ contracts. An issued URL or downloaded copy cannot be immediately revoked, and
 object availability can change after Stat. Restore historical explicitly deleted
 objects from a matching private remote backup. Details are in
 [deployment recovery](../development/Deployment.md#specific-audio-invalidation-recovery).
+
+
+## Autonomous enrichment scheduling
+
+After configuration initialization and successful database startup, the hosted worker
+uses the two independent default-off switches. With both off it performs no discovery,
+probe or supplier call. With either on, committed approvals, imports and edits send
+best-effort bounded wakeups. A periodic bounded scan also discovers historical and
+new catalog data, including lost notifications and persisted specific-edit work.
+Each scan reserves independent word and meaning cursor pages with a fixed cycle
+upper bound for history; each
+execution slice reserves capacity for older work while prioritizing recent arrivals.
+Empty specific phonetics inherit and never become separate generation targets.
+Nonempty specifics use their own missing binding, even when default playback can
+fall back successfully. Existing own bindings, including ordinary stale ones, stay.
+
+Preparation remains mandatory for catalog speech. Default field work can run with
+audio/storage disabled; specific and audio-only preparation wait for enabled audio
+and storage. Missing per-accent configuration, local upload pressure, disabled
+features and paused suppliers do not fabricate calls or consume failure budgets.
+The worker releases each target scope before waiting for the next scan; it creates
+only bounded concurrent work (default one, configurable from one to eight).
+
+Text and TTS each have a durable shared service gate. Its identity combines the
+stable enrichment configuration slot, normalized endpoint and provider; UK and US
+share the TTS gate, and the independent review assistant is unaffected. Actual 429
+and HTTP-200 business throttling record dispatches without consuming the five-failure
+budget. Shared backoff doubles from 8 to 120 seconds by default, honors longer
+`Retry-After`, and halves after successful responses. Restart preserves these waits.
+
+Five consecutive connection, timeout or supplier service failures pause only that
+service. Independent, lease-protected recovery probes start after 60 seconds and
+back off to ten minutes by default. Their history and attempts are separate from
+item budgets; TTS probes reuse a validated persisted preparation, share upload
+admission, discard audio and never publish. Semantic uncertainty, invalid audio
+and storage/publication failures do not increment supplier outage counts. A successful
+probe releases the service but never resets or reopens an exhausted item. Relevant
+content/configuration corrections can open a new round; switches, voice changes on
+the other accent, scanning and restart do not replenish this target's budget.
+
+These internals add no management query/retry UI or batch-start API. Real supplier
+listening remains a separate acceptance step; fixture responses do not prove it.

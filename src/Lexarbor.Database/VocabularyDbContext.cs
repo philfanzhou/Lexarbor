@@ -1,4 +1,5 @@
 using Lexarbor.Database.Entities;
+using Lexarbor.Domain.Repositories;
 using Microsoft.EntityFrameworkCore;
 using ServiceMantle.Persistence.Relational.DataProtection;
 using ServiceMantle.Persistence.Relational.Mapping;
@@ -7,9 +8,36 @@ namespace Lexarbor.Database;
 
 public class VocabularyDbContext : DbContext
 {
-    public VocabularyDbContext(DbContextOptions<VocabularyDbContext> options) : base(options)
+    private readonly IEnrichmentChangeNotifier? _enrichmentChanges;
+    private readonly HashSet<string> _changedWords = [];
+    private bool _catalogChanged;
+    public VocabularyDbContext(DbContextOptions<VocabularyDbContext> options, IEnrichmentChangeNotifier? enrichmentChanges = null) : base(options)
     {
+        _enrichmentChanges = enrichmentChanges;
     }
+
+    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        foreach (var entry in ChangeTracker.Entries().Where(e => e.State is EntityState.Added or EntityState.Modified or EntityState.Deleted))
+        {
+            var id = entry.Entity switch { VocabularyEntity word => word.Id, VocabularyMeaningEntity meaning => meaning.VocabularyId, _ => null };
+            if (id != null || entry.Entity is VocabularyMeaningUnitEntity) _catalogChanged = true;
+            if (id != null && _changedWords.Count < 256) _changedWords.Add(id);
+        }
+        return base.SaveChangesAsync(cancellationToken);
+    }
+
+    internal void FinishEnrichmentChanges(bool committed)
+    {
+        var words = _changedWords.ToArray();
+        var changed = _catalogChanged;
+        _changedWords.Clear(); _catalogChanged = false;
+        // A wakeup cannot reverse an already committed business operation.
+        if (committed && changed)
+            try { _enrichmentChanges?.Notify(words); } catch (Exception) { }
+    }
+    internal void EnrichmentWordChanged(string wordId)
+    { _catalogChanged = true; if (_changedWords.Count < 256) _changedWords.Add(wordId); }
 
     public DbSet<VocabularyEntity> Vocabularies { get; set; } = null!;
     public DbSet<VocabularyBookEntity> VocabularyBooks { get; set; } = null!;
@@ -28,6 +56,9 @@ public class VocabularyDbContext : DbContext
     public DbSet<EnrichmentRoundEntity> EnrichmentRounds { get; set; } = null!;
     public DbSet<EnrichmentWaitEntity> EnrichmentWaits { get; set; } = null!;
     public DbSet<EnrichmentCallEntity> EnrichmentCalls { get; set; } = null!;
+    public DbSet<EnrichmentDiscoveryEntity> EnrichmentDiscovery { get; set; } = null!;
+    public DbSet<EnrichmentServiceEntity> EnrichmentServices { get; set; } = null!;
+    public DbSet<EnrichmentServiceProbeEntity> EnrichmentServiceProbes { get; set; } = null!;
 
     public DbSet<AdminSessionEntity> AdminSessions { get; set; } = null!;
 

@@ -68,6 +68,7 @@ public class UnitOfWork : IUnitOfWork
         if (finishAfterAdmission) cancellationToken = CancellationToken.None;
         HoldsWriteLock.Value = true;
         WriteContext.Value = _dbContext;
+        var committed = false;
         try
         {
             return await TranslateStorageErrorsAsync(async () =>
@@ -78,6 +79,7 @@ public class UnitOfWork : IUnitOfWork
                 cancellationToken.ThrowIfCancellationRequested();
                 // Once commit starts its outcome may be unknown to a disconnected caller.
                 await transaction.CommitAsync(cancellationToken);
+                committed = true;
                 return result;
             });
         }
@@ -86,6 +88,7 @@ public class UnitOfWork : IUnitOfWork
             WriteContext.Value = null;
             HoldsWriteLock.Value = false;
             WriteLock.Release();
+            _dbContext.FinishEnrichmentChanges(committed);
         }
     }
 
@@ -105,15 +108,19 @@ public class UnitOfWork : IUnitOfWork
         await WriteLock.WaitAsync(cancellationToken);
         HoldsWriteLock.Value = true;
         WriteContext.Value = _dbContext;
+        var committed = false;
         try
         {
-            return await TranslateStorageErrorsAsync(() => _dbContext.SaveChangesAsync(cancellationToken));
+            var count = await TranslateStorageErrorsAsync(() => _dbContext.SaveChangesAsync(cancellationToken));
+            committed = true;
+            return count;
         }
         finally
         {
             WriteContext.Value = null;
             HoldsWriteLock.Value = false;
             WriteLock.Release();
+            _dbContext.FinishEnrichmentChanges(committed);
         }
     }
 
