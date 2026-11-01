@@ -283,6 +283,33 @@ against their permanent upload receipt before another generation attempt. The
 service remains single-instance; task leases do not enable a multi-instance
 SQLite deployment or exactly-once remote billing.
 
+### Single-target executor stage
+
+The internal single-target executor can now prepare, conditionally fill missing
+default fields and generate/publish one explicit accent target. It is registered for
+internal callers only: this stage starts no discovery/hosted generation worker and
+adds no public route or normal-operation batch action. The existing default-off
+switches, administrator authorization and server-only credentials remain unchanged.
+See [the execution contract](../api/Audio.md#single-target-enrichment-execution).
+
+No migration is added. The bounded existing plan JSON now preserves the full prepared
+envelope and optional field-conflict IDs for recovery; old content-only plans are
+prepared again before speech. Its own field commit advances the same round input
+atomically. Text and per-accent TTS versions remain durable across restarts; changing
+the other accent or restarting never replenishes this target's exhausted budget.
+
+Keep the same `/app/data` bind mount or named volume and matching private audio bucket.
+Unknown uploads keep their original UUID for permanent-receipt reconciliation before
+a new request/key is allowed. Successful publication with lost task completion resumes
+without TTS; unpublished results rejected by an expired task lease, upload lease,
+changed binding/input or specific-phonetic epoch enter the existing cleanup queue.
+Disabling storage waits without supplier requests. Upload admission is shared with
+HTTP (default two active/eight queued), and no supplier/S3 I/O holds the writer lock.
+Stop execution and preserve consistent database/configuration/object backups before
+software rollback; an older executor cannot safely consume the new envelope even
+though this stage does not change the schema. Real supplier listening remains separate
+from fixed automated fixtures and is not claimed by this stage.
+
 An older image refuses the upgraded schema with `migration.version_too_new`.
 For an explicit rollback, stop all writes and generation, preserve a backup, and
 use current migration tooling to return to

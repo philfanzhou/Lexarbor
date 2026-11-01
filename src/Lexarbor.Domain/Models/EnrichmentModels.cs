@@ -11,7 +11,13 @@ public sealed record EnrichmentTargetKey(string WordId, string? MeaningId, Audio
 public sealed record EnrichmentInputVersion(string Revision, string SourceRevision, string? OwnAssetId);
 public sealed record EnrichmentMeaningPartOfSpeech(string MeaningId, string PartOfSpeech);
 public sealed record EnrichmentPlan(string SpokenText, string? PronunciationHint, string? Phonetic,
-    IReadOnlyList<EnrichmentMeaningPartOfSpeech>? PartsOfSpeech, string? InferredEntryKind = null);
+    IReadOnlyList<EnrichmentMeaningPartOfSpeech>? PartsOfSpeech, string? InferredEntryKind = null,
+    EnrichmentPreparationMetadata? Preparation = null);
+// Optional v1 JSON extension. Old content-only plans cannot authorize speech.
+public sealed record EnrichmentPreparationMetadata(AudioGenerationInput Input, EnrichmentInputVersion InputVersion,
+    string ConfigurationVersion, string EntryKind, string ClassificationBasis, string? RequiredPhonetic,
+    string? SpeechPhonetic, PronunciationControl Control, string? OwnAssetId,
+    IReadOnlyList<string>? ConflictingMeaningIds = null);
 public sealed record EnrichmentExecutionGuard(string TargetId, int Round, long Epoch, string Owner, long Fence,
     EnrichmentInputVersion Input);
 public sealed record EnrichmentRound(int Number, EnrichmentState State, EnrichmentInputVersion Input,

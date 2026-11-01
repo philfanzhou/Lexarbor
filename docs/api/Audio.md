@@ -344,7 +344,9 @@ not grant permission to write a catalog field: audio-only and phrase plans can c
 it with no writable IPA/POS candidates. An omitted mode retains `Instructions` for
 older text integrations. Executors must preserve the whole prepared envelope, including
 these controls, input/text versions and classification, when implementing recovery;
-persisting only `EnrichmentPlan` cannot reconstruct that envelope. This client itself
+persisting only the original content fields cannot reconstruct that envelope. The
+executor stores the envelope in optional internal `EnrichmentPlan.Preparation`
+metadata within the existing bounded plan JSON. This client itself
 persists nothing. A speech adapter must consume the prepared
 text and constraints and stop if it cannot express them. Failed, uncertain, inherited
 or waiting results have no usable plan: never substitute the raw headword.
@@ -389,6 +391,66 @@ API key is rejected. No model/provider combination is enabled for speech by this
 Protocol references: [Chat Completions](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create),
 [JSON mode limitations](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=chat),
 and [error codes](https://developers.openai.com/api/docs/guides/error-codes).
+
+## Single-target enrichment execution
+
+`EnrichmentTargetExecutor` is an internal, explicitly invoked service. It adds no
+HTTP parameters, batch action or hosted scheduler. Automatic discovery and startup
+remain a separate stage; merely configuring the two default-off switches does not
+start this executor.
+
+Preparation is a separate durable step and budget for each explicit target/accent.
+It captures current catalog/position data, records dispatch through `beforeDispatch`,
+and saves the full successful envelope before proceeding. Content-only legacy plans
+require fresh preparation. A relevant text or applicable default-field permission
+change refreshes
+preparation; published unchanged own audio is retained. Audio rounds depend on the
+text version and their own TTS version, independently of the opposite accent.
+
+When field filling is enabled, preparation conditionally fills only missing default
+IPA and eligible empty meaning POS, in the final serialized SQLite writer transaction.
+It rechecks the round, owner, fence, expiry, input and captured own binding. It never
+creates specific IPA. Phrase targets receive audio only; mixed-position permissions
+remain the same as editing. Equivalent-meaning POS conflicts are retained as safe
+field-step failures with the affected IDs, without merging/deleting meanings or
+blocking independent audio. If a valid pronunciation plan omits candidates and
+applicable fields remain empty, the field step stops with `fields.candidates_missing`
+instead of reporting success; the independent prepared audio can still proceed.
+Its own successful field writes advance that round's
+input and prepared envelope together, without starting an endless sequence of rounds.
+Audio-only mode still prepares, and writes neither IPA nor POS.
+
+The background path uses the same upload admission, MP3 validation, operation factory,
+storage generation and upload state machine as HTTP. Automatic audio also requires
+at least 300 bytes. Full admission and disabled storage wait without consuming a
+supplier request or target failure. Pure-audio preparation also waits for audio
+enablement and storage; a specific target never starts preparation just because
+default-field filling is enabled.
+Default-field preparation can proceed independently while audio/storage are disabled.
+Cancellation propagates and releases admission; an unknown recorded dispatch is
+reconciled after lease recovery. Neither supplier requests nor S3 transfers hold a
+SQLite writer transaction.
+
+Each TTS dispatch durably associates a fresh upload UUID before sending. Publication
+passes its execution guard to the existing upload service; the final binding writer
+checks both independent leases, current input/own binding and the specific-phonetic
+epoch. An earlier check cannot authorize publication. Invalidated, cleared, ABA-edited
+or deleted targets cannot receive old results. Rejected unpublished objects use the
+existing never-published cleanup; legacy inherited overrides are not cleaned up by
+generation. Completion checks the target's own binding, even when playback could
+use a same-reading default fallback.
+
+A successful permanent upload receipt is reconciled before opening another round or
+calling preparation/TTS. An active unknown upload keeps its original key until its
+receipt or expiry can be established. A failed/expired or unrecorded upload is finished
+once in call history before a new attempt receives a new key. This avoids duplicate
+generation after successful publication; it does not promise exactly-once remote
+billing for requests whose response was lost. A 409 rereads current conditions:
+already-filled own audio is skipped; remaining work is replanned. One accent's success
+survives the other's failure. Known billing/capability rejections stop, real or unknown
+429 throttles wait without consuming the failure budget, and service recovery does
+not reset exhaustion. Shared service pause/throttle scheduling belongs to the later
+scheduler. Fixed fixtures do not satisfy the separate real-listening acceptance.
 
 ## Speech adapters
 

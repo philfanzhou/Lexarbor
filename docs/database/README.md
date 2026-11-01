@@ -441,8 +441,10 @@ and configuration versions do not reset this target. A normal scan, restart,
 service recovery or budget setting change preserves its existing round and
 exhaustion. A changed relevant input/configuration or a distinct explicit single
 retry opens a new round; retry UUIDs are deduplicated across retained history.
-Already successful unchanged steps are not reopened by configuration changes or
-explicit retries. Completed rounds and old calls are retained. A same-round successful field/binding
+Already published unchanged audio and completed fields are not reopened by configuration
+changes or explicit retries. Preparation refreshes when its relevant text/field-permission
+version changes or a legacy content-only plan lacks its required envelope.
+Completed rounds and old calls are retained. A same-round successful field/binding
 write advances expected input rather than creating another round.
 
 `BeginCallAsync` durably records each dispatch immediately before the external
@@ -489,6 +491,28 @@ own binding. It then records success without another request. A receipt from an
 older round, another target, changed input or a replaced/unbound asset cannot
 complete current work. Unpublished upload cleanup remains on the existing upload
 recovery path; this migration grants no authority to delete published objects.
+
+The single-target executor extends existing `plan_json` with optional internal
+`Preparation` metadata: original generation input, expected input version, opaque
+text version, entry kind/classification basis, mandatory human IPA, pronunciation
+control and whole-target speech IPA. The complete JSON still has the existing
+16,384-character limit; no schema migration, backfill or public JSON field is added.
+Old plan JSON remains readable but cannot authorize TTS without fresh preparation.
+Speech IPA is not a catalog field candidate. Audio rounds use the stable text version
+plus the current accent's TTS version; preparation also captures whether fields may
+be filled. No credentials or configuration digests are added to task history.
+
+`EnrichmentExecutionRepository.CommitFieldsAsync` owns the actual short UnitOfWork
+writer transaction, validates the guard on the same scoped context, rereads own
+binding and missing-field permissions, then advances the same round input and plan
+atomically. A failed final advance rolls back the fields as well. POS equivalence
+conflicts are saved as bounded meaning IDs in plan metadata; only the field step
+stops, without deleting or merging IDs. Upload binding still uses the existing guarded
+publication transaction and permanent receipt recovery. Local admission throttling
+records a wait without fabricating a supplier call. The executor provides no discovery
+or background scheduling. Downgrading software without schema changes is still unsafe
+for in-flight work that the older executor cannot interpret: stop execution and preserve
+consistent database/configuration/object backups before changing versions.
 
 Back up the full SQLite database and persistent configuration together, plus the
 matching private audio objects. The startup version gate continues to reject

@@ -151,6 +151,8 @@ builder.Services.AddScoped<AudioAdminQueryService>();
 builder.Services.AddScoped<IAudioUploadRepository, AudioUploadRepository>();
 builder.Services.AddScoped<IAudioInvalidationRepository, AudioInvalidationRepository>();
 builder.Services.AddScoped<IEnrichmentTaskRepository, EnrichmentTaskRepository>();
+builder.Services.AddScoped<IEnrichmentExecutionRepository, EnrichmentExecutionRepository>();
+builder.Services.AddScoped<EnrichmentTargetExecutor>();
 builder.Services.AddScoped<IMeaningPhoneticRepository, MeaningPhoneticRepository>();
 builder.Services.AddScoped<MeaningPhoneticEditService>();
 builder.Services.AddScoped<IAudioGuardedPublicationRepository, AudioUploadRepository>();
