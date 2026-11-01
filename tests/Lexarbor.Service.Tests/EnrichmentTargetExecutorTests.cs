@@ -95,6 +95,37 @@ public sealed class EnrichmentTargetExecutorTests
         Assert.Equal(1, f.Http.SpeechCalls);
     }
 
+    [Theory]
+    [InlineData(false, true, EnrichmentWaitReason.Disabled)]
+    [InlineData(true, false, EnrichmentWaitReason.StorageDisabled)]
+    public async Task PersistedSpecificPreparation_WaitsForAudioAndStorage_EvenWhenFieldFillingIsEnabled(
+        bool audioEnabled, bool storageEnabled, EnrichmentWaitReason expected)
+    {
+        await using var f = await Fixture.Create();
+        await f.Db.VocabularyMeanings.ExecuteUpdateAsync(set => set.SetProperty(row => row.PhoneticUk, "liːd"), Ct);
+        await f.Publish(new() { ["Enrichment:AudioEnabled"] = audioEnabled.ToString() }); f.Operations.Enabled = storageEnabled;
+        var key = Key(EnrichmentStep.Prepare, meaning: "meaning");
+        var version = EnrichmentTargetExecutor.ConfigurationVersion(key, f.Runtime.Current);
+        var result = (await f.Run(key))!;
+        Assert.Equal(EnrichmentState.Waiting, Round(result).State); Assert.Equal(expected, Round(result).WaitReason);
+        Assert.Equal(0, Round(result).RequestCount); Assert.Equal(0, Round(result).ConsumedFailures);
+        Assert.Equal(0, f.Http.TextCalls); Assert.Equal(0, f.Http.SpeechCalls);
+        await f.Publish(new() { ["Enrichment:FieldsEnabled"] = "false" });
+        Assert.Equal(version, EnrichmentTargetExecutor.ConfigurationVersion(key, f.Runtime.Current));
+    }
+
+    [Fact]
+    public async Task DefaultFieldPreparation_CanFillFieldsWhenAudioAndStorageAreDisabled()
+    {
+        await using var f = await Fixture.Create();
+        await f.Publish(new() { ["Enrichment:AudioEnabled"] = "false" }); f.Operations.Enabled = false;
+        var result = (await f.Run(Key(EnrichmentStep.Fields)))!;
+        Assert.Equal(EnrichmentState.Succeeded, Round(result).State);
+        Assert.Equal("liːd", await f.Db.Vocabularies.Select(row => row.PhoneticUk).SingleAsync(Ct));
+        Assert.Equal("v.", await f.Db.VocabularyMeanings.Select(row => row.PartOfSpeech).SingleAsync(Ct));
+        Assert.Equal(1, f.Http.TextCalls); Assert.Equal(0, f.Http.SpeechCalls); Assert.Equal(0, f.Store.Puts);
+    }
+
     [Fact]
     public async Task FieldCommit_RollsBackAllMutationsAndPlanAdvance_AndQueuedWriterRechecksExpiry()
     {

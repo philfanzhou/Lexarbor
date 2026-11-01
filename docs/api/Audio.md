@@ -402,7 +402,8 @@ start this executor.
 Preparation is a separate durable step and budget for each explicit target/accent.
 It captures current catalog/position data, records dispatch through `beforeDispatch`,
 and saves the full successful envelope before proceeding. Content-only legacy plans
-require fresh preparation. A relevant text or field-permission change refreshes
+require fresh preparation. A relevant text or applicable default-field permission
+change refreshes
 preparation; published unchanged own audio is retained. Audio rounds depend on the
 text version and their own TTS version, independently of the opposite accent.
 
@@ -419,9 +420,13 @@ Audio-only mode still prepares, and writes neither IPA nor POS.
 The background path uses the same upload admission, MP3 validation, operation factory,
 storage generation and upload state machine as HTTP. Automatic audio also requires
 at least 300 bytes. Full admission and disabled storage wait without consuming a
-supplier request or target failure. Cancellation propagates and releases admission;
-an unknown recorded dispatch is reconciled after lease recovery. Neither supplier
-requests nor S3 transfers hold a SQLite writer transaction.
+supplier request or target failure. Pure-audio preparation also waits for audio
+enablement and storage; a specific target never starts preparation just because
+default-field filling is enabled.
+Default-field preparation can proceed independently while audio/storage are disabled.
+Cancellation propagates and releases admission; an unknown recorded dispatch is
+reconciled after lease recovery. Neither supplier requests nor S3 transfers hold a
+SQLite writer transaction.
 
 Each TTS dispatch durably associates a fresh upload UUID before sending. Publication
 passes its execution guard to the existing upload service; the final binding writer

@@ -21,7 +21,7 @@ public sealed class EnrichmentTargetExecutor(IEnrichmentTaskRepository tasks, IE
         key.Step == EnrichmentStep.Audio
             ? (snapshot.TextVersion ?? "configuration.missing") + "." +
                 ((key.Locale == AudioLocale.EnGb ? snapshot.UkTtsVersion : snapshot.UsTtsVersion) ?? "configuration.missing")
-            : (snapshot.TextVersion ?? "configuration.missing") + (snapshot.Enrichment.FieldsEnabled ? ".fields" : ".audio");
+            : (snapshot.TextVersion ?? "configuration.missing") + (key.MeaningId == null && snapshot.Enrichment.FieldsEnabled ? ".fields" : ".audio");
 
     public async Task<EnrichmentTask?> ExecuteAsync(string targetId, string owner, CancellationToken token = default)
     {
@@ -38,13 +38,16 @@ public sealed class EnrichmentTargetExecutor(IEnrichmentTaskRepository tasks, IE
         task = await RefreshAsync(task, token);
         if (task == null) return null;
         var snapshot = runtime.Current;
+        var audioOnlyPreparation = task.Target.Step == EnrichmentStep.Prepare
+            && (task.Target.MeaningId != null || !snapshot.Enrichment.FieldsEnabled);
         var enabled = task.Target.Step == EnrichmentStep.Audio ? snapshot.Enrichment.AudioEnabled
             : task.Target.Step == EnrichmentStep.Fields ? snapshot.Enrichment.FieldsEnabled
+            : audioOnlyPreparation ? snapshot.Enrichment.AudioEnabled
             : snapshot.Enrichment.FieldsEnabled || snapshot.Enrichment.AudioEnabled;
         // Do not prepare again for ordinary existing/stale own audio.
         var currentInput = await tasks.ReadInputAsync(task.Target, token);
         var needsAudio = task.Target.Step == EnrichmentStep.Audio && currentInput?.OwnAssetId == null;
-        if (enabled && needsAudio)
+        if (enabled && (needsAudio || audioOnlyPreparation))
         {
             using var storage = await operations.AcquireAsync(token);
             if (!storage.Settings.Enabled)
