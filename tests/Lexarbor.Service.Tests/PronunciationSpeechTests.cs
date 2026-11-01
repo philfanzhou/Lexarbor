@@ -34,7 +34,7 @@ public sealed class PronunciationSpeechTests
     public async Task ProtocolFixtures_MapExplicitHumanReadingAndLocale_WithoutSpeakingDirections(bool native, AudioLocale locale)
     {
         using var f = new Fixture(native);
-        var preparation = f.Plan(locale: locale, phonetic: "/led/", meaning: true);
+        var preparation = f.Plan(locale: locale, phonetic: "/lɛd/", meaning: true);
         var result = await f.Client.GenerateAsync(preparation, Ct);
         Assert.Equal(PronunciationSpeechOutcome.Ready, result.Outcome); Assert.Equal(Mp3, result.Audio); Assert.True(result.RequestMade);
         var body = JsonNode.Parse(Assert.Single(f.Handler.Bodies))!;
@@ -47,7 +47,7 @@ public sealed class PronunciationSpeechTests
             Assert.Equal("hex", body["output_format"]!.GetValue<string>());
             Assert.Equal(voice, body["voice_setting"]!["voice_id"]!.GetValue<string>());
             Assert.Equal(locale == AudioLocale.EnGb ? 0.9m : 1.1m, body["voice_setting"]!["speed"]!.GetValue<decimal>());
-            Assert.Equal("lead/(led)", Assert.Single(body["pronunciation_dict"]!["tone"]!.AsArray())!.GetValue<string>());
+            Assert.Equal("lead/(lɛd)", Assert.Single(body["pronunciation_dict"]!["tone"]!.AsArray())!.GetValue<string>());
             Assert.Equal("mp3", body["audio_setting"]!["format"]!.GetValue<string>());
             Assert.Null(body["instructions"]);
         }
@@ -57,7 +57,8 @@ public sealed class PronunciationSpeechTests
             Assert.Equal(locale == AudioLocale.EnGb ? 0.9m : 1.1m, body["speed"]!.GetValue<decimal>());
             Assert.Equal("mp3", body["response_format"]!.GetValue<string>());
             var instructions = body["instructions"]!.GetValue<string>();
-            Assert.Contains("/led/", instructions); Assert.Contains(locale == AudioLocale.EnGb ? "British English" : "American English", instructions);
+            Assert.Contains("/lɛd/", instructions); Assert.DoesNotContain("\\u025B", instructions, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains(locale == AudioLocale.EnGb ? "British English" : "American English", instructions);
             Assert.Contains("required reading", instructions);
         }
         Assert.Equal(PronunciationSpeechClient.HttpClientName, Assert.Single(f.Factory.Names));
