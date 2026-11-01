@@ -1190,7 +1190,7 @@ pre-Down database backup; do not delete any audio object as part of image rollba
 
 ## Optional audio object storage
 
-Audio storage is disabled by default. Existing persisted configuration without an `Audio` section still starts without S3 credentials or S3 calls. Storage infrastructure, administrator metadata queries, conditional HTTP uploads/deletion, administrator playback, bounded failed-upload recovery and book-authorized public playback are available. TTS generation and a learning webpage UI are external responsibilities. Configure a private bucket and verify integration before enabling audio; administrator UI availability is documented separately in the frontend guide.
+Audio storage is disabled by default. Existing persisted configuration without an `Audio` section still starts without S3 credentials or S3 calls. Storage infrastructure, administrator metadata queries, conditional HTTP uploads/deletion, administrator playback, bounded failed-upload recovery and book-authorized public playback are available. Internal TTS adapters are available as foundations; their registration does not enable automatic scheduling or a learning webpage UI. Configure a private bucket and verify integration before enabling audio; administrator UI availability is documented separately in the frontend guide.
 
 When `Audio:Enabled=true`, invalid local settings fail startup with a fixed English diagnostic. Startup does not probe S3, list buckets, or create buckets. An offline S3 service affects audio operations only; existing health, vocabulary and quiz APIs remain available. The audio client has a bounded timeout and honors caller cancellation, and it returns fixed errors without retaining SDK exception details, credentials, object content, internal addresses, or signed URLs. A missing object returns no stat result; other S3 failures are storage-unavailable errors. Upload streams remain owned by the caller; the host disposes its dedicated SDK/HTTP clients on shutdown.
 
@@ -1387,6 +1387,17 @@ cannot fall back to an unprepared TTS request. The planner performs no persisten
 speech call and does not start a worker. See [pronunciation preparation](../api/Audio.md#pronunciation-preparation)
 for limits, safe result categories and required downstream pronunciation constraints.
 No new configuration keys, database tables, migrations or storage paths are introduced.
+
+Registered speech adapters can consume successful plans without enabling background
+generation. Configure `https://api.minimax.io/v1` or `https://api.minimax.cn/v1`, or the explicitly
+supported official OpenAI base `https://api.openai.com/v1`, plus each locale's voice
+and speed. See the [speech support matrix](../api/Audio.md#speech-adapters) before
+choosing a model: MiniMax uses complete-target IPA controls and accepts speed 0.5–2;
+OpenAI instruction support is model-specific, and unknown compatible endpoints stop
+safely. The separate executor/scheduler must record calls, enforce failure budgets
+and publish audio under current execution authority. Fixed protocol tests do not
+replace real MiniMax/OpenAI listening acceptance. OpenAI's listed Speech models are
+scheduled to shut down on 2027-01-06; this foundation does not migrate to Realtime.
 
 Successful saves publish immutable review/enrichment snapshots only after atomic
 file replacement. Later review calls use the new endpoint/model/key; calls already

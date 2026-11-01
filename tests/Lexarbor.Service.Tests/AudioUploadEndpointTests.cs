@@ -202,6 +202,17 @@ public sealed class AudioUploadEndpointTests
     }
 
     [Fact]
+    public async Task ManualUpload_KeepsValidTwoFrameAudioBelowGeneratedMinimum()
+    {
+        await using var host = new Host(); await host.SeedAsync();
+        var bytes = PronunciationSpeechTests.SmallFrames();
+        Assert.True(bytes.Length < 300);
+        using var response = await Put(host, await host.Revision(), bytes: bytes);
+        await Asset(response);
+        Assert.Equal(bytes, Assert.Single(host.Store.Objects.Values));
+    }
+
+    [Fact]
     public async Task DefaultMeaningAndLocales_AreIndependent_AndHistoryIsRetained()
     {
         await using var host = new Host(); await host.SeedAsync();

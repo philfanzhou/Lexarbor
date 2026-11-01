@@ -171,7 +171,7 @@ Send a UUID in the `Idempotency-Key` header and `multipart/form-data` containing
 | `expectedAssetId` | Required field: empty for no **own** binding; otherwise the own binding's canonical lowercase UUID. Never use a fallback default asset for a new meaning override. |
 | `producer`, `voice` | Optional generation labels, at most 128 characters each, with no control characters. They do not validate pronunciation or voice quality. |
 
-Duplicate or unknown fields, additional files and malformed multipart bodies are rejected. File names, extensions and declared MIME do not establish validity: the bytes must contain at least two complete MPEG Layer III frames (optional bounded ID3 tags are accepted). Truncated frames and other formats return 415. Lexarbor does not generate speech or transcode WAV/Opus; the external program must generate a valid MP3 from the current input.
+Duplicate or unknown fields, additional files and malformed multipart bodies are rejected. File names, extensions and declared MIME do not establish validity: the bytes must contain at least two complete MPEG Layer III frames (optional bounded ID3 tags are accepted). Truncated frames and other formats return 415. This HTTP endpoint does not generate speech or transcode WAV/Opus; an external uploader must supply a valid MP3 from the current input. The separate internal speech adapters described below do not change the manual upload contract.
 
 Success returns `{ "success": true, "data": { "assetId": "<UUID>", "sourceRevision": "<revision>" } }`, without a URL or internal object location. Uploads create fresh objects, never overwrite an existing object. The default and each meaning override, and the two accents, have independent conditions.
 
@@ -303,8 +303,17 @@ returning; network IO never runs inside it. Persistence failures propagate to th
 
 A ready result carries bounded `EnrichmentPlan` content, its original input/version,
 the captured opaque text-configuration version, classification basis and mandatory
-human IPA constraint. The existing plan format remains suitable for queue persistence;
-this client itself persists nothing. A later speech adapter must consume the prepared
+human IPA constraint. It also carries `Control` and optional `SpeechPhonetic` for speech
+adapters. `Instructions` mode retains free-form pronunciation directions. In `Ipa` mode,
+the model must provide one complete spoken-target IPA and the hint must equal that IPA
+exactly, with no additional directions; nonempty human IPA must be copied exactly.
+Invalid modes, conflicting IPA and extra directions reject the plan. Speech IPA does
+not grant permission to write a catalog field: audio-only and phrase plans can carry
+it with no writable IPA/POS candidates. An omitted mode retains `Instructions` for
+older text integrations. Executors must preserve the whole prepared envelope, including
+these controls, input/text versions and classification, when implementing recovery;
+persisting only `EnrichmentPlan` cannot reconstruct that envelope. This client itself
+persists nothing. A speech adapter must consume the prepared
 text and constraints and stop if it cannot express them. Failed, uncertain, inherited
 or waiting results have no usable plan: never substitute the raw headword.
 
@@ -348,3 +357,84 @@ API key is rejected. No model/provider combination is enabled for speech by this
 Protocol references: [Chat Completions](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create),
 [JSON mode limitations](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=chat),
 and [error codes](https://developers.openai.com/api/docs/guides/error-codes).
+
+## Speech adapters
+
+The internal `IPronunciationSpeechClient` accepts only a successful pronunciation
+preparation result. It checks the captured source revision, required human IPA and
+text-configuration version before using the current per-locale TTS snapshot. It
+never falls back to a headword or drops an unexpressible constraint. Registration
+alone does not generate audio, start a worker, write fields, upload objects or bind
+audio. There are no new public routes or configuration keys.
+
+The explicit support matrix, checked against official documentation on 2026-11-02:
+
+| Provider and endpoint | Models | Pronunciation mapping and limits |
+|---|---|---|
+| `MiniMaxNative`, `https://api.minimax.io/v1` or `https://api.minimax.cn/v1` | `speech-2.8-hd` (default), `speech-2.8-turbo` | `POST <endpoint>/t2a_v2`, non-streaming hex MP3. Requires `Ipa` control; one `pronunciation_dict.tone` rule maps the complete `spokenText` to `(SpeechPhonetic)`. The hint contains exactly the same IPA, so no free-form direction is discarded. |
+| `OpenAICompatible`, exactly `https://api.openai.com/v1` | `gpt-4o-mini-tts`, `gpt-4o-mini-tts-2025-12-15` | `POST /v1/audio/speech`, binary MP3. `input` contains only prepared speech; `instructions` separately carries UK/US accent, required IPA, speech IPA and pronunciation hints. |
+| Same official OpenAI endpoint | `tts-1`, `tts-1-hd` | Plain text only. Any required IPA or pronunciation hint is unsupported and stops before HTTP. Current preparation normally supplies a hint, so these models generally cannot consume its plans. |
+| Other models, providers or endpoints | None implied | Safe rejection, even when a third-party model has an identical name. Compatibility of the route does not establish pronunciation capability. |
+
+MiniMax keeps the original prepared text and uses the official dictionary replacement
+syntax instead of reading pronunciation directions as text. One surrounding `/.../`
+or `[...]` IPA wrapper is removed for the native mapping. Native syntax delimiters,
+interjection tags, invalid IPA syntax, absent speech IPA and free-form instruction
+mode are rejected. When human IPA exists and preparation changes the original target
+text, the adapter cannot safely assign that human IPA to a different spoken target
+and stops. Without human IPA, a prepared template or phrase can use a complete
+spoken-target IPA. It does not infer token offsets, split IPA or add a reading.
+
+Each locale must explicitly configure both voice and speed. MiniMax accepts 0.5–2;
+OpenAI accepts 0.25–4. These are narrower than the settings API's storage bound. The
+chosen voice must be available from the provider and appropriate for that accent;
+the adapter does not select a default voice, clone a voice or promise a voice's
+listening quality. Unknown/unsupported capability yields `capability_unsupported`
+and zero HTTP requests. Missing configuration or disabled audio yields waiting.
+
+Executors use `beforeDispatch` to validate the input, text and locale-specific TTS
+versions and persist `BeginCall`. The callback ends its transaction before network
+IO; false returns `Superseded` without dispatch, and persistence failures propagate.
+In-flight calls retain their captured settings. Final field/binding authorization,
+call persistence, budgets and scheduling belong to the executor and scheduler.
+
+HTTP 429 rate limits and recognized HTTP-200 business throttling return `Throttled` with positive
+`Retry-After` delta/date preserved, without sleeping or retrying. MiniMax checks
+`base_resp.status_code` before accepting audio: 1002/1039/concurrency or growth limits
+are throttling; authentication, balance, parameters and unsupported models stop hot
+retrying. Timeout/connection/HTTP 408/5xx and recognized temporary native failures
+return `ServiceFailure`; malformed responses/audio return `InvalidAudio`. Unknown
+business errors fail safely with fixed reasons. `RequestMade` distinguishes local
+waiting/rejection from attempted dispatch. Throttling must not consume the caller's
+failure budget, and service recovery must not reset exhausted tasks.
+OpenAI also uses 429 for credit, spend and usage blocks: recognized billing codes
+(`credit_balance_exhausted`, organization/project spend limits, organization usage
+limits and legacy `insufficient_quota`) return terminal `balance_required`. Error
+inspection is capped at 64 KiB; malformed, oversized or timed-out 429 error bodies
+retain the throttle result instead of consuming a service-failure slot. Caller
+cancellation still propagates. See [OpenAI error classifications](https://developers.openai.com/api/docs/guides/error-codes).
+
+Responses are bounded while reading, including unknown-length streams: binary audio
+at most 5 MiB; native JSON at most 10 MiB + 64 KiB; decoded native audio at most 5 MiB.
+Automatic results must be at least 300 bytes and pass the shared validator for at
+least two complete MPEG Layer III frames. The manual upload contract still accepts
+valid two-frame MP3 below 300 bytes. Headers, MIME, HTTP 200 and filenames are not
+audio validation. The configured TTS timeout covers headers and body; caller cancellation
+propagates. There is no URL download, transcoding, automatic retry or new storage path.
+Redirects, cookies, HTTP loggers and OpenTelemetry instrumentation are disabled for
+these calls. Only fixed safe error codes leave the adapters, never supplier bodies,
+trace IDs, exception messages or credentials.
+
+These checks prove protocol handling, not pronunciation or accent quality. Separate
+real listening acceptance remains required for MiniMax and one explicitly supported
+OpenAI-compatible combination, covering UK/US, polyphonic words, templates and proper
+names. OpenAI currently announces Speech API model shutdown on 2027-01-06; replacing
+the model name with a Realtime model is not supported here. This adapter does not
+implement a Realtime migration or silently change the MiniMax default.
+
+Official references: [MiniMax synchronous speech and pronunciation dictionary](https://platform.minimax.io/docs/api-reference/speech-t2a-http),
+[MiniMax China endpoint](https://platform.minimax.cn/docs/api-reference/speech-t2a-http),
+[MiniMax error codes](https://platform.minimax.io/docs/api-reference/errorcode),
+[MiniMax rate limits](https://platform.minimax.io/docs/guides/rate-limits),
+[OpenAI Create speech](https://developers.openai.com/api/reference/resources/audio/subresources/speech/methods/create)
+and [OpenAI text-to-speech guidance](https://developers.openai.com/api/docs/guides/text-to-speech).
