@@ -2,6 +2,7 @@ using Lexarbor.Database.Entities;
 using Lexarbor.Domain.Exceptions;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
+using Lexarbor.Domain.Services;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
@@ -110,6 +111,8 @@ public sealed class VocabularyPublicQueryRepository(VocabularyDbContext context)
                     row.word.PhoneticUk,
                     row.word.PhoneticUs,
                     MeaningId = row.meaning.Id,
+                    MeaningPhoneticUk = row.meaning.PhoneticUk,
+                    MeaningPhoneticUs = row.meaning.PhoneticUs,
                     row.meaning.PartOfSpeech,
                     row.meaning.Meaning,
                     // The stored column is trim(meaning); lowering it here
@@ -163,7 +166,10 @@ public sealed class VocabularyPublicQueryRepository(VocabularyDbContext context)
                     row.Meaning,
                     row.MeaningKey,
                     row.Example,
-                    positions.GetValueOrDefault(row.MeaningId, []))).ToList(),
+                    positions.GetValueOrDefault(row.MeaningId, []),
+                    AudioSelectionService.GetPronunciation(
+                        new(row.WordId, row.Word, row.PhoneticUk, row.PhoneticUs),
+                        new(row.MeaningId, row.PartOfSpeech, row.Meaning, row.MeaningPhoneticUk, row.MeaningPhoneticUs)))).ToList(),
                 totalCount,
                 (int)Math.Ceiling(totalCount / (double)size),
                 wordCount);

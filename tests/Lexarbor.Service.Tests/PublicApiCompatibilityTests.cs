@@ -4,6 +4,7 @@ using System.Text.Json;
 using Lexarbor.Database;
 using Lexarbor.Database.Entities;
 using Lexarbor.Service.Tests.TestInfrastructure;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Lexarbor.Service.Tests;
@@ -37,7 +38,61 @@ public class PublicApiCompatibilityTests :
             Assert.Equal("/test-uk/", result.GetProperty("phoneticUk").GetString());
             Assert.Equal("/test-us/", result.GetProperty("phoneticUs").GetString());
             Assert.Equal(JsonValueKind.Array, result.GetProperty("meanings").ValueKind);
+            var meaning = Assert.Single(result.GetProperty("meanings").EnumerateArray());
+            Assert.Equal(new[] { "bookId", "example", "id", "meaning", "partOfSpeech", "pronunciation", "vocabularyId" },
+                meaning.EnumerateObject().Select(property => property.Name).Order());
+            var pronunciation = meaning.GetProperty("pronunciation");
+            Assert.Equal(new[] { "uk", "us" }, pronunciation.EnumerateObject().Select(property => property.Name).Order());
+            Assert.All(pronunciation.EnumerateObject(), accent => Assert.Equal(new[] { "phonetic", "source" },
+                accent.Value.EnumerateObject().Select(property => property.Name).Order()));
+            Assert.Equal("/specific-uk/", pronunciation.GetProperty("uk").GetProperty("phonetic").GetString());
+            Assert.Equal("meaning", pronunciation.GetProperty("uk").GetProperty("source").GetString());
+            Assert.Equal("/test-us/", pronunciation.GetProperty("us").GetProperty("phonetic").GetString());
+            Assert.Equal("default", pronunciation.GetProperty("us").GetProperty("source").GetString());
         }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LegacyImports_CannotWriteOrClearMeaningPhonetics(bool includeReadOnlyFields)
+    {
+        var data = await SeedCompleteBookAsync();
+        using var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", _factory.CreateToken("admin"));
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+        var original = await db.VocabularyMeanings.AsNoTracking().SingleAsync(row => row.VocabularyId == data.WordId, TestContext.Current.CancellationToken);
+        var word = await db.Vocabularies.AsNoTracking().SingleAsync(row => row.Id == data.WordId, TestContext.Current.CancellationToken);
+        var meaning = new Dictionary<string, object?>
+        {
+            ["id"] = original.Id,
+            ["bookId"] = original.BookId,
+            ["vocabularyId"] = original.VocabularyId,
+            ["meaning"] = original.Meaning
+        };
+        if (includeReadOnlyFields)
+        {
+            meaning["phoneticUk"] = "injected";
+            meaning["phoneticUs"] = "";
+            meaning["pronunciation"] = new { uk = new { phonetic = "injected", source = "meaning" } };
+        }
+        using var single = await client.PostAsJsonAsync("/admin/vocabulary", new
+        {
+            word = new { id = word.Id, word = word.Word },
+            meaning
+        }, TestContext.Current.CancellationToken);
+        single.EnsureSuccessStatusCode();
+        meaning["word"] = word.Word;
+        using var batch = await client.PostAsJsonAsync("/admin/vocabulary/batch", new
+        {
+            bookId = data.BookId,
+            entries = new[] { meaning }
+        }, TestContext.Current.CancellationToken);
+        batch.EnsureSuccessStatusCode();
+        var stored = await db.VocabularyMeanings.AsNoTracking().SingleAsync(row => row.Id == original.Id, TestContext.Current.CancellationToken);
+        Assert.Equal("/specific-uk/", stored.PhoneticUk);
+        Assert.Equal(" \t ", stored.PhoneticUs);
     }
 
     [Fact]
@@ -250,6 +305,8 @@ public class PublicApiCompatibilityTests :
                 VocabularyId = currentWordId,
                 BookId = bookId,
                 Meaning = $"compatibility meaning {index} {suffix}",
+                PhoneticUk = index == 0 ? "/specific-uk/" : null,
+                PhoneticUs = index == 0 ? " \t " : null,
                 CreatedAt = now,
                 UpdatedAt = now
             });

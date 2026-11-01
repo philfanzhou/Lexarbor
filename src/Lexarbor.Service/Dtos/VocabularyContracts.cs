@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Lexarbor.Domain.Models;
 
 namespace Lexarbor.Service.Dtos;
 
@@ -27,6 +28,9 @@ public class VocabularyMeaningDto
     public string? PartOfSpeech { get; set; }
     public string Meaning { get; set; } = string.Empty;
     public string? Example { get; set; }
+
+    // Internal setter prevents JSON input from becoming an edit contract.
+    public VocabularyPronunciation Pronunciation { get; internal set; } = new(new(null, "default"), new(null, "default"));
 }
 
 /// <summary>
@@ -114,7 +118,8 @@ public record VocabularyPublicEntryDto(
     string Meaning,
     string MeaningKey,
     string? Example,
-    List<VocabularyPublicEntryPositionDto> Positions);
+    List<VocabularyPublicEntryPositionDto> Positions,
+    VocabularyPronunciation Pronunciation);
 
 /// <summary>
 /// One page of entries: <c>TotalCount</c> counts meanings in the scope and

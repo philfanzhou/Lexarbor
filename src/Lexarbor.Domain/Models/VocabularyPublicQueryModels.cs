@@ -35,7 +35,8 @@ public sealed record VocabularyPublicEntry(
     string Meaning,
     string MeaningKey,
     string? Example,
-    IReadOnlyList<VocabularyPublicEntryPosition> Positions);
+    IReadOnlyList<VocabularyPublicEntryPosition> Positions,
+    VocabularyPronunciation Pronunciation);
 
 /// <summary>
 /// One page of a book's (or one unit's) meanings. <c>TotalCount</c> counts

@@ -1,4 +1,5 @@
 using Lexarbor.Domain.Models;
+using Lexarbor.Domain.Services;
 using Lexarbor.Service.Dtos;
 using Mapster;
 
@@ -18,12 +19,24 @@ internal static class VocabularyMappingExtensions
 
     public static VocabularyMeaningModel ToEntity(this VocabularyMeaningDto dto)
     {
-        return dto.Adapt<VocabularyMeaningModel>();
+        return new VocabularyMeaningModel
+        {
+            Id = dto.Id,
+            VocabularyId = dto.VocabularyId,
+            BookId = dto.BookId,
+            PartOfSpeech = dto.PartOfSpeech,
+            Meaning = dto.Meaning,
+            Example = dto.Example
+        };
     }
 
-    public static VocabularyMeaningDto ToDto(this VocabularyMeaningModel model)
+    public static VocabularyMeaningDto ToDto(this VocabularyMeaningModel model, VocabularyModel word)
     {
-        return model.Adapt<VocabularyMeaningDto>();
+        var dto = model.Adapt<VocabularyMeaningDto>();
+        dto.Pronunciation = AudioSelectionService.GetPronunciation(
+            new(word.Id, word.Word, word.PhoneticUk, word.PhoneticUs),
+            new(model.Id, model.PartOfSpeech, model.Meaning, model.PhoneticUk, model.PhoneticUs));
+        return dto;
     }
 
     public static (VocabularyModel Word, VocabularyMeaningModel Meaning, string? UnitId, string? Section, string? EntryKind) ToEntities(

@@ -6,6 +6,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using Lexarbor.Database;
 using Lexarbor.Service.Tests.TestInfrastructure;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 
@@ -120,6 +121,46 @@ public sealed class MeaningSubmissionEndpointTests : IAsyncLifetime
             if (method == HttpMethod.Put) request.Content = JsonContent.Create(new { enrichment = new { audioEnabled = true } });
             Assert.Equal(HttpStatusCode.Unauthorized, (await _client.SendAsync(request, Ct)).StatusCode);
         }
+    }
+
+    [Fact]
+    public async Task CatalogSearch_ProjectsMeaningPronunciationAndExcludesDisabledBooks()
+    {
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+            var word = await db.Vocabularies.SingleAsync(row => row.Id == "w1", Ct);
+            word.PhoneticUk = "/default/";
+            word.PhoneticUs = " ";
+            var meaning = await db.VocabularyMeanings.SingleAsync(row => row.Id == "mw1", Ct);
+            meaning.PhoneticUk = "/specific/";
+            meaning.PhoneticUs = "\t";
+            db.VocabularyBooks.Add(new() { Id = "disabled", BookName = "Disabled", Status = false });
+            db.VocabularyMeanings.Add(new()
+            {
+                Id = "hidden",
+                VocabularyId = "w1",
+                BookId = "disabled",
+                Meaning = "hidden",
+                PhoneticUk = "/hidden/"
+            });
+            await db.SaveChangesAsync(Ct);
+        }
+        using var search = new HttpRequestMessage(HttpMethod.Get, "/integration/vocabulary/search?keyword=apple");
+        search.Headers.Authorization = new("Bearer", Token());
+        using var response = await _client.SendAsync(search, Ct);
+        var matches = await Data(response);
+        var match = Assert.Single(matches.GetProperty("items").EnumerateArray());
+        Assert.Equal(new[] { "bookId", "bookName", "meaning", "meaningId", "meaningKey", "partOfSpeech",
+                "phoneticUk", "phoneticUs", "pronunciation", "word", "wordId", "wordKey" },
+            match.EnumerateObject().Select(property => property.Name).Order());
+        Assert.Equal("/default/", match.GetProperty("phoneticUk").GetString());
+        Assert.Equal(" ", match.GetProperty("phoneticUs").GetString());
+        var pronunciation = match.GetProperty("pronunciation");
+        Assert.Equal("/specific/", pronunciation.GetProperty("uk").GetProperty("phonetic").GetString());
+        Assert.Equal("meaning", pronunciation.GetProperty("uk").GetProperty("source").GetString());
+        Assert.Null(pronunciation.GetProperty("us").GetProperty("phonetic").GetString());
+        Assert.Equal("default", pronunciation.GetProperty("us").GetProperty("source").GetString());
     }
 
     [Fact]

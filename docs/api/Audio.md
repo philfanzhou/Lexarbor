@@ -25,6 +25,42 @@ an already started batch finishes on its old generation. Delete/Stat providers
 that ignore cancellation retain their client until actual completion. Recovery
 keeps the existing database lease, retry and never-published-only cleanup rules.
 
+## Read-only pronunciation metadata
+
+`GET /api/vocabulary/{wordId}?bookId=...` includes `pronunciation` in each
+`meanings` item. Book/unit `GET /api/vocabulary-books/{bookId}/entries` items
+and integration [catalog search](MeaningSubmissions.md#get-integrationvocabularysearchkeyword)
+items carry the same projection:
+
+```json
+{
+  "uk": { "phonetic": "/specific-uk/", "source": "meaning" },
+  "us": { "phonetic": "/default-us/", "source": "default" }
+}
+```
+
+UK and US are independent. A nonblank meaning-specific value is returned as
+stored with source `meaning`; otherwise the word default is used with source
+`default`. An empty effective value is `phonetic: null` and keeps source
+`default`. Existing `phoneticUk`/`phoneticUs` fields still contain the word
+defaults, including their existing null/string shape. No task, provider or
+credential metadata is included.
+
+This source describes the displayed phonetic, independently of audio
+availability. An explicit value equivalent to the default still has source
+`meaning`, even when playback falls back to source `default`. A different value
+without its own audio remains `missing`. Read the projection for display and
+request playback with the same `meaningId`; do not assume a nonempty phonetic
+means audio is ready. Without `meaningId`, playback still selects only the word
+default.
+
+`pronunciation` is output-only. Single/batch imports and submission approval do
+not write meaning-specific phonetics, and importing an existing meaning does
+not clear them. Echoing the projection or undeclared meaning phonetic fields
+does not grant editing permission. This slice adds no pronunciation editor,
+generation, schema migration or deployment setting; the existing schema-version
+gate and backup/restore policy continue to apply.
+
 ## Generation targets
 
 `GET /admin/audio-targets?bookId=...&locale=en-GB&status=missing&page=1&size=20`
@@ -196,7 +232,7 @@ Playback responses use `Cache-Control: no-store`. The URL points to the configur
 
 `GET /api/vocabulary/{wordId}/audio?bookId=...&meaningId=...&locale=en-GB`
 
-This anonymous endpoint uses the existing public API rate limit and `Retry-After` on 429. It requires `bookId`; omit `locale` to request both `en-GB` and `en-US`, or specify exactly one. A supplied `meaningId` must belong to both this word and this book. Without a meaning ID, the word must have at least one meaning in this book. Missing/blank book ID, invalid locale or blank meaning ID returns 400; missing book/word/meaning or membership returns 404; a disabled book returns the existing business-rule 422. A word belonging only to another disabled book cannot be requested through an enabled book. Audio disabled returns safe 503. Other public route DTOs and authentication are unchanged.
+This anonymous endpoint uses the existing public API rate limit and `Retry-After` on 429. It requires `bookId`; omit `locale` to request both `en-GB` and `en-US`, or specify exactly one. A supplied `meaningId` must belong to both this word and this book. Without a meaning ID, the word must have at least one meaning in this book. Missing/blank book ID, invalid locale or blank meaning ID returns 400; missing book/word/meaning or membership returns 404; a disabled book returns the existing business-rule 422. A word belonging only to another disabled book cannot be requested through an enabled book. Audio disabled returns safe 503. Existing public fields and authentication remain compatible; detail and entry responses add only the read-only pronunciation metadata described above.
 
 An enabled book, target membership, current inputs and both accent bindings are read in one SQLite snapshot. Selection follows the same [meaning-specific rules](#meaning-specific-pronunciation-selection), including inheritance for blank specific phonetics and `missing` for a different explicit pronunciation without its own audio. Responses contain `data.items` in British/American order (one item when locale is specified), with the same fields as administrator playback:
 

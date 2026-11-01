@@ -230,7 +230,8 @@ lists only that unit's places. Each item is one meaning:
 ```text
 wordId, word, normalizedWord, phoneticUk, phoneticUs,
 meaningId, partOfSpeech, meaning, meaningKey, example,
-positions: [ { unitId, unitNumber, section, entryKind } ]
+positions: [ { unitId, unitNumber, section, entryKind } ],
+pronunciation: { uk: { phonetic, source }, us: { phonetic, source } }
 ```
 
 `section` and `entryKind` are null when the place is unsectioned or
@@ -238,6 +239,14 @@ unclassified. `normalizedWord` is `lower(trim(word))` and `meaningKey` is
 `lower(trim(meaning))` — the same equivalence rule question generation uses —
 so a caller can compare entries across books by these keys without
 renormalizing them; both should be treated as opaque.
+
+`phoneticUk` and `phoneticUs` retain word-default semantics. The read-only
+`pronunciation` reports each meaning's effective phonetic and `default`/`meaning`
+source, with null for an empty effective value. Detail `meanings` and integration
+catalog search use the same [projection](../api/Audio.md#read-only-pronunciation-metadata).
+Its source does not imply audio readiness or the selected binding's source.
+Legacy single/batch imports cannot write this projection or clear stored
+meaning-specific phonetics.
 
 The page order is a total order computed on the database side, so it is
 stable across pages of one traversal: entries sort by the smallest place the

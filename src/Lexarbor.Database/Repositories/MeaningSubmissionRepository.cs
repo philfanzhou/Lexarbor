@@ -1,6 +1,7 @@
 using Lexarbor.Database.Entities;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
+using Lexarbor.Domain.Services;
 using Mapster;
 using Microsoft.EntityFrameworkCore;
 
@@ -107,13 +108,16 @@ public sealed class MeaningSubmissionRepository : IMeaningSubmissionRepository
                 join book in _context.VocabularyBooks.AsNoTracking() on meaning.BookId equals book.Id
                 where book.Status && ids.Contains(meaning.VocabularyId)
                 orderby book.DisplayOrder, book.BookName, book.Id, meaning.NormalizedPartOfSpeech, meaning.NormalizedMeaning
-                select new { meaning.VocabularyId, meaning.Id, meaning.BookId, book.BookName, meaning.PartOfSpeech, meaning.Meaning, Key = meaning.NormalizedMeaning.ToLower() })
+                select new { meaning.VocabularyId, meaning.Id, meaning.BookId, book.BookName, meaning.PartOfSpeech, meaning.Meaning, meaning.PhoneticUk, meaning.PhoneticUs, Key = meaning.NormalizedMeaning.ToLower() })
             .ToListAsync(cancellationToken);
         return words.SelectMany(word => meanings
                 .Where(meaning => meaning.VocabularyId == word.Id)
                 .Select(meaning => new CatalogMeaningMatch(
                     word.Id, word.Word, word.NormalizedWord, word.PhoneticUk, word.PhoneticUs,
-                    meaning.BookId, meaning.BookName, meaning.Id, meaning.PartOfSpeech, meaning.Meaning, meaning.Key)))
+                    meaning.BookId, meaning.BookName, meaning.Id, meaning.PartOfSpeech, meaning.Meaning, meaning.Key,
+                    AudioSelectionService.GetPronunciation(
+                        new(word.Id, word.Word, word.PhoneticUk, word.PhoneticUs),
+                        new(meaning.Id, meaning.PartOfSpeech, meaning.Meaning, meaning.PhoneticUk, meaning.PhoneticUs)))))
             .ToList();
     }
 

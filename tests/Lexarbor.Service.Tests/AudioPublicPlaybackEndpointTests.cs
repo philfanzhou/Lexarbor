@@ -188,6 +188,17 @@ public sealed class AudioPublicPlaybackEndpointTests
         }
         var baseline = await host.Bind(locale);
         var own = hasOwn ? await host.Bind(locale, "m") : null;
+        using var detailResponse = await host.Client.GetAsync("/api/vocabulary/w?bookId=enabled", Ct);
+        detailResponse.EnsureSuccessStatusCode();
+        using var detail = JsonDocument.Parse(await detailResponse.Content.ReadAsStringAsync(Ct));
+        var word = detail.RootElement.GetProperty("data");
+        Assert.Equal("uk", word.GetProperty("phoneticUk").GetString());
+        Assert.Equal("us", word.GetProperty("phoneticUs").GetString());
+        var projection = Assert.Single(word.GetProperty("meanings").EnumerateArray())
+            .GetProperty("pronunciation").GetProperty(locale == "en-GB" ? "uk" : "us");
+        Assert.Equal(string.IsNullOrWhiteSpace(phonetic) ? locale == "en-GB" ? "uk" : "us" : phonetic,
+            projection.GetProperty("phonetic").GetString());
+        Assert.Equal(string.IsNullOrWhiteSpace(phonetic) ? "default" : "meaning", projection.GetProperty("source").GetString());
         using var response = await host.Client.GetAsync(Route(locale, "m"), Ct); using var json = await Read(response);
         var data = Assert.Single(json.RootElement.GetProperty("data").GetProperty("items").EnumerateArray());
         Assert.Equal(new[] { "assetId", "expiresAt", "locale", "source", "sourceRevision", "status", "url" },
