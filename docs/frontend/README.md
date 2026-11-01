@@ -394,3 +394,15 @@ forwards this route. Word and meaning pronunciation previews and the S3 storage
 settings panel remain available. See the
 [upgrade instructions](../development/Deployment.md#textbook-recording-removal)
 for retained files and recording metadata backups.
+
+### Review and enrichment settings API
+
+The administrator API at `/admin/enrichment/settings` provides separate review and
+enrichment settings. Its page is a dependent feature; this change adds no UI.
+Clients must retain the shared strong ETag, use Cookie/CSRF or administrator Bearer,
+keep credential drafts out of browser storage/URLs/telemetry, and re-read after an
+unknown save outcome. GET exposes `hasApiKey`, source/editable metadata and
+`configurationReady`, never credentials or private version fingerprints. See
+[System settings](../api/SystemSettings.md#review-assistant-and-enrichment) for the
+complete nested payload and keep/replace/clear contract. Incomplete locale settings
+can be saved and are not evidence of completed generation.

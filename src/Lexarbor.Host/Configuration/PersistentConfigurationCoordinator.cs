@@ -17,9 +17,11 @@ public sealed record ConfigurationSaveResult(ConfigurationSaveStatus Status, str
 public sealed class ConfigurationChangeConflictException() : Exception("Existing audio requires a separate storage migration.");
 
 /// <summary>The module owns validation and supplies a non-throwing, synchronous publication.</summary>
-public sealed class PreparedConfigurationChange(Action publish, Action? discard = null) : IDisposable
+public sealed class PreparedConfigurationChange(Action publish, Action? discard = null,
+    JsonObject? enrichmentVersions = null) : IDisposable
 {
     private bool _published;
+    internal JsonObject? EnrichmentVersions { get; } = enrichmentVersions;
 
     public void Publish()
     {
@@ -47,6 +49,10 @@ public sealed class PersistentConfigurationCoordinator
         "Audio:Enabled", "Audio:InternalEndpoint", "Audio:PublicEndpoint", "Audio:Region",
         "Audio:Bucket", "Audio:KeyPrefix", "Audio:AccessKey", "Audio:SecretKey"
     };
+    static PersistentConfigurationCoordinator()
+    {
+        AllowedFields.UnionWith(EnrichmentConfigurationFields.All.Select(field => field.Key));
+    }
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly IConfigurationRoot _configuration;
     private readonly PersistentConfigurationFileStore _store;
@@ -64,7 +70,7 @@ public sealed class PersistentConfigurationCoordinator
     {
         _configuration = configuration;
         _store = store;
-        _startup = configuration.AsEnumerable().ToDictionary(item => item.Key, item => item.Value, StringComparer.OrdinalIgnoreCase);
+        _startup = configuration.AsEnumerable().Where(item => !PrivateMetadata(item.Key)).ToDictionary(item => item.Key, item => item.Value, StringComparer.OrdinalIgnoreCase);
         _overrides = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         _sources = new Dictionary<string, ConfigurationFieldSource>(StringComparer.OrdinalIgnoreCase);
         foreach (var field in AllowedFields)
@@ -193,6 +199,10 @@ public sealed class PersistentConfigurationCoordinator
             using (candidate)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                // Private comparison metadata is produced by the trusted module, never
+                // accepted as an HTTP field, and shares its single atomic commit point.
+                if (candidate.EnrichmentVersions is not null)
+                    SetField(document, "EnrichmentConfigurationVersions", candidate.EnrichmentVersions.DeepClone());
                 var bytes = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(document,
                     new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
                 var nextRevision = NewRevision();
@@ -315,7 +325,12 @@ public sealed class PersistentConfigurationCoordinator
         SetField(section, key[(separator + 1)..], value);
     }
 
-    private static bool ValidField(string key, JsonNode? value) => value is JsonValue scalar
+    private static bool PrivateMetadata(string key) => key.Equals("EnrichmentConfigurationVersions", StringComparison.OrdinalIgnoreCase)
+        || key.StartsWith("EnrichmentConfigurationVersions:", StringComparison.OrdinalIgnoreCase);
+
+    private static bool ValidField(string key, JsonNode? value) => EnrichmentConfigurationFields.Find(key) is { } field
+        ? field.Valid(value)
+        : value is JsonValue scalar
         && (key.EndsWith(":Enabled", StringComparison.OrdinalIgnoreCase) ? scalar.TryGetValue<bool>(out _) : scalar.TryGetValue<string>(out _));
     private static bool IsStorageError(Exception exception) => exception is IOException or UnauthorizedAccessException or System.Security.SecurityException;
     private static string NewRevision() => $"\"{Guid.NewGuid():N}\"";

@@ -111,6 +111,18 @@ public sealed class MeaningSubmissionEndpointTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task IntegrationToken_CannotReadOrWriteEnrichmentSettings()
+    {
+        foreach (var method in new[] { HttpMethod.Get, HttpMethod.Put })
+        {
+            using var request = new HttpRequestMessage(method, "/admin/enrichment/settings");
+            request.Headers.Authorization = new("Bearer", Token());
+            if (method == HttpMethod.Put) request.Content = JsonContent.Create(new { enrichment = new { audioEnabled = true } });
+            Assert.Equal(HttpStatusCode.Unauthorized, (await _client.SendAsync(request, Ct)).StatusCode);
+        }
+    }
+
+    [Fact]
     public async Task SubmitReviewAndLookup_RoundTrip()
     {
         var created = await Data(await Post("/integration/meaning-submissions",

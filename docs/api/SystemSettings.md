@@ -207,3 +207,103 @@ never expose paths, original input or SDK exception details. After a lost PUT
 response, GET to determine the current state; do not automatically resend the
 credential-bearing request. See [Audio API](Audio.md) and
 [Deployment](../development/Deployment.md#optional-audio-object-storage) for operational details.
+
+## Review assistant and enrichment
+
+`GET /admin/enrichment/settings` and conditional `PUT` use the same administrator,
+Cookie/CSRF, Bearer precedence, shared strong ETag, no-store and atomic file rules
+above. Integration/submission tokens have no access. The response has `revision`,
+`configurationReady`, `reviewAssistant`, `enrichment`, and a `fields` dictionary.
+Dictionary keys use dotted names, such as `enrichment.text.model`; each entry has
+`source`, `editable` and a safe override `reason`. Credential fields return only
+`hasApiKey`, never `apiKey` or private version metadata. For example, a partial PUT:
+
+```json
+{
+  "reviewAssistant": {
+    "endpoint": "https://review.example.com/v1",
+    "model": "review-model",
+    "apiKey": { "action": "replace", "value": "<review key>" }
+  },
+  "enrichment": {
+    "fieldsEnabled": false,
+    "audioEnabled": true,
+    "text": {
+      "endpoint": "https://planner.example.com/v1",
+      "model": "planner-model",
+      "apiKey": { "action": "replace", "value": "<planner key>" }
+    },
+    "tts": {
+      "provider": "MiniMaxNative",
+      "endpoint": "https://tts.example.com/v1",
+      "model": "speech-2.8-hd",
+      "apiKey": { "action": "replace", "value": "<speech key>" },
+      "uk": { "voice": "<supported UK voice>", "speed": 1 },
+      "us": { "voice": "", "speed": null }
+    }
+  }
+}
+```
+
+All three client objects accept `endpoint`, `model`, credential `apiKey`, and
+`timeoutSeconds` (1–300, default 30). Review settings retain the existing
+`MeaningSubmissions:Ai` keys and enable advice when endpoint and model are set;
+clearing endpoint or model disables advice. Enrichment uses the separate
+`Enrichment` section. Both enrichment switches default to false. Audio-only mode
+still requires the text client's pronunciation preparation and never implies
+permission to write text fields. Each locale has its own voice and nullable speed;
+both default to empty. Incomplete configurations can be saved: a missing UK setup
+does not invalidate the US setup. Speed accepts 0.1–4 as a configuration bound;
+the actual provider/model adapter must enforce its narrower supported range and
+pronunciation capabilities. Saving configuration never calls a supplier. This
+foundation does not start an enrichment worker, create tasks or generate audio.
+
+Providers are `MiniMaxNative` (default model `speech-2.8-hd`) and
+`OpenAICompatible`. A protocol/provider name does not promise support for arbitrary
+models, voices or pronunciation instructions. There is no bypass-preparation or
+ignore-pronunciation switch. Unsupported combinations must stop safely in the
+provider adapter rather than send an unconstrained request.
+
+Additional `enrichment` fields and defaults:
+
+| Field | Default | Allowed |
+|---|---|---|
+| `concurrency` | 1 | 1–8 |
+| `failureBudget` | 5 | 1–20 |
+| `serviceFailureThreshold` | 5 | 1–20 |
+| `servicePauseSeconds` / `maxServicePauseSeconds` | 60 / 600 | 1–600 / 1–3600; maximum >= initial |
+| `throttleInitialSeconds` / `throttleMaxSeconds` | 8 / 120 | 1–120 / 1–3600; maximum >= initial |
+| `discoveryBatchSize` | 20 | 1–1000 |
+| `scanIntervalSeconds` | 30 | 1–3600 |
+
+Omitted fields and credentials are retained. Each `apiKey` supports exactly
+keep/replace/clear as in the S3 API. Deployment overrides remain read-only, including
+attempts to submit their current value; explicit credential keep is permitted.
+GET never creates a file. PUT accepts at least one known field or credential
+operation, with a 16384-byte body limit, a maximum JSON depth of 8, strict types and
+no duplicate/unknown names. Endpoints must be absolute HTTP(S) URLs without user
+information, query or fragment. Errors are fixed English text and never echo input.
+Status codes are 200, 400, 409, 412, 413, 428 and 503 with the same meanings as the
+S3 settings API, except no storage-destination migration check is involved.
+
+Each operation captures one immutable published snapshot. A successful save affects
+subsequent review operations and enrichment consumers without restart; an in-flight
+operation retains its model/key snapshot. File, parsing, candidate, cancellation
+before commit or concurrency failures publish nothing. After the atomic commit,
+publication completes even if the response is lost; GET before deciding to resave.
+
+The HTTP ETag is process-local and must never be used as a task configuration
+version. Internal text/UK-TTS/US-TTS random versions survive restart. Only relevant
+client settings advance their step/locale version; review settings, enable flags,
+scan controls and retry/service controls do not reset task failure budgets. A
+shared TTS provider/model/endpoint/key change affects both locales; a voice/speed
+change affects only its locale. Private keyed comparison metadata is atomically
+stored with the configuration at 0600; keys and comparison digests are not exposed
+in responses or task history. Older files with no metadata still start, but
+`configurationReady` is false until startup initialization or an authorized save
+establishes it. Before workers start, an enabled deployment atomically initializes
+missing/changed metadata without calling suppliers. Disabled legacy deployments do
+not create a file. An effective deployment override change invalidates only affected
+versions and enabled startup persists their replacements; unwritable metadata keeps
+generation waiting. Retain the
+whole configuration file, not just visible fields, across container replacement.

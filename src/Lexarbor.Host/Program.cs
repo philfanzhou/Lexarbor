@@ -182,7 +182,7 @@ builder.Services.AddSingleton(provider => new MeaningSubmissionSettings
 builder.Services.AddScoped<IMeaningSubmissionRepository, MeaningSubmissionRepository>();
 builder.Services.AddScoped<MeaningSubmissionService>();
 builder.Services.AddSingleton(provider => IntegrationServiceTrust.Read(provider.GetRequiredService<IConfiguration>()));
-builder.Services.AddSingleton(provider => ReviewAssistantOptions.Read(provider.GetRequiredService<IConfiguration>()));
+builder.Services.AddSingleton<EnrichmentRuntimeConfiguration>();
 builder.Services.AddHttpClient(OpenAiCompatibleReviewAssistant.HttpClientName);
 builder.Services.AddSingleton<IMeaningSubmissionReviewAssistant, OpenAiCompatibleReviewAssistant>();
 builder.Services.AddScoped<VocabularyBookDomainService>();
@@ -597,7 +597,8 @@ app.Services.GetRequiredService<PersistentConfigurationCoordinator>();
 // Fail startup on an invalid meaning-submission setting instead of on first use.
 app.Services.GetRequiredService<MeaningSubmissionSettings>();
 app.Services.GetRequiredService<IntegrationServiceTrust>();
-app.Services.GetRequiredService<ReviewAssistantOptions>();
+await app.Services.GetRequiredService<EnrichmentRuntimeConfiguration>().InitializeAsync(
+    app.Services.GetRequiredService<PersistentConfigurationCoordinator>());
 
 
 
