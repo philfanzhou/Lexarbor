@@ -11,14 +11,20 @@ public static class AdminAuthenticationSource
 {
     public const string PolicyScheme = "AdminAuthentication";
     public const string PresentationScheme = "AdminAuthentication.Presentation";
+    public const string IntegrationScheme = "IntegrationService";
 
     // Bearer credentials come only from the Authorization header; every other
     // request — cookie-bearing or anonymous — is answered by the hosted-login
     // session scheme of the official SignaCore client. Authentication,
     // challenge and forbid must never choose a fallback identity, so a legacy
     // JWT cookie can no longer authenticate anything.
+    // The integration surface is authenticated only by integration service
+    // tokens: its bearer header is never handed to the identity provider's JWT
+    // handler, and no administrator session is read for it.
     public static string Select(HttpRequest request) =>
-        IsBearer(request)
+        request.Path.StartsWithSegments("/integration")
+            ? IntegrationScheme
+            : IsBearer(request)
             ? JwtBearerDefaultsName
             : SignaCore.Client.AspNetCore.SignaCoreHostedLoginDefaults.SessionAuthenticationScheme;
 
