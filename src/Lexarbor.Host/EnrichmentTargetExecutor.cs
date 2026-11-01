@@ -85,8 +85,15 @@ public sealed class EnrichmentTargetExecutor(IEnrichmentTaskRepository tasks, IE
         }
         if (task.Target.Step == EnrichmentStep.Fields)
         {
+            var fields = await catalog.ReadAsync(task.Target, token);
+            if (fields == null || fields.Request.InputVersion != guard.Input) return await RefreshAsync(task, token);
+            var missing = ready.EntryKind != "phrase" && (string.IsNullOrWhiteSpace(task.Target.Locale == AudioLocale.EnGb
+                ? fields.Request.Word.PhoneticUk : fields.Request.Word.PhoneticUs)
+                || fields.Request.Meanings.Any(value => string.IsNullOrWhiteSpace(value.Meaning.PartOfSpeech)
+                    && !value.PositionKinds.Contains("phrase", StringComparer.Ordinal)));
             if (preparedRound.Plan!.Preparation!.ConflictingMeaningIds?.Count > 0)
                 await tasks.StopAsync(guard, "fields.equivalent_meaning", Now, token);
+            else if (missing) await tasks.StopAsync(guard, "fields.candidates_missing", Now, token);
             else await tasks.CompleteAsync(guard, Now, token);
             return await GetAsync(task.Id, token);
         }

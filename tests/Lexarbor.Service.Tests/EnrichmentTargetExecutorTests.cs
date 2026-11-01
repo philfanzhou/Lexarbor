@@ -126,6 +126,22 @@ public sealed class EnrichmentTargetExecutorTests
         Assert.Equal(1, f.Http.TextCalls); Assert.Equal(0, f.Http.SpeechCalls); Assert.Equal(0, f.Store.Puts);
     }
 
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task OmittedFieldCandidates_RemainFailedRatherThanCompleted_WithoutBlockingIndependentAudio(bool ipa, bool pos)
+    {
+        await using var f = await Fixture.Create(); f.Http.OmitPhonetic = ipa; f.Http.OmitPartsOfSpeech = pos;
+        var fields = (await f.Run(Key(EnrichmentStep.Fields)))!;
+        Assert.Equal(EnrichmentState.Failed, Round(fields).State); Assert.Equal("fields.candidates_missing", Round(fields).ErrorCode);
+        Assert.Equal(0, Round(fields).ConsumedFailures); Assert.Equal(0, Round(fields).RequestCount);
+        Assert.Equal(ipa ? null : "liːd", await f.Db.Vocabularies.Select(row => row.PhoneticUk).SingleAsync(Ct));
+        Assert.Equal(pos ? null : "v.", await f.Db.VocabularyMeanings.Select(row => row.PartOfSpeech).SingleAsync(Ct));
+        Assert.Equal(EnrichmentState.Succeeded, Round((await f.Run(Key()))!).State);
+        Assert.Equal(1, f.Http.TextCalls); Assert.Equal(1, f.Http.SpeechCalls);
+    }
+
     [Fact]
     public async Task FieldCommit_RollsBackAllMutationsAndPlanAdvance_AndQueuedWriterRechecksExpiry()
     {
@@ -320,6 +336,7 @@ public sealed class EnrichmentTargetExecutorTests
         await using var f = await Fixture.Create();
         await f.Db.VocabularyMeaningUnits.ExecuteUpdateAsync(set => set.SetProperty(row => row.EntryKind, "phrase"), Ct);
         f.Http.Kind = "phrase";
+        Assert.Equal(EnrichmentState.Succeeded, Round((await f.Run(Key(EnrichmentStep.Fields)))!).State);
         await f.Run(Key());
         Assert.Null(await f.Db.Vocabularies.Select(row => row.PhoneticUk).SingleAsync(Ct));
         Assert.Null(await f.Db.VocabularyMeanings.Select(row => row.PartOfSpeech).SingleAsync(Ct));
@@ -711,7 +728,7 @@ public sealed class EnrichmentTargetExecutorTests
     {
         public int TextCalls; public int SpeechCalls;
         public string SpeechOutcome = "ready", PlanOutcome = "ready", Kind = "word";
-        public bool Ipa; public byte[]? AudioBytes;
+        public bool Ipa; public bool OmitPhonetic; public bool OmitPartsOfSpeech; public byte[]? AudioBytes;
         public Action? AssertOutsideTransaction; public Func<Task>? BeforeTextResponse;
         public Func<CancellationToken, Task>? BeforeSpeechResponse;
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage message, CancellationToken token)
@@ -731,8 +748,8 @@ public sealed class EnrichmentTargetExecutorTests
                     spokenText = "lead",
                     pronunciationHint = Ipa ? "liːd" : "Use the requested reading.",
                     requiredPhonetic = required,
-                    phonetic = "liːd",
-                    partsOfSpeech = new[] { new { meaningId = "meaning", partOfSpeech = "v." } },
+                    phonetic = OmitPhonetic ? null : "liːd",
+                    partsOfSpeech = (new[] { new { meaningId = "meaning", partOfSpeech = "v." } }).Where(_ => !OmitPartsOfSpeech).ToArray(),
                     pronunciationControl = Ipa ? "ipa" : "instructions",
                     speechPhonetic = Ipa ? "liːd" : null
                 };

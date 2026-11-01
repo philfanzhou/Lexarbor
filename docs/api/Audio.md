@@ -413,7 +413,10 @@ It rechecks the round, owner, fence, expiry, input and captured own binding. It 
 creates specific IPA. Phrase targets receive audio only; mixed-position permissions
 remain the same as editing. Equivalent-meaning POS conflicts are retained as safe
 field-step failures with the affected IDs, without merging/deleting meanings or
-blocking independent audio. Its own successful field writes advance that round's
+blocking independent audio. If a valid pronunciation plan omits candidates and
+applicable fields remain empty, the field step stops with `fields.candidates_missing`
+instead of reporting success; the independent prepared audio can still proceed.
+Its own successful field writes advance that round's
 input and prepared envelope together, without starting an endless sequence of rounds.
 Audio-only mode still prepares, and writes neither IPA nor POS.
 
