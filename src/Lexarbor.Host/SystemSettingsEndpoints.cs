@@ -26,6 +26,9 @@ public static class SystemSettingsEndpoints
             .WithMetadata(new SettingsMetadata());
         group.MapGet("", ReadAsync);
         group.MapPut("", SaveAsync);
+        EnrichmentSettingsEndpoints.Map(app.MapGroup(EnrichmentSettingsEndpoints.Path)
+            .RequireAuthorization(ManagementAuthorizationDefaults.AdminPolicyName)
+            .WithMetadata(new SettingsMetadata()));
         AudioStorageSettingsEndpoints.Map(app.MapGroup("/admin/system/settings/audio-storage")
             .RequireAuthorization(ManagementAuthorizationDefaults.AdminPolicyName)
             .WithMetadata(new SettingsMetadata()));

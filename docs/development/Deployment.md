@@ -1333,6 +1333,45 @@ administrator/public playback to establish remote connectivity. See the
 [frontend settings guide](../frontend/README.md#audio-storage-s3) and
 [API contract](../api/SystemSettings.md#audio-storage-s3).
 
+## Online review and enrichment configuration
+
+Administrators can GET and conditionally PUT `/admin/enrichment/settings` using the
+shared settings ETag and Cookie/CSRF or administrator Bearer authentication. See
+[the API contract](../api/SystemSettings.md#review-assistant-and-enrichment) for
+exact fields, bounds, defaults and credential operations. The review assistant
+keeps `MeaningSubmissions:Ai` keys; enrichment uses its independent `Enrichment`
+section. Environment/command-line overrides remain read-only. Keys remain only in
+server configuration; responses expose presence, never values or fingerprints.
+
+Both enrichment switches default to false, provider/model to
+`MiniMaxNative`/`speech-2.8-hd`, and each locale's voice/speed to empty. A missing
+section keeps old deployments bootable. Saving is local only and does not enable a
+worker or call AI/TTS in this foundation. Audio-only configuration still requires
+pronunciation planning. Configure an explicitly supported provider/model and both
+locale settings before relying on a later adapter; OpenAI compatibility alone
+makes no pronunciation-control guarantee.
+
+Successful saves publish immutable review/enrichment snapshots only after atomic
+file replacement. Later review calls use the new endpoint/model/key; calls already
+started retain their captured snapshot. Shared rate-limit/S3 saves preserve these
+settings and vice versa. The same 0600 file contains private HMAC comparison
+metadata and independent opaque text/UK-TTS/US-TTS versions. Back up and restore the
+complete `/app/data/appsettings.json`, using the fixed bind mount or named volume
+across image replacement. HTTP ETags are not durable task versions. Do not copy
+private metadata into logs, UI responses or task history. Old configuration without
+version metadata still starts. Before workers start, enabled deployments atomically
+establish missing/changed persistent versions; failures retain safe waiting
+(`configurationReady: false`). Disabled deployments and GET do not create a file.
+Effective environment changes advance only affected versions at enabled startup;
+no deployment credential is copied into the file. Unavailable storage cannot silently
+enable generation.
+
+This feature adds no SQLite table or migration. Rolling back removes the new
+settings API/runtime consumer, not the saved file; preserve a pre-change
+configuration backup to restore prior settings. Unknown enrichment/private metadata
+is ignored by earlier images. Database version-gate and backup procedures remain
+unchanged.
+
 ## Meaning submissions
 
 Meaning submissions are off unless a supplementary book is configured. See the [API](../api/MeaningSubmissions.md) and [ADR-009](../adr/ADR-009-meaning-submissions.md).
@@ -1345,10 +1384,10 @@ Meaning submissions are off unless a supplementary book is configured. See the [
 | `MeaningSubmissions:Integration:PublicKeys:<n>:KeyId` | Unique, 1–128 letters, digits, `.`, `_` or `-` |
 | `MeaningSubmissions:Integration:PublicKeys:<n>:PublicKeyPath` | PEM RSA public key (at least 2048 bits). A file containing a private key is refused |
 | `MeaningSubmissions:Ai:Endpoint` / `Model` | Optional OpenAI-compatible base URL (for example `https://api.example.com/v1`) and model; both set enables review advice |
-| `MeaningSubmissions:Ai:ApiKey` | Optional bearer key for the endpoint; inject it through an environment variable (`MeaningSubmissions__Ai__ApiKey`), never the persistent settings file |
+| `MeaningSubmissions:Ai:ApiKey` | Optional server-only bearer key; set it through the protected review/enrichment settings API (0600 persistent file), or an environment override (`MeaningSubmissions__Ai__ApiKey`, read-only online) |
 | `MeaningSubmissions:Ai:TimeoutSeconds` | 1–300, default 30 |
 
-An invalid value stops startup with a message naming the setting only. Without any public key the integration routes answer `401`. Settings are read once at startup; key rotation means adding the new public key to the ring, restarting, switching the client's signing key, then removing the old key and restarting again.
+An invalid value stops startup with a message naming the setting only. Without any public key the integration routes answer `401`. Integration trust settings are read once at startup; signing-key rotation means adding the new public key to the ring, restarting, switching the client's signing key, then removing the old key and restarting again.
 
 The upgrade adds the `meaning_submission` table only (migration `AddMeaningSubmissions`); every existing row and table is unchanged. Back up SQLite before upgrading. An older image does not start on the upgraded database: the startup version gate stops with `migration.version_too_new`. To roll back, either restore the backup, or use the current migration tooling to return to `20261021010701_RemoveTextbookAudio` (Down drops the table together with every submission) and then deploy the older image. The review advice sends only the submission's word, part of speech, definition and example to the configured endpoint.
 

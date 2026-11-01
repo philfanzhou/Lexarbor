@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
+using Lexarbor.Host.Configuration;
 
 namespace Lexarbor.Host.Integration;
 
@@ -28,26 +29,28 @@ public sealed class OpenAiCompatibleReviewAssistant : IMeaningSubmissionReviewAs
         "Chinese sentence explaining the verdict). Reject spellings that are not English words or phrases.";
 
     private readonly IHttpClientFactory _clients;
-    private readonly ReviewAssistantOptions _options;
+    private readonly EnrichmentRuntimeConfiguration _runtime;
 
-    public OpenAiCompatibleReviewAssistant(IHttpClientFactory clients, ReviewAssistantOptions options)
+    public OpenAiCompatibleReviewAssistant(IHttpClientFactory clients, EnrichmentRuntimeConfiguration runtime)
     {
         _clients = clients;
-        _options = options;
+        _runtime = runtime;
     }
 
-    public bool IsEnabled => _options.IsEnabled;
+    public bool IsEnabled => _runtime.Current.ReviewAssistant.IsEnabled;
 
     public async Task<MeaningSubmissionReviewAdvice> ReviewAsync(
         MeaningSubmissionModel submission,
         CancellationToken cancellationToken = default)
     {
+        var options = _runtime.Current.ReviewAssistant;
+        if (!options.IsEnabled) throw new ReviewAssistantUnavailableException();
         var client = _clients.CreateClient(HttpClientName);
-        client.Timeout = TimeSpan.FromSeconds(_options.TimeoutSeconds);
-        using var request = new HttpRequestMessage(HttpMethod.Post, _options.Endpoint!.TrimEnd('/') + "/chat/completions");
-        if (!string.IsNullOrEmpty(_options.ApiKey))
+        client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
+        using var request = new HttpRequestMessage(HttpMethod.Post, options.Endpoint!.TrimEnd('/') + "/chat/completions");
+        if (!string.IsNullOrEmpty(options.ApiKey))
         {
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _options.ApiKey);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.ApiKey);
         }
 
         var proposal = JsonSerializer.Serialize(new
@@ -59,7 +62,7 @@ public sealed class OpenAiCompatibleReviewAssistant : IMeaningSubmissionReviewAs
         }, Json);
         request.Content = JsonContent.Create(new
         {
-            model = _options.Model,
+            model = options.Model,
             temperature = 0,
             response_format = new { type = "json_object" },
             messages = new object[]

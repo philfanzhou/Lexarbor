@@ -56,6 +56,8 @@ internal static class SettingsApiProbe
             stage = "Host startup";
             await using (var host = await Host.StartAsync(root, dbOptions))
             {
+                using var enrichment = await host.Client.GetAsync(EnrichmentSettingsEndpoints.Path);
+                Check(enrichment.StatusCode == HttpStatusCode.OK, "AI settings routes must resolve in the isolated Host without creating configuration.");
                 var initial = await host.ReadAsync(); Check(!initial.Enabled && !File.Exists(Path.Combine(root, "data/appsettings.json")), "GET must not create configuration.");
                 stage = "initial settings save";
                 await host.BrowserAsync("configure", options);
@@ -173,6 +175,7 @@ internal static class SettingsApiProbe
             builder.Configuration.AddJsonFile(file.FilePath, optional: true, reloadOnChange: false);
             if (commandLineOverride) builder.Configuration.AddCommandLine(["--Audio:Region=us-east-1"]);
             builder.Services.AddSingleton(file);
+            builder.Services.AddSingleton<EnrichmentRuntimeConfiguration>();
             builder.Services.AddSingleton(provider => new PersistentConfigurationCoordinator((IConfigurationRoot)provider.GetRequiredService<IConfiguration>(), file));
             var serviceId = ServiceId.Parse("settings-browser-probe");
             builder.Services.AddServiceMantle(serviceId, InstanceId.CreateRandom(serviceId)).AddLexarborRateLimiting(builder.Configuration);
