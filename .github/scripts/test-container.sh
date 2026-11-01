@@ -362,7 +362,7 @@ for path_and_count in 'admin/auth/start 11' 'api/does-not-exist 301'; do
 done
 docker rm -f "$FRESH_CONTAINER" >/dev/null
 
-echo "Checking specific-audio edit epochs, regeneration and deletion authority survive container recreation"
+echo "Checking specific-audio edits and enrichment discovery/service state survive container recreation"
 invalidation_data="$TEST_ROOT/audio-invalidation"
 mkdir -p "$invalidation_data"
 chmod 700 "$invalidation_data"
@@ -396,7 +396,10 @@ with sqlite3.connect(sys.argv[1]) as connection:
         target = f'edit-{step}'
         connection.execute("INSERT INTO enrichment_target (id,word_id,meaning_id,locale,step,current_round,epoch,deleted) VALUES (?,'cleanup-word','cleanup-meaning','en-GB',?,1,7,0)", (target, step))
         connection.execute("INSERT INTO enrichment_round (target_id,number,state,input_revision,source_revision,configuration_version,failure_budget,request_count,consumed_failures,lease_fence,created_at_unix_ms,updated_at_unix_ms) VALUES (?,1,'Pending',?,?,'persisted-edit-config',5,0,0,0,3,3)", (target, '0' * 64, '0' * 64))
-    snapshot = {table: connection.execute(f"SELECT * FROM {table} ORDER BY 1").fetchall() for table in ('audio_asset', 'audio_upload_operation', 'audio_invalidation', 'meaning_phonetic_epoch', 'enrichment_target', 'enrichment_round')}
+    connection.execute("INSERT INTO enrichment_discovery (id,cursor,upper_bound) VALUES ('words','cleanup-word','retained-word'),('meanings','cleanup-meaning','retained-meaning')")
+    connection.execute("INSERT INTO enrichment_service (id,configuration_version,consecutive_failures,throttle_seconds,paused,blocked,pause_seconds,next_attempt_at_unix_ms,lease_id,lease_expires_at_unix_ms) VALUES ('synthetic-tts-service','synthetic-config',5,120,1,0,600,123456,'interrupted-probe',234567)")
+    connection.execute("INSERT INTO enrichment_service_probe (id,service_id,result,request_made,started_at_unix_ms) VALUES ('interrupted-probe','synthetic-tts-service','Started',1,12)")
+    snapshot = {table: connection.execute(f"SELECT * FROM {table} ORDER BY 1").fetchall() for table in ('audio_asset', 'audio_upload_operation', 'audio_invalidation', 'meaning_phonetic_epoch', 'enrichment_target', 'enrichment_round', 'enrichment_discovery', 'enrichment_service', 'enrichment_service_probe')}
     with open(sys.argv[2], 'w', encoding='utf-8') as output:
         json.dump(snapshot, output)
 PYSQL
@@ -418,6 +421,8 @@ with sqlite3.connect(sys.argv[1]) as connection:
     assert connection.execute("SELECT epoch FROM meaning_phonetic_epoch").fetchone()[0] == 7
     assert connection.execute("SELECT COUNT(*) FROM enrichment_round WHERE state='Pending'").fetchone()[0] == 2
     assert connection.execute("SELECT COUNT(*) FROM audio_upload_operation WHERE meaning_phonetic_epoch=6").fetchone()[0] == 3
+    assert connection.execute("SELECT consecutive_failures,throttle_seconds,paused,pause_seconds FROM enrichment_service").fetchone() == (5,120,1,600)
+    assert connection.execute("SELECT result,request_made FROM enrichment_service_probe").fetchone() == ('Started',1)
 PYSQL
 done
 

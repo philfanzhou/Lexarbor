@@ -202,7 +202,18 @@ public sealed class EnrichmentTaskRepository(VocabularyDbContext context, TimePr
     }
 
     public Task<bool> FinishCallAsync(EnrichmentExecutionGuard guard, string callId, EnrichmentCallResult result,
+        string? errorCode, long now, long? nextAttemptAt, CancellationToken cancellationToken) =>
+        WriteAsync(() => FinishCallCoreAsync(guard, callId, result, errorCode, now, nextAttemptAt), cancellationToken);
+
+    public Task<bool> FinishCallInTransactionAsync(EnrichmentExecutionGuard guard, string callId, EnrichmentCallResult result,
         string? errorCode, long now, long? nextAttemptAt, CancellationToken cancellationToken)
+    {
+        RequireTransaction(cancellationToken);
+        return FinishCallCoreAsync(guard, callId, result, errorCode, now, nextAttemptAt);
+    }
+
+    private async Task<bool> FinishCallCoreAsync(EnrichmentExecutionGuard guard, string callId, EnrichmentCallResult result,
+        string? errorCode, long now, long? nextAttemptAt)
     {
         if (result == EnrichmentCallResult.Started || !Enum.IsDefined(result)) throw new ArgumentOutOfRangeException(nameof(result));
         if (result == EnrichmentCallResult.Succeeded)
@@ -215,30 +226,27 @@ public sealed class EnrichmentTaskRepository(VocabularyDbContext context, TimePr
             if (nextAttemptAt == null) throw new ArgumentException("A retry time is required.", nameof(nextAttemptAt));
             ValidateExpiry(now, nextAttemptAt.Value);
         }
-        return WriteAsync(async () =>
-        {
-            now = Now(now);
-            if (!await ValidAsync(guard, now)) return false;
-            var changed = await context.EnrichmentCalls.Where(row => row.Id == callId && row.TargetId == guard.TargetId
-                && row.Round == guard.Round && row.Result == EnrichmentCallResult.Started).ExecuteUpdateAsync(set => set
-                    .SetProperty(row => row.Result, result).SetProperty(row => row.ErrorCode, errorCode)
-                    .SetProperty(row => row.FinishedAtUnixMs, now));
-            if (changed == 0) return false;
-            if (result == EnrichmentCallResult.Succeeded) return true;
-            var round = await Owned(guard, now).SingleAsync();
-            var consumed = round.ConsumedFailures + (result == EnrichmentCallResult.Throttled ? 0 : 1);
-            var failed = result == EnrichmentCallResult.TerminalFailure || consumed >= round.FailureBudget;
-            await Owned(guard, now).ExecuteUpdateAsync(set => set.SetProperty(row => row.ConsumedFailures, consumed)
-                .SetProperty(row => row.State, failed ? EnrichmentState.Failed : EnrichmentState.Waiting)
-                .SetProperty(row => row.WaitReason, failed ? null : result == EnrichmentCallResult.Throttled ? EnrichmentWaitReason.Throttled : EnrichmentWaitReason.Retry)
-                .SetProperty(row => row.ErrorCode, errorCode).SetProperty(row => row.NextAttemptAtUnixMs, failed ? null : nextAttemptAt)
-                .SetProperty(row => row.LeaseOwner, (string?)null).SetProperty(row => row.LeaseExpiresAtUnixMs, (long?)null)
-                .SetProperty(row => row.UpdatedAtUnixMs, now));
-            if (!failed) await AddWaitAsync(guard.TargetId, guard.Round,
-                result == EnrichmentCallResult.Throttled ? EnrichmentWaitReason.Throttled : EnrichmentWaitReason.Retry,
-                errorCode, now, Math.Max(now, nextAttemptAt!.Value));
-            return true;
-        }, cancellationToken);
+        now = Now(now);
+        if (!await ValidAsync(guard, now)) return false;
+        var changed = await context.EnrichmentCalls.Where(row => row.Id == callId && row.TargetId == guard.TargetId
+            && row.Round == guard.Round && row.Result == EnrichmentCallResult.Started).ExecuteUpdateAsync(set => set
+                .SetProperty(row => row.Result, result).SetProperty(row => row.ErrorCode, errorCode)
+                .SetProperty(row => row.FinishedAtUnixMs, now));
+        if (changed == 0) return false;
+        if (result == EnrichmentCallResult.Succeeded) return true;
+        var round = await Owned(guard, now).SingleAsync();
+        var consumed = round.ConsumedFailures + (result == EnrichmentCallResult.Throttled ? 0 : 1);
+        var failed = result == EnrichmentCallResult.TerminalFailure || consumed >= round.FailureBudget;
+        await Owned(guard, now).ExecuteUpdateAsync(set => set.SetProperty(row => row.ConsumedFailures, consumed)
+            .SetProperty(row => row.State, failed ? EnrichmentState.Failed : EnrichmentState.Waiting)
+            .SetProperty(row => row.WaitReason, failed ? null : result == EnrichmentCallResult.Throttled ? EnrichmentWaitReason.Throttled : EnrichmentWaitReason.Retry)
+            .SetProperty(row => row.ErrorCode, errorCode).SetProperty(row => row.NextAttemptAtUnixMs, failed ? null : nextAttemptAt)
+            .SetProperty(row => row.LeaseOwner, (string?)null).SetProperty(row => row.LeaseExpiresAtUnixMs, (long?)null)
+            .SetProperty(row => row.UpdatedAtUnixMs, now));
+        if (!failed) await AddWaitAsync(guard.TargetId, guard.Round,
+            result == EnrichmentCallResult.Throttled ? EnrichmentWaitReason.Throttled : EnrichmentWaitReason.Retry,
+            errorCode, now, Math.Max(now, nextAttemptAt!.Value));
+        return true;
     }
 
     public Task<bool> WaitAsync(EnrichmentExecutionGuard guard, EnrichmentWaitReason reason, long now,

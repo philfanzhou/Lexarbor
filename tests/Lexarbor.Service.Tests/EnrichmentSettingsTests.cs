@@ -75,32 +75,36 @@ public sealed class EnrichmentSettingsTests : IDisposable
     [Fact]
     public async Task Versions_OnlyRelevantStepOrLocaleChanges_AndSurviveRestart()
     {
-        string? text; string? uk; string? us; string etag;
+        string? text; string? uk; string? us; string? service; string etag;
         using (var factory = Factory())
         using (var client = Admin(factory))
         {
             var state = await Read(client);
             Assert.Equal(HttpStatusCode.OK, (await Put(client, Revision(state), """{"enrichment":{"concurrency":2}}""")).StatusCode);
             var first = Snapshot(factory); Assert.True(first.ConfigurationReady);
-            foreach (var version in new[] { first.TextVersion, first.UkTtsVersion, first.UsTtsVersion }) Assert.True(Guid.TryParseExact(version, "N", out _));
+            foreach (var version in new[] { first.TextVersion, first.UkTtsVersion, first.UsTtsVersion, first.TtsServiceVersion }) Assert.True(Guid.TryParseExact(version, "N", out _));
             foreach (var patch in new[] { """{"reviewAssistant":{"model":"review-only"}}""", """{"enrichment":{"fieldsEnabled":true,"audioEnabled":true,"failureBudget":7,"scanIntervalSeconds":12,"concurrency":3}}""" })
             {
                 state = await Read(client); Assert.Equal(HttpStatusCode.OK, (await Put(client, Revision(state), patch)).StatusCode);
                 Assert.Equal(first.TextVersion, Snapshot(factory).TextVersion); Assert.Equal(first.UkTtsVersion, Snapshot(factory).UkTtsVersion); Assert.Equal(first.UsTtsVersion, Snapshot(factory).UsTtsVersion);
+                Assert.Equal(first.TtsServiceVersion, Snapshot(factory).TtsServiceVersion);
             }
             state = await Read(client); Assert.Equal(HttpStatusCode.OK, (await Put(client, Revision(state), """{"enrichment":{"text":{"model":"new-plan"}}}""")).StatusCode);
             var second = Snapshot(factory); Assert.NotEqual(first.TextVersion, second.TextVersion); Assert.Equal(first.UkTtsVersion, second.UkTtsVersion);
             state = await Read(client); Assert.Equal(HttpStatusCode.OK, (await Put(client, Revision(state), """{"enrichment":{"tts":{"uk":{"voice":"uk-only"}}}}""")).StatusCode);
             var third = Snapshot(factory); Assert.NotEqual(second.UkTtsVersion, third.UkTtsVersion); Assert.Equal(second.UsTtsVersion, third.UsTtsVersion);
+            Assert.Equal(first.TtsServiceVersion, third.TtsServiceVersion);
             state = await Read(client); Assert.Equal(HttpStatusCode.OK, (await Put(client, Revision(state), """{"enrichment":{"tts":{"apiKey":{"action":"replace","value":"synthetic-enrichment-key-marker"}}}}""")).StatusCode);
             var fourth = Snapshot(factory); Assert.NotEqual(third.UkTtsVersion, fourth.UkTtsVersion); Assert.NotEqual(third.UsTtsVersion, fourth.UsTtsVersion); Assert.Equal(third.TextVersion, fourth.TextVersion);
+            Assert.NotEqual(third.TtsServiceVersion, fourth.TtsServiceVersion);
             state = await Read(client); Assert.Equal(HttpStatusCode.OK, (await Put(client, Revision(state), """{"enrichment":{"tts":{"apiKey":{"action":"keep"}}}}""")).StatusCode);
             Assert.Equal(fourth.UkTtsVersion, Snapshot(factory).UkTtsVersion);
-            text = fourth.TextVersion; uk = fourth.UkTtsVersion; us = fourth.UsTtsVersion; etag = Revision(await Read(client));
+            text = fourth.TextVersion; uk = fourth.UkTtsVersion; us = fourth.UsTtsVersion; service = fourth.TtsServiceVersion; etag = Revision(await Read(client));
         }
         using var restarted = Factory(); using var restartedClient = Admin(restarted);
         var restored = SnapshotAfterStart(restarted, restartedClient);
         Assert.Equal(text, restored.TextVersion); Assert.Equal(uk, restored.UkTtsVersion); Assert.Equal(us, restored.UsTtsVersion);
+        Assert.Equal(service, restored.TtsServiceVersion);
         Assert.NotEqual(etag, Revision(await Read(restartedClient)));
     }
     private static EnrichmentConfigurationSnapshot SnapshotAfterStart(VocabularyWebApplicationFactory factory, HttpClient _) => Snapshot(factory);

@@ -509,8 +509,8 @@ atomically. A failed final advance rolls back the fields as well. POS equivalenc
 conflicts are saved as bounded meaning IDs in plan metadata; only the field step
 stops, without deleting or merging IDs. Upload binding still uses the existing guarded
 publication transaction and permanent receipt recovery. Local admission throttling
-records a wait without fabricating a supplier call. The executor provides no discovery
-or background scheduling. Downgrading software without schema changes is still unsafe
+records a wait without fabricating a supplier call. The single-target executor is
+now called by the separately persisted autonomous scheduler below. Downgrading software without schema changes is still unsafe
 for in-flight work that the older executor cannot interpret: stop execution and preserve
 consistent database/configuration/object backups before changing versions.
 
@@ -634,3 +634,41 @@ history, preserves the edited fields and all other task/cleanup/receipt data, an
 cannot recreate deleted remote objects. Do not resume interrupted old executions
 across this downgrade. Older images remain rejected by the schema-version gate;
 prefer restoring a matching pre-upgrade backup. See [deployment](../development/Deployment.md#specific-phonetic-edit-upgrade).
+
+
+## Autonomous scheduler persistence
+
+`AddEnrichmentScheduler` adds three initially empty tables without rewriting existing
+vocabulary IDs, defaults, specific fields/epochs, assets, bindings, task rounds,
+calls, waits or permanent upload receipts:
+
+- `enrichment_discovery` stores independent bounded historical word/meaning cursors and fixed
+  cycle upper bounds, so continuous inserts cannot prevent a historical wrap.
+  Newest-row and bounded notification lanes cannot advance these cursors.
+- `enrichment_service` stores the opaque stable slot/endpoint/provider identity,
+  relevant durable configuration version, throttle interval/deadline, consecutive
+  service failures, pause interval and a fenced unique request/probe lease.
+- `enrichment_service_probe` retains independent started/completed/unknown recovery
+  attempts; these never change target dispatch or failure counts.
+
+The service gate is checked immediately before actual dispatch. Short serialized
+writer transactions admit or finish a service operation. Throttled/failed item
+call outcomes and shared service state commit together or both roll back; a crash
+cannot preserve known throttling while consuming it as an unknown item failure. Supplier and storage IO
+remain outside them. A lease allows only one request/probe per shared service at
+a time, including concurrent UK/US work. Expired probe ownership is recorded as
+unknown before a replacement is admitted. Configuration changes fence old results.
+
+Only successful outer business commits publish bounded, best-effort notifications.
+Nested saves/transactions do not publish early; rollback discards pending wakeups,
+and notifier errors cannot undo a committed approval/import/edit. Notifications are
+not the durable queue: bounded scans and specific-edit tasks recover lost wakeups.
+The service recovery path never updates round budgets, so a fifth item failure that
+also pauses a service stays exhausted after a successful independent probe.
+
+An explicit Down to `20261101194034_AddMeaningPhoneticEpochs` drops these three
+tables and loses cursor/throttle/pause/probe history only. It preserves all prior
+catalog/audio/task/receipt data and makes no supplier or S3 calls. Stop workers
+and writes first and preserve consistent database/configuration/object backups.
+The newer-schema startup gate still forbids an older image reading an upgraded
+database; restore a matching backup when scheduler history must be retained.

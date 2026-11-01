@@ -38,6 +38,7 @@ public sealed class EnrichmentMigrationTests
         Assert.Empty(await db.EnrichmentTargets.ToListAsync(Token)); Assert.Equal(before, await OldRowsAsync(file));
         Assert.Empty(await file.RowsAsync("PRAGMA foreign_key_check"));
         using var fresh = new AudioTestDatabase(); await using var freshDb = fresh.Open(); await freshDb.Database.MigrateAsync(Token);
+        await db.Database.MigrateAsync(Token);
         const string schema = "SELECT type,name,sql FROM sqlite_master WHERE name LIKE '%enrichment%' ORDER BY type,name";
         Assert.Equal(JsonSerializer.Serialize(await fresh.RowsAsync(schema)), JsonSerializer.Serialize(await file.RowsAsync(schema)));
     }

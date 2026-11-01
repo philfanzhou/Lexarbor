@@ -24,6 +24,10 @@ public interface IEnrichmentTaskRepository
         string? uploadIdempotencyKey, long now, CancellationToken cancellationToken);
     Task<bool> FinishCallAsync(EnrichmentExecutionGuard guard, string callId, EnrichmentCallResult result,
         string? errorCode, long now, long? nextAttemptAt, CancellationToken cancellationToken);
+    // Joins the actual scheduler writer so shared service outcomes and item
+    // throttling/failure accounting cannot be torn apart by a crash.
+    Task<bool> FinishCallInTransactionAsync(EnrichmentExecutionGuard guard, string callId, EnrichmentCallResult result,
+        string? errorCode, long now, long? nextAttemptAt, CancellationToken cancellationToken);
     Task<bool> WaitAsync(EnrichmentExecutionGuard guard, EnrichmentWaitReason reason, long now,
         long nextAttemptAt, CancellationToken cancellationToken);
     Task<bool> RecoverPublishedAsync(string targetId, string uploadIdempotencyKey, long now, CancellationToken cancellationToken);

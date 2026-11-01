@@ -140,15 +140,16 @@ public sealed class EnrichmentSettings
 }
 public sealed class EnrichmentConfigurationSnapshot
 {
-    internal EnrichmentConfigurationSnapshot(ReviewAssistantOptions review, Dictionary<string, JsonNode?> fields, string? text, string? uk, string? us)
-    { ReviewAssistant = review; Fields = fields; Enrichment = new(fields); TextVersion = text; UkTtsVersion = uk; UsTtsVersion = us; }
+    internal EnrichmentConfigurationSnapshot(ReviewAssistantOptions review, Dictionary<string, JsonNode?> fields, string? text, string? uk, string? us, string? ttsService)
+    { ReviewAssistant = review; Fields = fields; Enrichment = new(fields); TextVersion = text; UkTtsVersion = uk; UsTtsVersion = us; TtsServiceVersion = ttsService; }
     internal IReadOnlyDictionary<string, JsonNode?> Fields { get; }
     public ReviewAssistantOptions ReviewAssistant { get; }
     public EnrichmentSettings Enrichment { get; }
     public string? TextVersion { get; }
     public string? UkTtsVersion { get; }
     public string? UsTtsVersion { get; }
-    public bool ConfigurationReady => TextVersion is not null && UkTtsVersion is not null && UsTtsVersion is not null;
+    public string? TtsServiceVersion { get; }
+    public bool ConfigurationReady => TextVersion is not null && UkTtsVersion is not null && UsTtsVersion is not null && TtsServiceVersion is not null;
     public bool CanPrepare => ConfigurationReady && (Enrichment.FieldsEnabled || Enrichment.AudioEnabled) && Enrichment.Text.Configured;
     public bool HasTtsConfiguration(string locale) => CanPrepare && Enrichment.AudioEnabled && Enrichment.Tts.Configured
         && (locale == "uk" ? Enrichment.Uk : locale == "us" ? Enrichment.Us : null) is { Voice.Length: > 0, Speed: not null };
@@ -229,6 +230,8 @@ public sealed class EnrichmentRuntimeConfiguration
             && (!fieldKey.StartsWith("Enrichment:Tts:Uk:", StringComparison.Ordinal) && !fieldKey.StartsWith("Enrichment:Tts:Us:", StringComparison.Ordinal)
                 || fieldKey.StartsWith("Enrichment:Tts:" + locale + ":", StringComparison.Ordinal)));
         var uk = Tts("Uk"); var us = Tts("Us");
-        return (new(review, fields, text, uk, us), persist ? metadata : null);
+        var ttsService = Version("TtsService", fieldKey => fieldKey.StartsWith("Enrichment:Tts:", StringComparison.Ordinal)
+            && !fieldKey.StartsWith("Enrichment:Tts:Uk:", StringComparison.Ordinal) && !fieldKey.StartsWith("Enrichment:Tts:Us:", StringComparison.Ordinal));
+        return (new(review, fields, text, uk, us, ttsService), persist ? metadata : null);
     }
 }

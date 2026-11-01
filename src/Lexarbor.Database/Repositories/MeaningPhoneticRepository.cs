@@ -84,6 +84,7 @@ public sealed class MeaningPhoneticRepository(VocabularyDbContext context, IAudi
             await tasks.InvalidateInTransactionAsync(new(edit.WordId, edit.MeaningId, edit.Locale, step),
                 version ?? "configuration.missing", now, token);
         }
+        context.EnrichmentWordChanged(edit.WordId);
         return new(true, await ReadAsync(edit.BookId, edit.WordId, edit.MeaningId, edit.Locale, token));
     }
 }

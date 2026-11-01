@@ -19,7 +19,7 @@ using Microsoft.Extensions.Options;
 
 namespace Lexarbor.Service.Tests;
 
-public sealed class EnrichmentTargetExecutorTests
+public sealed partial class EnrichmentTargetExecutorTests
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
     private static byte[] Mp3 => File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Fixtures/tone.mp3"));
@@ -613,8 +613,10 @@ public sealed class EnrichmentTargetExecutorTests
         public AudioUploadAdmission Admission { get; }
         public EnrichmentRuntimeConfiguration Runtime { get; }
         public EnrichmentTargetExecutor Executor { get; }
-        private Fixture(bool fields, int capacity, bool native)
+        public bool Shared { get; }
+        private Fixture(bool fields, int capacity, bool native, bool shared)
         {
+            Shared = shared;
             _settings = new()
             {
                 ["Enrichment:FieldsEnabled"] = fields.ToString(),
@@ -638,9 +640,9 @@ public sealed class EnrichmentTargetExecutorTests
             Http.AssertOutsideTransaction = Store.AssertOutsideTransaction;
             Executor = ExecutorFor(Db, Tasks);
         }
-        public static async Task<Fixture> Create(bool fields = true, int capacity = 2, bool native = false)
+        public static async Task<Fixture> Create(bool fields = true, int capacity = 2, bool native = false, bool shared = false)
         {
-            var f = new Fixture(fields, capacity, native);
+            var f = new Fixture(fields, capacity, native, shared);
             await f.Db.Database.MigrateAsync(Ct);
             f.Db.VocabularyBooks.Add(new() { Id = "book", BookName = "Fixture", Status = true });
             f.Db.Vocabularies.Add(new() { Id = "word", Word = "lead" });
@@ -657,7 +659,8 @@ public sealed class EnrichmentTargetExecutorTests
             IAudioUploadOperationFactory? operations = null) => new(tasks,
             new EnrichmentExecutionRepository(db, tasks, Clock), new AudioUploadRepository(db, Clock),
             new OpenAiCompatiblePronunciationPreparationClient(_clients, Runtime, Clock), new PronunciationSpeechClient(_clients, Runtime, Clock),
-            operations ?? new Operations(new AudioUploadRepository(db, Clock), Store, Clock) { SettingsSource = Operations }, Admission, Runtime, Clock);
+            operations ?? new Operations(new AudioUploadRepository(db, Clock), Store, Clock) { SettingsSource = Operations }, Admission, Runtime, Clock,
+            Shared ? new EnrichmentServiceGate(new EnrichmentSchedulerRepository(db, tasks), Runtime, Clock) : null);
         public Task<EnrichmentTask> Ensure(EnrichmentTargetKey key) => EnsureCore(key);
         private async Task<EnrichmentTask> EnsureCore(EnrichmentTargetKey key) => (await Tasks.EnsureAsync(key,
             EnrichmentTargetExecutor.ConfigurationVersion(key, Runtime.Current), Clock.Now, Ct))!;
