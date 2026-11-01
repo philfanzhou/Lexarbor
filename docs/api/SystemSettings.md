@@ -263,6 +263,11 @@ Providers are `MiniMaxNative` (default model `speech-2.8-hd`) and
 models, voices or pronunciation instructions. There is no bypass-preparation or
 ignore-pronunciation switch. Unsupported combinations must stop safely in the
 provider adapter rather than send an unconstrained request.
+The [speech support matrix](Audio.md#speech-adapters) names the implemented models,
+endpoint restrictions, pronunciation modes and provider-specific speed ranges.
+MiniMax requires a validated complete-target IPA plan; OpenAI-compatible service
+names alone never grant instruction support. Saving these settings still performs
+no supplier call, and registered adapters do not start automatic generation.
 
 The internal pronunciation preparation client uses only `Enrichment:Text`, independently
 of the review assistant. It posts to `<endpoint>/chat/completions` with JSON mode

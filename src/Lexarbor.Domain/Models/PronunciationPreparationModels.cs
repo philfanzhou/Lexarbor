@@ -12,15 +12,20 @@ public enum PronunciationPreparationOutcome
 }
 
 public sealed record PronunciationPreparationDispatch(EnrichmentInputVersion InputVersion, string ConfigurationVersion);
+public enum PronunciationControl { Instructions, Ipa }
 
 // Server-only validated preparation output, not an API DTO. Content uses the
 // existing bounded persistence plan. RequiredPhonetic is a mandatory TTS
 // constraint, including in audio-only mode; Content.Phonetic is only a writable
 // missing-default candidate. A provider adapter must reject constraints it cannot
 // express. Never use the headword as fallback when preparation has no plan.
+// Ipa mode means SpeechPhonetic covers the complete spoken target and is the
+// entire hint, with no additional directions. It never grants field permission.
+// Recovery must preserve this envelope, not only Content.
 public sealed record PreparedPronunciation(EnrichmentPlan Content, AudioGenerationInput Input,
     EnrichmentInputVersion InputVersion, string ConfigurationVersion, string EntryKind,
-    string ClassificationBasis, string? RequiredPhonetic);
+    string ClassificationBasis, string? RequiredPhonetic,
+    string? SpeechPhonetic = null, PronunciationControl Control = PronunciationControl.Instructions);
 public sealed record PronunciationPreparationResult(PronunciationPreparationOutcome Outcome,
     PreparedPronunciation? Plan = null, string? ErrorCode = null, bool RequestMade = false,
     TimeSpan? RetryAfter = null);

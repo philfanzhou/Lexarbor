@@ -191,6 +191,11 @@ builder.Services.AddHttpClient(OpenAiCompatiblePronunciationPreparationClient.Ht
     .RemoveAllLoggers()
     .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false });
 builder.Services.AddSingleton<IPronunciationPreparationClient, OpenAiCompatiblePronunciationPreparationClient>();
+builder.Services.AddHttpClient(PronunciationSpeechClient.HttpClientName,
+        client => client.Timeout = Timeout.InfiniteTimeSpan)
+    .RemoveAllLoggers()
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false });
+builder.Services.AddSingleton<IPronunciationSpeechClient, PronunciationSpeechClient>();
 builder.Services.AddScoped<VocabularyBookDomainService>();
 builder.Services.AddScoped<VocabularyBookUnitDomainService>();
 builder.Services.Configure<RouteHandlerOptions>(options =>
