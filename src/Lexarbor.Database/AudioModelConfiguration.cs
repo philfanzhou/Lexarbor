@@ -38,6 +38,22 @@ internal static class AudioModelConfiguration
                 table.HasCheckConstraint("CK_vocabulary_audio_binding_revision", "length(source_revision) = 64 AND source_revision NOT GLOB '*[^0-9a-f]*'");
             });
         });
+        modelBuilder.Entity<AudioInvalidationEntity>(entity =>
+        {
+            entity.Property(row => row.Locale).HasConversion(locale);
+            entity.Property(row => row.State).HasConversion<string>();
+            entity.HasOne<AudioAssetEntity>().WithMany().HasForeignKey(row => row.AssetId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(row => new { row.State, row.NextAttemptAtUnixMs });
+            entity.ToTable(table =>
+            {
+                table.HasCheckConstraint("CK_audio_invalidation_authority", "length(word_id) > 0 AND length(meaning_id) > 0 AND authorization_epoch > 0 AND reason = 'specific_phonetic_changed' AND locale IN ('en-GB','en-US')");
+                table.HasCheckConstraint("CK_audio_invalidation_location", "length(bucket) > 0 AND length(object_key) > 0");
+                table.HasCheckConstraint("CK_audio_invalidation_state", "state IN ('Waiting','Claimed','Observed') AND attempts >= 0 AND lease_fence >= 0");
+                table.HasCheckConstraint("CK_audio_invalidation_times", "created_at_unix_ms >= 0 AND updated_at_unix_ms >= created_at_unix_ms AND next_attempt_at_unix_ms >= 0 AND (delete_started_at_unix_ms IS NULL OR delete_started_at_unix_ms >= created_at_unix_ms) AND (observed_at_unix_ms IS NULL OR observed_at_unix_ms >= delete_started_at_unix_ms)");
+                table.HasCheckConstraint("CK_audio_invalidation_lease", "(state = 'Claimed' AND lease_owner IS NOT NULL AND lease_expires_at_unix_ms IS NOT NULL AND lease_fence > 0 AND delete_started_at_unix_ms IS NOT NULL) OR (state != 'Claimed' AND lease_owner IS NULL AND lease_expires_at_unix_ms IS NULL)");
+                table.HasCheckConstraint("CK_audio_invalidation_observed", "state != 'Observed' OR (observed_at_unix_ms IS NOT NULL AND delete_started_at_unix_ms IS NOT NULL)");
+            });
+        });
         modelBuilder.Entity<AudioUploadOperationEntity>(entity =>
         {
             entity.Property(operation => operation.Locale).HasConversion(locale);

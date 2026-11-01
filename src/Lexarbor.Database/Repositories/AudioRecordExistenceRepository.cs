@@ -7,5 +7,6 @@ public sealed class AudioRecordExistenceRepository(VocabularyDbContext context) 
 {
     public async Task<bool> HasAnyAsync(CancellationToken cancellationToken) =>
         await context.AudioAssets.AsNoTracking().AnyAsync(cancellationToken)
-        || await context.AudioUploadOperations.AsNoTracking().AnyAsync(cancellationToken);
+        || await context.AudioUploadOperations.AsNoTracking().AnyAsync(cancellationToken)
+        || await context.AudioInvalidations.AsNoTracking().AnyAsync(cancellationToken);
 }

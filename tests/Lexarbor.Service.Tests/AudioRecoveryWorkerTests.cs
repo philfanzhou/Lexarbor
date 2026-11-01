@@ -17,10 +17,12 @@ public sealed class AudioRecoveryWorkerTests
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    [Fact]
-    public async Task DisabledStartup_EnableDisableReenable_ResumesOneBoundedWorkerAndStopsWaiting()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DisabledStartup_EnableDisableReenable_ResumesOneBoundedWorkerAndStopsWaiting(bool invalidations)
     {
-        using var f = new Fixture(enabled: false);
+        using var f = new Fixture(enabled: false, invalidations: invalidations);
         await f.Worker.StartAsync(Ct);
         await f.Change(o => o.Enabled = false); // An additional disabled notification is harmless.
         Assert.Equal(0, f.Batches); Assert.False(f.Worker.ExecuteTask!.IsCompleted);
@@ -56,11 +58,13 @@ public sealed class AudioRecoveryWorkerTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task RotationAndDisableDuringRemoveOrStat_EntireBatchKeepsOldClient(bool stat)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task RotationAndDisableDuringRemoveOrStat_EntireBatchKeepsOldClient(bool stat, bool invalidations)
     {
-        using var f = new Fixture(candidates: 2);
+        using var f = new Fixture(candidates: 2, invalidations: invalidations);
         var old = f.Stores.Created[0]; old.PauseAt = stat ? "stat" : "remove";
         await f.Worker.StartAsync(Ct); await old.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5), Ct);
         await f.Change(o => { o.SecretKey = "synthetic-rotated-secret"; o.PublicEndpoint = "https://new.example.test/"; o.Enabled = false; });
@@ -81,13 +85,17 @@ public sealed class AudioRecoveryWorkerTests
     }
 
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    [InlineData(true, true)]
-    public async Task UncooperativeRemoveOrStat_TimeoutOrShutdownRetainsClientUntilActualCompletion(bool stat, bool timeout)
+    [InlineData(false, false, false)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(true, true, false)]
+    [InlineData(false, false, true)]
+    [InlineData(true, false, true)]
+    [InlineData(false, true, true)]
+    [InlineData(true, true, true)]
+    public async Task UncooperativeRemoveOrStat_TimeoutOrShutdownRetainsClientUntilActualCompletion(bool stat, bool timeout, bool invalidations)
     {
-        using var f = new Fixture(candidates: 1, timeout: 1);
+        using var f = new Fixture(candidates: 1, timeout: 1, invalidations: invalidations);
         var old = f.Stores.Created[0]; old.PauseAt = stat ? "stat" : "remove";
         await f.Worker.StartAsync(Ct); await old.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5), Ct);
         await f.Change(o => { o.SecretKey = "synthetic-rotated-secret"; o.Enabled = false; });
@@ -215,7 +223,7 @@ public sealed class AudioRecoveryWorkerTests
         public readonly Channel<int> Batch = Channel.CreateUnbounded<int>(); public readonly TaskCompletionSource Released = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public readonly AudioRuntimeConfiguration Runtime; public readonly AudioRecoveryWorker Worker; private readonly ServiceProvider _provider;
         public int Batches; public int Observed; public int Failures; public bool RepositoryFailure;
-        public Fixture(bool enabled = true, int candidates = 0, int timeout = 3)
+        public Fixture(bool enabled = true, int candidates = 0, int timeout = 3, bool invalidations = false)
         {
             var options = AudioStorageTests.ValidOptions(); options.Enabled = enabled; options.OperationTimeoutSeconds = timeout;
             options.RecoveryBatchSize = 2; options.RecoveryLeaseSeconds = 40; options.RecoveryRetrySeconds = 17; options.RecoveryRecheckSeconds = 4000;
@@ -224,6 +232,7 @@ public sealed class AudioRecoveryWorkerTests
             var repo = new Mock<IAudioUploadRepository>();
             repo.Setup(r => r.FindRecoverableAsync(It.IsAny<long>(), 2, It.IsAny<CancellationToken>())).Returns(() =>
             {
+                if (invalidations) return Task.FromResult<IReadOnlyList<AudioStoredUpload>>([]);
                 var count = Interlocked.Increment(ref Batches); Batch.Writer.TryWrite(count);
                 if (RepositoryFailure) throw new InvalidOperationException("synthetic-provider-secret");
                 return Task.FromResult<IReadOnlyList<AudioStoredUpload>>(uploads);
@@ -237,7 +246,25 @@ public sealed class AudioRecoveryWorkerTests
             repo.Setup(r => r.ReleaseCleanupAsync(It.IsAny<string>(), It.IsAny<AudioLease>(), It.IsAny<long>(), It.IsAny<long>(), "audio.cleanup_failed", It.IsAny<CancellationToken>()))
                 .Returns((string key, AudioLease lease, long now, long next, string error, CancellationToken ct) =>
                 { Assert.Equal(now + 17000, next); Interlocked.Increment(ref Failures); Released.TrySetResult(); return Task.FromResult(true); });
-            var services = new ServiceCollection(); services.AddScoped(_ => repo.Object); _provider = services.BuildServiceProvider();
+            var deleted = uploads.Select(u => new AudioInvalidation(u.Asset.Id, u.Asset.Location, "word", "meaning", AudioLocale.EnGb,
+                1, AudioInvalidationState.Waiting, u.Operation.Cleanup.Lease, 1, 0, null, null, null)).ToArray();
+            var invalidationRepo = new Mock<IAudioInvalidationRepository>();
+            invalidationRepo.Setup(r => r.FindRecoverableAsync(It.IsAny<long>(), 2, It.IsAny<CancellationToken>())).Returns(() =>
+            {
+                if (!invalidations) return Task.FromResult<IReadOnlyList<AudioInvalidation>>([]);
+                var count = Interlocked.Increment(ref Batches); Batch.Writer.TryWrite(count);
+                return Task.FromResult<IReadOnlyList<AudioInvalidation>>(deleted);
+            });
+            invalidationRepo.Setup(r => r.ClaimAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<long>(), It.IsAny<long>(), It.IsAny<long>(), It.IsAny<CancellationToken>()))
+                .Returns((string id, string owner, long now, long expiry, long retry, CancellationToken ct) =>
+                { Assert.Equal(now + 40000, expiry); return Task.FromResult<AudioInvalidation?>(deleted.Single(d => d.AssetId == id)); });
+            invalidationRepo.Setup(r => r.ObserveAsync(It.IsAny<string>(), It.IsAny<AudioLease>(), It.IsAny<long>(), It.IsAny<long>(), It.IsAny<CancellationToken>()))
+                .Returns((string id, AudioLease lease, long now, long next, CancellationToken ct) =>
+                { Assert.Equal(now + 4000000, next); Interlocked.Increment(ref Observed); return Task.FromResult(true); });
+            invalidationRepo.Setup(r => r.ReleaseAsync(It.IsAny<string>(), It.IsAny<AudioLease>(), It.IsAny<long>(), It.IsAny<long>(), It.IsAny<CancellationToken>()))
+                .Returns((string id, AudioLease lease, long now, long next, CancellationToken ct) =>
+                { Assert.Equal(now + 17000, next); Interlocked.Increment(ref Failures); Released.TrySetResult(); return Task.FromResult(true); });
+            var services = new ServiceCollection(); services.AddScoped(_ => repo.Object); services.AddScoped(_ => invalidationRepo.Object); _provider = services.BuildServiceProvider();
             Worker = new(_provider.GetRequiredService<IServiceScopeFactory>(), Runtime, Clock, Logger.Object);
         }
         public async Task Change(Action<AudioOptions> change)

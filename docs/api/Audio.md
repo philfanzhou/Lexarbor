@@ -14,7 +14,7 @@ Cancellation/timeout releases the request reference; a provider still finishing 
 ignored cancellation retains its client until actual completion.
 
 The internal destination guard rejects changes to InternalEndpoint/Bucket/KeyPrefix
-when any asset/upload record or active operation exists, including unbound history
+when any asset/upload/invalidation record or active operation exists, including unbound history
 and cleanup state. It serializes first operation acquisition with destination
 commit, without holding the state lock during S3 or database IO. The protected
 [S3 settings API](SystemSettings.md#audio-storage-s3) maps this guard to 409.
@@ -181,7 +181,7 @@ New uploads require both the current revision and own asset to match before rese
 
 The file limit is `Audio:MaxUploadBytes` (default 5 MiB, configurable up to 20 MiB), plus at most 64 KiB total multipart overhead. After authorization, dedicated per-host admission allows `Audio:MaxConcurrentUploads` active uploads (default 2) and `Audio:MaxQueuedUploads` waiting requests (default 8). Admission precedes body consumption; a full queue or admission wait timeout returns 429 with `Retry-After: 1`. Body reading, admission waiting and S3 transfer each have the configured `Audio:OperationTimeoutSeconds` bound (default 60 seconds). These limits apply only to this audio route and do not change existing global limits.
 
-Storage disabled, storage failure and upload timeout return safe 503 messages; invalid conditions/header/fields return 400, missing target/ownership returns 404, and oversized content returns 413. Storage exceptions, credentials, object keys and signed URLs are not returned. A cancellation before reservation causes no upload; cancellation after reservation retains a durable failure or expiring operation. S3 IO holds no SQLite writer transaction, and only a valid five-minute lease can publish. Known unpublished keys remain recorded for the separate recovery task; this slice does not automatically remove them. Already published objects remain available for database backups after replacement or logical deletion. See [backup and storage configuration](../development/Deployment.md#optional-audio-object-storage).
+Storage disabled, storage failure and upload timeout return safe 503 messages; invalid conditions/header/fields return 400, missing target/ownership returns 404, and oversized content returns 413. Storage exceptions, credentials, object keys and signed URLs are not returned. A cancellation before reservation causes no upload; cancellation after reservation retains a durable failure or expiring operation. S3 IO holds no SQLite writer transaction, and only a valid five-minute lease can publish. Known unpublished keys remain recorded for the separate recovery task; failed-upload recovery handles them separately. Ordinary manual replacement or logical deletion retains published objects. Explicit specific-phonetic invalidation is a separate, precisely authorized physical-cleanup exception; an older database backup may need its matching remote-object backup. See [backup and storage configuration](../development/Deployment.md#optional-audio-object-storage).
 
 ## Conditional logical deletion
 
@@ -438,3 +438,22 @@ Official references: [MiniMax synchronous speech and pronunciation dictionary](h
 [MiniMax rate limits](https://platform.minimax.io/docs/guides/rate-limits),
 [OpenAI Create speech](https://developers.openai.com/api/reference/resources/audio/subresources/speech/methods/create)
 and [OpenAI text-to-speech guidance](https://developers.openai.com/api/docs/guides/text-to-speech).
+
+
+## Explicit specific-audio cleanup
+
+The internal invalidation queue can remove an already published specific object
+only with exact durable authority from a specific-phonetic change. This foundation
+adds no public route or editable field; the later shared edit boundary supplies
+that authority and the atomic unbind. Manual `DELETE` above remains logical-only.
+Default or other current bindings prevent physical deletion; an unreferenced
+historical object without authority remains retained. Claimed assets cannot be
+rebound, and replaying their permanent successful upload receipt never restores
+them. Storage outages, cancellation and disabled audio leave retryable durable
+work. Enrichment switches do not cancel cleanup or spend its generation budget.
+
+Clients keep handling missing audio and safe storage failures using the current
+contracts. An issued URL or downloaded copy cannot be immediately revoked, and
+object availability can change after Stat. Restore historical explicitly deleted
+objects from a matching private remote backup. Details are in
+[deployment recovery](../development/Deployment.md#specific-audio-invalidation-recovery).

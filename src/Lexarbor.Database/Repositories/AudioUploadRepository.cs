@@ -103,6 +103,11 @@ public sealed class AudioUploadRepository(VocabularyDbContext context, TimeProvi
         {
             var asset = await context.AudioAssets.AsNoTracking().SingleAsync(row => row.Id == op.AssetId);
             if (asset.FirstPublishedAtUnixMs != null) return null;
+            if (await context.AudioInvalidations.AnyAsync(row => row.AssetId == op.AssetId && row.DeleteStartedAtUnixMs != null))
+            {
+                await FailAsync(OwnedUpload(key, lease, now), now, 409, "audio.target_conflict");
+                return Map(await Operations.SingleAsync(row => row.IdempotencyKey == key));
+            }
             // The transaction owns SQLite's writer reservation. Every condition
             // is re-read here, not from tracked pre-Put target instances.
             var bindings = context.VocabularyAudioBindings.Where(row => row.WordId == op.WordId

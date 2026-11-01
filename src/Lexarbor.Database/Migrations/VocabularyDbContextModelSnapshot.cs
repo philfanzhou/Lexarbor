@@ -96,6 +96,111 @@ namespace Lexarbor.Database.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Lexarbor.Database.Entities.AudioInvalidationEntity", b =>
+                {
+                    b.Property<string>("AssetId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("asset_id");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("attempts");
+
+                    b.Property<long>("AuthorizationEpoch")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("authorization_epoch");
+
+                    b.Property<string>("Bucket")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("bucket");
+
+                    b.Property<long>("CreatedAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("created_at_unix_ms");
+
+                    b.Property<long?>("DeleteStartedAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("delete_started_at_unix_ms");
+
+                    b.Property<string>("ErrorCode")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("error_code");
+
+                    b.Property<long?>("LeaseExpiresAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("lease_expires_at_unix_ms");
+
+                    b.Property<long>("LeaseFence")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("lease_fence");
+
+                    b.Property<string>("LeaseOwner")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("lease_owner");
+
+                    b.Property<string>("Locale")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("locale");
+
+                    b.Property<string>("MeaningId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("meaning_id");
+
+                    b.Property<long>("NextAttemptAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("next_attempt_at_unix_ms");
+
+                    b.Property<string>("ObjectKey")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("object_key");
+
+                    b.Property<long?>("ObservedAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("observed_at_unix_ms");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("reason");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("state");
+
+                    b.Property<long>("UpdatedAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("updated_at_unix_ms");
+
+                    b.Property<string>("WordId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("word_id");
+
+                    b.HasKey("AssetId");
+
+                    b.HasIndex("State", "NextAttemptAtUnixMs");
+
+                    b.ToTable("audio_invalidation", t =>
+                        {
+                            t.HasCheckConstraint("CK_audio_invalidation_authority", "length(word_id) > 0 AND length(meaning_id) > 0 AND authorization_epoch > 0 AND reason = 'specific_phonetic_changed' AND locale IN ('en-GB','en-US')");
+
+                            t.HasCheckConstraint("CK_audio_invalidation_lease", "(state = 'Claimed' AND lease_owner IS NOT NULL AND lease_expires_at_unix_ms IS NOT NULL AND lease_fence > 0 AND delete_started_at_unix_ms IS NOT NULL) OR (state != 'Claimed' AND lease_owner IS NULL AND lease_expires_at_unix_ms IS NULL)");
+
+                            t.HasCheckConstraint("CK_audio_invalidation_location", "length(bucket) > 0 AND length(object_key) > 0");
+
+                            t.HasCheckConstraint("CK_audio_invalidation_observed", "state != 'Observed' OR (observed_at_unix_ms IS NOT NULL AND delete_started_at_unix_ms IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_audio_invalidation_state", "state IN ('Waiting','Claimed','Observed') AND attempts >= 0 AND lease_fence >= 0");
+
+                            t.HasCheckConstraint("CK_audio_invalidation_times", "created_at_unix_ms >= 0 AND updated_at_unix_ms >= created_at_unix_ms AND next_attempt_at_unix_ms >= 0 AND (delete_started_at_unix_ms IS NULL OR delete_started_at_unix_ms >= created_at_unix_ms) AND (observed_at_unix_ms IS NULL OR observed_at_unix_ms >= delete_started_at_unix_ms)");
+                        });
+                });
+
             modelBuilder.Entity("Lexarbor.Database.Entities.AudioUploadOperationEntity", b =>
                 {
                     b.Property<string>("IdempotencyKey")
@@ -1080,6 +1185,15 @@ namespace Lexarbor.Database.Migrations
 
                             t.HasCheckConstraint("ck_service_audit_logs_target_type_length", "target_type IS NULL OR octet_length(target_type) <= 800");
                         });
+                });
+
+            modelBuilder.Entity("Lexarbor.Database.Entities.AudioInvalidationEntity", b =>
+                {
+                    b.HasOne("Lexarbor.Database.Entities.AudioAssetEntity", null)
+                        .WithMany()
+                        .HasForeignKey("AssetId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Lexarbor.Database.Entities.AudioUploadOperationEntity", b =>
