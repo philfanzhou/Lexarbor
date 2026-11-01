@@ -255,6 +255,112 @@ namespace Lexarbor.Database.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Lexarbor.Database.Entities.MeaningSubmissionEntity", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("id");
+
+                    b.Property<long>("CreatedAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("created_at_unix_ms");
+
+                    b.Property<string>("Example")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("example");
+
+                    b.Property<string>("Meaning")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("meaning");
+
+                    b.Property<string>("NormalizedMeaning")
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("normalized_meaning")
+                        .HasComputedColumnSql("trim(meaning)", true);
+
+                    b.Property<string>("NormalizedPartOfSpeech")
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("normalized_part_of_speech")
+                        .HasComputedColumnSql("lower(trim(coalesce(part_of_speech, '')))", true);
+
+                    b.Property<string>("NormalizedWord")
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("normalized_word")
+                        .HasComputedColumnSql("lower(trim(word))", true);
+
+                    b.Property<string>("PartOfSpeech")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("part_of_speech");
+
+                    b.Property<string>("ResultBookId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("result_book_id");
+
+                    b.Property<string>("ResultMeaning")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("result_meaning");
+
+                    b.Property<string>("ResultMeaningId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("result_meaning_id");
+
+                    b.Property<string>("ResultPartOfSpeech")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("result_part_of_speech");
+
+                    b.Property<string>("ResultWord")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("result_word");
+
+                    b.Property<string>("ResultWordId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("result_word_id");
+
+                    b.Property<long?>("ReviewedAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("reviewed_at_unix_ms");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("source");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("status");
+
+                    b.Property<long>("UpdatedAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("updated_at_unix_ms");
+
+                    b.Property<string>("Word")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("word");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Status", "CreatedAtUnixMs");
+
+                    b.HasIndex(new[] { "NormalizedWord", "NormalizedPartOfSpeech", "NormalizedMeaning" }, "IX_meaning_submission_key");
+
+                    b.HasIndex(new[] { "NormalizedWord", "NormalizedPartOfSpeech", "NormalizedMeaning" }, "IX_meaning_submission_pending_key")
+                        .IsUnique()
+                        .HasFilter("status = 0");
+
+                    b.ToTable("meaning_submission", t =>
+                        {
+                            t.HasCheckConstraint("CK_meaning_submission_status", "status IN (0, 1, 2)");
+                        });
+                });
+
             modelBuilder.Entity("Lexarbor.Database.Entities.VocabularyAudioBindingEntity", b =>
                 {
                     b.Property<string>("Id")

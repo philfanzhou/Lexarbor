@@ -3,12 +3,14 @@ using System.Security.Cryptography;
 using Lexarbor.Database;
 using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Exceptions;
+using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 using Lexarbor.Domain.Services;
 using Lexarbor.Host;
 using Lexarbor.Host.Audio;
 using Lexarbor.Host.Authentication;
 using Lexarbor.Host.Configuration;
+using Lexarbor.Host.Integration;
 using Lexarbor.Host.RateLimiting;
 using Lexarbor.Service;
 using Microsoft.AspNetCore.Authentication;
@@ -168,6 +170,21 @@ builder.Services.AddScoped<VocabularyPublicQueryService>();
 builder.Services.AddScoped<IVocabularyCleanupRepository, VocabularyCleanupRepository>();
 builder.Services.AddScoped<VocabularyCleanupService>();
 builder.Services.AddScoped<VocabularyDomainService>();
+// Meaning submissions: the supplementary book, the one integration client's key
+// ring and the optional review assistant are startup snapshots; a bad value
+// stops startup naming only the setting.
+// Read from the composed configuration (a test host's values arrive after this
+// point) and resolved once right after the app is built.
+builder.Services.AddSingleton(provider => new MeaningSubmissionSettings
+{
+    BookId = provider.GetRequiredService<IConfiguration>()["MeaningSubmissions:BookId"]?.Trim()
+});
+builder.Services.AddScoped<IMeaningSubmissionRepository, MeaningSubmissionRepository>();
+builder.Services.AddScoped<MeaningSubmissionService>();
+builder.Services.AddSingleton(provider => IntegrationServiceTrust.Read(provider.GetRequiredService<IConfiguration>()));
+builder.Services.AddSingleton(provider => ReviewAssistantOptions.Read(provider.GetRequiredService<IConfiguration>()));
+builder.Services.AddHttpClient(OpenAiCompatibleReviewAssistant.HttpClientName);
+builder.Services.AddSingleton<IMeaningSubmissionReviewAssistant, OpenAiCompatibleReviewAssistant>();
 builder.Services.AddScoped<VocabularyBookDomainService>();
 builder.Services.AddScoped<VocabularyBookUnitDomainService>();
 builder.Services.Configure<RouteHandlerOptions>(options =>
@@ -283,6 +300,8 @@ builder.Services
     })
     .AddScheme<AuthenticationSchemeOptions, AdminAuthenticationPresentationHandler>(
         AdminAuthenticationSource.PresentationScheme, null)
+    .AddScheme<AuthenticationSchemeOptions, IntegrationServiceAuthenticationHandler>(
+        AdminAuthenticationSource.IntegrationScheme, null)
     .AddJwtBearer();
 
 // Configured from the resolved options rather than from the configuration read
@@ -361,6 +380,17 @@ builder.Services
 // resolve to one operator holding management.admin. The role check itself stays
 // Lexarbor's product rule and lives in the mapping.
 builder.Services.AddServiceMantleManagementAuthorization();
+// The integration surface accepts only the integration scheme's service tokens
+// carrying the meaning-submissions scope; administrator credentials never
+// satisfy it, and a service token never satisfies the administrator policy.
+builder.Services.AddAuthorization(options => options.AddPolicy(
+    MeaningSubmissionEndpoints.IntegrationPolicyName,
+    policy => policy
+        .AddAuthenticationSchemes(AdminAuthenticationSource.IntegrationScheme)
+        .RequireAuthenticatedUser()
+        .RequireAssertion(context => context.User.FindAll("scope")
+            .SelectMany(claim => claim.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            .Contains(MeaningSubmissionEndpoints.IntegrationScope, StringComparer.Ordinal))));
 
 var networkOptions = builder.Configuration.GetSection(NetworkOptions.SectionName).Get<NetworkOptions>() ?? new NetworkOptions();
 var useTrustedForwarding = networkOptions.IsConfigured || networkOptions.ForwardLimit != 1;
@@ -451,6 +481,12 @@ serviceMantle.AddExceptionMapping<ConflictException>(
     StatusCodes.Status409Conflict, "vocabulary.conflict", "The request conflicts with existing data.");
 serviceMantle.AddExceptionMapping<BusinessRuleException>(
     StatusCodes.Status422UnprocessableEntity, "vocabulary.business_rule", "The request violates a business rule.");
+serviceMantle.AddExceptionMapping<MeaningSubmissionsNotConfiguredException>(
+    StatusCodes.Status503ServiceUnavailable, "vocabulary.submissions_not_configured",
+    "Meaning submissions are not configured.");
+serviceMantle.AddExceptionMapping<ReviewAssistantUnavailableException>(
+    StatusCodes.Status502BadGateway, "vocabulary.review_assistant_unavailable",
+    "The review assistant did not return usable advice.");
 serviceMantle.AddConditionalExceptionMapping<StorageBusyException>(
 [
     // The one caller-retryable storage failure keeps its bounded Retry-After;
@@ -558,6 +594,10 @@ builder.Services.AddSingleton<RateLimitRuntime>();
 var app = builder.Build();
 // Capture the initial file snapshot before accepting requests, including when no settings are read.
 app.Services.GetRequiredService<PersistentConfigurationCoordinator>();
+// Fail startup on an invalid meaning-submission setting instead of on first use.
+app.Services.GetRequiredService<MeaningSubmissionSettings>();
+app.Services.GetRequiredService<IntegrationServiceTrust>();
+app.Services.GetRequiredService<ReviewAssistantOptions>();
 
 
 
@@ -801,6 +841,8 @@ adminSurface.MapAudioUploadEndpoints();
 adminSurface.MapAudioUnbindEndpoints();
 adminSurface.MapAudioAdminPlaybackEndpoints();
 adminSurface.MapVocabularyCleanupEndpoints();
+adminSurface.MapMeaningSubmissionAdminEndpoints();
+app.MapMeaningSubmissionIntegrationEndpoints();
 app.MapAudioPublicPlaybackEndpoints(
     RateLimitingExtensions.PublicApiPolicy);
 app.MapVocabularyHttpEndpoints(
@@ -826,6 +868,11 @@ var unknownApi = app.MapMethods(
         allHttpMethods,
         () => VocabularyHttpResponse.NotFound("API endpoint was not found."));
 unknownApi.RequireRateLimiting(RateLimitingExtensions.PublicApiPolicy);
+// Unknown integration routes answer JSON 404 rather than the SPA shell.
+app.MapMethods(
+    "/integration/{**path}",
+    allHttpMethods,
+    () => VocabularyHttpResponse.NotFound("Integration endpoint was not found."));
 
 adminSurface.MapMethods(
         "/admin/{**path}",
