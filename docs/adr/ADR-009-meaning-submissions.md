@@ -27,7 +27,7 @@
 
 ## 后果
 
-- 新增 SQLite 迁移 `AddMeaningSubmissions`（只新增一张表和索引，不改已有数据）。回退到旧版本时该表被忽略；迁移 Down 删除该表和其中全部投稿。
+- 新增 SQLite 迁移 `AddMeaningSubmissions`（只新增一张表和索引，不改已有数据）。升级后旧版本镜像会被启动版本闸门拒绝（`migration.version_too_new`），回退需要恢复升级前的备份，或先执行迁移 Down 回到 `20261021010701_RemoveTextbookAudio`（删除该表和其中全部投稿）再部署旧镜像。
 - 新增配置 `MeaningSubmissions:*`；全部未配置时功能关闭，现有部署行为不变。
 - 管理端新增「投稿审核」页面。
 - 管理员修改释义文字会让接入方已在学这条释义的学习者重新学习（接入方以释义文字识别学习记录）。

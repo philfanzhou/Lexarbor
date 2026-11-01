@@ -1331,7 +1331,7 @@ Meaning submissions are off unless a supplementary book is configured. See the [
 
 An invalid value stops startup with a message naming the setting only. Without any public key the integration routes answer `401`. Settings are read once at startup; key rotation means adding the new public key to the ring, restarting, switching the client's signing key, then removing the old key and restarting again.
 
-The upgrade adds the `meaning_submission` table only (migration `AddMeaningSubmissions`). Rolling back the code ignores the table; migration Down drops it together with every submission. The review advice sends only the submission's word, part of speech, definition and example to the configured endpoint.
+The upgrade adds the `meaning_submission` table only (migration `AddMeaningSubmissions`); every existing row and table is unchanged. Back up SQLite before upgrading. An older image does not start on the upgraded database: the startup version gate stops with `migration.version_too_new`. To roll back, either restore the backup, or use the current migration tooling to return to `20261021010701_RemoveTextbookAudio` (Down drops the table together with every submission) and then deploy the older image. The review advice sends only the submission's word, part of speech, definition and example to the configured endpoint.
 
 ## Textbook recording removal
 
