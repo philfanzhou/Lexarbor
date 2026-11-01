@@ -186,6 +186,11 @@ builder.Services.AddSingleton(provider => IntegrationServiceTrust.Read(provider.
 builder.Services.AddSingleton<EnrichmentRuntimeConfiguration>();
 builder.Services.AddHttpClient(OpenAiCompatibleReviewAssistant.HttpClientName);
 builder.Services.AddSingleton<IMeaningSubmissionReviewAssistant, OpenAiCompatibleReviewAssistant>();
+builder.Services.AddHttpClient(OpenAiCompatiblePronunciationPreparationClient.HttpClientName,
+        client => client.Timeout = Timeout.InfiniteTimeSpan)
+    .RemoveAllLoggers()
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false });
+builder.Services.AddSingleton<IPronunciationPreparationClient, OpenAiCompatiblePronunciationPreparationClient>();
 builder.Services.AddScoped<VocabularyBookDomainService>();
 builder.Services.AddScoped<VocabularyBookUnitDomainService>();
 builder.Services.Configure<RouteHandlerOptions>(options =>

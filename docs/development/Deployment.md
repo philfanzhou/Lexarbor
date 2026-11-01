@@ -1380,6 +1380,14 @@ pronunciation planning. Configure an explicitly supported provider/model and bot
 locale settings before relying on a later adapter; OpenAI compatibility alone
 makes no pronunciation-control guarantee.
 
+The registered pronunciation planner uses the independent text snapshot and its
+configured timeout for both headers and body reads. It accepts only bounded validated
+JSON plans; missing configuration waits without dispatch and an uncertain/invalid plan
+cannot fall back to an unprepared TTS request. The planner performs no persistence or
+speech call and does not start a worker. See [pronunciation preparation](../api/Audio.md#pronunciation-preparation)
+for limits, safe result categories and required downstream pronunciation constraints.
+No new configuration keys, database tables, migrations or storage paths are introduced.
+
 Successful saves publish immutable review/enrichment snapshots only after atomic
 file replacement. Later review calls use the new endpoint/model/key; calls already
 started retain their captured snapshot. Shared rate-limit/S3 saves preserve these
