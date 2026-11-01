@@ -211,13 +211,13 @@ test('switches whole book, unit 2, unit 6, and back, each from its own read', as
   await expect(page.locator('.book-words__meta')).toContainText('去重单词 2')
   await expect(page.locator('.book-words__meta')).toContainText('释义 2')
   await expect(page.locator('.el-table__header')).toContainText('本单元释义')
-  await expect(contentRequests.at(-1)).toMatch(/\/units\/unit-2\/content$/)
+  await expect.poll(() => contentRequests.at(-1)).toMatch(/\/units\/unit-2\/content$/)
 
   // Unit 6 has no title: the tag names the number alone.
   await pickUnit(page, '单元 6')
   await expect(page.locator('.book-words__meta')).toContainText('单元 6')
   await expect(page.locator('.book-words__meta')).not.toContainText('School Life')
-  await expect(contentRequests.at(-1)).toMatch(/\/units\/unit-6\/content$/)
+  await expect.poll(() => contentRequests.at(-1)).toMatch(/\/units\/unit-6\/content$/)
 
   await pickUnit(page, '全书')
   await expect(page.locator('.book-words__meta .el-tag')).toHaveCount(1)
@@ -338,6 +338,8 @@ test('reports a unit deleted while its view was open and returns to the whole bo
 
   await pickUnit(page, '单元 2 · School Life')
   await expect(page.locator('.el-table')).toContainText('apple')
+  // The whole-book view also contains apple; wait for the unit's own read.
+  await expect(page.locator('.book-words__meta')).toContainText('释义 2')
 
   // The unit is deleted elsewhere: the same view now answers 404.
   delete state.byUnit['unit-2']
@@ -510,7 +512,7 @@ test('narrows the unit view to one section and reports the whole unit\'s section
   await expect(page.locator('.toolbar__section')).toContainText('全部分节')
   await expect(page.locator('.book-words__meta')).toContainText('释义 2')
   await expect(page.locator('.book-words__sections')).toHaveText('分节 A 1 · B 1 · 未分节 1')
-  await expect(askedFor.at(-1)).toBe('unit-2?section=-')
+  await expect.poll(() => askedFor.at(-1)).toBe('unit-2?section=-')
 
   const pickSection = async (label: string) => {
     await page.locator('.toolbar__section').click()
@@ -523,24 +525,24 @@ test('narrows the unit view to one section and reports the whole unit\'s section
   await expect(page.locator('.book-words__meta')).toContainText('去重单词 1')
   await expect(page.locator('.book-words__meta')).toContainText('释义 1')
   await expect(page.locator('.book-words__sections')).toHaveText('分节 A 1 · B 1 · 未分节 1')
-  await expect(askedFor.at(-1)).toBe('unit-2?section=A')
+  await expect.poll(() => askedFor.at(-1)).toBe('unit-2?section=A')
 
   await pickSection('未分节')
   await expect(page.locator('.el-table__row', { hasText: 'apple' })).toHaveCount(0)
   await expect(page.locator('.el-table__row', { hasText: 'bank' })).toContainText('河岸')
-  await expect(askedFor.at(-1)).toBe('unit-2?section=none')
+  await expect.poll(() => askedFor.at(-1)).toBe('unit-2?section=none')
 
   await pickSection('全部分节')
   await expect(page.locator('.el-table')).toContainText('apple')
   await expect(page.locator('.el-table')).toContainText('河岸')
-  await expect(askedFor.at(-1)).toBe('unit-2?section=-')
+  await expect.poll(() => askedFor.at(-1)).toBe('unit-2?section=-')
 
   // A unit switch resets the section refinement to 全部分节.
   await pickSection('Section B')
-  await expect(askedFor.at(-1)).toBe('unit-2?section=B')
+  await expect.poll(() => askedFor.at(-1)).toBe('unit-2?section=B')
   await pickUnit(page, '单元 6')
   await expect(page.locator('.toolbar__section')).toContainText('全部分节')
-  await expect(askedFor.at(-1)).toBe('unit-6?section=-')
+  await expect.poll(() => askedFor.at(-1)).toBe('unit-6?section=-')
 
   // The drawer names the section each place sits in, and a meaning in both
   // sections of one unit reads as two tags of that unit.
@@ -633,7 +635,7 @@ test('narrows the unit view to one entry kind and reports the whole unit\'s kind
   await expect(page.locator('.toolbar__kind')).toContainText('全部类别')
   await expect(page.locator('.book-words__meta')).toContainText('释义 2')
   await expect(page.locator('.book-words__kinds')).toHaveText('单词 1 · 短语 1 · 未分类 1')
-  await expect(askedFor.at(-1)).toBe('unit-2?section=-&entryKind=-')
+  await expect.poll(() => askedFor.at(-1)).toBe('unit-2?section=-&entryKind=-')
 
   const pickKind = async (label: string) => {
     await page.locator('.toolbar__kind').click()
@@ -646,29 +648,29 @@ test('narrows the unit view to one entry kind and reports the whole unit\'s kind
   await expect(page.locator('.book-words__meta')).toContainText('去重单词 1')
   await expect(page.locator('.book-words__meta')).toContainText('释义 1')
   await expect(page.locator('.book-words__kinds')).toHaveText('单词 1 · 短语 1 · 未分类 1')
-  await expect(askedFor.at(-1)).toBe('unit-2?section=-&entryKind=word')
+  await expect.poll(() => askedFor.at(-1)).toBe('unit-2?section=-&entryKind=word')
 
   await pickKind('未分类')
   await expect(page.locator('.el-table__row', { hasText: 'apple' })).toHaveCount(0)
   await expect(page.locator('.el-table__row', { hasText: 'bank' })).toContainText('河岸')
-  await expect(askedFor.at(-1)).toBe('unit-2?section=-&entryKind=none')
+  await expect.poll(() => askedFor.at(-1)).toBe('unit-2?section=-&entryKind=none')
 
   await pickKind('全部类别')
   await expect(page.locator('.el-table')).toContainText('apple')
   await expect(page.locator('.el-table')).toContainText('河岸')
-  await expect(askedFor.at(-1)).toBe('unit-2?section=-&entryKind=-')
+  await expect.poll(() => askedFor.at(-1)).toBe('unit-2?section=-&entryKind=-')
 
   // The section and kind dimensions combine by intersection.
   await page.locator('.toolbar__section').click()
   await page.locator('.el-select-dropdown__item:visible').filter({ hasText: 'Section A' }).first().click()
-  await expect(askedFor.at(-1)).toBe('unit-2?section=A&entryKind=-')
+  await expect.poll(() => askedFor.at(-1)).toBe('unit-2?section=A&entryKind=-')
 
   // A unit switch resets the kind refinement to 全部类别.
   await pickKind('短语')
-  await expect(askedFor.at(-1)).toBe('unit-2?section=A&entryKind=phrase')
+  await expect.poll(() => askedFor.at(-1)).toBe('unit-2?section=A&entryKind=phrase')
   await pickUnit(page, '单元 6')
   await expect(page.locator('.toolbar__kind')).toContainText('全部类别')
-  await expect(askedFor.at(-1)).toBe('unit-6?section=-&entryKind=-')
+  await expect.poll(() => askedFor.at(-1)).toBe('unit-6?section=-&entryKind=-')
 
   // The drawer names the kind each place sits under, and a meaning under two
   // kinds of one place reads as two tags of that place.
