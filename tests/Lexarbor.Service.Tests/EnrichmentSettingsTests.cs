@@ -146,6 +146,56 @@ public sealed class EnrichmentSettingsTests : IDisposable
         Assert.Equal(HttpStatusCode.BadRequest, (await Put(client, Revision(await Read(client)), json)).StatusCode);
         Assert.Same(current, Snapshot(factory)); Assert.False(File.Exists(FilePath));
     }
+
+    public static IEnumerable<object[]> DuplicateSettingRequests()
+    {
+        var scalarRequests = new[]
+        {
+            """{"enrichment":{"audioEnabled":true},"enrichment.audioEnabled":false}""",
+            """{"enrichment.audioEnabled":false,"enrichment":{"audioEnabled":true}}""",
+            """{"enrichment":{"text":{"model":"first"},"text.model":"second"}}""",
+            """{"reviewAssistant":{"model":"first"},"reviewAssistant.model":"second"}"""
+        };
+        var actions = new[] { """{"action":"keep"}""", """{"action":"clear"}""", """{"action":"replace","value":"synthetic-enrichment-key-marker"}""" };
+        foreach (var existingFile in new[] { false, true })
+        {
+            foreach (var json in scalarRequests) yield return [json, existingFile];
+            foreach (var (name, prefix, suffix) in new[]
+            {
+                ("reviewAssistant.apiKey", """{"reviewAssistant":{"apiKey": """, "}}"),
+                ("enrichment.text.apiKey", """{"enrichment":{"text":{"apiKey": """, "}}}"),
+                ("enrichment.tts.apiKey", """{"enrichment":{"tts":{"apiKey": """, "}}}")
+            })
+                foreach (var first in actions)
+                    foreach (var second in actions)
+                    {
+                        var nested = prefix + first + suffix;
+                        yield return [nested[..^1] + ",\"" + name + "\":" + second + "}", existingFile];
+                    }
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(DuplicateSettingRequests))]
+    public async Task DuplicateSettingsAcrossNestedAndDottedNames_DoNotWriteOrPublish(string json, bool existingFile)
+    {
+        using var factory = Factory(); using var client = Admin(factory);
+        if (existingFile)
+        {
+            using var saved = await Put(client, Revision(await Read(client)), """{"reviewAssistant":{"apiKey":{"action":"replace","value":"synthetic-enrichment-key-marker"}},"enrichment":{"text":{"apiKey":{"action":"replace","value":"synthetic-enrichment-key-marker"}},"tts":{"apiKey":{"action":"replace","value":"synthetic-enrichment-key-marker"}}}}""");
+            Assert.Equal(HttpStatusCode.OK, saved.StatusCode);
+        }
+        var state = await Read(client); var current = Snapshot(factory);
+        var bytes = existingFile ? await File.ReadAllBytesAsync(FilePath, Ct) : null;
+        using var response = await Put(client, Revision(state), json);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("Invalid enrichment settings.", (await response.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("message").GetString());
+        Assert.Same(current, Snapshot(factory));
+        Assert.Equal(state.ToJsonString(), (await Read(client)).ToJsonString());
+        if (existingFile) Assert.Equal(bytes, await File.ReadAllBytesAsync(FilePath, Ct));
+        else Assert.False(File.Exists(FilePath));
+    }
+
     [Fact]
     public async Task RevisionBoundsAndCrossModuleConcurrency_KeepOneCommit()
     {

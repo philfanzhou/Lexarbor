@@ -64,7 +64,7 @@ public static class EnrichmentSettingsEndpoints
             buffer.Write(bytes, 0, count);
         }
         var changes = new Dictionary<string, JsonNode?>(StringComparer.OrdinalIgnoreCase);
-        var supplied = 0;
+        var supplied = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         try
         {
             using var document = JsonDocument.Parse(buffer.ToArray(), new JsonDocumentOptions { MaxDepth = 8 });
@@ -82,7 +82,7 @@ public static class EnrichmentSettingsEndpoints
                         if (!EnrichmentConfigurationFields.All.Any(f => f.Name.StartsWith(name + ".", StringComparison.Ordinal)) || !Visit(property.Value, name)) return false;
                         continue;
                     }
-                    supplied++;
+                    if (!supplied.Add(field.Key)) return false;
                     if (field.Secret)
                     {
                         if (!Credential(property.Value, out var action, out var value)) return false;
@@ -97,7 +97,7 @@ public static class EnrichmentSettingsEndpoints
                 }
                 return seen.Count > 0;
             }
-            if (!Visit(document.RootElement, "") || supplied == 0) return Error(400, Invalid);
+            if (!Visit(document.RootElement, "") || supplied.Count == 0) return Error(400, Invalid);
         }
         catch (JsonException) { return Error(400, Invalid); }
         var retained = await coordinator.ReadAsync(read => (Read: read, Snapshot: runtime.Current), context.RequestAborted);

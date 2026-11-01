@@ -281,7 +281,10 @@ keep/replace/clear as in the S3 API. Deployment overrides remain read-only, incl
 attempts to submit their current value; explicit credential keep is permitted.
 GET never creates a file. PUT accepts at least one known field or credential
 operation, with a 16384-byte body limit, a maximum JSON depth of 8, strict types and
-no duplicate/unknown names. Endpoints must be absolute HTTP(S) URLs without user
+no duplicate/unknown names. Repeating the same setting through nested and dotted
+property names returns 400, including credential `keep` operations; rejection
+leaves the file, runtime snapshot, configuration versions and ETag unchanged.
+Endpoints must be absolute HTTP(S) URLs without user
 information, query or fragment. Errors are fixed English text and never echo input.
 Status codes are 200, 400, 409, 412, 413, 428 and 503 with the same meanings as the
 S3 settings API, except no storage-destination migration check is involved.
