@@ -75,7 +75,7 @@ public static class AudioSelectionService
         return left.Length > 0 && right.Length > 0 && string.Equals(left, right, StringComparison.Ordinal);
     }
 
-    private static string NormalizePhonetic(string? phonetic)
+    public static string NormalizePhonetic(string? phonetic)
     {
         var value = phonetic?.Normalize(NormalizationForm.FormC).Trim() ?? string.Empty;
         if (value.Length >= 2 && (value[0] == '/' && value[^1] == '/' || value[0] == '[' && value[^1] == ']'))

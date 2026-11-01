@@ -865,8 +865,17 @@ public class VocabularyMeaningRepository : IVocabularyMeaningRepository
         var entity = await _context.VocabularyMeanings.FindAsync(model.Id);
         if (entity != null)
         {
+            var phonetics = await _context.VocabularyMeanings.AsNoTracking().Where(row => row.Id == model.Id)
+                .Select(row => new { row.PhoneticUk, row.PhoneticUs }).SingleAsync();
             model.Adapt(entity);
+            entity.PhoneticUk = phonetics.PhoneticUk;
+            entity.PhoneticUs = phonetics.PhoneticUs;
             _context.VocabularyMeanings.Update(entity);
+            // Specific phonetics have a separate atomic invalidation boundary.
+            // General meaning edits must also preserve values read by an older
+            // tracked instance before a concurrent phonetic transaction.
+            _context.Entry(entity).Property(row => row.PhoneticUk).IsModified = false;
+            _context.Entry(entity).Property(row => row.PhoneticUs).IsModified = false;
         }
     }
 

@@ -153,6 +153,38 @@ binding remains visible as `ownBinding` for conditional upload and logical delet
 `effectiveBinding` may be the default or null. This upgrade introduces no public
 phonetic write fields, administrator editor or automatic generation.
 
+## Internal specific-phonetic edits
+
+The shared `MeaningPhoneticEditService` is an internal boundary for the later
+administrator editor; this release adds no public phonetic write field or route
+and does not start automatic AI/TTS. An omitted accent is preserved. An explicit
+null/blank value clears it. Comparisons use the NFC/one-wrapper rule above;
+equivalent submissions preserve the stored representation, binding and work.
+
+A real change atomically updates only the owned meaning/accent, advances a durable
+epoch, releases its own binding, authorizes exact old-object cleanup, invalidates
+old preparation/audio executions and persists new preparation/audio work. Clearing
+cancels specific work and resumes default selection. A nonempty value still needs
+its own generation work even when equivalent-default playback is available.
+Default audio, other accents and other meanings are unaffected. General meaning
+replacement/import does not write or clear specific phonetics.
+
+Generation disabled/missing configuration does not delay the edit or erase its
+work. Storage disabled or deletion failure retains cleanup independently of new
+generation. The later executor/scheduler activates the persisted work when ready;
+notifications are optional and a restart retains it. New playback requests cannot
+select the released binding, but issued URLs and downloaded copies cannot be
+revoked immediately. Shared objects wait for every other binding to be released.
+
+Upload reservation captures an internal epoch without changing multipart fields
+or `sourceRevision`. Final publication rechecks it in the actual writer transaction,
+so an old upload cannot publish after A→B→A even if its upload lease and content
+revision still match. Background `CompleteGuardedAsync` additionally checks the
+current task round, owner, fence, input and unexpired execution lease in that same
+transaction. Neither lease substitutes for the other; a prior guard check cannot
+authorize a later binding write. Permanent successful receipts remain replayable
+without restoring old bindings. See [edit persistence](../database/README.md#atomic-specific-phonetic-edits).
+
 ## Errors and cancellation
 
 Success uses the existing `{ "success": true, "data": ... }` envelope. Business failures use `{ "success": false, "message": "<fixed English message>" }`. Missing/invalid administrator identity returns 401, an authenticated non-administrator returns 403, invalid query values return 400, and missing resources or wrong meaning ownership return 404. Framework-level parsing errors retain the host's existing handling. Query cancellation releases the read transaction without creating assets, bindings or upload operations. Existing vocabulary endpoints and JSON contracts are unchanged.
@@ -444,7 +476,7 @@ and [OpenAI text-to-speech guidance](https://developers.openai.com/api/docs/guid
 
 The internal invalidation queue can remove an already published specific object
 only with exact durable authority from a specific-phonetic change. This foundation
-adds no public route or editable field; the later shared edit boundary supplies
+adds no public route or editable field; the shared edit boundary supplies
 that authority and the atomic unbind. Manual `DELETE` above remains logical-only.
 Default or other current bindings prevent physical deletion; an unreferenced
 historical object without authority remains retained. Claimed assets cannot be

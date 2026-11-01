@@ -97,6 +97,20 @@ internal sealed class AudioTestDatabase : IDisposable
     public static string Revision(AudioLocale locale, bool meaning = false) => AudioSelectionService.ComputeRevision(
         AudioSelectionService.GetInput(new("word", "Apple", "uk", "us"), meaning ? new("meaning", "n.", "fruit") : null, locale));
 
+    // Seed the historical receipt contract without asking the latest EF model
+    // to RETURN columns absent from the deliberately old migration under test.
+    public static Task SeedSucceededOperationAsync(VocabularyDbContext db, string assetId) => db.Database.ExecuteSqlInterpolatedAsync($"""
+        INSERT INTO audio_upload_operation
+          (idempotency_key,request_fingerprint,word_id,meaning_id,locale,source_revision,asset_id,state,
+           created_at_unix_ms,updated_at_unix_ms,upload_lease_fence,receipt_status_code,receipt_asset_id,
+           receipt_source_revision,completed_at_unix_ms,cleanup_lease_fence,cleanup_attempts)
+        VALUES ({Guid.NewGuid().ToString()},{Hash},'word','meaning','en-GB',{Hash},{assetId},'Succeeded',
+          1,2,1,200,{assetId},{Hash},2,0,0)
+        """, Token);
+
+    public async Task<string> PreEpochColumnsAsync(string table) => string.Join(",", (await RowsAsync($"PRAGMA table_info(\"{table}\")"))
+        .Select(row => (string)((object?[])row!)[1]!).Where(column => column != "meaning_phonetic_epoch").OrderBy(column => column, StringComparer.Ordinal).Select(column => "\"" + column + "\""));
+
     public async Task<object?[]> RowsAsync(string sql)
     {
         await using var connection = new SqliteConnection($"Data Source={PathName};Pooling=False");

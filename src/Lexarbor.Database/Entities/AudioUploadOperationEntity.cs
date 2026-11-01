@@ -26,6 +26,9 @@ public sealed class AudioUploadOperationEntity
     [Column("source_revision")]
     public string SourceRevision { get; set; } = string.Empty;
 
+    [Column("meaning_phonetic_epoch")]
+    public long MeaningPhoneticEpoch { get; set; }
+
     [Column("expected_asset_id")]
     public string? ExpectedAssetId { get; set; }
 

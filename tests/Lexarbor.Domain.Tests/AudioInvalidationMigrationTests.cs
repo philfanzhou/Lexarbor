@@ -22,9 +22,8 @@ public sealed class AudioInvalidationMigrationTests
         using var file = new AudioTestDatabase(); await using var db = file.Open();
         await db.GetService<IMigrator>().MigrateAsync(Previous, Token); await AudioTestDatabase.SeedAsync(db);
         db.AudioAssets.Add(AudioTestDatabase.Asset("published"));
-        db.AudioUploadOperations.Add(AudioTestDatabase.Operation("published", AudioUploadState.Succeeded));
         db.VocabularyAudioBindings.Add(AudioTestDatabase.Binding("published", AudioLocale.EnGb, "meaning", AudioTestDatabase.Hash));
-        await db.SaveChangesAsync(Token); db.ChangeTracker.Clear(); var before = await Capture(file);
+        await db.SaveChangesAsync(Token); await AudioTestDatabase.SeedSucceededOperationAsync(db, "published"); db.ChangeTracker.Clear(); var before = await Capture(file);
         await db.Database.MigrateAsync(Token);
         Assert.False(db.Database.HasPendingModelChanges()); Assert.Equal(before, await Capture(file));
         Assert.Empty(await db.AudioInvalidations.ToListAsync(Token));
@@ -71,11 +70,11 @@ public sealed class AudioInvalidationMigrationTests
     private static async Task<string> Capture(AudioTestDatabase file)
     {
         var data = new List<object?>();
-        foreach (var row in await file.RowsAsync("SELECT name FROM sqlite_master WHERE type='table' AND name != '__EFMigrationsHistory' AND name != 'audio_invalidation' ORDER BY name"))
+        foreach (var row in await file.RowsAsync("SELECT name FROM sqlite_master WHERE type='table' AND name != '__EFMigrationsHistory' AND name NOT IN ('audio_invalidation','meaning_phonetic_epoch') ORDER BY name"))
         {
             var table = (string)((object?[])row!)[0]!; var quoted = '"' + table.Replace("\"", "\"\"") + '"';
-            var columns = await file.RowsAsync($"PRAGMA table_info({quoted})");
-            data.Add(await file.RowsAsync($"SELECT * FROM {quoted} ORDER BY {string.Join(',', Enumerable.Range(1, columns.Length))}"));
+            var projection = await file.PreEpochColumnsAsync(table);
+            data.Add(await file.RowsAsync($"SELECT {projection} FROM {quoted} ORDER BY 1"));
         }
         return JsonSerializer.Serialize(data);
     }

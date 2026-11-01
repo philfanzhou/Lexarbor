@@ -375,8 +375,14 @@ public sealed class EnrichmentTaskRepository(VocabularyDbContext context, TimePr
                 Kinds = positions.Where(position => position.MeaningId == row.Id).Select(position => position.EntryKind).OrderBy(kind => kind, StringComparer.Ordinal).ToArray()
             }).ToArray();
         }
-        var revision = Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new object?[]
-            { "lexarbor.enrichment.input.v1", source, key.Step.ToString(), fields })));
+        var epoch = key.MeaningId == null ? 0 : await context.MeaningPhoneticEpochs.AsNoTracking().Where(row =>
+            row.WordId == key.WordId && row.MeaningId == key.MeaningId && row.Locale == key.Locale)
+            .Select(row => (long?)row.Epoch).SingleOrDefaultAsync(token) ?? 0;
+        // Keep untouched pre-upgrade rounds byte-for-byte compatible. A real
+        // edit adds the independent durable epoch, including A -> B -> A.
+        object?[] version = epoch == 0 ? ["lexarbor.enrichment.input.v1", source, key.Step.ToString(), fields]
+            : ["lexarbor.enrichment.input.v2", source, key.Step.ToString(), fields, epoch];
+        var revision = Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(version)));
         return new(revision, source, own);
     }
 

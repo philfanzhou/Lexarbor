@@ -28,8 +28,7 @@ public sealed class TextbookAudioRemovalMigrationTests
             AudioTestDatabase.Asset("pending-recording", published: false));
         db.VocabularyAudioBindings.Add(AudioTestDatabase.Binding("pronunciation", AudioLocale.EnGb, null,
             AudioTestDatabase.Revision(AudioLocale.EnGb)));
-        db.AudioUploadOperations.Add(AudioTestDatabase.Operation("pronunciation", AudioUploadState.Succeeded));
-        await db.SaveChangesAsync(Ct);
+        await db.SaveChangesAsync(Ct); await AudioTestDatabase.SeedSucceededOperationAsync(db, "pronunciation");
         await db.Database.ExecuteSqlInterpolatedAsync($"""
             INSERT INTO textbook_audio_track
                 (id,book_id,unit_id,title,display_order,current_asset_id,duration_seconds,is_available,version)
@@ -121,7 +120,7 @@ public sealed class TextbookAudioRemovalMigrationTests
         {
             var columns = table == "vocabulary_meaning"
                 ? "id,vocabulary_id,book_id,part_of_speech,meaning,normalized_part_of_speech,normalized_meaning,example,created_at,updated_at"
-                : "*";
+                : await file.PreEpochColumnsAsync(table);
             rows.Add(await file.RowsAsync($"SELECT {columns} FROM {table} ORDER BY 1"));
         }
         return JsonSerializer.Serialize(rows);

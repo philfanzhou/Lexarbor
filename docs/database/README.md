@@ -470,7 +470,9 @@ transaction check cannot authorize a later write. After a successful conditional
 mutation, `AdvanceInputInTransactionAsync` accepts its new input only when the same
 transaction validated the old guard; a failed check must abort the mutation and
 roll back. These ports do not themselves implement field filling or audio upload.
-The separate upload lease continues to protect upload operations.
+The separate upload lease continues to protect upload operations. Guarded binding
+publication uses `IAudioGuardedPublicationRepository.CompleteGuardedAsync` to
+check both authorities inside its actual short writer transaction.
 
 Relevant content changes use `InvalidateInTransactionAsync` with the content edit
 in that same transaction. It advances a persistent epoch independently of hashes,
@@ -513,7 +515,7 @@ foreign key restricts removal. Locations are internal and never public task data
 transaction on the same scoped context. Call it while the exact old **specific**
 binding still exists, then remove that binding in the same transaction. It does
 not commit, edit phonetics, invalidate enrichment work or contact storage. The
-later shared phonetic-edit boundary owns those coordinated actions. A default
+shared phonetic-edit boundary below owns those coordinated actions. A default
 asset, arbitrary orphan, wrong target/accent, or unpublished asset cannot be
 independently authorized. A matching repeat is idempotent. A later edit of another live specific binding
 sharing that same asset reuses its retained authority without replacing the
@@ -554,3 +556,57 @@ and remote-object backup is required for restoration. An intentionally deleted
 specific object can be absent from an older database backup: this exception needs
 an independent remote backup, and Down cannot recreate it. Do not prune tombstones
 or run a general orphan/bucket purge. See [deployment recovery](../development/Deployment.md#specific-audio-invalidation-recovery).
+
+
+## Atomic specific-phonetic edits
+
+`AddMeaningPhoneticEpochs` creates the initially empty `meaning_phonetic_epoch`
+table keyed by owned meaning/accent, and adds `meaning_phonetic_epoch` to upload
+operations with zero for existing records. No existing ID, phonetic, binding,
+receipt, task/plan/history or source revision is rewritten. It performs no network
+operation and enables no public editor or AI/TTS worker. Untouched task input
+encodings remain compatible; actual edits add the durable epoch to internal task
+input versions, while the public audio source revision stays content-based.
+
+`MeaningPhoneticEditService` joins the caller's scoped `IUnitOfWork`; its repository
+requires that same context's actual serialized writer transaction. Callers supply
+book/word/meaning ownership and per-accent expected source revision, epoch and
+**own** asset. An absent input preserves the value; explicit null/blank clears it.
+The shared NFC/one-wrapper comparison detects actual changes. Equivalent values
+keep their stored representation and create no epoch, invalidation or round.
+General meaning replacement cannot overwrite either dedicated phonetic column.
+
+For each real change the same transaction authorizes the precise old published
+specific binding before removal, advances an independent positive epoch, writes
+the field, releases only its own binding and invalidates both preparation and audio
+rounds. Nonblank values get durable pending rounds even when default playback can
+fall back; clearing cancels active rounds, retains their history and creates no
+specific generation. The caller supplies separate opaque preparation, UK-audio and US-audio versions
+from its captured configuration snapshot. A missing version persists a stable
+`configuration.missing` marker; later readiness/relevant configuration changes use
+the normal round rules. Any failure or cancellation
+rolls the entire operation back, including edits to both accents. No commit relies
+on a notification, live provider or storage availability.
+
+Reservations capture the epoch internally. Final upload publication re-reads it
+in its writer transaction, rejecting old work even after A→B→A with matching
+content/own-asset conditions. Background guarded publication additionally checks
+the matching current Audio target, round, execution lease owner/fence/expiry and
+input in that transaction; the independent upload lease must also still be valid.
+A standalone guard check cannot protect a subsequent write. Old successful receipts
+remain permanent; a replay never restores an invalidated binding. Deletion claims,
+shared references and permanent tombstones retain the preceding queue's safety.
+
+Reuse the full database at `/app/data/vocabulary.db` to retain epochs, waits, work,
+cleanup and receipts across restarts/image replacement. New generation and cleanup
+are independent: closing generation never restores old audio; closing storage or
+failed removal retains deletion work without blocking new publication. Existing
+signed URLs/downloads cannot be immediately revoked.
+
+For explicit Down to `20261101185722_AddAudioInvalidations`, stop all writes,
+uploads, generation and recovery and preserve a consistent database/object backup.
+Down drops the epoch table and captured upload epoch column: it loses ABA protection
+history, preserves the edited fields and all other task/cleanup/receipt data, and
+cannot recreate deleted remote objects. Do not resume interrupted old executions
+across this downgrade. Older images remain rejected by the schema-version gate;
+prefer restoring a matching pre-upgrade backup. See [deployment](../development/Deployment.md#specific-phonetic-edit-upgrade).

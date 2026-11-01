@@ -6,7 +6,8 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Lexarbor.Database.Repositories;
 
-public sealed class AudioUploadRepository(VocabularyDbContext context, TimeProvider? timeProvider = null) : IAudioUploadRepository
+public sealed class AudioUploadRepository(VocabularyDbContext context, TimeProvider? timeProvider = null)
+    : IAudioUploadRepository, IAudioGuardedPublicationRepository
 {
     private const long CleanupDelay = 24 * 60 * 60 * 1000L;
     private readonly UnitOfWork _unitOfWork = new(context);
@@ -61,6 +62,7 @@ public sealed class AudioUploadRepository(VocabularyDbContext context, TimeProvi
                 Locale = request.Locale,
                 SourceRevision = request.SourceRevision,
                 ExpectedAssetId = request.ExpectedAssetId,
+                MeaningPhoneticEpoch = target.Value.Epoch,
                 AssetId = asset.Id,
                 Producer = request.Producer,
                 Voice = request.Voice,
@@ -89,12 +91,27 @@ public sealed class AudioUploadRepository(VocabularyDbContext context, TimeProvi
             .ExecuteUpdateAsync(set => set.SetProperty(op => op.UploadLeaseExpiresAtUnixMs, leaseExpiresAt).SetProperty(op => op.UpdatedAtUnixMs, now)) == 1, cancellationToken, () => now = EffectiveNow(now));
     }
 
-    public Task<AudioUploadOperation?> CompleteAsync(string key, AudioLease lease, long now, CancellationToken cancellationToken) => WriteAsync(async () =>
+    public Task<AudioUploadOperation?> CompleteAsync(string key, AudioLease lease, long now, CancellationToken cancellationToken) =>
+        CompleteCoreAsync(key, lease, null, now, cancellationToken);
+
+    public Task<AudioUploadOperation?> CompleteGuardedAsync(string key, AudioLease lease, EnrichmentExecutionGuard guard,
+        long now, CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(guard);
+        return CompleteCoreAsync(key, lease, guard, now, token);
+    }
+
+    private Task<AudioUploadOperation?> CompleteCoreAsync(string key, AudioLease lease, EnrichmentExecutionGuard? guard,
+        long now, CancellationToken cancellationToken) => WriteAsync(async () =>
     {
         var op = await OwnedUpload(key, lease, now).SingleOrDefaultAsync(row => row.State == AudioUploadState.Transferring);
         if (op == null) return null;
         var target = await TargetAsync(op.WordId, op.MeaningId, op.Locale);
-        if (target == null || target.Value.Revision != op.SourceRevision || target.Value.AssetId != op.ExpectedAssetId)
+        var authorized = guard == null || await context.EnrichmentTargets.AsNoTracking().AnyAsync(row => row.Id == guard.TargetId
+            && row.WordId == op.WordId && row.MeaningId == op.MeaningId && row.Locale == op.Locale && row.Step == EnrichmentStep.Audio)
+            && await new EnrichmentTaskRepository(context, _clock).ValidateInTransactionAsync(guard, now, CancellationToken.None);
+        if (target == null || target.Value.Revision != op.SourceRevision || target.Value.AssetId != op.ExpectedAssetId
+            || target.Value.Epoch != op.MeaningPhoneticEpoch || !authorized)
         {
             await FailAsync(OwnedUpload(key, lease, now), now, target == null ? 404 : 409,
                 target == null ? "audio.target_not_found" : "audio.target_conflict");
@@ -245,7 +262,7 @@ public sealed class AudioUploadRepository(VocabularyDbContext context, TimeProvi
         if (UnitOfWork.IsWriteInProgress) throw new InvalidOperationException("Audio operations must own their short database transaction.");
         return _unitOfWork.ExecuteAdmittedTransactionAsync(() => { admitted?.Invoke(); return action(); }, token);
     }
-    private async Task<(string Revision, string? AssetId)?> TargetAsync(string wordId, string? meaningId, AudioLocale locale)
+    private async Task<(string Revision, string? AssetId, long Epoch)?> TargetAsync(string wordId, string? meaningId, AudioLocale locale)
     {
         var word = await context.Vocabularies.AsNoTracking().SingleOrDefaultAsync(row => row.Id == wordId);
         if (word == null) return null;
@@ -258,7 +275,9 @@ public sealed class AudioUploadRepository(VocabularyDbContext context, TimeProvi
         }
         var revision = AudioSelectionService.ComputeRevision(AudioSelectionService.GetInput(new(word.Id, word.Word, word.PhoneticUk, word.PhoneticUs), meaning, locale));
         var own = await context.VocabularyAudioBindings.AsNoTracking().SingleOrDefaultAsync(row => row.WordId == wordId && row.MeaningId == meaningId && row.Locale == locale);
-        return (revision, own?.AssetId);
+        var epoch = meaningId == null ? 0 : await context.MeaningPhoneticEpochs.AsNoTracking().Where(row => row.WordId == wordId
+            && row.MeaningId == meaningId && row.Locale == locale).Select(row => (long?)row.Epoch).SingleOrDefaultAsync() ?? 0;
+        return (revision, own?.AssetId, epoch);
     }
     private async Task<AudioStoredUpload> StoredAsync(AudioUploadOperationEntity op, CancellationToken token) => new(Map(op),
         Map(await context.AudioAssets.AsNoTracking().SingleAsync(row => row.Id == op.AssetId, token)));
