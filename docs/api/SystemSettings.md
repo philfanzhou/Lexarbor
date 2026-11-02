@@ -3,7 +3,7 @@
 The administrator page at `/#/settings` displays effective request ceilings, their
 configuration source, and separate unsaved switch drafts. A failed read means
 **unknown**, never disabled. Numeric limits and windows are read-only; change them
-offline and restart. The audio storage API below is available; its administrator page is a separate feature.
+offline and restart. The same page also manages S3 storage, the review assistant and autonomous enrichment.
 
 ## Request rate limits
 
@@ -255,8 +255,9 @@ permission to write text fields. Each locale has its own voice and nullable spee
 both default to empty. Incomplete configurations can be saved: a missing UK setup
 does not invalidate the US setup. Speed accepts 0.1–4 as a configuration bound;
 the actual provider/model adapter must enforce its narrower supported range and
-pronunciation capabilities. Saving configuration never calls a supplier. This
-foundation does not start an enrichment worker, create tasks or generate audio.
+pronunciation capabilities. Saving configuration never directly calls a supplier. The hosted scheduler observes
+published switches and discovers missing targets automatically when enabled; no
+manual range selection or start action is required. Missing configuration waits.
 
 Providers are `MiniMaxNative` (default model `speech-2.8-hd`) and
 `OpenAICompatible`. A protocol/provider name does not promise support for arbitrary
@@ -267,14 +268,15 @@ The [speech support matrix](Audio.md#speech-adapters) names the implemented mode
 endpoint restrictions, pronunciation modes and provider-specific speed ranges.
 MiniMax requires a validated complete-target IPA plan; OpenAI-compatible service
 names alone never grant instruction support. Saving these settings still performs
-no supplier call, and registered adapters do not start automatic generation.
+no supplier probe. The hosted scheduler uses the adapters only for enabled,
+configured targets.
 
 The internal pronunciation preparation client uses only `Enrichment:Text`, independently
 of the review assistant. It posts to `<endpoint>/chat/completions` with JSON mode
 (`response_format.type=json_object`) and validates every field locally; compatibility
 does not imply JSON Schema support. See the [preparation contract](Audio.md#pronunciation-preparation)
-for bounds, explicit targets and safe failure results. Registration alone starts no
-calls, worker or TTS. Audio-only mode runs preparation with no writable field candidates.
+for bounds, explicit targets and safe failure results. Audio-only mode runs
+preparation with no writable field candidates.
 
 Additional `enrichment` fields and defaults:
 
@@ -322,3 +324,29 @@ not create a file. An effective deployment override change invalidates only affe
 versions and enabled startup persists their replacements; unwritable metadata keeps
 generation waiting. Retain the
 whole configuration file, not just visible fields, across container replacement.
+
+### Administrator page
+
+The **审核与自治补齐** panel at `/#/settings` edits the same safe contract: review
+advice, independent enrichment switches/text client, speech client, separate UK/US
+voice and nullable speed, and bounded retry/pause/scan controls. It does not add an
+automatic-review switch. No voice or speed is preselected. Current values and
+per-field source/read-only reasons remain distinct from drafts. Missing one locale
+can be saved without blocking the other. `configurationReady` means durable version
+metadata exists, not supplier availability or completed generation. The page names
+the implemented speech combinations and links the [support matrix](Audio.md#speech-adapters);
+it performs no supplier discovery, browser-side supplier call or paid preview.
+
+Only changed editable values and explicit credential actions are submitted. All
+three settings panels share the configuration revision, so another panel or
+administrator can cause 412. The user must read again, compare nonsecret drafts,
+and explicitly save with the new revision; 409/428 also require rereading. Fixed
+local notices for 400/409/412/413/428/503 never display server error bodies.
+
+Every save attempt clears the three password drafts before awaiting a reply. An
+unknown or malformed successful response triggers GET only, never credential
+replay; failed confirmation stays unknown until an explicit read. Nonsecret drafts
+are retained for comparison, and newly overridden fields adopt the actual server
+value. Reading clears password drafts. Navigation and sign-out abort requests and
+discard drafts; session guards ignore late successes and authentication failures.
+No drafts or credentials enter web storage, URLs or console output.

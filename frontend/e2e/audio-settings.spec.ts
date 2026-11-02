@@ -12,6 +12,7 @@ function state() {
 }
 function json(route: Route, body: unknown, status = 200) { return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) }) }
 async function admin(page: Page) {
+  await page.route('**/admin/enrichment/settings', route => json(route, {}, 503))
   await mockAntiforgery(page)
   await page.route('**/admin/auth/session', route => json(route, { username: 'ci-admin', roles: ['admin'] }))
   await page.route('**/admin/system/version', route => json(route, { version: '1.0.0', revision: null, channel: 'release' }))
