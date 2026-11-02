@@ -732,8 +732,8 @@ submission ID, verdict, structured AI fields, bounded comment/model, UTC review
 milliseconds and original applied flag. Its submission FK is restrictive, with
 no catalog FK or cascade. The repository exposes append/read only; the context
 rejects tracked changes/deletes of conclusions, and SQLite triggers also reject
-UPDATE/DELETE of records (including direct SQL). A later checked marker must use
-separate state. The original proposal remains on the retained submission.
+UPDATE/DELETE of records (including direct SQL). Checked markers use
+separate state described below. The original proposal remains on the retained submission.
 
 `MeaningSubmissionService.ApplyAiReviewAsync` joins the same UnitOfWork writer
 and scoped context as manual approvals/rejections. It verifies replay identity,
@@ -777,3 +777,29 @@ Stop writers and preserve a consistent backup first: staged conclusions would
 otherwise be lost and pending work may need another model call after a future
 upgrade. Restore database/configuration/root-key/audio objects as one recovery
 point; older images cannot bypass the newer-schema gate.
+
+
+## Independent AI review checks
+
+`20261102063605_AddMeaningSubmissionReviewChecks` adds only the initially empty
+`meaning_submission_review_check(record_id PRIMARY KEY, checked_at_unix_ms)` table.
+Its restrictive foreign key references the permanent `meaning_submission_ai_review`
+record, not the mutable catalog. Existing proposal, conclusion, scheduling and
+catalog rows are unchanged. The original conclusion table's no-update/no-delete
+triggers remain intact. The check writer inserts once with conflict-ignore and
+returns the existing first-check timestamp for every replay; no conclusion update
+is needed. It neither publishes enrichment nor invokes an AI client.
+
+Administrator history joins permanent conclusions to retained submitted text and
+the optional check fact. Count and page use one deferred, read-only transaction
+snapshot with time/ID ordering. Unapplied valid conclusions remain visible.
+Vocabulary correction/deletion and later conclusions cannot change earlier checks.
+The temporary automatic-review input is not a history source.
+
+Reuse and back up the entire SQLite database in the existing persistent volume.
+Before Down, stop writers and back up the database, protected configuration, root
+key and matching audio objects consistently. Down to
+`20261102052837_AddAutomaticMeaningSubmissionReview` drops only check facts;
+permanent conclusions, proposals, automatic retry state and catalog remain.
+Restore a matched backup to recover checks. Older images still fail the schema
+version gate; do not point one directly at the upgraded database.

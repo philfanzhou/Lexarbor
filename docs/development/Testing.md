@@ -668,3 +668,30 @@ preserving the existing enrichment instructions. Run full Release, frontend
 checks and the container script. Its two real container recreations retain pending
 retry/staged input and permanent results; AI uses synthetic fixtures, never real
 supplier credentials or listening claims.
+
+
+## Administrator AI history verification
+
+`MeaningSubmissionReviewAdminTests` uses file SQLite for exact original/AI fields,
+POS-only/IPA-only revision filters, unapplied records, stable time/ID pagination,
+read-only snapshots, concurrent idempotent checks, missing IDs, cancellation,
+reopening after catalog correction/deletion and later conclusions, and Up/Down
+preserving previous data/schema/triggers. An interceptor appends through another
+WAL connection between count and page to prove both reads share one snapshot.
+`MeaningSubmissionEndpointTests` verifies the DTO allowlist, filters/400/404,
+empty-body writes, original first-check time, Cookie+CSRF/Bearer and anonymous/
+ordinary/integration isolation. The real worker tests now read and check each
+actual accept/revise/reject permanent result, delete its catalog target, reopen,
+and verify identical history plus the check with no new AI request.
+
+`meaning-submission-reviews.spec.ts` covers comparison/filtering, CSRF and one POST,
+lost responses with record-ID confirmation, failed confirmation without replay,
+404, paging/filter replacement, empty/error/retry, late success/401/403 across
+logout/new sessions, hostile text, no storage/external requests, keyboard and axe.
+The existing submissions spec covers optional manual explanations, retained drafts,
+bodyless rejection, cancellation and stale advice. Browser API interception proves
+frontend behavior; SQLite/HTTP/worker tests prove real server contracts. Run full
+Release, types/lint/build and full Playwright; persistence changes require a fresh
+Docker build and container smoke. Its two recreations now compare check facts
+alongside permanent results/retry state. Audio regressions remain active; synthetic
+provider fixtures never count as real supplier listening.

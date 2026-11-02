@@ -70,7 +70,7 @@ public static class MeaningSubmissionEndpoints
     public static void MapMeaningSubmissionAdminEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/admin/meaning-submissions").RequireAuthorization(AdminEndpointAuthorization.PolicyName);
-        group.MapGet("", async ([FromQuery] string? status, [FromQuery] int? page, [FromQuery] int? size,
+        group.MapGet("", async ([FromQuery] string? status, [FromQuery] int? page, [FromQuery] int? size, [FromQuery] string? reviewerKind,
             MeaningSubmissionService service, CancellationToken cancellationToken) =>
         {
             var parsed = status?.Trim().ToLowerInvariant() switch
@@ -81,8 +81,12 @@ public static class MeaningSubmissionEndpoints
                 _ => (MeaningSubmissionStatus?)null
             };
             if (parsed is null) return VocabularyHttpResponse.BadRequest("Status must be pending, approved or rejected.");
+            reviewerKind = reviewerKind?.Trim().ToLowerInvariant();
+            if (reviewerKind == "") reviewerKind = null;
+            if (reviewerKind is not (null or "admin" or "ai" or "unknown"))
+                return VocabularyHttpResponse.BadRequest("Reviewer kind must be admin, ai or unknown.");
             var pageSize = Math.Clamp(size ?? 20, 1, 100);
-            var (items, total) = await service.PageAsync(parsed.Value, page ?? 1, pageSize, cancellationToken);
+            var (items, total) = await service.PageAsync(parsed.Value, page ?? 1, pageSize, cancellationToken, reviewerKind);
             return VocabularyHttpResponse.Ok(new
             {
                 configured = service.IsConfigured,

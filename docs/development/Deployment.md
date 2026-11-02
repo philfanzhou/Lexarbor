@@ -1749,3 +1749,25 @@ Down drops only automatic scheduling/staged application state; proposals,
 permanent conclusions and catalog outcomes remain. Any staged unapplied conclusion
 is lost by Down; restore the full matching pre-upgrade backup when that is the
 required recovery point. Never point an older image directly at the upgraded DB.
+
+
+## Administrator review history upgrade
+
+The submission page now provides an AI history tab and administrator-source filter,
+original/AI/model/time/application comparison, and a single-record checked marker.
+No extra configuration or credential is required. Only administrators can read or
+check history; cookie writes retain CSRF validation. Unapplied conclusions are
+explicitly identified. Incorrect catalog content is corrected through the existing
+vocabulary editor, with the existing relearning effect for changed definitions.
+Checking does not approve, undo or change any vocabulary, and automated retries do
+not require manual intervention.
+
+`20261102063605_AddMeaningSubmissionReviewChecks` adds an empty independent check
+table in the same `/app/data/vocabulary.db`; all old rows and permanent conclusion
+triggers remain unchanged. Keep the same volume across recreation. Back up the
+whole database with configuration/root key and matching audio objects consistently.
+For explicit rollback stop writers, preserve the backup, then migrate with current
+tooling to `20261102052837_AddAutomaticMeaningSubmissionReview`. Only checked facts
+are lost by this Down; permanent history, original text and automatic retry state
+remain. Recover lost checks from a matched backup. The existing older-image
+`migration.version_too_new` refusal still applies.

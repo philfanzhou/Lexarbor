@@ -5,6 +5,9 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Lexarbor.Database;
+using Lexarbor.Domain.Models;
+using Lexarbor.Domain.Repositories;
+using Lexarbor.Domain.Services;
 using Lexarbor.Service.Tests.TestInfrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -278,6 +281,120 @@ public sealed class MeaningSubmissionEndpointTests : IAsyncLifetime
             using var valid = await cookie.PostAsJsonAsync(path, body, Ct);
             Assert.Equal(HttpStatusCode.OK, valid.StatusCode);
         }
+    }
+
+    private async Task<JsonElement> ReadAdmin(string path, string? token = null)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, path);
+        request.Headers.Authorization = new("Bearer", token ?? _factory.CreateToken("admin"));
+        return await Data(await _client.SendAsync(request, Ct));
+    }
+
+    [Fact]
+    public async Task PermanentHistory_FiltersProjection_AndBodylessIdempotentChecks()
+    {
+        string recordId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var service = scope.ServiceProvider.GetRequiredService<MeaningSubmissionService>();
+            var submission = await service.SubmitAsync(Subject, "historyword", "n.", "original", "example", Ct);
+            var record = await service.ApplyAiReviewAsync(new("history-attempt", submission.Id, "revise", "v.", "original",
+                "/uk/", "/us/", "<img src=x onerror=alert(1)>", "actual-model", DateTimeOffset.FromUnixTimeMilliseconds(1234)), new AllowReview(), Ct);
+            recordId = record.Id;
+            // This second valid conclusion lost the race; it must still be queryable, never labelled applied.
+            await service.ApplyAiReviewAsync(record.Review with { AttemptId = "late", Model = "captured-earlier" }, new AllowReview(), Ct);
+        }
+        var all = await ReadAdmin("/admin/meaning-submission-reviews");
+        Assert.Equal(2, all.GetProperty("totalCount").GetInt32());
+        var applied = await ReadAdmin("/admin/meaning-submission-reviews?verdict=revise&applied=true&checked=false");
+        var row = Assert.Single(applied.GetProperty("items").EnumerateArray());
+        Assert.Equal(new[] { "ai", "applied", "checked", "checkedAt", "original", "recordId", "resultWordId", "reviewerKind", "source", "submissionId" }, row.EnumerateObject().Select(p => p.Name).Order());
+        Assert.Equal("ai", row.GetProperty("reviewerKind").GetString()); Assert.Equal(Subject, row.GetProperty("source").GetString());
+        Assert.Equal("historyword", row.GetProperty("original").GetProperty("word").GetString());
+        Assert.Equal("n.", row.GetProperty("original").GetProperty("partOfSpeech").GetString());
+        Assert.Equal("original", row.GetProperty("original").GetProperty("meaning").GetString());
+        Assert.Equal("example", row.GetProperty("original").GetProperty("example").GetString());
+        var ai = row.GetProperty("ai"); Assert.Equal("actual-model", ai.GetProperty("model").GetString());
+        Assert.Equal("v.", ai.GetProperty("partOfSpeech").GetString()); Assert.Equal("/uk/", ai.GetProperty("phoneticUk").GetString());
+        Assert.Equal("/us/", ai.GetProperty("phoneticUs").GetString()); Assert.Equal("<img src=x onerror=alert(1)>", ai.GetProperty("comment").GetString());
+        Assert.Equal(DateTimeOffset.FromUnixTimeMilliseconds(1234), ai.GetProperty("reviewedAt").GetDateTimeOffset());
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"/admin/meaning-submission-reviews/{recordId}/checked");
+        request.Headers.Authorization = new("Bearer", _factory.CreateToken("admin"));
+        var first = await Data(await _client.SendAsync(request, Ct));
+        var repeat = await Data(await Post($"/admin/meaning-submission-reviews/{recordId}/checked", new { }, _factory.CreateToken("admin")));
+        Assert.Equal(first.GetRawText(), repeat.GetRawText());
+        var confirmed = await ReadAdmin($"/admin/meaning-submission-reviews?recordId={recordId}");
+        Assert.True(Assert.Single(confirmed.GetProperty("items").EnumerateArray()).GetProperty("checked").GetBoolean());
+        Assert.Equal(1, (await ReadAdmin("/admin/meaning-submission-reviews?checked=true")).GetProperty("totalCount").GetInt32());
+        Assert.Equal(1, (await ReadAdmin("/admin/meaning-submission-reviews?checked=false&applied=false")).GetProperty("totalCount").GetInt32());
+        Assert.Equal(1, (await ReadAdmin("/admin/meaning-submissions?status=approved&reviewerKind=ai")).GetProperty("totalCount").GetInt32());
+        Assert.Equal(0, (await ReadAdmin("/admin/meaning-submissions?status=approved&reviewerKind=admin")).GetProperty("totalCount").GetInt32());
+        Assert.Equal(0, (await ReadAdmin("/admin/meaning-submissions?status=approved&reviewerKind=unknown")).GetProperty("totalCount").GetInt32());
+        Assert.Empty((await ReadAdmin("/admin/meaning-submission-reviews?recordId=missing")).GetProperty("items").EnumerateArray());
+        Assert.Equal(HttpStatusCode.NotFound, (await Post("/admin/meaning-submission-reviews/missing/checked", new { }, _factory.CreateToken("admin"))).StatusCode);
+    }
+
+    [Fact]
+    public async Task HistoryAndCheck_RequireAdministrator_CookieCsrfOrBearer_RejectIntegration()
+    {
+        foreach (var (token, expected) in new[] { ((string?)null, HttpStatusCode.Unauthorized), (Token(), HttpStatusCode.Unauthorized), (_factory.CreateToken("student"), HttpStatusCode.Forbidden) })
+        {
+            using var read = new HttpRequestMessage(HttpMethod.Get, "/admin/meaning-submission-reviews");
+            if (token != null) read.Headers.Authorization = new("Bearer", token);
+            Assert.Equal(expected, (await _client.SendAsync(read, Ct)).StatusCode);
+            Assert.Equal(expected, (await Post("/admin/meaning-submission-reviews/missing/checked", new { }, token)).StatusCode);
+        }
+        using var cookie = _factory.CreateClient(); cookie.DefaultRequestHeaders.Add("Cookie", _factory.CreateSessionCookie());
+        Assert.Equal(HttpStatusCode.OK, (await cookie.GetAsync("/admin/meaning-submission-reviews", Ct)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await cookie.PostAsync("/admin/meaning-submission-reviews/missing/checked", null, Ct)).StatusCode);
+        AdminTestAntiforgery.Attach(cookie, _factory);
+        Assert.Equal(HttpStatusCode.NotFound, (await cookie.PostAsync("/admin/meaning-submission-reviews/missing/checked", null, Ct)).StatusCode);
+    }
+
+    [Theory]
+    [InlineData("/admin/meaning-submission-reviews?page=0")]
+    [InlineData("/admin/meaning-submission-reviews?size=0")]
+    [InlineData("/admin/meaning-submission-reviews?size=101")]
+    [InlineData("/admin/meaning-submission-reviews?page=2147483647&size=100")]
+    [InlineData("/admin/meaning-submission-reviews?verdict=unknown")]
+    [InlineData("/admin/meaning-submission-reviews?checked=no")]
+    [InlineData("/admin/meaning-submission-reviews?applied=no")]
+    [InlineData("/admin/meaning-submission-reviews?recordId=%20")]
+    [InlineData("/admin/meaning-submissions?reviewerKind=student")]
+    public async Task HistoryFilters_RejectInvalidInput(string path)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, path);
+        request.Headers.Authorization = new("Bearer", _factory.CreateToken("admin"));
+        Assert.Equal(HttpStatusCode.BadRequest, (await _client.SendAsync(request, Ct)).StatusCode);
+    }
+    [Fact]
+    public async Task ReviewerFilter_DistinguishesAllThreeKinds_WithoutChangingClientSource()
+    {
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var service = scope.ServiceProvider.GetRequiredService<MeaningSubmissionService>();
+            var human = await service.SubmitAsync("human-client", "humanword", null, "human original", null, Ct);
+            await service.ApproveAsync(human.Id, new("humanword", null, "human corrected", null, null, null, "manual comment"), Ct);
+            var ai = await service.SubmitAsync("ai-client", "aiword", null, "ai original", null, Ct);
+            await service.ApplyAiReviewAsync(new("actual-attempt", ai.Id, "accept", null, null, null, null, null, "model", DateTimeOffset.UtcNow), new AllowReview(), Ct);
+            // Preserve an unknown reviewer for a historical approved row without inventing an identity.
+            var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+            var legacy = await service.SubmitAsync("legacy-client", "legacyword", null, "legacy", null, Ct);
+            await db.Database.ExecuteSqlRawAsync("UPDATE meaning_submission SET status=1 WHERE id={0}", [legacy.Id], Ct);
+        }
+        foreach (var (kind, source) in new[] { ("admin", "human-client"), ("ai", "ai-client"), ("unknown", "legacy-client") })
+        {
+            var result = await ReadAdmin($"/admin/meaning-submissions?status=approved&reviewerKind={kind}");
+            var row = Assert.Single(result.GetProperty("items").EnumerateArray());
+            Assert.Equal(source, row.GetProperty("source").GetString());
+            Assert.Equal(kind == "unknown" ? null : kind, row.GetProperty("reviewerKind").GetString());
+        }
+        Assert.Equal(3, (await ReadAdmin("/admin/meaning-submissions?status=approved")).GetProperty("totalCount").GetInt32());
+    }
+
+    private sealed class AllowReview : IMeaningSubmissionReviewEligibility
+    {
+        public Task<bool> CanApplyAsync(string submissionId, string attemptId, CancellationToken cancellationToken) => Task.FromResult(true);
     }
 
 }

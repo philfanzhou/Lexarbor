@@ -98,6 +98,34 @@ public sealed class AutomaticMeaningSubmissionReviewTests
         Assert.DoesNotContain("synthetic-source", request.ToString());
     }
 
+    [Theory]
+    [InlineData("accept")]
+    [InlineData("revise")]
+    [InlineData("reject")]
+    public async Task RealWorker_PermanentAdminProjection_CheckedFactSurvivesReopen_WithoutNewAiCall(string verdict)
+    {
+        await using var f = await Fixture.Create(); await f.Submit("Word");
+        f.Http.Respond = (_, _) => Task.FromResult(Completion(Decision(verdict)));
+        await f.Worker.RunBatchAsync(Ct);
+        MeaningSubmissionReviewEntry original;
+        await using (var db = f.Open())
+        {
+            var repository = new MeaningSubmissionReviewAdminRepository(db, f.Clock);
+            original = Assert.Single((await repository.PageAsync(new(Verdict: verdict, Checked: false, Applied: true), Ct)).Items);
+            Assert.Equal("Word", original.Word); Assert.Equal("original", original.OriginalMeaning);
+            Assert.Equal("n.", original.OriginalPartOfSpeech); Assert.Equal("original example", original.OriginalExample);
+            Assert.Equal("actual-model", original.Model); Assert.Equal("Synthetic explanation", original.Comment);
+            Assert.Equal(f.Clock.GetUtcNow(), original.ReviewedAt);
+            await repository.CheckAsync(original.RecordId, Ct);
+            if (original.ResultWordId != null)
+                await db.Database.ExecuteSqlRawAsync("UPDATE vocabulary_meaning SET meaning='manual correction'; DELETE FROM vocabulary;", Ct);
+        }
+        await using var reopened = f.Open();
+        var current = Assert.Single((await new MeaningSubmissionReviewAdminRepository(reopened, f.Clock).PageAsync(new(RecordId: original.RecordId, Checked: true), Ct)).Items);
+        Assert.Equal(original with { CheckedAt = f.Clock.GetUtcNow() }, current);
+        Assert.Equal(1, f.Http.Calls); Assert.Equal(0, await f.NewWorker().RunBatchAsync(Ct)); Assert.Equal(1, f.Http.Calls);
+    }
+
     [Fact]
     public async Task Backlog_BoundedAndFair_IncludingLostNotifications_ContinuousFailuresAndRestart()
     {

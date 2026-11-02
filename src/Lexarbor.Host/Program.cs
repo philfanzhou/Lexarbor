@@ -198,6 +198,7 @@ builder.Services.AddSingleton(provider => new MeaningSubmissionSettings
     BookId = provider.GetRequiredService<IConfiguration>()["MeaningSubmissions:BookId"]?.Trim()
 });
 builder.Services.AddScoped<IMeaningSubmissionRepository, MeaningSubmissionRepository>();
+builder.Services.AddScoped<IMeaningSubmissionReviewAdminRepository, MeaningSubmissionReviewAdminRepository>();
 builder.Services.AddScoped<MeaningSubmissionService>();
 builder.Services.AddScoped<IMeaningSubmissionAutoReviewRepository, MeaningSubmissionAutoReviewRepository>();
 builder.Services.AddScoped<IMeaningSubmissionAutomaticReviewStatusProvider, MeaningSubmissionAutomaticReviewStatusProvider>();
@@ -881,6 +882,7 @@ adminSurface.MapAudioUnbindEndpoints();
 adminSurface.MapAudioAdminPlaybackEndpoints();
 adminSurface.MapVocabularyCleanupEndpoints();
 adminSurface.MapMeaningSubmissionAdminEndpoints();
+adminSurface.MapMeaningSubmissionReviewAdminEndpoints();
 app.MapMeaningSubmissionIntegrationEndpoints();
 app.MapAudioPublicPlaybackEndpoints(
     RateLimitingExtensions.PublicApiPolicy);

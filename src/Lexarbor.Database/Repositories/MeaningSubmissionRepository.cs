@@ -57,9 +57,12 @@ public sealed class MeaningSubmissionRepository : IMeaningSubmissionRepository
         MeaningSubmissionStatus status,
         int page,
         int size,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? reviewerKind = null)
     {
         var query = _context.MeaningSubmissions.AsNoTracking().Where(item => item.Status == status);
+        if (reviewerKind != null)
+            query = reviewerKind == "unknown" ? query.Where(item => item.ReviewerKind == null) : query.Where(item => item.ReviewerKind == reviewerKind);
         var total = await query.CountAsync(cancellationToken);
         // Pending work is reviewed oldest first; reviewed history reads newest first.
         // Ordered by id as well, so equal timestamps page stably.

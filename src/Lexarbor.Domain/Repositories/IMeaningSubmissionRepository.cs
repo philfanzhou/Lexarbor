@@ -24,7 +24,8 @@ public interface IMeaningSubmissionRepository
         MeaningSubmissionStatus status,
         int page,
         int size,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        string? reviewerKind = null);
 
     Task AddAsync(MeaningSubmissionModel submission, CancellationToken cancellationToken = default);
 

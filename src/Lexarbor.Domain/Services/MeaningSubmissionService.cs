@@ -251,9 +251,10 @@ public sealed class MeaningSubmissionService
         MeaningSubmissionStatus status,
         int page,
         int size,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? reviewerKind = null)
     {
-        return _submissions.PageAsync(status, Math.Max(1, page), Math.Clamp(size, 1, 100), cancellationToken);
+        return _submissions.PageAsync(status, Math.Max(1, page), Math.Clamp(size, 1, 100), cancellationToken, reviewerKind);
     }
 
     /// <summary>
