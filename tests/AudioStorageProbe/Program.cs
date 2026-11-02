@@ -32,6 +32,11 @@ try
         await CrashUploadAsync(args[1], args[2], args[3]);
         return 0;
     }
+    if (args.Length == 3 && args[0] == "--crash-enrichment")
+    {
+        await EnrichmentRecoveryProbe.CrashAsync(args[1], args[2]);
+        return 0;
+    }
     var endpoint = Environment.GetEnvironmentVariable("LEXARBOR_S3_TEST_INTERNAL")!;
     var publicEndpoint = Environment.GetEnvironmentVariable("LEXARBOR_S3_TEST_PUBLIC")!;
     var bucket = Environment.GetEnvironmentVariable("LEXARBOR_S3_TEST_BUCKET")!;
@@ -53,6 +58,7 @@ try
     await SettingsApiProbe.VerifyAsync(options, bytes);
     Console.WriteLine("Private S3 settings API save/upload/playback/disable/re-enable/recovery/restart passed.");
     await VerifyInvalidationAsync(options, bytes);
+    await EnrichmentRecoveryProbe.VerifyAsync(options);
     await VerifyRuntimeUploadGenerationsAsync(options, bytes);
     await VerifyRuntimeRecoveryGenerationsAsync(options, bytes);
     using var store = new S3AudioObjectStore(Options.Create(options), TimeProvider.System);
@@ -413,8 +419,12 @@ static async Task VerifyInvalidationAsync(AudioOptions options, byte[] bytes)
             "Real-store cleanup must not lose the edit's pending generation work after restart.");
         var authority = new AudioInvalidationRepository(restarted, clock);
         var settings = new AudioRecoverySettings(true, options.Bucket, options.KeyPrefix, TimeoutSeconds: 3);
-        Require((await new AudioInvalidationRecoveryService(authority, store, settings, clock).RunBatchAsync(default)).Observed == 1
-            && await store.StatAsync(old.Asset.Location, default) == null, "Restart must remove the explicitly authorized real published object.");
+        Require((await new AudioInvalidationRecoveryService(authority, new LostDeleteResult(store), settings, clock).RunBatchAsync(default)).Failed == 1
+            && await store.StatAsync(old.Asset.Location, default) == null, "A lost successful Delete result must retain durable cleanup intent.");
+        clock.Now = (await authority.GetAsync(old.Asset.Id, default))!.NextAttemptAtUnixMs;
+        await using var afterLostResult = new VocabularyDbContext(dbOptions);
+        Require((await new AudioInvalidationRecoveryService(new AudioInvalidationRepository(afterLostResult, clock), store, settings, clock).RunBatchAsync(default)).Observed == 1,
+            "Reopening SQLite after a lost Delete result must safely observe the already absent object.");
         var replay = await new AudioUploadRepository(restarted, clock).ReserveAsync(request, "retry", clock.Now, clock.Now + 300000, default);
         Require(replay.Disposition == AudioReservationDisposition.Replay && replay.Upload?.Operation.Receipt?.StatusCode == 200
             && !await restarted.VocabularyAudioBindings.AnyAsync(), "Permanent receipt must replay without resurrecting deleted audio.");

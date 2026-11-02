@@ -522,3 +522,12 @@ text is rendered as text; response parsing copies only safe DTO properties. No
 supplier request, credential storage, provider response logging or batch-start
 control is added. Hosted login accepts only the exact `/enrichment` return route;
 query/fragment/trailing-slash variants remain rejected.
+
+## Enrichment acceptance boundaries
+
+The [integration checklist](../development/EnrichmentAcceptance.md) connects the
+real Host worker/API flow with browser regression coverage. Browser state and valid
+audio transport do not prove a requested reading or accent. Real listening for the
+two supported protocol combinations remains a separate maintainer task. Clearing
+a specific restores default playback while old cleanup may still be waiting;
+service recovery does not reset the displayed exhausted failure allowance.

@@ -350,3 +350,12 @@ are retained for comparison, and newly overridden fields adopt the actual server
 value. Reading clears password drafts. Navigation and sign-out abort requests and
 discard drafts; session guards ignore late successes and authentication failures.
 No drafts or credentials enter web storage, URLs or console output.
+
+### Acceptance after configuration
+
+Saving settings and `configurationReady` do not establish speech quality. Use the
+[acceptance checklist](../development/EnrichmentAcceptance.md) for the supported
+provider/model and both configured accents. Preserve the complete server-side file
+with private version metadata when replacing a container. Restarting with the same
+configuration preserves failure allowance and waiting; a service becoming healthy
+alone never resets exhausted steps.
