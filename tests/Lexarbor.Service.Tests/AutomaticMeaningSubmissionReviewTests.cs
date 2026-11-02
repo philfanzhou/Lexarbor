@@ -70,7 +70,9 @@ public sealed class AutomaticMeaningSubmissionReviewTests
             await service.Vocabulary.AddOrUpdateAsync(new() { Word = submittedWord, PhoneticUk = "existing-uk" }, new() { BookId = "book", Meaning = "another" });
         }
         var id = await f.Submit(submittedWord);
-        f.Http.Respond = (_, _) => Task.FromResult(Completion(Decision(verdict, meaning, pos, comment: "Possible spelling: misspelled")));
+        var posOnly = verdict == "revise" && pos == "v.";
+        f.Http.Respond = (_, _) => Task.FromResult(Completion(Decision(verdict, meaning, pos,
+            uk: posOnly ? null : "ai-uk", us: posOnly ? null : "ai-us", comment: "Possible spelling: misspelled")));
         Assert.Equal(1, await f.Worker.RunBatchAsync(Ct));
         var result = await f.Read(submittedWord);
         Assert.Equal(submittedWord, result.Word); Assert.Equal("original", result.Meaning); Assert.Equal("n.", result.PartOfSpeech);
@@ -85,7 +87,9 @@ public sealed class AutomaticMeaningSubmissionReviewTests
         if (verdict != "reject")
         {
             var word = await reopened.Vocabularies.SingleAsync(Ct);
-            Assert.Equal(verdict == "accept" ? "existing-uk" : "ai-uk", word.PhoneticUk); Assert.Equal("ai-us", word.PhoneticUs);
+            Assert.Equal(verdict == "accept" || posOnly ? "existing-uk" : "ai-uk", word.PhoneticUk);
+            Assert.Equal(posOnly ? null : "ai-us", word.PhoneticUs);
+            Assert.Equal(verdict == "accept" ? "n." : pos, result.ResultPartOfSpeech);
             Assert.Equal("original example", (await reopened.VocabularyMeanings.SingleAsync(m => m.Id == result.ResultMeaningId, Ct)).Example);
         }
         var request = Assert.Single(f.Http.Proposals);
