@@ -672,3 +672,26 @@ catalog/audio/task/receipt data and makes no supplier or S3 calls. Stop workers
 and writes first and preserve consistent database/configuration/object backups.
 The newer-schema startup gate still forbids an older image reading an upgraded
 database; restore a matching backup when scheduler history must be retained.
+
+## Administrator enrichment snapshots and retry
+
+The [observation API](../api/Enrichment.md) reads requirements from current explicit
+catalog fields/own bindings and joins persisted rounds without calling discovery.
+All counts, page rows and independently paged histories share one deferred SQLite
+snapshot. No schema migration or new queue is added. Empty specific phonetics do
+not create a requirement; same-phonetic playback fallback does not satisfy an own
+specific-generation target. Current applicability and historical round state are
+reported separately. Service status matches the current internal service identity
+and version; those identifiers are not exposed.
+
+Single-step retry reuses the unique `(target_id,retry_key)` round index. Under the
+existing serialized writer it first replays an accepted key, otherwise requires
+`current_round=expectedRound`, `Failed`, and still-applicable missing work before
+creating a successor. Different keys racing for one expected round cannot both
+win. Fields retry refreshes Prepare in the same transaction; Prepare retry releases
+its still-missing `preparation.failed` dependencies. Successful sides, old failure
+history, and unrelated steps survive. Fault/cancellation rolls back every round
+and epoch. Existing input/configuration guards remain authoritative at final
+publication. These semantics persist in the existing database across restarts;
+service recovery alone never resets an exhausted round. Existing consistent
+configuration/database/object backup and newer-schema startup policies apply.

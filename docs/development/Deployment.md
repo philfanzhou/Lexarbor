@@ -1633,3 +1633,20 @@ This loses only scheduler cursor/service/probe history; prior tasks/receipts rem
 The newer-database gate and matching-backup recovery policy still apply. See
 [database persistence](../database/README.md#autonomous-scheduler-persistence) and
 [the execution behavior](../api/Audio.md#autonomous-enrichment-scheduling).
+
+## Administrator enrichment observation
+
+[Enrichment observation and single-step retry](../api/Enrichment.md) require the
+existing administrator Cookie+CSRF or Bearer contract; no extra public endpoint,
+credential, worker, or storage path is introduced. GET does not enqueue or execute
+work. Disabled deployments with no persisted tasks still report missing current
+requirements. Request counts, consumed failure allowance, service pause/throttle,
+old-object cleanup, and replacement generation are independent states.
+
+The retry endpoint uses the existing SQLite round/retry-key tables without a
+schema migration. Its expected-round condition and any required preparation
+refresh commit together; retained old rounds and retry receipts survive a restart
+or a container replacement that reuses `/app/data`. It does not enable a disabled
+service or replenish exhausted work merely because a provider recovered. Continue
+to preserve consistent configuration/database/object backups and use the same
+fixed directory or named volume. No new Down procedure is needed for this API.

@@ -459,6 +459,7 @@ The host now discovers and processes missing default fields/audio and explicit
 nonempty specific-audio targets when an enrichment switch is enabled. Normal
 approval/import/edit flows do not select a range or start a batch. Empty specific
 phonetics continue to inherit. Browser credentials and existing routes are unchanged;
-this stage adds no task query, retry controls or progress UI. Administrator observation
-and single-item retry remain separate work. See [scheduler behavior](../api/Audio.md#autonomous-enrichment-scheduling)
+the [administrator observation API](../api/Enrichment.md) now supplies safe task,
+service, and cleanup state plus atomic single-step retry. Progress UI and retry
+controls remain separate work. See [scheduler behavior](../api/Audio.md#autonomous-enrichment-scheduling)
 for waiting, shared throttling and exhausted-budget recovery.

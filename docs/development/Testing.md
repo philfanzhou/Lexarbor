@@ -540,3 +540,20 @@ no retrospective authority and defensive destination protection. Worker generati
 tests cover both queues. The private S3 probe exercises actual invalidation deletion
 and receipt retention; the container persistence check recreates a container with
 waiting and claimed authority and verifies every field survives disabled storage.
+
+## Administrator enrichment observation and retry
+
+`EnrichmentAdminEndpointTests` exercises the real Host, temporary SQLite,
+administrator Bearer/custom-role and Cookie+CSRF checks, explicit Bearer priority,
+ordinary-token denial, strict query/retry bounds, history paging, replay/conflict,
+and a safe response allowlist. Meaning-submission integration-token tests reject
+all task/summary/retry routes. `EnrichmentAdminRepositoryTests` (the shared executor
+fixture) compares every persisted table value before/after GET-equivalent reads,
+checks unqueued disabled requirements, partial success, seven throttles with zero
+consumed failures, exhaustion after independent service recovery, own-binding
+requirements despite same-IPA playback fallback, and cleanup failure alongside
+successful replacement or cleared inheritance. A concurrent WAL writer changes
+tasks between count and page to verify one read snapshot. Two connections race
+same/different retry keys and preserve old history after reopening; dependency
+refresh and injected failure/cancellation prove atomic rollback. Providers and
+storage use disposable synthetic fixtures; these checks do not claim real listening.

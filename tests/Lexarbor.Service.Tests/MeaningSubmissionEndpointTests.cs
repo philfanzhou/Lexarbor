@@ -124,6 +124,19 @@ public sealed class MeaningSubmissionEndpointTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task IntegrationToken_CannotUseEnrichmentTasksOrRetry()
+    {
+        foreach (var path in new[] { "/admin/enrichment/tasks", "/admin/enrichment/tasks/unknown", "/admin/enrichment/summary" })
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, path);
+            request.Headers.Authorization = new("Bearer", Token());
+            Assert.Equal(HttpStatusCode.Unauthorized, (await _client.SendAsync(request, Ct)).StatusCode);
+        }
+        Assert.Equal(HttpStatusCode.Unauthorized, (await Post("/admin/enrichment/tasks/unknown/retry",
+            new { expectedRound = 1, retryKey = Guid.NewGuid().ToString() }, Token())).StatusCode);
+    }
+
+    [Fact]
     public async Task CatalogSearch_ProjectsMeaningPronunciationAndExcludesDisabledBooks()
     {
         using (var scope = _factory.Services.CreateScope())
