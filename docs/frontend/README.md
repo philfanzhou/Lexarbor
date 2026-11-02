@@ -555,7 +555,8 @@ instructions remain visible.
 
 The AI history tab filters actual accept/revise/reject outcomes and checked state.
 The application filter also exposes valid conclusions that lost a race, clearly
-labelled unapplied. Selecting a record compares immutable original word/POS/meaning/
+labelled unapplied. Choosing that view clears and disables the three actual-outcome
+shortcuts; each shortcut always includes `applied=true`. Selecting a record compares immutable original word/POS/meaning/
 example with the captured AI fields, UK/US phonetics, explanation, actual model and
 time. Accept fields do not imply existing nonblank phonetics were overwritten.
 One checked marker records human verification independently; it never changes the

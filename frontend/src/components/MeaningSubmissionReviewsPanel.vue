@@ -23,9 +23,13 @@ function label(row: MeaningSubmissionReview) {
   return { accept: 'AI 原样通过', revise: 'AI 修改后通过', reject: 'AI 驳回' }[row.ai.verdict]
 }
 function query(): ReviewQuery {
-  // The three outcome shortcuts include only decisions that actually took effect.
+  // Outcome shortcuts always mean an actual application. Unapplied history is a separate view.
   return { verdict: filters.result || undefined, checked: filters.checked === '' ? undefined : filters.checked === 'true',
-    applied: filters.applied !== '' ? filters.applied === 'true' : filters.result ? true : undefined }
+    applied: filters.result ? true : filters.applied !== '' ? filters.applied === 'true' : undefined }
+}
+function changeApplication() {
+  if (filters.applied === 'false') filters.result = ''
+  search()
 }
 function cancelRead() { generation++; readController?.abort(); loading.value = false }
 function cancelWrite() { writeGeneration++; writeController?.abort(); checking.value = false }
@@ -100,11 +104,12 @@ onMounted(load)
   <section aria-label="永久 AI 审核记录">
     <p>每条有效 AI 结论永久保留；未应用的结论也可查。核对只记录管理员已查看，不会再次审核或修改词库。</p>
     <div class="review-filters">
-      <label>AI 结果<select v-model="filters.result" aria-label="AI 结果" @change="search"><option value="">全部结论</option><option value="revise">AI 修改后通过</option><option value="accept">AI 原样通过</option><option value="reject">AI 驳回</option></select></label>
+      <label>AI 结果<select v-model="filters.result" aria-label="AI 结果" :disabled="filters.applied === 'false'" @change="search"><option value="">全部结论</option><option value="revise">AI 修改后通过</option><option value="accept">AI 原样通过</option><option value="reject">AI 驳回</option></select></label>
       <label>核对状态<select v-model="filters.checked" aria-label="核对状态" @change="search"><option value="">全部</option><option value="false">未核对</option><option value="true">已核对</option></select></label>
-      <label>实际应用<select v-model="filters.applied" aria-label="实际应用" @change="search"><option value="">随结果筛选</option><option value="true">已应用</option><option value="false">未应用</option></select></label>
+      <label>实际应用<select v-model="filters.applied" aria-label="实际应用" @change="changeApplication"><option value="">随结果筛选</option><option value="true">已应用</option><option value="false">未应用</option></select></label>
       <button type="button" :disabled="loading || checking" @click="load">刷新审核记录</button>
     </div>
+    <p v-if="filters.applied === 'false'">正在查看全部未应用的有效结论；切回已应用或随结果筛选后，可筛选实际通过或驳回结果。</p>
     <p v-if="notice" role="status">{{ notice }}</p>
     <p v-if="uncertain">核对记录 {{ uncertain }} 的结果尚未确认，请刷新确认。</p>
     <p v-if="error" role="alert">{{ error }} <button @click="load">重试读取记录</button></p>
