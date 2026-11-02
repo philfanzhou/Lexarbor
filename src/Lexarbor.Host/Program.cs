@@ -144,6 +144,8 @@ builder.Services.AddScoped<AdminAuthenticationAudit>();
 builder.Services.AddScoped<IVocabularyWordEditRepository, VocabularyWordEditRepository>();
 builder.Services.AddScoped<VocabularyWordEditService>();
 builder.Services.AddScoped<VocabularyMeaningEditService>();
+builder.Services.AddScoped<VocabularyMeaningPhoneticEditService>();
+builder.Services.AddScoped<IMeaningPhoneticWorkVersionsProvider, MeaningPhoneticWorkVersionsProvider>();
 builder.Services.AddScoped<IVocabularyAdminQueryRepository, VocabularyAdminQueryRepository>();
 builder.Services.AddScoped<VocabularyAdminQueryService>();
 builder.Services.AddScoped<IAudioReadRepository, AudioReadRepository>();

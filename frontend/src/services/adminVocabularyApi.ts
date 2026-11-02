@@ -8,9 +8,8 @@ import type { Book } from '@/types'
  * `GET /admin/vocabulary-books/{bookId}/units/{unitId}/content`).
  * They return disabled books and unassigned words, which the public
  * enabled-only endpoints never do. Also the full-replacement writes the
- * administration UI edits and cleans with: the two complete-replacement PUTs
- * of the detail drawer (unlike the import merge, keeping a value means
- * sending it again and every field is required on each request) and the
+ * administration UI edits and cleans with: the detail drawer's required
+ * replacement text fields and optional conditional specific phonetics, and the
  * cleanup pair of one preview plus one commit of the same scope, matching
  * the server's strict per-action field whitelist.
  */
@@ -39,8 +38,25 @@ export interface AdminMeaning {
   partOfSpeech?: string | null
   meaning: string
   example?: string | null
+  /** Empty specific values inherit; these are not the word defaults. */
+  phoneticUk?: string | null
+  phoneticUs?: string | null
+  pronunciation?: { uk: AdminPronunciationAccent; us: AdminPronunciationAccent }
+  expectedUk?: AdminPhoneticCondition
+  expectedUs?: AdminPhoneticCondition
   /** The units this meaning is assigned to; absent in older reads. */
   units?: AdminMeaningUnit[]
+}
+
+export interface AdminPronunciationAccent {
+  phonetic: string | null
+  source: 'default' | 'meaning'
+}
+
+export interface AdminPhoneticCondition {
+  epoch: number
+  sourceRevision: string
+  ownAssetId: string | null
 }
 
 /**
@@ -243,6 +259,11 @@ export interface AdminMeaningEditPayload {
   partOfSpeech: string | null
   meaning: string
   example: string | null
+  /** Omit to preserve; null/blank clears. A provided value needs its condition. */
+  phoneticUk?: string | null
+  phoneticUs?: string | null
+  expectedUk?: AdminPhoneticCondition
+  expectedUs?: AdminPhoneticCondition
 }
 
 /** Replaces the shared word fields (`PUT /admin/vocabulary/{wordId}`). */
@@ -254,7 +275,7 @@ export function updateAdminVocabularyWord(
   return api.put<{ success: boolean }>(`/admin/vocabulary/${wordId}`, payload, config)
 }
 
-/** Replaces one meaning's three fields (`PUT /admin/vocabulary-books/{bookId}/words/{wordId}/meanings/{meaningId}`). */
+/** Replaces meaning text and optionally edits specific phonetics atomically. */
 export function updateAdminMeaning(
   bookId: string,
   wordId: string,

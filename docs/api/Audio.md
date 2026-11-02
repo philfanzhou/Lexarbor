@@ -1,5 +1,11 @@
 # Administrator audio queries, uploads, logical deletion and playback
 
+The detail drawer can [edit specific meaning phonetics](MeaningPhonetics.md).
+That meaning PUT atomically unbinds invalidated specific audio, records safe
+cleanup and persists regeneration work. Metadata and playback still use the
+selection rules below; a differing specific pronunciation without audio is
+`missing`, while an empty specific value inherits the default.
+
 Audio queries use the existing administrator policy: an administrator Bearer token for external programs, or the hosted-login session cookie for the administration UI. A supplied Bearer header takes precedence over a cookie. These GET requests do not require a CSRF header. Keep administrator credentials out of browser application code. Existing security headers, roles and rate-limit policies are unchanged.
 
 The administrator API provides metadata, conditional MP3 uploads, conditional logical deletion and short-lived playback links. It does not generate audio or claim generation jobs. Metadata queries do not inspect S3. Audio is disabled by default; missing `Audio` configuration is supported. Every successful metadata query includes `enabled`, reflecting the runtime configuration acquired once at request start. Metadata remains readable when disabled, but callers must not start audio work when `enabled` is `false`. See [deployment configuration](../development/Deployment.md#optional-audio-object-storage).

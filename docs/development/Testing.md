@@ -299,6 +299,34 @@ Historical Unicode conflict regressions also exercise the administrator word PUT
 
 `VocabularyMeaningEditEndpointTests` covers three-field presence/types, unknown IDs/fields, Cookie/Bearer and custom roles, 401/403/missing CSRF, all path resource/ownership failures, unchanged data after rejection and an external SQLite write lock returning 503 with `Retry-After: 1`. The full Release suite retains import equivalence/example updates and public detail ordering coverage. Run Docker persistence smoke as well. Combining word/meaning editing with cleanup is covered by `VocabularyEditCleanupCombinationTests` and its endpoint counterpart, described under "Editing combined with cleanup verification".
 
+## Specific-phonetic administration verification
+
+`MeaningPhoneticAdminEndpointTests` exercises real HTTP/SQLite detail projections,
+old three-field omission, two-accent assignment, null/blank clear, representation
+same-value idempotence, invalid value/condition shapes, stale/ABA conflicts,
+immutable ownership and phrase boundaries. Persisted work versions are compared
+with the actual runtime executor helper. Existing meaning endpoint tests retain
+Cookie/CSRF/Bearer/custom-role and ordinary-token rejection coverage.
+
+`MeaningPhoneticEditTests` combines the administrator text editor and both accents
+on the actual UnitOfWork: failure at authorization, epoch, specific update, unbind,
+target/round creation, second accent and final text update rolls every table back.
+A second-accent conflict preserves text and the first accent. ABA and concurrent
+manual upload reject old editor snapshots and old final publication guards;
+existing exact cleanup/shared-object/restart tests remain applicable. The large
+catalogue query assertion allows two additional batched projections for epochs
+and own assets, without per-meaning queries or extra entity materialization.
+
+`audio-preview.spec.ts` covers effective/default/specific labels, empty inheritance,
+differing-phonetic missing, meaningId+locale playback, changed-side conditions,
+dual edits, unchanged three-field payloads, clear with the other side unchanged,
+unknown-save readback without replay and media release after save. Existing
+close/switch/unmount/logout and late-response tests remain. Run frontend types,
+lint, build, Chromium and the Release suite; persistence changes also require a
+new image and container persistence/audio-storage integration checks. Mock MP3
+playback does not certify real supplier pronunciation; that acceptance remains
+separate.
+
 ## Administrator vocabulary query verification
 
 `VocabularyAdminQueryTests` uses real SQLite with enabled A, disabled B, shared polysemy, B-only vocabulary, historical orphans and an empty book. Assertions cover membership completeness, meaning isolation, independent whole-book/matched counts, stable pagination, literal LIKE metacharacters, missing resources and cancellation without writes. A file-rollback-journal test pauses the first read with a command interceptor, starts another context's deletion, releases the reader, and verifies that the full response still sees the original snapshot while the writer's commit queues behind it.
