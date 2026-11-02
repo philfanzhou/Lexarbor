@@ -590,5 +590,7 @@ probe releases the service but never resets or reopens an exhausted item. Releva
 content/configuration corrections can open a new round; switches, voice changes on
 the other accent, scanning and restart do not replenish this target's budget.
 
-These internals add no management query/retry UI or batch-start API. Real supplier
-listening remains a separate acceptance step; fixture responses do not prove it.
+Administrator state, history, and single failed-step retry are documented in
+[Enrichment](Enrichment.md). The observation API adds no progress UI or batch-start
+API. Real supplier listening remains a separate acceptance step; fixture responses
+do not prove it.

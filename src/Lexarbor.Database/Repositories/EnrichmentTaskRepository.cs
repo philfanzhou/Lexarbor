@@ -10,8 +10,8 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Lexarbor.Database.Repositories;
 
-public sealed class EnrichmentTaskRepository(VocabularyDbContext context, TimeProvider? timeProvider = null)
-    : IEnrichmentTaskRepository
+public sealed partial class EnrichmentTaskRepository(VocabularyDbContext context, TimeProvider? timeProvider = null)
+    : IEnrichmentTaskRepository, IEnrichmentAdminRetryRepository
 {
     private readonly UnitOfWork _unitOfWork = new(context);
     private readonly TimeProvider _clock = timeProvider ?? TimeProvider.System;
