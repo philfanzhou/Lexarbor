@@ -67,7 +67,7 @@ export function createAudioPreview() {
       }
       if (link.status === 'missing' || !link.url) {
         state.phase = 'idle'
-        state.error = '暂无音频，请由外部生成程序上传。'
+        state.error = '暂无音频；启用并配置自动补齐后会继续处理适用目标。'
         return
       }
       const expires = Date.parse(link.expiresAt ?? '')

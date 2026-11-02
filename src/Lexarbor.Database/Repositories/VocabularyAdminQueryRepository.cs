@@ -2,6 +2,7 @@ using Lexarbor.Database.Entities;
 using Lexarbor.Domain.Exceptions;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
+using Lexarbor.Domain.Services;
 using Mapster;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -224,6 +225,19 @@ public sealed class VocabularyAdminQueryRepository(VocabularyDbContext context) 
         }
         var byWord = meanings.ToLookup(m => m.VocabularyId);
         var unitsByMeaning = assignments.ToLookup(a => a.MeaningId);
+        var meaningSnapshotIds = meanings.Select(meaning => meaning.Id).ToArray();
+        var epochs = meanings.Count == 0 ? [] : await context.MeaningPhoneticEpochs.AsNoTracking().Where(row => meaningSnapshotIds.Contains(row.MeaningId))
+            .ToDictionaryAsync(row => (row.MeaningId, row.Locale), row => row.Epoch, cancellationToken);
+        var ownAssets = meanings.Count == 0 ? [] : await context.VocabularyAudioBindings.AsNoTracking()
+            .Where(row => row.MeaningId != null && meaningSnapshotIds.Contains(row.MeaningId))
+            .ToDictionaryAsync(row => (row.MeaningId!, row.Locale), row => row.AssetId, cancellationToken);
+        MeaningPhoneticSnapshot Snapshot(VocabularyEntity word, VocabularyMeaningEntity meaning, AudioLocale locale) =>
+            new(locale == AudioLocale.EnGb ? meaning.PhoneticUk : meaning.PhoneticUs,
+                epochs.GetValueOrDefault((meaning.Id, locale)),
+                AudioSelectionService.ComputeRevision(AudioSelectionService.GetInput(
+                    new(word.Id, word.Word, word.PhoneticUk, word.PhoneticUs),
+                    new(meaning.Id, meaning.PartOfSpeech, meaning.Meaning, meaning.PhoneticUk, meaning.PhoneticUs), locale)),
+                ownAssets.GetValueOrDefault((meaning.Id, locale)));
         return words.Select(word => new VocabularyAdminWord(word.Adapt<VocabularyModel>(),
             books[word.Id].OrderBy(b => b.BookName, StringComparer.Ordinal).ThenBy(b => b.Id, StringComparer.Ordinal)
                 .Select(b => new VocabularyAdminBook(b.Id, b.BookName, b.Status)).ToList(),
@@ -241,7 +255,8 @@ public sealed class VocabularyAdminQueryRepository(VocabularyDbContext context) 
                         .ThenBy(u => u.Section, StringComparer.Ordinal).ThenBy(u => u.EntryKind, StringComparer.Ordinal)
                         .Select(u => new VocabularyAdminUnit(
                             u.UnitId, u.Number, u.Title, u.Section == string.Empty ? null : u.Section,
-                            u.EntryKind == string.Empty ? null : u.EntryKind)).ToList())).ToList())).ToList();
+                            u.EntryKind == string.Empty ? null : u.EntryKind)).ToList(),
+                    Snapshot(word, m, AudioLocale.EnGb), Snapshot(word, m, AudioLocale.EnUs))).ToList())).ToList();
     }
 
     private async Task<T> SnapshotAsync<T>(Func<Task<T>> read, CancellationToken cancellationToken)

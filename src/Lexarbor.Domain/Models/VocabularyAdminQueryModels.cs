@@ -1,3 +1,5 @@
+using Lexarbor.Domain.Repositories;
+
 namespace Lexarbor.Domain.Models;
 
 public sealed record VocabularyAdminBook(string Id, string BookName, bool Status);
@@ -14,7 +16,9 @@ public sealed record VocabularyAdminUnit(string UnitId, int Number, string? Titl
 /// <summary>One meaning of an administrative detail result together with its unit assignments.</summary>
 public sealed record VocabularyAdminMeaningDetail(
     VocabularyMeaningModel Meaning,
-    IReadOnlyList<VocabularyAdminUnit> Units);
+    IReadOnlyList<VocabularyAdminUnit> Units,
+    MeaningPhoneticSnapshot UkPhoneticSnapshot,
+    MeaningPhoneticSnapshot UsPhoneticSnapshot);
 
 public sealed record VocabularyAdminWord(VocabularyModel Word, IReadOnlyList<VocabularyAdminBook> Books,
     IReadOnlyList<VocabularyAdminMeaningDetail> Meanings);

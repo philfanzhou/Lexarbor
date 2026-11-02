@@ -72,6 +72,131 @@ async function mediaState(page: Page) {
   })
 }
 
+function phoneticDetail(uk: string | null = null, us: string | null = 'US', epoch = 0) {
+  return { ...word, phoneticUk: 'default-uk', phoneticUs: 'default-us', meanings: [{ ...word.meanings[0], example: null,
+    phoneticUk: uk, phoneticUs: us,
+    pronunciation: { uk: { phonetic: uk ?? 'default-uk', source: uk ? 'meaning' : 'default' }, us: { phonetic: us ?? 'default-us', source: us ? 'meaning' : 'default' } },
+    expectedUk: { epoch, sourceRevision: 'a'.repeat(64), ownAssetId: uk ? 'old-uk' : null },
+    expectedUs: { epoch: 7, sourceRevision: 'b'.repeat(64), ownAssetId: 'us-asset' }
+  }] }
+}
+
+test('专用和默认音标分开展示，空值继承且异音缺失不播放默认', async ({ page }) => {
+  await page.route(/\/admin\/vocabulary\/word$/, route => json(route, phoneticDetail('different', null)))
+  await page.route(/\/audio\?meaningId=meaning$/, route => {
+    const data = metadata('word', 'meaning')
+    Object.assign(data.items[0], { status: 'missing', source: null, ownBinding: null, effectiveBinding: null })
+    Object.assign(data.items[1], { status: 'ready', source: 'default', ownBinding: null, effectiveBinding: { assetId: 'default-us', sourceRevision: 'current' } })
+    return json(route, data)
+  })
+  await instrument(page)
+  const playback: string[] = []
+  await page.route('**/playback*', route => { playback.push(route.request().url()); return json(route, { ...link(), locale: 'en-US' }) })
+  await open(page)
+  const meaning = page.locator('.word-detail__meaning')
+  await expect(meaning).toContainText('英式专用：different')
+  await expect(meaning).toContainText('美式专用：— · 留空，继承默认 · 有效音标 default-us')
+  await expect(page.getByRole('button', { name: '试听释义 特殊释义 英式音频' })).toBeDisabled()
+  await page.getByRole('button', { name: '试听释义 特殊释义 美式音频' }).click()
+  await expect.poll(() => playback.length).toBe(1)
+  expect(new URL(playback[0]).searchParams.get('meaningId')).toBe('meaning')
+  expect(new URL(playback[0]).pathname).toBe('/admin/vocabulary/word/audio/en-US/playback')
+})
+
+for (const clear of [false, true]) test(`${clear ? '清空' : '修改'} UK 专用音标携带旧条件，保存后重读并释放旧媒体`, async ({ page }) => {
+  let data = phoneticDetail('A')
+  const initial = structuredClone(data)
+  const writes: unknown[] = []
+  let reads = 0
+  await page.route(/\/admin\/vocabulary\/word$/, route => { reads += 1; return json(route, data) })
+  await page.route('**/admin/vocabulary-books/book/words/word/meanings/meaning', route => {
+    writes.push(route.request().postDataJSON())
+    data = phoneticDetail(clear ? null : 'B', 'US', 1)
+    return json(route, { success: true })
+  })
+  await page.route(/\/audio\?meaningId=meaning$/, route => {
+    const audio = metadata('word', 'meaning')
+    const edited = data.meanings[0].expectedUk.epoch > 0
+    Object.assign(audio.items[0], edited && !clear
+      ? { status: 'missing', source: null, ownBinding: null, effectiveBinding: null }
+      : { status: 'ready', source: edited ? 'default' : 'meaning', ownBinding: edited ? null : { assetId: 'old-uk', sourceRevision: 'current' }, effectiveBinding: { assetId: edited ? 'default-uk' : 'old-uk', sourceRevision: 'current' } })
+    Object.assign(audio.items[1], { status: 'ready', source: 'meaning', ownBinding: { assetId: 'us-asset', sourceRevision: 'current' }, effectiveBinding: { assetId: 'us-asset', sourceRevision: 'current' } })
+    return json(route, audio)
+  })
+  await instrument(page)
+  await open(page)
+  await page.getByRole('button', { name: '试听释义 特殊释义 英式音频' }).click()
+  await expect(page.getByText('正在播放', { exact: true })).toBeVisible()
+  const meaning = page.locator('.word-detail__meaning')
+  await meaning.getByRole('button', { name: '编辑', exact: true }).click()
+  await meaning.getByRole('textbox', { name: '英式专用音标' }).fill(clear ? '' : 'B')
+  await expect(meaning).toContainText('无需手动删除或重试')
+  await meaning.getByRole('button', { name: '保存本条释义' }).click()
+  await expect.poll(() => writes.length).toBe(1)
+  expect(writes[0]).toEqual({ partOfSpeech: 'n.', meaning: '特殊释义', example: null,
+    phoneticUk: clear ? null : 'B', expectedUk: initial.meanings[0].expectedUk })
+  await expect.poll(() => reads).toBe(2)
+  await expect(meaning).toContainText(clear ? '留空，继承默认' : '英式专用：B')
+  await expect(meaning).toContainText('美式专用：US')
+  const ukPlay = page.getByRole('button', { name: '试听释义 特殊释义 英式音频' })
+  if (clear) {
+    await expect(ukPlay).toBeEnabled()
+    await expect(meaning.getByRole('region', { name: '释义 特殊释义 音频' })).toContainText('使用单词默认')
+  } else await expect(ukPlay).toBeDisabled()
+  await expect(page.getByRole('button', { name: '试听释义 特殊释义 美式音频' })).toBeEnabled()
+  await expect.poll(async () => (await mediaState(page)).every(audio => audio.paused && audio.src === null)).toBe(true)
+})
+
+test('双侧修改各带条件，相同值保存保持旧三字段兼容', async ({ page }) => {
+  const data = phoneticDetail('A')
+  const writes: unknown[] = []
+  await page.route(/\/admin\/vocabulary\/word$/, route => json(route, data))
+  await page.route('**/admin/vocabulary-books/book/words/word/meanings/meaning', route => { writes.push(route.request().postDataJSON()); return json(route, { success: true }) })
+  await open(page)
+  const meaning = page.locator('.word-detail__meaning')
+  await meaning.getByRole('button', { name: '编辑', exact: true }).click()
+  await meaning.getByRole('button', { name: '保存本条释义' }).click()
+  await expect.poll(() => writes.length).toBe(1)
+  expect(writes[0]).toEqual({ partOfSpeech: 'n.', meaning: '特殊释义', example: null })
+  await expect(meaning.getByRole('button', { name: '编辑', exact: true })).toBeVisible()
+  await meaning.getByRole('button', { name: '编辑', exact: true }).click()
+  await meaning.getByRole('textbox', { name: '英式专用音标' }).fill('B')
+  await meaning.getByRole('textbox', { name: '美式专用音标' }).fill('NEW-US')
+  await meaning.getByRole('button', { name: '保存本条释义' }).click()
+  await expect.poll(() => writes.length).toBe(2)
+  expect(writes[1]).toEqual({ partOfSpeech: 'n.', meaning: '特殊释义', example: null, phoneticUk: 'B', phoneticUs: 'NEW-US',
+    expectedUk: data.meanings[0].expectedUk, expectedUs: data.meanings[0].expectedUs })
+})
+
+test('音标保存结果未知只读回，不重复提交', async ({ page }) => {
+  let data = phoneticDetail('A')
+  let writes = 0
+  await page.route(/\/admin\/vocabulary\/word$/, route => json(route, data))
+  await page.route('**/admin/vocabulary-books/book/words/word/meanings/meaning', route => {
+    writes += 1; data = phoneticDetail('B', 'US', 1); return route.abort('failed')
+  })
+  await open(page)
+  const meaning = page.locator('.word-detail__meaning')
+  await meaning.getByRole('button', { name: '编辑', exact: true }).click()
+  await meaning.getByRole('textbox', { name: '英式专用音标' }).fill('B')
+  await meaning.getByRole('button', { name: '保存本条释义' }).click()
+  await expect(page.locator('.el-message--warning')).toContainText('保存结果未知')
+  await expect(meaning).toContainText('英式专用：B')
+  expect(writes).toBe(1)
+})
+
+test('旧读取缺少编辑条件时提示重新加载，不发送无条件音标更新', async ({ page }) => {
+  let writes = 0
+  await page.route('**/admin/vocabulary-books/book/words/word/meanings/meaning', route => { writes += 1; return json(route, {}) })
+  await open(page)
+  const meaning = page.locator('.word-detail__meaning')
+  await meaning.getByRole('button', { name: '编辑', exact: true }).click()
+  await meaning.getByRole('textbox', { name: '英式专用音标' }).fill('B')
+  await meaning.getByRole('button', { name: '保存本条释义' }).click()
+  await expect(meaning).toContainText('缺少专用音标的编辑条件')
+  expect(writes).toBe(0)
+})
+
 test.beforeEach(async ({ page }) => { await setup(page) })
 
 test('真实 MP3 默认/覆盖状态、禁用教材、键盘播放及无持久凭据', async ({ page }) => {
