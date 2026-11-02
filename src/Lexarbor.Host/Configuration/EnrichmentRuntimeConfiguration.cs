@@ -36,6 +36,7 @@ internal static class EnrichmentConfigurationFields
             Add(name + ".timeoutSeconds", key + ":TimeoutSeconds", EnrichmentFieldKind.Integer, 30, 1, 300);
         }
         Client("reviewAssistant", OpenAiCompatibleReviewAssistant.Section);
+        Add("reviewAssistant.autoReviewEnabled", OpenAiCompatibleReviewAssistant.Section + ":AutoReviewEnabled", EnrichmentFieldKind.Boolean, false);
         Client("enrichment.text", "Enrichment:Text");
         Add("enrichment.fieldsEnabled", "Enrichment:FieldsEnabled", EnrichmentFieldKind.Boolean, false);
         Add("enrichment.audioEnabled", "Enrichment:AudioEnabled", EnrichmentFieldKind.Boolean, false);

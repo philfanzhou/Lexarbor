@@ -49,6 +49,39 @@ public sealed class EnrichmentSettingsTests : IDisposable
     private static EnrichmentConfigurationSnapshot Snapshot(VocabularyWebApplicationFactory factory) => factory.Services.GetRequiredService<EnrichmentRuntimeConfiguration>().Current;
 
     [Fact]
+    public async Task AutomaticReviewFlag_DefaultOff_SharedRevision_PersistsAcrossRestart_AndEnvironmentIsReadOnly()
+    {
+        using (var factory = Factory())
+        using (var client = Admin(factory))
+        {
+            var initial = await Read(client);
+            Assert.False(initial["reviewAssistant"]!["autoReviewEnabled"]!.GetValue<bool>());
+            Assert.False(Snapshot(factory).ReviewAssistant.AutoReviewEnabled);
+            using var saved = await Put(client, Revision(initial), """{"reviewAssistant":{"autoReviewEnabled":true}}""");
+            Assert.Equal(HttpStatusCode.OK, saved.StatusCode);
+            Assert.True(Snapshot(factory).ReviewAssistant.AutoReviewEnabled);
+            Assert.False(Snapshot(factory).ReviewAssistant.IsEnabled);
+            Assert.False(Snapshot(factory).Enrichment.FieldsEnabled);
+            Assert.True(JsonNode.Parse(File.ReadAllText(FilePath))!["MeaningSubmissions"]!["Ai"]!["AutoReviewEnabled"]!.GetValue<bool>());
+            using var page = await client.GetAsync("/admin/meaning-submissions", Ct);
+            var body = JsonNode.Parse(await page.Content.ReadAsStringAsync(Ct))!["data"]!;
+            Assert.True(body["automaticReview"]!["enabled"]!.GetValue<bool>());
+            Assert.True(body["automaticReview"]!["paused"]!.GetValue<bool>());
+            Assert.DoesNotContain(Secret, body.ToJsonString());
+        }
+        using (var restarted = Factory())
+        using (var client = Admin(restarted))
+            Assert.True((await Read(client))["reviewAssistant"]!["autoReviewEnabled"]!.GetValue<bool>());
+        using var baseOverride = Factory();
+        using var overridden = baseOverride.WithWebHostBuilder(builder => builder.ConfigureAppConfiguration((_, config) =>
+            config.Add(new AutomaticReviewOverrideSource())));
+        using var admin = overridden.CreateHttpsClient(); admin.DefaultRequestHeaders.Authorization = new("Bearer", baseOverride.CreateToken("admin"));
+        var state = await Read(admin);
+        Assert.False(state["fields"]!["reviewAssistant.autoReviewEnabled"]!["editable"]!.GetValue<bool>());
+        Assert.Equal(HttpStatusCode.Conflict, (await Put(admin, Revision(state), """{"reviewAssistant":{"autoReviewEnabled":true}}""")).StatusCode);
+    }
+
+    [Fact]
     public async Task Defaults_GetDoesNotCreateFile_AndAudioOnlyRequiresPreparationAndEachLocale()
     {
         using var factory = Factory(); using var client = Admin(factory);
@@ -229,6 +262,11 @@ public sealed class EnrichmentSettingsTests : IDisposable
         Assert.DoesNotContain(Secret, File.ReadAllText(FilePath)); Assert.True(SnapshotFromServices(factory.Services).ConfigurationReady);
     }
     private static EnrichmentConfigurationSnapshot SnapshotFromServices(IServiceProvider services) => services.GetRequiredService<EnrichmentRuntimeConfiguration>().Current;
+    private sealed class AutomaticReviewOverrideSource : IConfigurationSource { public IConfigurationProvider Build(IConfigurationBuilder builder) => new AutomaticReviewOverrideProvider(); }
+    private sealed class AutomaticReviewOverrideProvider : EnvironmentVariablesConfigurationProvider
+    {
+        public override void Load() => Data = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase) { ["MeaningSubmissions:Ai:AutoReviewEnabled"] = "false" };
+    }
     private sealed class OverrideSource : IConfigurationSource { public IConfigurationProvider Build(IConfigurationBuilder builder) => new OverrideProvider(); }
     private sealed class OverrideProvider : EnvironmentVariablesConfigurationProvider
     { public override void Load() => Data = new Dictionary<string, string?> { ["Enrichment:Text:ApiKey"] = Secret, ["Enrichment:Tts:Uk:Voice"] = "locked" }; }

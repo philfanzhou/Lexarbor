@@ -199,6 +199,15 @@ builder.Services.AddSingleton(provider => new MeaningSubmissionSettings
 });
 builder.Services.AddScoped<IMeaningSubmissionRepository, MeaningSubmissionRepository>();
 builder.Services.AddScoped<MeaningSubmissionService>();
+builder.Services.AddScoped<IMeaningSubmissionAutoReviewRepository, MeaningSubmissionAutoReviewRepository>();
+builder.Services.AddScoped<IMeaningSubmissionAutomaticReviewStatusProvider, MeaningSubmissionAutomaticReviewStatusProvider>();
+builder.Services.AddSingleton<MeaningSubmissionReviewNotifications>();
+builder.Services.AddSingleton<IMeaningSubmissionChangeNotifier>(p => p.GetRequiredService<MeaningSubmissionReviewNotifications>());
+builder.Services.AddHttpClient(AutomaticMeaningSubmissionReviewClient.HttpClientName, client => client.Timeout = Timeout.InfiniteTimeSpan)
+    .RemoveAllLoggers()
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false });
+builder.Services.AddSingleton<AutomaticMeaningSubmissionReviewClient>();
+builder.Services.AddHostedService<MeaningSubmissionReviewWorker>();
 builder.Services.AddSingleton(provider => IntegrationServiceTrust.Read(provider.GetRequiredService<IConfiguration>()));
 builder.Services.AddSingleton<EnrichmentRuntimeConfiguration>();
 builder.Services.AddHttpClient(OpenAiCompatibleReviewAssistant.HttpClientName);

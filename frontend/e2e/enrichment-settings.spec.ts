@@ -7,7 +7,7 @@ const revision = '"1234567890abcdef1234567890abcdef"'
 const nextRevision = '"abcdef1234567890abcdef1234567890"'
 function state() {
   const client = () => ({ endpoint: '', model: '', hasApiKey: false, timeoutSeconds: 30 })
-  const body = { revision, configurationReady: false, reviewAssistant: client(), enrichment: {
+  const body = { revision, configurationReady: false, reviewAssistant: { ...client(), autoReviewEnabled: false }, enrichment: {
     fieldsEnabled: false, audioEnabled: false, text: client(),
     tts: { ...client(), provider: 'MiniMaxNative', model: 'speech-2.8-hd', uk: { voice: '', speed: null as number | null }, us: { voice: '', speed: null as number | null } },
     concurrency: 1, failureBudget: 5, serviceFailureThreshold: 5, servicePauseSeconds: 60, maxServicePauseSeconds: 600,
@@ -57,7 +57,8 @@ test('default-off values, all policy bounds and no voice/speed defaults; indepen
   await expect(page.getByLabel('语音能力限制')).toContainText('0.5–2')
   await expect(page.getByLabel('语音能力限制')).toContainText('0.25–4')
   await expect(page.getByRole('link', { name: '查看英文语音能力矩阵' })).toHaveAttribute('href', /Audio.md#speech-adapters$/)
-  await expect(page.getByText('本页不启用自动审核', { exact: false })).toBeVisible()
+  await expect(page.getByLabel('启用 AI 自动审核投稿（默认关闭）', { exact: true })).not.toBeChecked()
+  await expect(page.getByText('管理员承担此风险', { exact: false })).toBeVisible()
   await expect(save(page)).toBeDisabled()
 })
 
@@ -325,3 +326,25 @@ for (const outcome of ['success', '401', '403'] as const) {
     await expect(key(page)).toHaveValue('')
   })
 }
+
+
+test('automatic review risk flag saves independently and reports pause until configuration exists', async ({ page }) => {
+  await admin(page)
+  let current = state(), puts = 0
+  await page.route(url, async route => {
+    if (route.request().method() === 'GET') return json(route, current)
+    puts++
+    expect(route.request().headers()['if-match']).toBe(revision)
+    expect(route.request().postDataJSON().reviewAssistant.autoReviewEnabled).toBe(true)
+    expect(route.request().postDataJSON().enrichment).toEqual({ text: { apiKey: { action: 'keep' } }, tts: { apiKey: { action: 'keep' } } })
+    current = { ...current, revision: nextRevision, reviewAssistant: { ...current.reviewAssistant, autoReviewEnabled: true } }
+    return json(route, current)
+  })
+  await page.goto('/#/settings')
+  await expect(page.getByLabel('自动审核配置状态')).toContainText('自动审核关闭')
+  await page.getByLabel('启用 AI 自动审核投稿（默认关闭）', { exact: true }).check()
+  await save(page).click()
+  await expect(page.getByLabel('自动审核配置状态')).toContainText('配置修复后自动恢复，无需人工处理')
+  expect(puts).toBe(1)
+  await expect(page.getByLabel('启用默认字段补齐', { exact: true })).not.toBeChecked()
+})

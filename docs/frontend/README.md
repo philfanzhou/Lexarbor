@@ -432,8 +432,9 @@ The **审核与自治补齐** panel on `/#/settings` uses `/admin/enrichment/set
 for the review assistant, separate text preparation, default-off field/audio
 switches, speech service, independent UK/US voice and nullable speed, and bounded
 background policies. It shares the existing configuration revision with S3 and
-rate limits. There is no automatic-review switch, supplier connection test or
-browser-side supplier request. Enabled enrichment is discovered by the hosted
+rate limits. Its separate default-off automatic-review switch explains that AI
+decides without human confirmation and may write incorrect shared vocabulary.
+There is no supplier connection test or browser-side supplier request. Enabled enrichment is discovered by the hosted
 scheduler without selecting a range or starting a batch.
 
 Every field displays its actual value, source and deployment override reason. A
@@ -531,3 +532,12 @@ audio transport do not prove a requested reading or accent. Real listening for t
 two supported protocol combinations remains a separate maintainer task. Clearing
 a specific restores default playback while old cleanup may still be waiting;
 service recovery does not reset the displayed exhausted failure allowance.
+
+
+The submission list displays the administrator-only automatic-review summary:
+all pending backlog, fixed pause/failure explanations, latest failure and next
+persisted attempt time. Failed/disabled/missing settings do not demand manual
+review; the worker resumes automatically. Unknown response codes are shown as a
+fixed generic message. List reloads discard stale status responses. The existing
+enrichment progress instructions and ordinary manual advice/approval remain.
+Permanent-history comparison and checked markers belong to their separate slice.

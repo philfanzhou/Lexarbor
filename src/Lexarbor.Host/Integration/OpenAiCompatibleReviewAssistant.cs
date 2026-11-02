@@ -142,8 +142,10 @@ public sealed class ReviewAssistantOptions
     public string? Model { get; init; }
     public string? ApiKey { get; init; }
     public int TimeoutSeconds { get; init; } = 30;
+    public bool AutoReviewEnabled { get; init; }
 
     public bool IsEnabled => !string.IsNullOrWhiteSpace(Endpoint) && !string.IsNullOrWhiteSpace(Model);
+    public bool CanAutomaticallyReview => AutoReviewEnabled && IsEnabled && Model!.Length <= 200;
 
     public static ReviewAssistantOptions Read(IConfiguration configuration)
     {
@@ -169,7 +171,8 @@ public sealed class ReviewAssistantOptions
             Endpoint = string.IsNullOrEmpty(endpoint) ? null : endpoint,
             Model = section["Model"]?.Trim(),
             ApiKey = section["ApiKey"],
-            TimeoutSeconds = timeout
+            TimeoutSeconds = timeout,
+            AutoReviewEnabled = section.GetValue<bool>("AutoReviewEnabled")
         };
     }
 }
