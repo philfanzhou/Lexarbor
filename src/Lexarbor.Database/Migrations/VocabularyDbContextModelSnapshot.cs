@@ -1022,6 +1022,21 @@ namespace Lexarbor.Database.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Lexarbor.Database.Entities.MeaningSubmissionReviewCheckEntity", b =>
+                {
+                    b.Property<string>("RecordId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("record_id");
+
+                    b.Property<long>("CheckedAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("checked_at_unix_ms");
+
+                    b.HasKey("RecordId");
+
+                    b.ToTable("meaning_submission_review_check");
+                });
+
             modelBuilder.Entity("Lexarbor.Database.Entities.VocabularyAudioBindingEntity", b =>
                 {
                     b.Property<string>("Id")
@@ -1545,6 +1560,15 @@ namespace Lexarbor.Database.Migrations
                     b.HasOne("Lexarbor.Database.Entities.MeaningSubmissionEntity", null)
                         .WithMany()
                         .HasForeignKey("SubmissionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Lexarbor.Database.Entities.MeaningSubmissionReviewCheckEntity", b =>
+                {
+                    b.HasOne("Lexarbor.Database.Entities.MeaningSubmissionAiReviewEntity", null)
+                        .WithMany()
+                        .HasForeignKey("RecordId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

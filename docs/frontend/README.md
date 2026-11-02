@@ -541,3 +541,32 @@ review; the worker resumes automatically. Unknown response codes are shown as a
 fixed generic message. List reloads discard stale status responses. The existing
 enrichment progress instructions and ordinary manual advice/approval remain.
 Permanent-history comparison and checked markers belong to their separate slice.
+
+
+## Submission history and human verification
+
+`/submissions` keeps the existing pending/manual review workflow and autonomous
+review backlog/safe-failure guidance. The submission list can filter reviewers
+(admin, AI, unknown); `source` still names the integration client. Manual approve
+and reject accept an optional 500-character explanation. Adopting AI advice remains
+a human decision. Refused approvals retain the draft, and blank explanations keep
+the existing request behavior. The existing post-approval enrichment and relearning
+instructions remain visible.
+
+The AI history tab filters actual accept/revise/reject outcomes and checked state.
+The application filter also exposes valid conclusions that lost a race, clearly
+labelled unapplied. Selecting a record compares immutable original word/POS/meaning/
+example with the captured AI fields, UK/US phonetics, explanation, actual model and
+time. Accept fields do not imply existing nonblank phonetics were overwritten.
+One checked marker records human verification independently; it never changes the
+conclusion or catalog. Unknown writes first read the same `recordId` through the
+list endpoint; failed confirmation keeps the result unknown and disables another
+write until a successful confirmation. Refresh/filter/detail changes never
+silently replay the POST.
+
+Existing word detail/editing is reused for corrections; a deleted target can return
+404 while history remains. Definition edits retain the existing learner-relearning
+rule. No undo, rollback or batch verification is provided. Read/write requests use
+AbortSignal and session/target generations; old success and 401/403 responses cannot
+paint or clear a replaced session. External text renders as text; no history,
+explanation, credential or provider body is placed in browser storage or URLs.

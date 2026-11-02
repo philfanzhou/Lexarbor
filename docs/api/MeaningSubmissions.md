@@ -130,8 +130,7 @@ expired eligibility is retained with `applied=false`, without changing the
 submission or catalog. It must never be displayed as an applied correction.
 Records keep the original AI fields after later catalog edits/deletion and are
 not reconstructed from current vocabulary. They contain no raw provider answer
-or credentials. Administrator history queries and separate checked markers are
-provided by a later change; this foundation adds neither interface.
+or credentials. Administrator history queries and separate checked markers are described below.
 
 
 ## Automatic review (default off)
@@ -144,7 +143,7 @@ A self-hosted endpoint may use an empty API key. Saving incomplete settings is
 allowed; automatic work pauses until repaired. Enabling this switch authorizes AI
 to approve, revise or reject without human confirmation. Incorrect results may
 enter the shared catalog; administrators accept this risk and correct entries
-through the existing vocabulary editor. No checked/history UI is added here.
+through the existing vocabulary editor. The administrator history tab below supports independent human verification.
 
 Only integration submissions are candidates. The successful submission commit
 emits a lossy wakeup; the response never waits for AI. Startup, lost wakeups, older
@@ -200,3 +199,48 @@ No supplier error/header/body or review explanation appears in this summary,
 integration/ordinary DTOs or worker logs. The admin page says work recovers
 automatically, without requiring manual processing. Approval still wakes the
 independent catalog enrichment pipeline after commit.
+
+
+## Permanent AI history and administrator checks
+
+`GET /admin/meaning-submission-reviews` is administrator-only. Query parameters:
+`page` (default 1, positive), `size` (default 20, 1–100), optional
+`verdict=accept|revise|reject`, `checked=true|false`, `applied=true|false` and
+`recordId` (1–100 characters). Invalid values return 400. An unknown record filter
+returns an empty page. Responses contain `{items, totalCount, page, size}`; count
+and page share one deferred SQLite read snapshot, ordered by review time descending
+then record ID ascending. Separate requests may observe newly appended records.
+GET never checks a record or invokes AI.
+
+Each item contains `recordId`, `submissionId`, `source` (submitting client),
+`reviewerKind: "ai"`, `original: {word, partOfSpeech, meaning, example}`,
+`ai: {verdict, partOfSpeech, meaning, phoneticUk, phoneticUs, comment, model, reviewedAt}`,
+`applied`, `checked`, nullable `checkedAt`, and nullable `resultWordId`.
+Times are UTC; the model/time and structured AI fields are the original captured
+conclusion, not current configuration or catalog values. The immutable submitted
+text supplies `original`; runtime staging input is never a history read source.
+No lease, attempt, credential, endpoint or raw provider answer is returned.
+`resultWordId` links an applied approval to the existing administrator editor;
+a later deletion can make that editor return 404 without losing history.
+
+Default reads include valid conclusions that lost a race (`applied=false`). These
+must not be labelled actual approvals, corrections or rejections. To find actual
+AI corrections use `verdict=revise&applied=true`; accept/reject have equivalent
+filters. Accept's returned AI fields are suggestions: application keeps original
+POS/meaning/example and only fills blank default phonetic sides. A revise that
+changes only POS or phonetics still remains an explicit revision.
+
+`POST /admin/meaning-submission-reviews/{recordId}/checked` accepts an empty body.
+It returns `{recordId, checkedAt}`. Each record has one independent first-check
+fact: repeat/concurrent calls return the same original time, without updating the
+permanent conclusion, submission status, catalog or AI work. Unknown records return
+404. A lost response must first be confirmed with the same list GET using
+`recordId`; the UI never automatically repeats an uncertain write. There is no
+uncheck, batch action, undo or rollback API.
+
+Both routes require administrator Cookie+CSRF for writes or administrator Bearer;
+anonymous, ordinary and integration tokens cannot access them. Human verification
+is independent of subsequent vocabulary edits/deletion and later AI conclusions.
+The submission list additionally accepts optional
+`reviewerKind=admin|ai|unknown` (unknown includes null legacy/pending/direct matches).
+Its existing `source`, default status/paging and integration DTOs keep their meaning.

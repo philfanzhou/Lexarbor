@@ -2,158 +2,116 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import PageHeader from '@/components/PageHeader.vue'
+import MeaningSubmissionReviewsPanel from '@/components/MeaningSubmissionReviewsPanel.vue'
+import { sessionGeneration } from '@/services/authState'
 import { getApiError } from '@/services/apiError'
-import {
-  adviseMeaningSubmission,
-  approveMeaningSubmission,
-  listMeaningSubmissions,
-  rejectMeaningSubmission
-} from '@/services/meaningSubmissionApi'
-import type {
-  AutomaticReviewStatus,
-  MeaningSubmissionAdvice,
-  MeaningSubmissionItem,
-  MeaningSubmissionStatus
-} from '@/services/meaningSubmissionApi'
+import { adviseMeaningSubmission, approveMeaningSubmission, listMeaningSubmissions, rejectMeaningSubmission } from '@/services/meaningSubmissionApi'
+import type { AutomaticReviewStatus, MeaningSubmissionAdvice, MeaningSubmissionItem, MeaningSubmissionStatus } from '@/services/meaningSubmissionApi'
 
 const pageSize = 20
-const status = ref<MeaningSubmissionStatus>('pending')
-const page = ref(1)
-const items = ref<MeaningSubmissionItem[]>([])
-const totalCount = ref(0)
-const configured = ref(true)
-const assistantEnabled = ref(false)
-const loading = ref(false)
-const error = ref('')
+const status = ref<MeaningSubmissionStatus>('pending'), reviewerKind = ref(''), page = ref(1)
+const history = ref(false), recordsVisited = ref(false)
+const items = ref<MeaningSubmissionItem[]>([]), totalCount = ref(0)
+const configured = ref(true), assistantEnabled = ref(false), loading = ref(false), error = ref('')
 const automaticReview = ref<AutomaticReviewStatus | null>(null)
-let loadGeneration = 0
-onBeforeUnmount(() => { loadGeneration++ })
+const session = sessionGeneration.value
+let active = true, loadGeneration = 0, reviewGeneration = 0
+let readController: AbortController | null = null, reviewController: AbortController | null = null
+let rejectPromptOpen = false
+const live = () => active && session === sessionGeneration.value
 const pauseLabels: Record<string, string> = { disabled: '开关关闭', configuration_missing: '审核配置缺失', configuration_invalid: '审核配置不适用于自动审核', submissions_not_configured: '投稿服务未配置' }
 const failureLabels: Record<string, string> = { rate_limited: '服务限流', service_unavailable: '服务暂不可用', request_rejected: '请求未被服务接受', response_too_large: '回答超过大小限制', invalid_response: '回答无法安全使用', service_timeout: '服务超时', connection_failed: '连接失败', result_commit_failed: '结果尚未提交' }
-
 const reviewing = ref<MeaningSubmissionItem | null>(null)
-const form = reactive({ word: '', partOfSpeech: '', meaning: '', example: '', phoneticUk: '', phoneticUs: '' })
-const advice = ref<MeaningSubmissionAdvice | null>(null)
-const advising = ref(false)
-const saving = ref(false)
-
-const verdictLabel = computed(() => {
-  switch (advice.value?.verdict) {
-    case 'accept': return '建议通过'
-    case 'revise': return '建议修改后通过'
-    case 'reject': return '建议驳回'
-    default: return ''
-  }
-})
-
+const form = reactive({ word: '', partOfSpeech: '', meaning: '', example: '', phoneticUk: '', phoneticUs: '', reviewComment: '' })
+const advice = ref<MeaningSubmissionAdvice | null>(null), advising = ref(false), saving = ref(false)
+const verdictLabel = computed(() => ({ accept: '建议通过', revise: '建议修改后通过', reject: '建议驳回' }[advice.value?.verdict ?? 'accept']))
+function closeReview() {
+  if (rejectPromptOpen) { ElMessageBox.close(); rejectPromptOpen = false }
+  reviewGeneration++; reviewController?.abort(); reviewing.value = null; advice.value = null; advising.value = false; saving.value = false
+}
+function cancelRead() { loadGeneration++; readController?.abort(); loading.value = false }
 async function load() {
-  const generation = ++loadGeneration
-  loading.value = true
-  error.value = ''
-  automaticReview.value = null
+  if (!live() || history.value) return
+  cancelRead(); const generation = loadGeneration, current = () => live() && generation === loadGeneration
+  readController = new AbortController(); loading.value = true; error.value = ''; automaticReview.value = null
   try {
-    const result = await listMeaningSubmissions(status.value, page.value, pageSize)
-    if (generation !== loadGeneration) return
-    automaticReview.value = result.automaticReview ?? null
-    items.value = result.items
-    totalCount.value = result.totalCount
-    configured.value = result.configured
-    assistantEnabled.value = result.assistantEnabled
+    const result = await listMeaningSubmissions(status.value, page.value, pageSize, reviewerKind.value || undefined, { signal: readController.signal, lxIsCurrent: current })
+    if (!current()) return
+    automaticReview.value = result.automaticReview ?? null; items.value = result.items; totalCount.value = result.totalCount
+    configured.value = result.configured; assistantEnabled.value = result.assistantEnabled
+    if (page.value > 1 && !items.value.length) { page.value = Math.max(1, Math.ceil(totalCount.value / pageSize)); return await load() }
   } catch (failure: unknown) {
-    if (generation === loadGeneration) error.value = getApiError(failure).message
-  } finally {
-    if (generation === loadGeneration) loading.value = false
-  }
+    if (current()) { items.value = []; totalCount.value = 0; error.value = getApiError(failure).message }
+  } finally { if (current()) loading.value = false }
 }
-
-watch(status, () => {
-  page.value = 1
-  void load()
-})
-
+watch([status, reviewerKind], () => { closeReview(); page.value = 1; items.value = []; void load() })
+watch(history, () => { closeReview(); cancelRead(); if (history.value) recordsVisited.value = true; else void load() })
 function openReview(item: MeaningSubmissionItem) {
-  const submission = item.submission
-  reviewing.value = item
-  advice.value = null
-  Object.assign(form, {
-    word: submission.word,
-    partOfSpeech: submission.partOfSpeech ?? '',
-    meaning: submission.meaning,
-    example: submission.example ?? '',
-    phoneticUk: '',
-    phoneticUs: ''
-  })
+  closeReview(); const submission = item.submission; reviewing.value = item
+  Object.assign(form, { word: submission.word, partOfSpeech: submission.partOfSpeech ?? '', meaning: submission.meaning,
+    example: submission.example ?? '', phoneticUk: '', phoneticUs: '', reviewComment: '' })
 }
-
+function operation() {
+  reviewController?.abort(); const generation = ++reviewGeneration
+  reviewController = new AbortController()
+  return { signal: reviewController.signal, lxIsCurrent: () => live() && generation === reviewGeneration }
+}
 async function requestAdvice() {
-  if (!reviewing.value) return
-  advising.value = true
+  if (!reviewing.value || advising.value || saving.value) return
+  const config = operation(); advising.value = true
   try {
-    advice.value = await adviseMeaningSubmission(reviewing.value.submission.id)
-  } catch (failure: unknown) {
-    ElMessage.error(`AI 审核失败：${getApiError(failure).message}`)
-  } finally {
-    advising.value = false
-  }
+    const result = await adviseMeaningSubmission(reviewing.value.submission.id, config)
+    if (config.lxIsCurrent()) advice.value = result
+  } catch (failure: unknown) { if (config.lxIsCurrent()) ElMessage.error(`AI 审核失败：${getApiError(failure).message}`) }
+  finally { if (config.lxIsCurrent()) advising.value = false }
 }
-
 function applyAdvice() {
-  const suggestion = advice.value
-  if (!suggestion) return
+  const suggestion = advice.value; if (!suggestion) return
   if (suggestion.partOfSpeech) form.partOfSpeech = suggestion.partOfSpeech
   if (suggestion.meaning) form.meaning = suggestion.meaning
   if (suggestion.phoneticUk) form.phoneticUk = suggestion.phoneticUk
   if (suggestion.phoneticUs) form.phoneticUs = suggestion.phoneticUs
+  if (suggestion.comment) form.reviewComment = suggestion.comment
 }
-
 async function approve() {
-  if (!reviewing.value) return
-  if (!form.word.trim() || !form.meaning.trim()) {
-    ElMessage.warning('单词和释义不能为空')
-    return
-  }
+  if (!reviewing.value || saving.value || advising.value) return
+  if (!form.word.trim() || !form.meaning.trim()) { ElMessage.warning('单词和释义不能为空'); return }
+  const config = operation(); saving.value = true
+  try {
+    await approveMeaningSubmission(reviewing.value.submission.id, { ...form }, config)
+    if (!config.lxIsCurrent()) return
+    ElMessage.success('已通过，释义已写入补充词书'); closeReview(); await load()
+  } catch (failure: unknown) { if (config.lxIsCurrent()) ElMessage.error(`通过失败：${getApiError(failure).message}`) }
+  finally { if (config.lxIsCurrent()) saving.value = false }
+}
+async function reject(item: MeaningSubmissionItem) {
+  if (saving.value || advising.value || rejectPromptOpen) return
+  const config = operation()
+  let reviewComment: string
+  rejectPromptOpen = true
+  try {
+    const result = await ElMessageBox.prompt(`驳回「${item.submission.word}：${item.submission.meaning}」？可选填原因，驳回后不能撤销。`, '驳回投稿', {
+      confirmButtonText: '驳回', cancelButtonText: '取消', inputType: 'textarea', inputPlaceholder: '驳回原因（可选，最多 500 字）',
+      inputValue: reviewing.value?.submission.id === item.submission.id ? form.reviewComment : '',
+      inputValidator: value => !value || value.length <= 500 || '说明最多 500 字'
+    })
+    reviewComment = result.value ?? ''
+  } catch { return }
+  finally { rejectPromptOpen = false }
+  if (!config.lxIsCurrent()) return
   saving.value = true
   try {
-    await approveMeaningSubmission(reviewing.value.submission.id, { ...form })
-    ElMessage.success('已通过，释义已写入补充词书')
-    reviewing.value = null
-    await load()
-  } catch (failure: unknown) {
-    ElMessage.error(`通过失败：${getApiError(failure).message}`)
-  } finally {
-    saving.value = false
-  }
+    await rejectMeaningSubmission(item.submission.id, reviewComment, config)
+    if (!config.lxIsCurrent()) return
+    ElMessage.success('已驳回'); closeReview(); await load()
+  } catch (failure: unknown) { if (config.lxIsCurrent()) ElMessage.error(`驳回失败：${getApiError(failure).message}`) }
+  finally { if (config.lxIsCurrent()) saving.value = false }
 }
-
-async function reject(item: MeaningSubmissionItem) {
-  try {
-    await ElMessageBox.confirm(`驳回「${item.submission.word}：${item.submission.meaning}」？驳回后不能撤销。`, '驳回投稿', {
-      confirmButtonText: '驳回',
-      cancelButtonText: '取消',
-      type: 'warning'
-    })
-  } catch {
-    return
-  }
-  try {
-    await rejectMeaningSubmission(item.submission.id)
-    ElMessage.success('已驳回')
-    if (reviewing.value?.submission.id === item.submission.id) reviewing.value = null
-    await load()
-  } catch (failure: unknown) {
-    ElMessage.error(`驳回失败：${getApiError(failure).message}`)
-  }
-}
-
-function changePage(next: number) {
-  page.value = next
-  void load()
-}
-
-function formatTime(value?: string | null) {
-  return value ? new Date(value).toLocaleString() : ''
-}
-
+function changePage(next: number) { closeReview(); page.value = next; void load() }
+function formatTime(value?: string | null) { return value ? new Date(value).toLocaleString() : '' }
+function stop() { active = false; cancelRead(); closeReview(); items.value = []; automaticReview.value = null }
+watch(sessionGeneration, stop, { flush: 'sync' })
+onBeforeUnmount(stop)
 onMounted(load)
 </script>
 
@@ -168,66 +126,81 @@ onMounted(load)
       :closable="false"
       show-icon
     />
-    <el-radio-group v-model="status" aria-label="投稿状态">
-      <el-radio-button value="pending">待审核</el-radio-button>
-      <el-radio-button value="approved">已通过</el-radio-button>
-      <el-radio-button value="rejected">已驳回</el-radio-button>
+    <el-radio-group v-model="history" aria-label="审核页面">
+      <el-radio-button :value="false">投稿列表</el-radio-button>
+      <el-radio-button :value="true">AI 审核记录</el-radio-button>
     </el-radio-group>
-    <el-alert v-if="error" class="submissions__alert" type="error" :title="`加载失败：${error}`" :closable="false" show-icon>
-      <el-button @click="load">重试</el-button>
-    </el-alert>
-    <template v-else>
-      <aside v-if="automaticReview" aria-label="自动审核状态">
-        <p>AI 自动审核：{{ automaticReview.paused ? `暂停（${pauseLabels[automaticReview.pauseCode ?? ''] ?? '状态未知'}）` : '运行中' }}；全部待审积压 {{ automaticReview.pendingCount }} 条。</p>
-        <p v-if="automaticReview.lastFailureCode">最近失败：{{ failureLabels[automaticReview.lastFailureCode] ?? '暂不可用' }}（{{ formatTime(automaticReview.lastFailureAt) }}）；下次尝试：{{ formatTime(automaticReview.nextAttemptAt) }}。</p>
-        <p>失败后持续自动重试；关闭或缺配置时暂停，恢复后自动处理积压，无需人工处理。<RouterLink to="/settings">检查自动审核设置</RouterLink></p>
-      </aside>
-      <p role="status">{{ loading ? '正在加载投稿…' : `共 ${totalCount} 条` }}</p>
-      <el-table v-loading="loading" :data="items" row-key="submission.id" empty-text="没有投稿">
-        <el-table-column label="单词" min-width="140">
-          <template #default="{ row }">{{ row.submission.word }}</template>
-        </el-table-column>
-        <el-table-column label="词性" width="90">
-          <template #default="{ row }">{{ row.submission.partOfSpeech ?? '' }}</template>
-        </el-table-column>
-        <el-table-column label="投稿释义" min-width="200">
-          <template #default="{ row }">{{ row.submission.meaning }}</template>
-        </el-table-column>
-        <el-table-column v-if="status === 'approved'" label="通过后的释义" min-width="200">
-          <template #default="{ row }">
-            {{ row.submission.resultWord }} {{ row.submission.resultPartOfSpeech ?? '' }} {{ row.submission.resultMeaning }}
-            <el-tag v-if="!row.submission.definitionKept" size="small" type="warning">已修改</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="来源" width="160">
-          <template #default="{ row }">{{ row.source }}</template>
-        </el-table-column>
-        <el-table-column :label="status === 'pending' ? '提交时间' : '审核时间'" width="180">
-          <template #default="{ row }">{{ formatTime(status === 'pending' ? row.submission.createdAt : row.submission.reviewedAt) }}</template>
-        </el-table-column>
-        <el-table-column v-if="status === 'pending'" label="操作" width="160" fixed="right">
-          <template #default="{ row }">
-            <el-button link type="primary" :disabled="!configured" @click="openReview(row)">审核</el-button>
-            <el-button link type="danger" @click="reject(row)">驳回</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-      <el-pagination
-        v-if="totalCount > pageSize"
-        class="submissions__pagination"
-        layout="prev, pager, next"
-        :total="totalCount"
-        :page-size="pageSize"
-        :current-page="page"
-        @current-change="changePage"
-      />
-    </template>
+    <MeaningSubmissionReviewsPanel v-if="recordsVisited" v-show="history" :visible="history" />
+    <div v-show="!history">
+      <el-radio-group v-model="status" aria-label="投稿状态">
+        <el-radio-button value="pending">待审核</el-radio-button>
+        <el-radio-button value="approved">已通过</el-radio-button>
+        <el-radio-button value="rejected">已驳回</el-radio-button>
+      </el-radio-group>
+      <label class="submissions__reviewer">审核人
+        <select v-model="reviewerKind" aria-label="审核人筛选"><option value="">全部</option><option value="admin">管理员</option><option value="ai">AI</option><option value="unknown">未知或未审核</option></select>
+      </label>
+      <el-button :disabled="loading" @click="load">刷新投稿</el-button>
+      <el-alert v-if="error" class="submissions__alert" type="error" :title="`加载失败：${error}`" :closable="false" show-icon>
+        <el-button @click="load">重试</el-button>
+      </el-alert>
+      <template v-else>
+        <aside v-if="automaticReview" aria-label="自动审核状态">
+          <p>AI 自动审核：{{ automaticReview.paused ? `暂停（${pauseLabels[automaticReview.pauseCode ?? ''] ?? '状态未知'}）` : '运行中' }}；全部待审积压 {{ automaticReview.pendingCount }} 条。</p>
+          <p v-if="automaticReview.lastFailureCode">最近失败：{{ failureLabels[automaticReview.lastFailureCode] ?? '暂不可用' }}（{{ formatTime(automaticReview.lastFailureAt) }}）；下次尝试：{{ formatTime(automaticReview.nextAttemptAt) }}。</p>
+          <p>失败后持续自动重试；关闭或缺配置时暂停，恢复后自动处理积压，无需人工处理。<RouterLink to="/settings">检查自动审核设置</RouterLink></p>
+        </aside>
+        <p role="status">{{ loading ? '正在加载投稿…' : `共 ${totalCount} 条` }}</p>
+        <el-table v-loading="loading" :data="items" row-key="submission.id" empty-text="没有投稿">
+          <el-table-column label="单词" min-width="140">
+            <template #default="{ row }">{{ row.submission.word }}</template>
+          </el-table-column>
+          <el-table-column label="词性" width="90">
+            <template #default="{ row }">{{ row.submission.partOfSpeech ?? '' }}</template>
+          </el-table-column>
+          <el-table-column label="投稿释义" min-width="200">
+            <template #default="{ row }">{{ row.submission.meaning }}</template>
+          </el-table-column>
+          <el-table-column v-if="status === 'approved'" label="通过后的释义" min-width="200">
+            <template #default="{ row }">
+              {{ row.submission.resultWord }} {{ row.submission.resultPartOfSpeech ?? '' }} {{ row.submission.resultMeaning }}
+              <el-tag v-if="!row.submission.definitionKept" size="small" type="warning">已修改</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="审核人" width="110">
+            <template #default="{ row }">{{ row.reviewerKind === 'ai' ? 'AI' : row.reviewerKind === 'admin' ? '管理员' : '未知或未审核' }}</template>
+          </el-table-column>
+          <el-table-column label="审核说明" min-width="180"><template #default="{ row }">{{ row.submission.reviewComment ?? '' }}</template></el-table-column>
+          <el-table-column label="来源" width="160">
+            <template #default="{ row }">{{ row.source }}</template>
+          </el-table-column>
+          <el-table-column :label="status === 'pending' ? '提交时间' : '审核时间'" width="180">
+            <template #default="{ row }">{{ formatTime(status === 'pending' ? row.submission.createdAt : row.submission.reviewedAt) }}</template>
+          </el-table-column>
+          <el-table-column v-if="status === 'pending'" label="操作" width="160" fixed="right">
+            <template #default="{ row }">
+              <el-button link type="primary" :disabled="!configured" @click="openReview(row)">审核</el-button>
+              <el-button link type="danger" @click="reject(row)">驳回</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+        <el-pagination
+          v-if="totalCount > pageSize"
+          class="submissions__pagination"
+          layout="prev, pager, next"
+          :total="totalCount"
+          :page-size="pageSize"
+          :current-page="page"
+          @current-change="changePage"
+        />
+      </template>
+    </div>
 
     <el-dialog
       :model-value="reviewing !== null"
       title="审核投稿"
       width="560px"
-      @close="reviewing = null"
+      @close="closeReview"
     >
       <template v-if="reviewing">
         <p class="submissions__original">
@@ -240,6 +213,7 @@ onMounted(load)
           <el-form-item label="例句"><el-input v-model="form.example" maxlength="1000" type="textarea" /></el-form-item>
           <el-form-item label="英式音标"><el-input v-model="form.phoneticUk" maxlength="100" /></el-form-item>
           <el-form-item label="美式音标"><el-input v-model="form.phoneticUs" maxlength="100" /></el-form-item>
+          <el-form-item label="审核说明"><el-input v-model="form.reviewComment" maxlength="500" type="textarea" placeholder="修改说明或驳回原因（可选）" /></el-form-item>
         </el-form>
         <el-alert
           v-if="advice"
@@ -258,9 +232,9 @@ onMounted(load)
         <p><RouterLink to="/enrichment">查看自治补齐进度与等待原因</RouterLink> · <RouterLink to="/settings">检查补齐设置</RouterLink></p>
       </template>
       <template #footer>
-        <el-button v-if="assistantEnabled" :loading="advising" @click="requestAdvice">AI 审核建议</el-button>
-        <el-button v-if="reviewing" type="danger" plain @click="reject(reviewing)">驳回</el-button>
-        <el-button type="primary" :loading="saving" @click="approve">通过</el-button>
+        <el-button v-if="assistantEnabled" :loading="advising" :disabled="saving" @click="requestAdvice">AI 审核建议</el-button>
+        <el-button v-if="reviewing" type="danger" plain :disabled="saving || advising" @click="reject(reviewing)">驳回</el-button>
+        <el-button type="primary" :loading="saving" :disabled="advising" @click="approve">通过</el-button>
       </template>
     </el-dialog>
   </section>

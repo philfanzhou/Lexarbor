@@ -466,7 +466,8 @@ with sqlite3.connect(sys.argv[1]) as source, sqlite3.connect(sys.argv[2]) as tar
     target.execute("INSERT INTO meaning_submission (id,source,word,meaning,status,created_at_unix_ms,updated_at_unix_ms) VALUES ('pending-auto','synthetic-client','Word','pending original',0,3,3)")
     validated = json.dumps({"AttemptId":"staged-attempt","SubmissionId":"pending-auto","Verdict":"accept","PartOfSpeech":None,"Meaning":None,"PhoneticUk":None,"PhoneticUs":None,"Comment":None,"Model":"synthetic-model","ReviewedAt":"2026-11-02T00:00:00+00:00"})
     target.execute("INSERT INTO meaning_submission_auto_review (submission_id,attempt_id,owner,epoch,lease_until_unix_ms,next_attempt_at_unix_ms,consecutive_failures,last_failure_code,last_failure_at_unix_ms,validated_review_json) VALUES ('pending-auto','staged-attempt','previous-process',4,1000,2000,12,'result_commit_failed',3,?)", (validated,))
-    snapshot = {table: target.execute(f"SELECT * FROM {table} ORDER BY 1").fetchall() for table in ('meaning_submission','meaning_submission_ai_review','meaning_submission_auto_review')}
+    target.execute("INSERT INTO meaning_submission_review_check (record_id,checked_at_unix_ms) VALUES ('retained-review',4)")
+    snapshot = {table: target.execute(f"SELECT * FROM {table} ORDER BY 1").fetchall() for table in ('meaning_submission','meaning_submission_ai_review','meaning_submission_auto_review','meaning_submission_review_check')}
     with open(sys.argv[3], 'w', encoding='utf-8') as output:
         json.dump(snapshot, output)
 PYSQL

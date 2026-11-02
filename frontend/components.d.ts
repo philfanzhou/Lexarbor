@@ -36,6 +36,7 @@ declare module 'vue' {
     ElTooltip: typeof import('element-plus/es')['ElTooltip']
     EnrichmentSettingsPanel: typeof import('./src/components/EnrichmentSettingsPanel.vue')['default']
     MeaningPositionDialog: typeof import('./src/components/MeaningPositionDialog.vue')['default']
+    MeaningSubmissionReviewsPanel: typeof import('./src/components/MeaningSubmissionReviewsPanel.vue')['default']
     PageHeader: typeof import('./src/components/PageHeader.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
