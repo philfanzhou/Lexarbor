@@ -98,6 +98,17 @@ The administrator word PUT uses `VocabularyWordEditService` within the existing 
 
 `VocabularyMeaningEditService` uses the existing repositories and serialized UnitOfWork to validate all three resources and ownership before changing a meaning. ID reads fetch current database values without returning earlier tracked snapshots. The existing equivalent-meaning key rejects any other matching meaning ID; book/word foreign keys never move, including in disabled books. Only that meaning's content fields and updated timestamp change. This API does not create definitions or alter import merge semantics, constraints, or schema. SQLite constraint/busy exceptions retain the existing rollback and status mappings.
 
+The administrator PUT now composes this text replacement with the existing
+specific-phonetic boundary through `VocabularyMeaningPhoneticEditService` on the
+same scoped UnitOfWork/context. Old text-only requests preserve both specific
+columns. Provided accents check their old epoch/source/own-binding conditions
+inside the writer before text replacement changes source input. Two accents,
+text, exact deletion authority, invalidation and pending work all roll back
+together. The scheduler refreshes work against final committed text. Reads batch
+the page's epochs and own asset IDs within the same deferred snapshot as the
+fields; no per-meaning query or schema duplication is introduced. See the
+[administrator contract](../api/MeaningPhonetics.md).
+
 ## Exact meaning-position writes
 
 Exact-position management writes use the existing four-part key `(unit_id, meaning_id, section, entry_kind)` through one serialized `UnitOfWork` transaction. A move validates the source and target units and meaning belong to the path book, rejects an existing distinct target, then deletes the exact source and adds the target atomically. A delete removes only the specified assignment; neither operation cleans orphan meanings or shared words. SQLite's primary key and paired book foreign keys remain the final uniqueness and ownership checks. No migration or new table is required.

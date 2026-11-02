@@ -1,3 +1,5 @@
+using Lexarbor.Domain.Models;
+
 namespace Lexarbor.Service.Dtos;
 
 public record VocabularyAdminBookDto(string Id, string BookName, bool Status);
@@ -18,7 +20,9 @@ public record VocabularyAdminUnitDto(string UnitId, int Number, string? Title, s
 /// The public <c>/api</c> detail keeps its own DTO and does not grow this field.
 /// </summary>
 public record VocabularyAdminMeaningDetailDto(string Id, string VocabularyId, string BookId, string? PartOfSpeech,
-    string Meaning, string? Example, IReadOnlyList<VocabularyAdminUnitDto> Units);
+    string Meaning, string? Example, IReadOnlyList<VocabularyAdminUnitDto> Units,
+    string? PhoneticUk, string? PhoneticUs, VocabularyPronunciation Pronunciation,
+    VocabularyMeaningPhoneticConditionDto ExpectedUk, VocabularyMeaningPhoneticConditionDto ExpectedUs);
 
 public sealed record VocabularyAdminDetailDto(string Id, string Word, string? PhoneticUk, string? PhoneticUs,
     IReadOnlyList<VocabularyAdminBookDto> Books, IReadOnlyList<VocabularyAdminMeaningDetailDto> Meanings)

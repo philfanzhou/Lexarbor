@@ -1650,3 +1650,24 @@ or a container replacement that reuses `/app/data`. It does not enable a disable
 service or replenish exhausted work merely because a provider recovered. Continue
 to preserve consistent configuration/database/object backups and use the same
 fixed directory or named volume. No new Down procedure is needed for this API.
+
+## Administrator specific-phonetic editing
+
+The detail drawer now uses the existing meaning PUT for optional UK/US specific
+phonetics and per-accent epoch/source/own-asset conditions. Old three-field
+requests preserve specifics. The [API contract](../api/MeaningPhonetics.md)
+describes clear/inherit and atomic conflict behavior. No schema migration, new
+configuration, worker or secret is added. Existing task and cleanup rows persist
+in `/app/data/vocabulary.db`; continue reusing the same named volume or fixed
+directory and take a consistent database/configuration/object backup. Application
+rollback cannot restore edited text, detached bindings or deleted objects; use a
+pre-operation backup for data recovery and keep the existing newer-schema gate.
+
+A phonetic change immediately stops new selection of the old specific binding,
+then independently queues safe cleanup and regeneration. It never deletes default
+or still-referenced audio. With generation/storage disabled or an accent not
+configured, the edit still commits and work waits durably. Clearing restores the
+default without generating another specific value. Already signed links and
+client downloads cannot be revoked. Re-read after a lost save response; do not
+replay automatically. Status and cleanup visibility use the
+[administrator observation API](../api/Enrichment.md).

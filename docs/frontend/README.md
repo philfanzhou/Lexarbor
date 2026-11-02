@@ -133,6 +133,20 @@ Both pages open the same detail drawer (`VocabularyDetailDrawer`): the shared wo
 
 Two independent edit groups live in the drawer. 编辑拼写与音标 opens the shared spelling and phonetics as one full replacement (`PUT /admin/vocabulary/{wordId}` sends `word`, `phoneticUk`, and `phoneticUs` every time — a blank phonetic is sent as `null` to clear it, and keeping a value means sending it again, unlike the import merge). Saving first confirms, naming every referencing book including disabled ones, because the change reaches all of them. Each meaning's 编辑 opens its own form (`PUT /admin/vocabulary-books/{bookId}/words/{wordId}/meanings/{meaningId}` sends `partOfSpeech`, `meaning`, and `example`) and changes only that book-owned record, in disabled books as well; ownership cannot move. An unassigned word has the shared area only. A phrase has no phonetics or part of speech: a new phonetic on a spelling whose every position is a phrase, and a new part of speech on a meaning with a phrase position, are refused in the drawer before any request, while unchanged and cleared values still save. Each group saves alone with its own loading, error, and success state, one request at a time; a combined save is never implied. A definite refusal keeps the draft: 400 shows the server reason, 409 explains the conflict and offers an explicit 重新加载, and 404 reports the target is gone. An answer that never arrives is an unknown outcome: the drawer re-reads the current detail and never replays the save. A successful save re-reads the detail and the list page refreshes with it. Drafts belong to the word that opened them; switching or closing the target drops them, and a late save answer cannot land on the new target.
 
+The meaning form additionally shows UK/US specific phonetics separately from the
+word defaults, with effective values and explicit inheritance labels. It submits
+only changed accents with their `expectedUk`/`expectedUs` conditions; an empty
+value explicitly restores inheritance, and missing conditions offer a reload
+instead of an unconditional write. Both accents and the text of this meaning
+save atomically. A phrase position refuses a new specific phonetic server-side,
+while existing or cleared values stay editable. A successful save stops the old
+media and reloads detail/audio metadata. A different specific pronunciation with
+no audio shows missing; same-phonetic fallback and empty inheritance follow the
+shared resolver. No manual delete or retry is needed to start regeneration;
+disabled/incomplete configuration leaves durable waiting work. Unknown saves
+only read back, never replay. See the [meaning API](../api/MeaningPhonetics.md)
+and [safe task/cleanup state](../api/Enrichment.md).
+
 Each list and the drawer keep one target generation: switching a book, a word, or leaving the page aborts the in-flight request and invalidates its generation, so a late success or failure cannot paint the target that replaced it, and a retry only re-reads. Authentication failures keep the shared interceptor's clearing and redirect.
 
 ## Book cleanup

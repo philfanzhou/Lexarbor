@@ -365,12 +365,11 @@ public class VocabularyAdminQueryTests : TestBase
         Assert.Equal(20000, page.Page.TotalCount);
         Assert.Equal(20, page.Page.Items.Count);
         Assert.Equal(41, materialization.Count); // one book + 20 words + 20 meanings
-        // The eighth statement is the page's unit assignments in one batched
-        // read over the page's meaning ids; the unit projections materialize no
-        // entities, so the count above is unchanged.
-        Assert.Equal(8, statements.Count);
+        // Unit assignments, phonetic epochs and own asset IDs each use one
+        // batched page read. These projections materialize no entities.
+        Assert.Equal(10, statements.Count);
         Assert.Contains(statements, sql => sql.Contains("LIMIT") && sql.Contains("OFFSET"));
-        Assert.Equal(3, statements.Count(sql => sql.Contains("json_each") || sql.Contains(" IN (")));
+        Assert.Equal(5, statements.Count(sql => sql.Contains("json_each") || sql.Contains(" IN (")));
         TestContext.Current.TestOutputHelper!.WriteLine(string.Join("\n\n", statements));
         await using var command = connection.CreateCommand();
         var captured = capture.Commands.Last(c => c.Sql.Contains("LIMIT") && c.Sql.Contains("OFFSET"));

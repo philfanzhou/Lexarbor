@@ -83,7 +83,7 @@ const sharedErrorReload = ref(false)
 
 /** One meaning's independent draft and save state, keyed by meaning id. */
 interface MeaningEdit {
-  draft: { partOfSpeech: string; meaning: string; example: string }
+  draft: { partOfSpeech: string; meaning: string; example: string; phoneticUk: string; phoneticUs: string }
   saving: boolean
   error: string
   errorReload: boolean
@@ -406,7 +406,9 @@ function startMeaningEdit(meaning: AdminMeaning) {
       draft: {
         partOfSpeech: meaning.partOfSpeech ?? '',
         meaning: meaning.meaning,
-        example: meaning.example ?? ''
+        example: meaning.example ?? '',
+        phoneticUk: meaning.phoneticUk ?? '',
+        phoneticUs: meaning.phoneticUs ?? ''
       },
       saving: false,
       error: '',
@@ -442,6 +444,20 @@ async function saveMeaning(meaning: AdminMeaning) {
     partOfSpeech: blankToNull(edit.draft.partOfSpeech),
     meaning: definition,
     example: blankToNull(edit.draft.example)
+  }
+  for (const side of ['Uk', 'Us'] as const) {
+    const field = `phonetic${side}` as const
+    const condition = `expected${side}` as const
+    const value = blankToNull(edit.draft[field])
+    if (value !== blankToNull(meaning[field] ?? '')) {
+      if (!meaning[condition]) {
+        edit.error = '缺少专用音标的编辑条件，请重新加载最新内容后再试'
+        edit.errorReload = true
+        return
+      }
+      payload[field] = value
+      payload[condition] = meaning[condition]
+    }
   }
   if (meaning.units?.some(unit => unit.entryKind === 'phrase') &&
     isNewValue(payload.partOfSpeech?.toLowerCase() ?? null, meaning.partOfSpeech)) {
@@ -613,6 +629,11 @@ async function saveMeaning(meaning: AdminMeaning) {
                   </span>
                 </p>
                 <p v-if="meaning.example" class="word-detail__example">{{ meaning.example }}</p>
+                <p v-for="side in (['uk', 'us'] as const)" :key="side" class="word-detail__example">
+                  {{ side === 'uk' ? '英式' : '美式' }}专用：{{ displayValue(side === 'uk' ? meaning.phoneticUk : meaning.phoneticUs) }}
+                  · {{ (side === 'uk' ? meaning.phoneticUk : meaning.phoneticUs)?.trim() ? '使用本释义专用音标' : '留空，继承默认' }}
+                  · 有效音标 {{ displayValue(meaning.pronunciation?.[side]?.phonetic ?? (side === 'uk' ? detail.phoneticUk : detail.phoneticUs)) }}
+                </p>
                 <div class="word-detail__meaning-actions">
                   <el-button link type="primary" @click="startMeaningEdit(meaning)">编辑</el-button>
                   <el-button
@@ -663,6 +684,15 @@ async function saveMeaning(meaning: AdminMeaning) {
                       :disabled="edit.saving"
                     />
                   </el-form-item>
+                  <el-form-item label="英式专用音标（留空继承默认）">
+                    <el-input v-model="edit.draft.phoneticUk" :maxlength="512" :disabled="edit.saving" />
+                  </el-form-item>
+                  <el-form-item label="美式专用音标（留空继承默认）">
+                    <el-input v-model="edit.draft.phoneticUs" :maxlength="512" :disabled="edit.saving" />
+                  </el-form-item>
+                  <p class="word-detail__edit-hint">
+                    修改后自动解绑旧的对应专用音频并安排清理和重新生成；清空恢复默认。无需手动删除或重试，生成关闭或配置未齐时会等待。短语不能新增专用音标，可保留或清空已有值。
+                  </p>
                   <div class="word-detail__edit-actions">
                     <el-button :disabled="edit.saving" @click="cancelMeaningEdit(meaning.id, $event)">
                       取消

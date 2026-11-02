@@ -13,9 +13,11 @@ public static class VocabularyMeaningEditEndpoints
     {
         app.MapPut("/admin/vocabulary-books/{bookId}/words/{wordId}/meanings/{meaningId}",
             async (string bookId, string wordId, string meaningId, [FromBody] VocabularyMeaningEditRequest request,
-                VocabularyMeaningEditService service, CancellationToken cancellationToken) =>
+                VocabularyMeaningPhoneticEditService service, IMeaningPhoneticWorkVersionsProvider versions,
+                TimeProvider clock, CancellationToken cancellationToken) =>
             {
-                await service.ReplaceAsync(bookId, wordId, meaningId, request.PartOfSpeech, request.Meaning, request.Example, cancellationToken);
+                await service.ReplaceAsync(bookId, wordId, meaningId, request.PartOfSpeech, request.Meaning, request.Example,
+                    request.Edits(bookId, wordId, meaningId), versions.Capture(), clock.GetUtcNow().ToUnixTimeMilliseconds(), cancellationToken);
                 return VocabularyHttpResponse.Ok(new BoolResponse { Success = true });
             }).RequireAuthorization(AdminEndpointAuthorization.PolicyName);
     }

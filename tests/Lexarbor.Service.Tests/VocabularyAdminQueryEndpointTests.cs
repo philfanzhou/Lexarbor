@@ -38,7 +38,7 @@ public class VocabularyAdminQueryEndpointTests
         using var detail = await GetAsync(client, "/admin/vocabulary/w");
         Assert.False(detail.RootElement.GetProperty("books")[0].GetProperty("status").GetBoolean());
         var meaning = detail.RootElement.GetProperty("meanings")[0];
-        Assert.Equal(new[] { "bookId", "example", "id", "meaning", "partOfSpeech", "units", "vocabularyId" }, meaning.EnumerateObject().Select(p => p.Name).Order());
+        Assert.Equal(new[] { "bookId", "example", "expectedUk", "expectedUs", "id", "meaning", "partOfSpeech", "phoneticUk", "phoneticUs", "pronunciation", "units", "vocabularyId" }, meaning.EnumerateObject().Select(p => p.Name).Order());
         Assert.Empty(meaning.GetProperty("units").EnumerateArray());
         using var content = await GetAsync(client, "/admin/vocabulary-books/disabled/content");
         Assert.Equal(new[] { "book", "items", "meaningCount", "totalCount", "totalPage", "wordCount" }, content.RootElement.EnumerateObject().Select(p => p.Name).Order());

@@ -1,4 +1,5 @@
 using Lexarbor.Domain.Models;
+using Lexarbor.Domain.Repositories;
 using Lexarbor.Domain.Services;
 using Lexarbor.Service.Dtos;
 using Microsoft.AspNetCore.Builder;
@@ -91,7 +92,14 @@ public static class VocabularyAdminQueryEndpoints
             item.Meanings.Select(m => new VocabularyAdminMeaningDetailDto(
                 m.Meaning.Id, m.Meaning.VocabularyId, m.Meaning.BookId, m.Meaning.PartOfSpeech,
                 m.Meaning.Meaning, m.Meaning.Example,
-                m.Units.Select(u => new VocabularyAdminUnitDto(u.UnitId, u.Number, u.Title, u.Section, u.EntryKind)).ToList())).ToList());
+                m.Units.Select(u => new VocabularyAdminUnitDto(u.UnitId, u.Number, u.Title, u.Section, u.EntryKind)).ToList(),
+                m.Meaning.PhoneticUk, m.Meaning.PhoneticUs,
+                AudioSelectionService.GetPronunciation(new(item.Word.Id, item.Word.Word, item.Word.PhoneticUk, item.Word.PhoneticUs),
+                    new(m.Meaning.Id, m.Meaning.PartOfSpeech, m.Meaning.Meaning, m.Meaning.PhoneticUk, m.Meaning.PhoneticUs)),
+                Condition(m.UkPhoneticSnapshot!), Condition(m.UsPhoneticSnapshot!))).ToList());
+
+    private static VocabularyMeaningPhoneticConditionDto Condition(MeaningPhoneticSnapshot snapshot) =>
+        new() { Epoch = snapshot.Epoch, SourceRevision = snapshot.SourceRevision, OwnAssetId = snapshot.OwnAssetId };
 }
 
 /// <summary>The unit a unit-content response is scoped to.</summary>

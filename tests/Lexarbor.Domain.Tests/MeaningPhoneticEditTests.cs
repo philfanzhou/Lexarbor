@@ -30,6 +30,11 @@ public sealed class MeaningPhoneticEditTests
     private static MeaningPhoneticRepository Repo(VocabularyDbContext db, Clock clock) =>
         new(db, new AudioInvalidationRepository(db, clock), new EnrichmentTaskRepository(db, clock));
     private static MeaningPhoneticEditService Service(VocabularyDbContext db, Clock clock) => new(Repo(db, clock), new UnitOfWork(db));
+    private static VocabularyMeaningPhoneticEditService Combined(VocabularyDbContext db, Clock clock) => new(
+        new(new VocabularyRepository(db), new VocabularyBookRepository(db), new VocabularyMeaningRepository(db),
+            new VocabularyMeaningUnitRepository(db), new UnitOfWork(db)), Service(db, clock),
+        new VocabularyMeaningRepository(db), new VocabularyMeaningUnitRepository(db), new UnitOfWork(db),
+        new VocabularyBookRepository(db), new VocabularyRepository(db));
     private static EnrichmentTargetKey Key(EnrichmentStep step = EnrichmentStep.Audio, AudioLocale locale = AudioLocale.EnGb) => new("word", "meaning", locale, step);
     private static async Task<MeaningPhoneticEdit> Edit(VocabularyDbContext db, Clock clock, string? value, AudioLocale locale = AudioLocale.EnGb) =>
         new("book", "word", "meaning", locale, true, value, await Repo(db, clock).ReadAsync("book", "word", "meaning", locale, Token));
@@ -278,6 +283,93 @@ public sealed class MeaningPhoneticEditTests
     }
 
     [Fact]
+    public async Task CombinedTextAndBothAccents_UseOldConditionsAndFinalInput_AndConflictsRestoreEverything()
+    {
+        using var file = new AudioTestDatabase(); await using var db = file.Open(); await Init(db); var clock = new Clock();
+        await Publish(db, clock); await Publish(db, clock, locale: AudioLocale.EnUs);
+        var uk = await Edit(db, clock, "B"); var us = await Edit(db, clock, "new-us", AudioLocale.EnUs);
+        var detail = Assert.Single((await new VocabularyAdminQueryService(new VocabularyAdminQueryRepository(db)).GetAsync("word", Token)).Meanings);
+        Assert.Equal(uk.Expected, detail.UkPhoneticSnapshot); Assert.Equal(us.Expected, detail.UsPhoneticSnapshot);
+        var before = await Rows(file);
+        await Assert.ThrowsAsync<ConflictException>(() => Combined(db, clock).ReplaceAsync("book", "word", "meaning", "v.", "changed", "example",
+            [uk, us with { Expected = us.Expected with { Epoch = 99 } }], new("prepare", "uk", "us"), 20, Token));
+        Assert.Equal(before, await Rows(file));
+        await Combined(db, clock).ReplaceAsync("book", "word", "meaning", "v.", "changed", "example",
+            [uk, us], new("prepare", "uk", "us"), 20, Token);
+        var row = await db.VocabularyMeanings.AsNoTracking().SingleAsync(row => row.Id == "meaning", Token);
+        Assert.Equal("changed", row.Meaning); Assert.Equal("example", row.Example); Assert.Equal("v.", row.PartOfSpeech);
+        Assert.Equal("B", row.PhoneticUk); Assert.Equal("new-us", row.PhoneticUs);
+        Assert.Equal(2, await db.AudioInvalidations.CountAsync(Token)); Assert.Empty(await db.VocabularyAudioBindings.ToListAsync(Token));
+        var tasks = new EnrichmentTaskRepository(db, clock);
+        foreach (var locale in new[] { AudioLocale.EnGb, AudioLocale.EnUs })
+        {
+            var fresh = await Repo(db, clock).ReadAsync("book", "word", "meaning", locale, Token);
+            Assert.NotEqual(uk.Expected.SourceRevision, fresh.SourceRevision); Assert.Equal(1, fresh.Epoch);
+            foreach (var step in new[] { EnrichmentStep.Prepare, EnrichmentStep.Audio })
+            {
+                var version = step == EnrichmentStep.Prepare ? "prepare" : locale == AudioLocale.EnGb ? "uk" : "us";
+                var task = (await tasks.EnsureAsync(Key(step, locale), version, 21, Token))!;
+                Assert.Equal(EnrichmentState.Pending, task.Rounds.Last().State);
+                Assert.Equal(version, task.Rounds.Last().ConfigurationVersion);
+                Assert.NotNull(await tasks.ClaimAsync(task.Id, "worker", 22, 1000, Token));
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData("INSERT INTO \"audio_invalidation\"", 0)]
+    [InlineData("INSERT INTO \"meaning_phonetic_epoch\"", 0)]
+    [InlineData("UPDATE \"vocabulary_meaning\"", 0)]
+    [InlineData("DELETE FROM \"vocabulary_audio_binding\"", 0)]
+    [InlineData("INSERT INTO \"enrichment_target\"", 0)]
+    [InlineData("INSERT INTO \"enrichment_round\"", 0)]
+    [InlineData("UPDATE \"vocabulary_meaning\"", 1)]
+    [InlineData("UPDATE \"vocabulary_meaning\"", 2)]
+    public async Task CombinedEdit_FailureAtEveryStageIncludingSecondAccentAndFinalText_RollsBack(string pattern, int skip)
+    {
+        using var file = new AudioTestDatabase(); var fault = new Failure(pattern, skip); var clock = new Clock();
+        await using var db = file.Open(fault); await Init(db); await Publish(db, clock); await Publish(db, clock, locale: AudioLocale.EnUs);
+        var uk = await Edit(db, clock, "B"); var us = await Edit(db, clock, "new-us", AudioLocale.EnUs); var before = await Rows(file);
+        fault.Armed = true;
+        await Assert.ThrowsAnyAsync<Exception>(() => Combined(db, clock).ReplaceAsync("book", "word", "meaning", "v.", "changed", "changed",
+            [uk, us], new("config", "config", "config"), 10, Token));
+        Assert.True(fault.Triggered); Assert.Equal(before, await Rows(file));
+    }
+
+    [Fact]
+    public async Task CombinedEdit_CancellationAfterBothAccents_RollsBackPendingWorkAndText()
+    {
+        using var file = new AudioTestDatabase(); using var cancelled = new CancellationTokenSource();
+        var fault = new Failure("UPDATE \"vocabulary_meaning\"", 2, cancelled.Cancel); var clock = new Clock();
+        await using var db = file.Open(fault); await Init(db);
+        var uk = await Edit(db, clock, "B"); var us = await Edit(db, clock, "new-us", AudioLocale.EnUs); var before = await Rows(file);
+        fault.Armed = true;
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Combined(db, clock).ReplaceAsync("book", "word", "meaning", "v.", "changed", "changed",
+            [uk, us], new("config", "config", "config"), 10, cancelled.Token));
+        Assert.True(fault.Triggered); Assert.Equal(before, await Rows(file));
+    }
+
+    [Fact]
+    public async Task CombinedEdit_AbaAndConcurrentUpload_RejectOldRequestsAndExecutionGuards()
+    {
+        using var file = new AudioTestDatabase(); await using var db = file.Open(); await Init(db); var clock = new Clock();
+        var tasks = new EnrichmentTaskRepository(db, clock);
+        var task = (await tasks.EnsureAsync(Key(), "config", 1, Token))!;
+        var guard = (await tasks.ClaimAsync(task.Id, "worker", 2, 1000, Token))!;
+        var pending = await Reserve(db, clock); var old = await Edit(db, clock, "B");
+        var current = (await new VocabularyMeaningRepository(db).GetByIdAsync("meaning"))!;
+        async Task Save(MeaningPhoneticEdit edit) => await Combined(db, clock).ReplaceAsync("book", "word", "meaning",
+            current.PartOfSpeech, current.Meaning, current.Example, [edit], new("config", "config", "config"), 10, Token);
+        await Save(old); await Save(await Edit(db, clock, "A"));
+        var before = await Rows(file); await Assert.ThrowsAsync<ConflictException>(() => Save(old)); Assert.Equal(before, await Rows(file));
+        Assert.False(await new UnitOfWork(db).ExecuteInTransactionAsync(() => tasks.ValidateInTransactionAsync(guard, 20, Token), Token));
+        Assert.Equal(409, (await new AudioUploadRepository(db, clock).CompleteGuardedAsync(pending.Operation.IdempotencyKey,
+            pending.Operation.UploadLease, guard, 20, Token))!.Receipt!.StatusCode);
+        var snapshot = await Edit(db, clock, "C"); await Publish(db, clock);
+        before = await Rows(file); await Assert.ThrowsAsync<ConflictException>(() => Save(snapshot)); Assert.Equal(before, await Rows(file));
+    }
+
+    [Fact]
     public async Task RestartAndDisabledStorage_PreserveWork_AndDeleteFailureDoesNotBlockIndependentNewPublication()
     {
         using var file = new AudioTestDatabase(); var clock = new Clock(); var store = new Store(); AudioStoredUpload old; string id;
@@ -321,17 +413,24 @@ public sealed class MeaningPhoneticEditTests
         public Task<AudioPlaybackLink> GetPlaybackLinkAsync(AudioObjectLocation location, TimeSpan validity, CancellationToken token) => throw new NotSupportedException();
     }
     private static async Task<string> Rows(AudioTestDatabase file) => JsonSerializer.Serialize(await file.RowsAsync("""
-        SELECT id,phonetic_uk,phonetic_us,updated_at FROM vocabulary_meaning ORDER BY id
+        SELECT id,part_of_speech,meaning,example,phonetic_uk,phonetic_us,updated_at FROM vocabulary_meaning ORDER BY id
         """)) + JsonSerializer.Serialize(await file.RowsAsync("SELECT * FROM vocabulary_audio_binding ORDER BY id"))
         + JsonSerializer.Serialize(await file.RowsAsync("SELECT * FROM meaning_phonetic_epoch"))
         + JsonSerializer.Serialize(await file.RowsAsync("SELECT * FROM audio_invalidation"))
         + JsonSerializer.Serialize(await file.RowsAsync("SELECT * FROM enrichment_target"))
         + JsonSerializer.Serialize(await file.RowsAsync("SELECT * FROM enrichment_round"));
-    private sealed class Failure(string pattern, int skip = 0) : DbCommandInterceptor
+    private sealed class Failure(string pattern, int skip = 0, Action? cancel = null) : DbCommandInterceptor
     {
         public bool Armed; public bool Triggered;
         private void Check(DbCommand command)
-        { if (Armed && command.CommandText.Contains(pattern, StringComparison.Ordinal) && skip-- <= 0) { Armed = false; Triggered = true; throw new InvalidOperationException("Injected transaction failure."); } }
+        {
+            if (Armed && command.CommandText.Contains(pattern, StringComparison.Ordinal) && skip-- <= 0)
+            {
+                Armed = false; Triggered = true;
+                if (cancel != null) { cancel(); throw new OperationCanceledException("Injected cancellation."); }
+                throw new InvalidOperationException("Injected transaction failure.");
+            }
+        }
         public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command, CommandEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
         { Check(command); return ValueTask.FromResult(result); }
         public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
