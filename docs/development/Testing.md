@@ -619,3 +619,26 @@ A successful real Delete with lost Delete/observation results remains retryable
 after reopening.
 The container's expanded round/call/wait snapshots test exact retention only;
 they do not claim that the container contacted a supplier.
+
+## Submission review outcome verification
+
+`MeaningSubmissionAiReviewTests` runs the real SQLite repositories and serialized
+UnitOfWork across reopenings. It checks accept/revise/reject fields and timestamps,
+same/different-payload replay, explicit POS-only/phonetic-only revise semantics,
+reuse/questions, latest manual phonetic defaults winning over AI accept, manual
+and two-worker races, expired eligibility retaining an unapplied conclusion,
+immutable history after catalog edits/deletion, bounded input and injected record
+failure/cancellation after catalog save rolling everything back.
+`MeaningSubmissionReviewMigrationTests` upgrades the preceding scheduler schema,
+compares all old tables and proposal values, verifies null legacy metadata and
+pending uniqueness, then checks Down retains all old data while losing only the
+new metadata/history. Existing schema/version-gate checks still apply.
+
+`MeaningSubmissionEndpointTests` checks nullable comment projections, reviewer
+versus source, trimmed changed/rejected comments, ordinary approvals clearing
+comments, old approval/bodyless reject, oversize rejection and Cookie+CSRF,
+administrator Bearer, ordinary/anonymous/integration isolation. All AI application
+inputs are synthetic; no new production worker/client is registered. Run Release
+restore/build/tests and formatting, plus a newly built container persistence
+smoke for this migration. Frontend and private S3 checks in CI retain the existing
+cross-component regression coverage.

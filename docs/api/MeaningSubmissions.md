@@ -88,3 +88,48 @@ automatic AI review. Empty specific phonetics inherit the default. A later actua
 specific edit uses the shared atomic detach/cleanup/regeneration boundary. See
 [enrichment acceptance](../development/EnrichmentAcceptance.md) for automated
 coverage and the separate pending supplier-listening checks.
+
+## Review outcome metadata
+
+Submission, lookup and administrator submission objects add nullable
+`reviewComment`. It is trimmed (maximum 500 characters), empty becomes `null`,
+and it is exposed only for rejection or approval with `definitionKept=false`.
+Ordinary approval and AI accept always return `null`. Existing fields and routes
+are unchanged. The administrator list wrapper additionally returns nullable
+`reviewerKind`: `admin`, `ai`, or `null` for pending, legacy and direct catalog
+matches. `source` remains the submitting integration subject.
+
+`POST /admin/meaning-submissions/{id}/approve` accepts optional `reviewComment`
+with the existing approval fields. `POST /admin/meaning-submissions/{id}/reject`
+continues accepting no body, or accepts `{ "reviewComment": "Reason" }`. These
+writes retain administrator Cookie+CSRF or administrator Bearer authentication;
+integration credentials cannot review. Oversized comments return 400 without a
+state change. Already reviewed manual requests still return 409.
+
+A new internal result boundary can persist validated AI conclusions; this change
+starts no automatic review, worker or supplier request. Each stable `attemptId`
+records the actual model, review time (UTC Unix milliseconds), bounded verdict,
+POS/meaning/UK-US phonetics/comment and an immutable `applied` fact. Only pending,
+currently eligible submissions may change the catalog. Eligibility is checked
+inside the same serialized writer/context, so a future lease implementation must
+read its current owner/epoch/expiry there, never pass an earlier boolean. Network
+calls belong outside this transaction.
+
+AI accept keeps submitted word/POS/meaning/example and fills only currently blank
+default phonetic sides, reading them inside the writer. AI revise keeps the
+submitted spelling/example and uses the reviewed POS/meaning/phonetics. Its
+`definitionKept` is explicitly false even when only POS or phonetics changed;
+reuse and question creation use that same persisted decision. Manual approvals
+retain their existing spelling/definition comparison rule. AI reject keeps all
+submitted text and exposes its reason.
+
+The catalog outcome, submission metadata and permanent conclusion commit or roll
+back together. A replay of the same canonical payload and attempt ID returns the
+original record/application fact; a different payload with that ID returns a
+conflict. A valid conclusion arriving after manual review, another AI result or
+expired eligibility is retained with `applied=false`, without changing the
+submission or catalog. It must never be displayed as an applied correction.
+Records keep the original AI fields after later catalog edits/deletion and are
+not reconstructed from current vocabulary. They contain no raw provider answer
+or credentials. Administrator history queries and separate checked markers are
+provided by a later change; this foundation adds neither interface.

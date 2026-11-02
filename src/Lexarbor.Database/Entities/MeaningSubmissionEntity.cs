@@ -56,6 +56,15 @@ public sealed class MeaningSubmissionEntity
     [Column("result_part_of_speech")]
     public string? ResultPartOfSpeech { get; set; }
 
+    [Column("review_comment")]
+    public string? ReviewComment { get; set; }
+
+    [Column("reviewer_kind")]
+    public string? ReviewerKind { get; set; }
+
+    [Column("ai_review_verdict")]
+    public string? AiReviewVerdict { get; set; }
+
     // Unix milliseconds, like the audio tables: the SQLite provider cannot order
     // by DateTimeOffset, and both review queues are ordered by time.
     [Column("created_at_unix_ms")]

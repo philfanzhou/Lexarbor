@@ -109,7 +109,7 @@ internal sealed class AudioTestDatabase : IDisposable
         """, Token);
 
     public async Task<string> PreEpochColumnsAsync(string table) => string.Join(",", (await RowsAsync($"PRAGMA table_info(\"{table}\")"))
-        .Select(row => (string)((object?[])row!)[1]!).Where(column => column != "meaning_phonetic_epoch").OrderBy(column => column, StringComparer.Ordinal).Select(column => "\"" + column + "\""));
+        .Select(row => (string)((object?[])row!)[1]!).Where(column => column != "meaning_phonetic_epoch" && (table != "meaning_submission" || column is not ("ai_review_verdict" or "review_comment" or "reviewer_kind"))).OrderBy(column => column, StringComparer.Ordinal).Select(column => "\"" + column + "\""));
 
     public async Task<object?[]> RowsAsync(string sql)
     {

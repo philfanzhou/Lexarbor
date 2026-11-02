@@ -38,6 +38,11 @@ public class MeaningSubmissionModel
     public string? ResultMeaning { get; set; }
 
     public string? ResultPartOfSpeech { get; set; }
+    public string? ReviewComment { get; set; }
+    public string? ReviewerKind { get; set; }
+
+    /// <summary>Only new AI decisions set this; legacy and manual comparisons stay unchanged.</summary>
+    public string? AiReviewVerdict { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
     public DateTimeOffset? ReviewedAt { get; set; }
@@ -49,6 +54,7 @@ public class MeaningSubmissionModel
     /// </summary>
     public bool DefinitionKept =>
         Status == MeaningSubmissionStatus.Approved
+        && AiReviewVerdict != "revise"
         && ResultMeaning != null
         && ResultWord != null
         && string.Equals(Normalize(ResultWord), Normalize(Word), StringComparison.Ordinal)
@@ -101,7 +107,8 @@ public sealed record MeaningSubmissionApproval(
     string Meaning,
     string? Example,
     string? PhoneticUk,
-    string? PhoneticUs);
+    string? PhoneticUs,
+    string? ReviewComment = null);
 
 /// <summary>
 /// An assistant's advice on one submission. The verdict is one of
@@ -126,3 +133,22 @@ public sealed class MeaningSubmissionSettings
 
     public bool IsConfigured => !string.IsNullOrWhiteSpace(BookId);
 }
+
+/// <summary>
+/// A validated, bounded conclusion captured from one actual model call. No raw
+/// provider answer or credentials belong here. The stable attempt ID is global.
+/// </summary>
+public sealed record MeaningSubmissionAiReview(
+    string AttemptId,
+    string SubmissionId,
+    string Verdict,
+    string? PartOfSpeech,
+    string? Meaning,
+    string? PhoneticUk,
+    string? PhoneticUs,
+    string? Comment,
+    string Model,
+    DateTimeOffset ReviewedAt);
+
+/// <summary>Permanent conclusion; Applied is a fact of its original transaction.</summary>
+public sealed record MeaningSubmissionAiReviewRecord(string Id, MeaningSubmissionAiReview Review, bool Applied);

@@ -18,6 +18,8 @@ public class VocabularyDbContext : DbContext
 
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
+        if (ChangeTracker.Entries<MeaningSubmissionAiReviewEntity>().Any(e => e.State is EntityState.Modified or EntityState.Deleted))
+            throw new InvalidOperationException("AI review conclusions are immutable.");
         foreach (var entry in ChangeTracker.Entries().Where(e => e.State is EntityState.Added or EntityState.Modified or EntityState.Deleted))
         {
             var id = entry.Entity switch { VocabularyEntity word => word.Id, VocabularyMeaningEntity meaning => meaning.VocabularyId, _ => null };
@@ -63,6 +65,8 @@ public class VocabularyDbContext : DbContext
     public DbSet<AdminSessionEntity> AdminSessions { get; set; } = null!;
 
     public DbSet<MeaningSubmissionEntity> MeaningSubmissions { get; set; } = null!;
+
+    public DbSet<MeaningSubmissionAiReviewEntity> MeaningSubmissionAiReviews { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -148,6 +152,14 @@ public class VocabularyDbContext : DbContext
             // already satisfy.
             entity.HasIndex(e => new { e.Id, e.BookId }).IsUnique();
             entity.HasIndex(e => new { e.Id, e.VocabularyId }).IsUnique();
+        });
+
+        modelBuilder.Entity<MeaningSubmissionAiReviewEntity>(entity =>
+        {
+            entity.HasIndex(e => e.AttemptId).IsUnique();
+            entity.HasIndex(e => new { e.SubmissionId, e.ReviewedAtUnixMs });
+            entity.HasOne<MeaningSubmissionEntity>().WithMany().HasForeignKey(e => e.SubmissionId).OnDelete(DeleteBehavior.Restrict);
+            entity.ToTable(table => table.HasCheckConstraint("CK_meaning_submission_ai_review_verdict", "verdict IN ('accept', 'revise', 'reject')"));
         });
 
         modelBuilder.Entity<MeaningSubmissionEntity>(entity =>

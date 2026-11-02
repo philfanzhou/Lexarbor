@@ -28,6 +28,11 @@ public interface IMeaningSubmissionRepository
 
     Task AddAsync(MeaningSubmissionModel submission, CancellationToken cancellationToken = default);
 
+    Task<MeaningSubmissionAiReviewRecord?> GetReviewByAttemptIdAsync(string attemptId, CancellationToken cancellationToken = default);
+
+    /// <summary>Append only, within the submission's UnitOfWork writer and DbContext.</summary>
+    Task AddReviewAsync(MeaningSubmissionAiReviewRecord record, CancellationToken cancellationToken = default);
+
     Task UpdateAsync(MeaningSubmissionModel submission, CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -70,4 +75,15 @@ public interface IMeaningSubmissionReviewAssistant
     Task<MeaningSubmissionReviewAdvice> ReviewAsync(
         MeaningSubmissionModel submission,
         CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// Called inside the same serialized writer/context as the review application.
+/// Implementations must read current persistent lease owner/epoch/expiry here,
+/// never capture a previously read boolean or perform network IO. A false result
+/// retains the validated conclusion with Applied=false, without catalog writes.
+/// </summary>
+public interface IMeaningSubmissionReviewEligibility
+{
+    Task<bool> CanApplyAsync(string submissionId, string attemptId, CancellationToken cancellationToken);
 }

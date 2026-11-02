@@ -82,7 +82,7 @@ public sealed class MeaningSubmissionEndpointTests : IAsyncLifetime
 
     private static async Task<JsonElement> Data(HttpResponseMessage response)
     {
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(response.StatusCode == HttpStatusCode.OK, $"HTTP {response.StatusCode}: {await response.Content.ReadAsStringAsync(Ct)}");
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct));
         return json.RootElement.GetProperty("data").Clone();
     }
@@ -215,4 +215,69 @@ public sealed class MeaningSubmissionEndpointTests : IAsyncLifetime
         var advice = await Post($"/admin/meaning-submissions/{id}/advice", new { }, _factory.CreateToken("admin"));
         Assert.Equal(HttpStatusCode.UnprocessableEntity, advice.StatusCode);
     }
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ReviewComments_Compatibility_Projection_AndSource(bool reject)
+    {
+        var pending = await Data(await Post("/integration/meaning-submissions", new { word = "testword", meaning = "original" }, Token()));
+        var id = pending.GetProperty("id").GetString()!;
+        Assert.Null(pending.GetProperty("reviewComment").GetString());
+        var adminToken = _factory.CreateToken("admin");
+        var reviewed = reject
+            ? await Data(await Post($"/admin/meaning-submissions/{id}/reject", new { reviewComment = "  reason  " }, adminToken))
+            : await Data(await Post($"/admin/meaning-submissions/{id}/approve", new { word = "testword", meaning = "corrected", reviewComment = "  reason  " }, adminToken));
+        Assert.Equal("reason", reviewed.GetProperty("reviewComment").GetString());
+        var lookup = await Data(await Post("/integration/meaning-submissions/lookup", new { ids = new[] { id } }, Token()));
+        Assert.Equal("reason", lookup.GetProperty("items")[0].GetProperty("reviewComment").GetString());
+        using var read = new HttpRequestMessage(HttpMethod.Get, $"/admin/meaning-submissions?status={(reject ? "rejected" : "approved")}");
+        read.Headers.Authorization = new("Bearer", adminToken);
+        var item = Assert.Single((await Data(await _client.SendAsync(read, Ct))).GetProperty("items").EnumerateArray());
+        Assert.Equal("admin", item.GetProperty("reviewerKind").GetString());
+        Assert.Equal(Subject, item.GetProperty("source").GetString());
+        Assert.Equal("reason", item.GetProperty("submission").GetProperty("reviewComment").GetString());
+        var again = await Data(await Post("/integration/meaning-submissions", new { word = "anotherword", meaning = "original" }, Token()));
+        var next = again.GetProperty("id").GetString()!;
+        if (reject)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"/admin/meaning-submissions/{next}/reject");
+            request.Headers.Authorization = new("Bearer", adminToken);
+            var oldResult = await Data(await _client.SendAsync(request, Ct));
+            Assert.Null(oldResult.GetProperty("reviewComment").GetString());
+        }
+        else
+        {
+            var ordinary = await Data(await Post($"/admin/meaning-submissions/{next}/approve", new { word = "anotherword", meaning = "original", reviewComment = "ignored for kept" }, adminToken));
+            Assert.True(ordinary.GetProperty("definitionKept").GetBoolean());
+            Assert.Null(ordinary.GetProperty("reviewComment").GetString());
+            var reused = await Data(await Post("/integration/meaning-submissions", new { word = "anotherword", meaning = "original" }, Token()));
+            Assert.Equal(next, reused.GetProperty("id").GetString()); Assert.Null(reused.GetProperty("reviewComment").GetString());
+        }
+    }
+
+    [Theory]
+    [InlineData("approve")]
+    [InlineData("reject")]
+    public async Task ReviewWrites_ValidateBoundsAndAuthentication(string action)
+    {
+        var pending = await Data(await Post("/integration/meaning-submissions", new { word = "testword", meaning = "original" }, Token()));
+        var id = pending.GetProperty("id").GetString()!;
+        var path = $"/admin/meaning-submissions/{id}/{action}";
+        var body = new { word = "testword", meaning = "changed", reviewComment = "sensitive synthetic reason" };
+        foreach (var (token, status) in new[] { ((string?)null, HttpStatusCode.Unauthorized), (Token(), HttpStatusCode.Unauthorized), (_factory.CreateToken("student"), HttpStatusCode.Forbidden) })
+            Assert.Equal(status, (await Post(path, body, token)).StatusCode);
+        using (var cookie = _factory.CreateClient())
+        {
+            cookie.DefaultRequestHeaders.Add("Cookie", _factory.CreateSessionCookie());
+            using var blocked = await cookie.PostAsJsonAsync(path, body, Ct);
+            Assert.Equal(HttpStatusCode.Unauthorized, blocked.StatusCode);
+            AdminTestAntiforgery.Attach(cookie, _factory);
+            using var invalid = await cookie.PostAsJsonAsync(path, new { word = "testword", meaning = "changed", reviewComment = new string('x', 501) }, Ct);
+            Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+            Assert.DoesNotContain(new string('x', 501), await invalid.Content.ReadAsStringAsync(Ct));
+            using var valid = await cookie.PostAsJsonAsync(path, body, Ct);
+            Assert.Equal(HttpStatusCode.OK, valid.StatusCode);
+        }
+    }
+
 }

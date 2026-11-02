@@ -20,6 +20,11 @@ public sealed class MeaningSubmissionQuestionRequest
     public bool? ChineseToEnglish { get; set; }
 }
 
+public sealed class MeaningSubmissionRejectRequest
+{
+    public string? ReviewComment { get; set; }
+}
+
 public sealed class MeaningSubmissionApproveRequest
 {
     public string? Word { get; set; }
@@ -28,13 +33,15 @@ public sealed class MeaningSubmissionApproveRequest
     public string? Example { get; set; }
     public string? PhoneticUk { get; set; }
     public string? PhoneticUs { get; set; }
+    public string? ReviewComment { get; set; }
 }
 
 /// <summary>
 /// One submission as both surfaces read it. <c>status</c> is <c>pending</c>,
 /// <c>approved</c> or <c>rejected</c>; the <c>result*</c> fields are set only
 /// once approved. <c>definitionKept</c> is true when the approved spelling and
-/// definition equal the submitted ones, ignoring case and surrounding whitespace.
+/// definition equal the submitted ones, ignoring case and surrounding whitespace,
+/// except an explicit AI revise is always false.
 /// </summary>
 public sealed class MeaningSubmissionDto
 {
@@ -51,6 +58,7 @@ public sealed class MeaningSubmissionDto
     public string? ResultPartOfSpeech { get; set; }
     public string? ResultMeaning { get; set; }
     public bool DefinitionKept { get; set; }
+    public string? ReviewComment { get; set; }
 
     /// <summary>The catalog keys of the submitted text (<c>lower(trim(...))</c>, ASCII folding).</summary>
     public string WordKey { get; set; } = string.Empty;
@@ -80,6 +88,7 @@ public sealed class MeaningSubmissionDto
         ResultPartOfSpeech = model.ResultPartOfSpeech,
         ResultMeaning = model.ResultMeaning,
         DefinitionKept = model.DefinitionKept,
+        ReviewComment = model.ReviewComment,
         WordKey = CatalogKeys.Of(model.Word),
         MeaningKey = CatalogKeys.Of(model.Meaning),
         ResultWordKey = model.ResultWord == null ? null : CatalogKeys.Of(model.ResultWord),
@@ -101,4 +110,5 @@ public sealed class MeaningSubmissionAdminDto
 {
     public MeaningSubmissionDto Submission { get; set; } = new();
     public string Source { get; set; } = string.Empty;
+    public string? ReviewerKind { get; set; }
 }

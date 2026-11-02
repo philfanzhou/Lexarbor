@@ -1,9 +1,11 @@
 using System.Security.Claims;
+using System.Text.Json;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Services;
 using Lexarbor.Service.Dtos;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
 
@@ -89,7 +91,8 @@ public static class MeaningSubmissionEndpoints
                 items = items.Select(item => new MeaningSubmissionAdminDto
                 {
                     Submission = MeaningSubmissionDto.From(item),
-                    Source = item.Source
+                    Source = item.Source,
+                    ReviewerKind = item.ReviewerKind
                 }),
                 totalCount = total,
                 totalPage = (int)Math.Ceiling(total / (double)pageSize)
@@ -101,11 +104,20 @@ public static class MeaningSubmissionEndpoints
             if (!service.IsConfigured) return NotConfigured();
             var submission = await service.ApproveAsync(id, new MeaningSubmissionApproval(
                 request.Word ?? string.Empty, request.PartOfSpeech, request.Meaning ?? string.Empty,
-                request.Example, request.PhoneticUk, request.PhoneticUs), cancellationToken);
+                request.Example, request.PhoneticUk, request.PhoneticUs, request.ReviewComment), cancellationToken);
             return VocabularyHttpResponse.Ok(MeaningSubmissionDto.From(submission));
         });
-        group.MapPost("/{id}/reject", async (string id, MeaningSubmissionService service, CancellationToken cancellationToken) =>
-            VocabularyHttpResponse.Ok(MeaningSubmissionDto.From(await service.RejectAsync(id, cancellationToken))));
+        group.MapPost("/{id}/reject", async (string id, HttpRequest request, MeaningSubmissionService service, CancellationToken cancellationToken) =>
+        {
+            MeaningSubmissionRejectRequest? body = null;
+            if (request.HttpContext.Features.Get<IHttpRequestBodyDetectionFeature>()?.CanHaveBody == true)
+            {
+                if (!request.HasJsonContentType()) return VocabularyHttpResponse.BadRequest("A JSON review request is required.");
+                try { body = await request.ReadFromJsonAsync<MeaningSubmissionRejectRequest>(cancellationToken); }
+                catch (JsonException) { return VocabularyHttpResponse.BadRequest("A valid JSON review request is required."); }
+            }
+            return VocabularyHttpResponse.Ok(MeaningSubmissionDto.From(await service.RejectAsync(id, body?.ReviewComment, cancellationToken)));
+        });
         group.MapPost("/{id}/advice", async (string id, MeaningSubmissionService service, CancellationToken cancellationToken) =>
             VocabularyHttpResponse.Ok(await service.AdviseAsync(id, cancellationToken)));
     }

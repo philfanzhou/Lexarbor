@@ -717,3 +717,36 @@ exhausted rounds, cleanup authority/epochs and regeneration work without changin
 the private S3 probe separately exercises actual publication before process death.
 Keep a matched configuration/database/object backup: exact authorized cleanup can
 remove published specific objects, so database retention alone is insufficient.
+
+## Permanent submission review outcomes
+
+`20261102043902_AddMeaningSubmissionReviews` adds nullable `review_comment`,
+`reviewer_kind` and `ai_review_verdict` to `meaning_submission`. Existing rows,
+IDs, proposal text, result locations and normalized pending-key indexes remain
+unchanged; unknown legacy reviewers stay null. New AI revise facts explicitly
+exclude those approvals from definition reuse/questions even for POS-only or
+phonetic-only changes. Existing manual comparison behavior remains intact.
+
+`meaning_submission_ai_review` stores a permanent ID, unique global attempt ID,
+submission ID, verdict, structured AI fields, bounded comment/model, UTC review
+milliseconds and original applied flag. Its submission FK is restrictive, with
+no catalog FK or cascade. The repository exposes append/read only; the context
+rejects tracked changes/deletes of conclusions, and SQLite triggers also reject
+UPDATE/DELETE of records (including direct SQL). A later checked marker must use
+separate state. The original proposal remains on the retained submission.
+
+`MeaningSubmissionService.ApplyAiReviewAsync` joins the same UnitOfWork writer
+and scoped context as manual approvals/rejections. It verifies replay identity,
+current pending state and current eligibility before catalog writes. Eligibility
+ports must read durable lease ownership/epoch/expiry in that writer. Valid late
+conclusions are still appended with `applied=false`. Accept reads current defaults
+there and supplies AI phonetics only for blank sides; import/manual merge behavior
+is unchanged. Catalog writes, submission metadata and record insertion share one
+commit, including rollback after an intermediate catalog SaveChanges.
+
+Down drops the review table and only these three added columns, losing review
+history/comments/source and the explicit AI-revise fact. It retains old proposal,
+status, result and catalog values; older semantics cannot retain that new fact.
+Stop writers and take a consistent pre-upgrade backup before either migration.
+Use the existing newer-schema startup gate and matched configuration/database/
+object restore policy; an older image cannot open an upgraded database directly.
