@@ -185,6 +185,16 @@ test('the hosted button sends one start navigation with the allowlisted return r
 
 for (const { redirect, expected } of [
   { redirect: '/settings', expected: '/admin/auth/start?returnUrl=%2Fsettings' },
+  { redirect: '/enrichment', expected: '/admin/auth/start?returnUrl=%2Fenrichment' },
+  { redirect: '/enrichment/', expected: '/admin/auth/start' },
+  { redirect: '/Enrichment', expected: '/admin/auth/start' },
+  { redirect: '/enrichment?wordId=x', expected: '/admin/auth/start' },
+  { redirect: '/enrichment#x', expected: '/admin/auth/start' },
+  { redirect: '/enrichment%2f', expected: '/admin/auth/start' },
+  { redirect: '/%65nrichment', expected: '/admin/auth/start' },
+  { redirect: '/enrichment\n', expected: '/admin/auth/start' },
+  { redirect: '/enrichment\\other', expected: '/admin/auth/start' },
+  { redirect: '//evil.test/enrichment', expected: '/admin/auth/start' },
   { redirect: '/%73ettings', expected: '/admin/auth/start' },
   { redirect: '/books/abc-123_X/words', expected: '/admin/auth/start?returnUrl=%2Fbooks%2Fabc-123_X%2Fwords' },
   { redirect: '/books/abc-123_X/audio', expected: '/admin/auth/start' },

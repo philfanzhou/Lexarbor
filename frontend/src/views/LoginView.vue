@@ -33,6 +33,7 @@ const reasonNotice = computed(() => {
 // default — instead of turning a top-level navigation into a bare 400.
 const hostedReturnRoutes = new Set([
   '/settings',
+  '/enrichment',
   '/books',
   '/vocabulary',
   '/phrases',

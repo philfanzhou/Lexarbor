@@ -35,7 +35,10 @@ const navigation = [
       { to: '/import/batch/phrases', label: '批量短语导入', icon: Upload }
     ]
   },
-  { id: 'nav-group-system', title: '系统', links: [{ to: '/settings', label: '系统设置', icon: Setting }] }
+  { id: 'nav-group-system', title: '系统', links: [
+    { to: '/settings', label: '系统设置', icon: Setting },
+    { to: '/enrichment', label: '自治补齐进度', icon: Checked }
+  ] }
 ]
 
 // The build-version detail: a small non-modal disclosure anchored to the

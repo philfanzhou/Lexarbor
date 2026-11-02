@@ -585,3 +585,23 @@ tasks between count and page to verify one read snapshot. Two connections race
 same/different retry keys and preserve old history after reopening; dependency
 refresh and injected failure/cancellation prove atomic rollback. Providers and
 storage use disposable synthetic fixtures; these checks do not claim real listening.
+
+`frontend/e2e/enrichment.spec.ts` consumes the merged administrator DTO shape and
+checks current versus persisted counts, unqueued disabled work, partial accents,
+all wait reasons, request/failure separation under throttling, exhaustion after
+service recovery, capability rejection, independent failed cleanup/successful
+replacement, cleared inheritance and missing own audio despite default fallback.
+It covers list/history paging, filter cancellation, late responses, bounded error
+polling, hidden-page pause, logout/replacement-session isolation, empty/error
+states, CSRF and double-click protection. Lost retry replies must cause a GET;
+only an explicit subsequent action may reuse the original key. Storage, console,
+supplier-network, text rendering, narrow-screen and axe checks protect browser
+boundaries. Existing audio-preview tests continue to verify conditional phonetic
+edits, meaning-ID playback and media release.
+
+`AdminHostedLoginTests.EnrichmentReturn_RealCallbackUsesStoredExactTargetAndSession`
+runs the actual hosted callback/token/session flow with the synthetic authority;
+it confirms the stored exact return target and administrator summary access.
+The Host and `hosted-auth.spec.ts` positive/negative matrices include `/enrichment`
+and reject encoded, case, query, fragment, slash, control and external variants.
+Existing Cookie+CSRF/Bearer priority/custom-role endpoint tests remain required.

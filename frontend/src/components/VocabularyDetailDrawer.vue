@@ -591,6 +591,7 @@ async function saveMeaning(meaning: AdminMeaning) {
         <p class="word-detail__hint">
           拼写与音标在各教材间共用；以下释义按教材分组，每条释义仅属于对应教材，可单独编辑。词条/短语类别属于每个单元位置。
         </p>
+        <p><RouterLink :to="{ path: '/enrichment', query: { wordId: detail.id } }" @click="audioPlayer.stop(); drawerOpen = false">查看此词自治补齐与旧音频清理进度</RouterLink></p>
 
         <section
           v-for="group in groupedMeanings"
@@ -634,6 +635,7 @@ async function saveMeaning(meaning: AdminMeaning) {
                   · {{ (side === 'uk' ? meaning.phoneticUk : meaning.phoneticUs)?.trim() ? '使用本释义专用音标' : '留空，继承默认' }}
                   · 有效音标 {{ displayValue(meaning.pronunciation?.[side]?.phonetic ?? (side === 'uk' ? detail.phoneticUk : detail.phoneticUs)) }}
                 </p>
+                <RouterLink :to="{ path: '/enrichment', query: { wordId: detail.id, meaningId: meaning.id } }" @click="audioPlayer.stop(); drawerOpen = false">查看本释义音频更新状态</RouterLink>
                 <div class="word-detail__meaning-actions">
                   <el-button link type="primary" @click="startMeaningEdit(meaning)">编辑</el-button>
                   <el-button

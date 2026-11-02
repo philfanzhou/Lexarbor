@@ -1643,6 +1643,16 @@ work. Disabled deployments with no persisted tasks still report missing current
 requirements. Request counts, consumed failure allowance, service pause/throttle,
 old-object cleanup, and replacement generation are independent states.
 
+The protected `/#/enrichment` page exposes these observations, paged histories,
+configuration/data links and an explicit retry of one still-missing failed step.
+It requires no migration, new secret, background worker, supplier connection from
+the browser or manual batch start. The navigation, settings and word/meaning
+details link to it; see [the frontend behavior](../frontend/README.md#autonomous-enrichment).
+Hosted login adds only exact `/enrichment` (normalized to `/#/enrichment`) to its
+existing local return allowlist. Query/fragment/trailing-slash/encoded variants
+are rejected; an unusable browser redirect is omitted at login start. Current
+authentication policies, custom administrator roles and CSRF remain unchanged.
+
 The retry endpoint uses the existing SQLite round/retry-key tables without a
 schema migration. Its expected-round condition and any required preparation
 refresh commit together; retained old rounds and retry receipts survive a restart
