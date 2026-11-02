@@ -1,5 +1,3 @@
-using System.Collections.Generic;
-using System.Threading.Tasks;
 using Lexarbor.Domain.Models;
 
 namespace Lexarbor.Domain.Repositories;
@@ -29,6 +27,7 @@ public sealed record VocabularyDistractorScope(string? UnitId, bool? PhraseOnly)
 public interface IVocabularyRepository
 {
     Task<VocabularyModel?> GetByIdAsync(string id);
+    Task<VocabularyModel?> GetByIdAsync(string id, CancellationToken cancellationToken) => RepositoryRead.WithCancellation(() => GetByIdAsync(id), cancellationToken);
     Task<VocabularyModel?> GetByWordAsync(string word);
     Task<VocabularyModel?> GetByNormalizedWordAsync(string normalizedWord);
     Task<List<VocabularyModel>> GetByIdsAsync(IReadOnlyCollection<string> ids);
@@ -47,11 +46,15 @@ public interface IVocabularyRepository
         string excludeEquivalentMeaning,
         int count,
         VocabularyDistractorScope? scope = null);
+    Task<List<VocabularyModel>> GetRandomByBookExceptAsync(
+        string bookId, string excludeVocabularyId, string excludeWord, string excludeEquivalentMeaning, int count, VocabularyDistractorScope? scope, CancellationToken cancellationToken)
+        => RepositoryRead.WithCancellation(() => GetRandomByBookExceptAsync(bookId, excludeVocabularyId, excludeWord, excludeEquivalentMeaning, count, scope), cancellationToken);
 }
 
 public interface IVocabularyBookRepository
 {
     Task<VocabularyBookModel?> GetByIdAsync(string id);
+    Task<VocabularyBookModel?> GetByIdAsync(string id, CancellationToken cancellationToken) => RepositoryRead.WithCancellation(() => GetByIdAsync(id), cancellationToken);
     Task<List<VocabularyBookModel>> GetAllAsync();
     Task<List<VocabularyBookModel>> GetActiveAsync();
     Task<(List<VocabularyBookModel> Items, int TotalCount)> SearchAsync(string? keyword, int page, int size);
@@ -73,6 +76,8 @@ public interface IVocabularyMeaningRepository
     Task<List<VocabularyMeaningModel>> GetByVocabularyIdAsync(string vocabularyId);
     Task<List<VocabularyMeaningModel>> GetByBookIdAsync(string bookId);
     Task<List<VocabularyMeaningModel>> GetByBookAndVocabularyIdAsync(string bookId, string vocabularyId);
+    Task<List<VocabularyMeaningModel>> GetByBookAndVocabularyIdAsync(string bookId, string vocabularyId, CancellationToken cancellationToken)
+        => RepositoryRead.WithCancellation(() => GetByBookAndVocabularyIdAsync(bookId, vocabularyId), cancellationToken);
     Task<VocabularyMeaningModel?> GetEquivalentAsync(
         string vocabularyId,
         string bookId,
@@ -84,6 +89,9 @@ public interface IVocabularyMeaningRepository
         string excludeMeaning,
         int count,
         VocabularyDistractorScope? scope = null);
+    Task<List<VocabularyMeaningModel>> GetRandomDistinctVocabularyExceptAsync(
+        string bookId, string excludeVocabularyId, string excludeMeaning, int count, VocabularyDistractorScope? scope, CancellationToken cancellationToken)
+        => RepositoryRead.WithCancellation(() => GetRandomDistinctVocabularyExceptAsync(bookId, excludeVocabularyId, excludeMeaning, count, scope), cancellationToken);
     Task AddAsync(VocabularyMeaningModel model);
     Task UpdateAsync(VocabularyMeaningModel model);
     Task DeleteAsync(string id);
@@ -93,6 +101,7 @@ public interface IVocabularyMeaningRepository
 public interface IVocabularyBookUnitRepository
 {
     Task<VocabularyBookUnitModel?> GetByIdAsync(string id);
+    Task<VocabularyBookUnitModel?> GetByIdAsync(string id, CancellationToken cancellationToken) => RepositoryRead.WithCancellation(() => GetByIdAsync(id), cancellationToken);
     Task<List<VocabularyBookUnitModel>> GetByBookIdAsync(string bookId);
     /// <summary>
     /// How many distinct meanings each unit of one book has assigned, from a
@@ -114,8 +123,21 @@ public interface IVocabularyMeaningUnitRepository
     Task<bool> ExistsAsync(string unitId, string meaningId, string? section, string? entryKind);
     Task<List<VocabularyMeaningUnitModel>> GetByUnitIdAsync(string unitId);
     Task<List<VocabularyMeaningUnitModel>> GetByMeaningIdAsync(string meaningId);
+    Task<List<VocabularyMeaningUnitModel>> GetByMeaningIdAsync(string meaningId, CancellationToken cancellationToken)
+        => RepositoryRead.WithCancellation(() => GetByMeaningIdAsync(meaningId), cancellationToken);
     Task AddAsync(VocabularyMeaningUnitModel model);
     /// <param name="section">Null for the unsectioned position of the unit.</param>
     /// <param name="entryKind">Null for the unclassified position of that place.</param>
     Task DeleteAsync(string unitId, string meaningId, string? section, string? entryKind);
+}
+
+internal static class RepositoryRead
+{
+    internal static async Task<T> WithCancellation<T>(Func<Task<T>> read, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var result = await read();
+        cancellationToken.ThrowIfCancellationRequested();
+        return result;
+    }
 }

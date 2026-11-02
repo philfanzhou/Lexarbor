@@ -15,7 +15,7 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace Lexarbor.Service.Tests;
 
-public sealed class MeaningSubmissionEndpointTests : IAsyncLifetime
+public sealed partial class MeaningSubmissionEndpointTests : IAsyncLifetime
 {
     private const string Issuer = "urn:test:student";
     private const string Subject = "test.student";

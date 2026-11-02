@@ -378,6 +378,15 @@ The repository samples candidates rather than sorting the book. Every vocabulary
 
 The window can come back short -- the book may genuinely be near the end of its candidates, or the drawn words may all have been ineligible. Because a short result is what produces the 422 in rule 8, the repository then runs the exhaustive `random()`-and-window-function query it used to run on its own. That keeps 422 meaning "this book cannot produce a question" rather than "the sample was unlucky", at the cost of one slow query in exactly the case where the fast one proved nothing. Under a scope the exhaustive query keeps the same filters, so its answer widens nothing either.
 
+### On-demand learning modes
+
+The [on-demand learning-question contract](../api/LearningQuestions.md) adds catalog
+and integration-submission adapters over one shared selector. The selector uses
+validated target text, the existing choice candidate rules, and a standalone
+Unicode letter-hiding generator. Both routes are read-only and keep no student,
+history, schedule, question or answer state. Study owns student authorization,
+question/answer snapshots and grading. The legacy routes above keep their contract.
+
 ## 11. Queries and paging
 
 - A missing or zero `page` is treated as 1, and a missing or zero `size` as 20. The parameters are bound as nullable integers so that this holds for a request with no query string at all; bound as plain integers under `ThrowOnBadRequest`, an omitted parameter was rejected as a malformed request rather than taking the default, which made the rule true only for an explicit `page=0`.

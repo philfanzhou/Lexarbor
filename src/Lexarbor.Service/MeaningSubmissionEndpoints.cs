@@ -26,6 +26,7 @@ public static class MeaningSubmissionEndpoints
     public static void MapMeaningSubmissionIntegrationEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/integration/meaning-submissions").RequireAuthorization(IntegrationPolicyName);
+        group.MapPost("/{id}/learning-question", LearningQuestionEndpoints.Submission);
         group.MapPost("", async ([FromBody] MeaningSubmissionCreateRequest request, ClaimsPrincipal user,
             MeaningSubmissionService service, CancellationToken cancellationToken) =>
         {

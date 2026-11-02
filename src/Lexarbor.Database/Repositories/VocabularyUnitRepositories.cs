@@ -16,11 +16,13 @@ public class VocabularyBookUnitRepository : IVocabularyBookUnitRepository
         _context = context;
     }
 
-    public async Task<VocabularyBookUnitModel?> GetByIdAsync(string id)
+    public Task<VocabularyBookUnitModel?> GetByIdAsync(string id) => GetByIdAsync(id, CancellationToken.None);
+
+    public async Task<VocabularyBookUnitModel?> GetByIdAsync(string id, CancellationToken cancellationToken)
     {
         var entity = await _context.VocabularyBookUnits
             .AsNoTracking()
-            .SingleOrDefaultAsync(unit => unit.Id == id);
+            .SingleOrDefaultAsync(unit => unit.Id == id, cancellationToken);
         return entity?.Adapt<VocabularyBookUnitModel>();
     }
 
@@ -110,12 +112,15 @@ public class VocabularyMeaningUnitRepository : IVocabularyMeaningUnitRepository
         return entities.ConvertAll(ToModel);
     }
 
-    public async Task<List<VocabularyMeaningUnitModel>> GetByMeaningIdAsync(string meaningId)
+    public Task<List<VocabularyMeaningUnitModel>> GetByMeaningIdAsync(string meaningId)
+        => GetByMeaningIdAsync(meaningId, CancellationToken.None);
+
+    public async Task<List<VocabularyMeaningUnitModel>> GetByMeaningIdAsync(string meaningId, CancellationToken cancellationToken)
     {
         var entities = await _context.VocabularyMeaningUnits
             .AsNoTracking()
             .Where(membership => membership.MeaningId == meaningId)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
         return entities.ConvertAll(ToModel);
     }
 

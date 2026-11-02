@@ -9,7 +9,7 @@ namespace Lexarbor.Domain.Services;
 /// A submission is held outside every book while pending; approval writes the
 /// reviewed definition into the one supplementary book the deployment names.
 /// </summary>
-public sealed class MeaningSubmissionService
+public sealed partial class MeaningSubmissionService
 {
     public const int MaxWordLength = 100;
     public const int MaxMeaningLength = 500;
@@ -40,8 +40,10 @@ public sealed class MeaningSubmissionService
         TimeProvider time,
         IMeaningSubmissionReviewAssistant? assistant = null,
         IMeaningSubmissionChangeNotifier? changes = null,
-        IMeaningSubmissionAutomaticReviewStatusProvider? automaticReview = null)
+        IMeaningSubmissionAutomaticReviewStatusProvider? automaticReview = null,
+        LearningQuestionGenerator? learningQuestions = null)
     {
+        _learningQuestions = learningQuestions ?? new LearningQuestionGenerator();
         _submissions = submissions;
         _vocabularyRepository = vocabularyRepository;
         _meaningRepository = meaningRepository;
@@ -188,6 +190,14 @@ public sealed class MeaningSubmissionService
             throw new ResourceNotFoundException("Meaning submission was not found.");
         }
 
+        return await BuildSubmissionQuestionAsync(submission, chineseToEnglish, cancellationToken)
+            ?? throw new BusinessRuleException(
+                "The catalog does not contain enough distinct words to create a question.");
+    }
+
+    private async Task<VocabularyQuestionModel?> BuildSubmissionQuestionAsync(
+        MeaningSubmissionModel submission, bool chineseToEnglish, CancellationToken cancellationToken)
+    {
         var normalizedWord = submission.Word.Trim().ToLowerInvariant();
         var normalizedMeaning = submission.Meaning.Trim().ToLowerInvariant();
         List<VocabularyQuestionOptionModel> options;
@@ -227,10 +237,10 @@ public sealed class MeaningSubmissionService
             .ToList();
         if (options.Count != 4 || options.Count(option => option.IsCorrect) != 1)
         {
-            throw new BusinessRuleException(
-                "The catalog does not contain enough distinct words to create a question.");
+            return null;
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         for (var index = options.Count - 1; index > 0; index--)
         {
             var swap = Random.Shared.Next(index + 1);

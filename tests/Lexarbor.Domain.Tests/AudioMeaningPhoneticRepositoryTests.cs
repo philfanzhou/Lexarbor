@@ -108,7 +108,7 @@ public sealed class AudioMeaningPhoneticRepositoryTests
         db.ChangeTracker.Clear();
         // There is only one eligible word, so requesting two forces the
         // exhaustive SQL projection rather than accepting the sampled window.
-        var distractor = Assert.Single(await meanings.GetRandomDistinctVocabularyExceptAsync("book", "word", "fruit", 2));
+        var distractor = Assert.Single(await meanings.GetRandomDistinctVocabularyExceptAsync("book", "word", "fruit", 2, scope: null, cancellationToken: TestContext.Current.CancellationToken));
         Assert.Equal("other-meaning", distractor.Id);
         Assert.Equal("other-uk", distractor.PhoneticUk); Assert.Equal("other-us", distractor.PhoneticUs);
         var catalog = Assert.Single(await new MeaningSubmissionRepository(db)

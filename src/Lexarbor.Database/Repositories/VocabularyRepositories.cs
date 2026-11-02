@@ -120,10 +120,12 @@ public class VocabularyRepository : IVocabularyRepository
         _context = context;
     }
 
-    public async Task<VocabularyModel?> GetByIdAsync(string id)
+    public Task<VocabularyModel?> GetByIdAsync(string id) => GetByIdAsync(id, CancellationToken.None);
+
+    public async Task<VocabularyModel?> GetByIdAsync(string id, CancellationToken cancellationToken)
     {
         // Transactional editors must see the current row, not an earlier tracked snapshot.
-        var entity = await _context.Vocabularies.AsNoTracking().SingleOrDefaultAsync(v => v.Id == id);
+        var entity = await _context.Vocabularies.AsNoTracking().SingleOrDefaultAsync(v => v.Id == id, cancellationToken);
         return entity?.Adapt<VocabularyModel>();
     }
 
@@ -204,13 +206,17 @@ public class VocabularyRepository : IVocabularyRepository
         }
     }
 
+    public Task<List<VocabularyModel>> GetRandomByBookExceptAsync(
+        string bookId, string excludeVocabularyId, string excludeWord, string excludeEquivalentMeaning, int count, VocabularyDistractorScope? scope = null)
+        => GetRandomByBookExceptAsync(bookId, excludeVocabularyId, excludeWord, excludeEquivalentMeaning, count, scope, CancellationToken.None);
+
     public async Task<List<VocabularyModel>> GetRandomByBookExceptAsync(
         string bookId,
         string excludeVocabularyId,
         string excludeWord,
         string excludeEquivalentMeaning,
         int count,
-        VocabularyDistractorScope? scope = null)
+        VocabularyDistractorScope? scope, CancellationToken cancellationToken)
     {
         var normalizedExcludeWord = excludeWord.Trim().ToLowerInvariant();
         var normalizedExcludeMeaning = excludeEquivalentMeaning.Trim().ToLowerInvariant();
@@ -225,7 +231,7 @@ public class VocabularyRepository : IVocabularyRepository
             RandomCandidateWindow.NewProbe(),
             RandomCandidateWindow.SizeFor(count),
             unitId,
-            phraseOnly);
+            phraseOnly, cancellationToken);
         if (window.Count < count)
         {
             // The probe landed near the end of the id space. Wrapping to the
@@ -241,7 +247,7 @@ public class VocabularyRepository : IVocabularyRepository
                     string.Empty,
                     RandomCandidateWindow.SizeFor(count),
                     unitId,
-                    phraseOnly),
+                    phraseOnly, cancellationToken),
                 entity => entity.Id);
         }
 
@@ -301,7 +307,7 @@ public class VocabularyRepository : IVocabularyRepository
                 LIMIT {count}
                 """)
             .AsNoTracking()
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         return entities.Adapt<List<VocabularyModel>>();
     }
@@ -334,7 +340,7 @@ public class VocabularyRepository : IVocabularyRepository
         string probe,
         int limit,
         string? unitId = null,
-        bool? phraseOnly = null)
+        bool? phraseOnly = null, CancellationToken cancellationToken = default)
     {
         return _context.Vocabularies
             .FromSqlInterpolated($"""
@@ -380,7 +386,7 @@ public class VocabularyRepository : IVocabularyRepository
                   AND lower(trim(v.word)) <> {normalizedExcludeWord}
                 """)
             .AsNoTracking()
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
     }
 }
 
@@ -393,11 +399,13 @@ public class VocabularyBookRepository : IVocabularyBookRepository
         _context = context;
     }
 
-    public async Task<VocabularyBookModel?> GetByIdAsync(string id)
+    public Task<VocabularyBookModel?> GetByIdAsync(string id) => GetByIdAsync(id, CancellationToken.None);
+
+    public async Task<VocabularyBookModel?> GetByIdAsync(string id, CancellationToken cancellationToken)
     {
         var entity = await _context.VocabularyBooks
             .AsNoTracking()
-            .FirstOrDefaultAsync(book => book.Id == id);
+            .FirstOrDefaultAsync(book => book.Id == id, cancellationToken);
         return entity?.Adapt<VocabularyBookModel>();
     }
 
@@ -610,11 +618,14 @@ public class VocabularyMeaningRepository : IVocabularyMeaningRepository
         return entities.Adapt<List<VocabularyMeaningModel>>();
     }
 
-    public async Task<List<VocabularyMeaningModel>> GetByBookAndVocabularyIdAsync(string bookId, string vocabularyId)
+    public Task<List<VocabularyMeaningModel>> GetByBookAndVocabularyIdAsync(string bookId, string vocabularyId)
+        => GetByBookAndVocabularyIdAsync(bookId, vocabularyId, CancellationToken.None);
+
+    public async Task<List<VocabularyMeaningModel>> GetByBookAndVocabularyIdAsync(string bookId, string vocabularyId, CancellationToken cancellationToken)
     {
         var entities = await _context.VocabularyMeanings
             .Where(m => m.BookId == bookId && m.VocabularyId == vocabularyId)
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
         return entities.Adapt<List<VocabularyMeaningModel>>();
     }
 
@@ -633,12 +644,16 @@ public class VocabularyMeaningRepository : IVocabularyMeaningRepository
         return entity?.Adapt<VocabularyMeaningModel>();
     }
 
+    public Task<List<VocabularyMeaningModel>> GetRandomDistinctVocabularyExceptAsync(
+        string bookId, string excludeVocabularyId, string excludeMeaning, int count, VocabularyDistractorScope? scope = null)
+        => GetRandomDistinctVocabularyExceptAsync(bookId, excludeVocabularyId, excludeMeaning, count, scope, CancellationToken.None);
+
     public async Task<List<VocabularyMeaningModel>> GetRandomDistinctVocabularyExceptAsync(
         string bookId,
         string excludeVocabularyId,
         string excludeMeaning,
         int count,
-        VocabularyDistractorScope? scope = null)
+        VocabularyDistractorScope? scope, CancellationToken cancellationToken)
     {
         var normalizedExcludeMeaning = excludeMeaning.Trim().ToLowerInvariant();
         var unitId = scope?.UnitId;
@@ -651,7 +666,7 @@ public class VocabularyMeaningRepository : IVocabularyMeaningRepository
             RandomCandidateWindow.NewProbe(),
             RandomCandidateWindow.SizeFor(count),
             unitId,
-            phraseOnly);
+            phraseOnly, cancellationToken);
         if (CountDistinctVocabulary(window) < count)
         {
             window = RandomCandidateWindow.Merge(
@@ -663,7 +678,7 @@ public class VocabularyMeaningRepository : IVocabularyMeaningRepository
                     string.Empty,
                     RandomCandidateWindow.SizeFor(count),
                     unitId,
-                    phraseOnly),
+                    phraseOnly, cancellationToken),
                 meaning => meaning.Id);
         }
 
@@ -730,7 +745,7 @@ public class VocabularyMeaningRepository : IVocabularyMeaningRepository
                 LIMIT {count}
                 """)
             .AsNoTracking()
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
 
         return entities.Adapt<List<VocabularyMeaningModel>>();
     }
@@ -758,7 +773,7 @@ public class VocabularyMeaningRepository : IVocabularyMeaningRepository
         string probe,
         int limit,
         string? unitId = null,
-        bool? phraseOnly = null)
+        bool? phraseOnly = null, CancellationToken cancellationToken = default)
     {
         return _context.VocabularyMeanings
             .FromSqlInterpolated($"""
@@ -806,7 +821,7 @@ public class VocabularyMeaningRepository : IVocabularyMeaningRepository
                   ) = ({phraseOnly} = 1))
                 """)
             .AsNoTracking()
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
     }
 
     private static int CountDistinctVocabulary(List<VocabularyMeaningEntity> candidates)
