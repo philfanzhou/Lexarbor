@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import PageHeader from '@/components/PageHeader.vue'
 import AudioStorageSettingsPanel from '@/components/AudioStorageSettingsPanel.vue'
+import EnrichmentSettingsPanel from '@/components/EnrichmentSettingsPanel.vue'
 import { sessionGeneration } from '@/services/authState'
 import { getApiError } from '@/services/apiError'
 import { readRateLimits, saveRateLimits } from '@/services/systemSettingsApi'
@@ -128,6 +129,7 @@ onMounted(() => { void load(true) })
       </div>
     </el-card>
     <AudioStorageSettingsPanel />
+    <EnrichmentSettingsPanel />
   </section>
 </template>
 

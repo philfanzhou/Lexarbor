@@ -1435,18 +1435,25 @@ administrator/public playback to establish remote connectivity. See the
 Administrators can GET and conditionally PUT `/admin/enrichment/settings` using the
 shared settings ETag and Cookie/CSRF or administrator Bearer authentication. See
 [the API contract](../api/SystemSettings.md#review-assistant-and-enrichment) for
-exact fields, bounds, defaults and credential operations. The review assistant
+exact fields, bounds, defaults and credential operations. The System settings page exposes the same contract in separate review, text,
+speech/locale and policy sections; see [the frontend guide](../frontend/README.md#review-and-autonomous-enrichment).
+The review assistant
 keeps `MeaningSubmissions:Ai` keys; enrichment uses its independent `Enrichment`
 section. Environment/command-line overrides remain read-only. Keys remain only in
 server configuration; responses expose presence, never values or fingerprints.
 
 Both enrichment switches default to false, provider/model to
 `MiniMaxNative`/`speech-2.8-hd`, and each locale's voice/speed to empty. A missing
-section keeps old deployments bootable. Saving is local only and does not enable a
-worker or call AI/TTS in this foundation. Audio-only configuration still requires
-pronunciation planning. Configure an explicitly supported provider/model and both
-locale settings before relying on a later adapter; OpenAI compatibility alone
-makes no pronunciation-control guarantee.
+section keeps old deployments bootable. Saving commits local configuration and performs no supplier probe. The hosted
+scheduler observes enabled switches and automatically discovers missing targets;
+no manual start or range is needed. Audio-only configuration still requires
+pronunciation planning. Configure an explicitly supported provider/model and each
+required locale; an incomplete locale waits without blocking the other. OpenAI
+compatibility alone makes no pronunciation-control guarantee. The page does not
+preselect voice/speed. Read-only deployment overrides show their source/reason;
+shared S3/rate-limit/admin updates require rereading after a 412 conflict. Password
+drafts are cleared before save, reread, navigation or sign-out; unknown save results
+use GET only and never automatically replay credentials.
 
 The registered pronunciation planner uses the independent text snapshot and its
 configured timeout for both headers and body reads. It accepts only bounded validated
@@ -1456,8 +1463,8 @@ speech call and does not start a worker. See [pronunciation preparation](../api/
 for limits, safe result categories and required downstream pronunciation constraints.
 No new configuration keys, database tables, migrations or storage paths are introduced.
 
-Registered speech adapters can consume successful plans without enabling background
-generation. Configure `https://api.minimax.io/v1` or `https://api.minimax.cn/v1`, or the explicitly
+The scheduler sends successful plans through the registered speech adapters only
+when the corresponding generation switch and configuration allow execution. Configure `https://api.minimax.io/v1` or `https://api.minimax.cn/v1`, or the explicitly
 supported official OpenAI base `https://api.openai.com/v1`, plus each locale's voice
 and speed. See the [speech support matrix](../api/Audio.md#speech-adapters) before
 choosing a model: MiniMax uses complete-target IPA controls and accepts speed 0.5–2;

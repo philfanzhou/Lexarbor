@@ -409,18 +409,36 @@ settings panel remain available. See the
 [upgrade instructions](../development/Deployment.md#textbook-recording-removal)
 for retained files and recording metadata backups.
 
-### Review and enrichment settings API
+### Review and autonomous enrichment
 
-The administrator API at `/admin/enrichment/settings` provides separate review and
-enrichment settings. Its page is a dependent feature; this change adds no UI.
-Clients must retain the shared strong ETag, use Cookie/CSRF or administrator Bearer,
-keep credential drafts out of browser storage/URLs/telemetry, and re-read after an
-unknown save outcome. GET exposes `hasApiKey`, source/editable metadata and
-`configurationReady`, never credentials or private version fingerprints. See
-[System settings](../api/SystemSettings.md#review-assistant-and-enrichment) for the
-complete nested payload and keep/replace/clear contract. Incomplete locale settings
-can be saved and are not evidence of completed generation.
+The **审核与自治补齐** panel on `/#/settings` uses `/admin/enrichment/settings`
+for the review assistant, separate text preparation, default-off field/audio
+switches, speech service, independent UK/US voice and nullable speed, and bounded
+background policies. It shares the existing configuration revision with S3 and
+rate limits. There is no automatic-review switch, supplier connection test or
+browser-side supplier request. Enabled enrichment is discovered by the hosted
+scheduler without selecting a range or starting a batch.
 
+Every field displays its actual value, source and deployment override reason. A
+failed or invalid read is unknown. Missing one locale can be saved without blocking
+the other; voice and speed are never filled on the user's behalf. Durable
+`configurationReady` does not prove supplier availability or generation completion.
+The local [speech matrix](../api/Audio.md#speech-adapters) is shown as guidance:
+only explicitly supported endpoint/model combinations can express the required IPA
+or instructions. Unsupported combinations stop safely. Storage accepts speed
+0.1–4, but MiniMax generation requires 0.5–2 and OpenAI 0.25–4.
+
+API keys show presence only. Password controls support keep/replace/clear, are
+cleared before every save and on reread/navigation/sign-out, and never enter web
+storage, URLs or console output. Only changed editable fields and credential
+actions are sent with CSRF and If-Match. Fixed safe notices retain nonsecret
+drafts; 409/412/428 require a fresh read and explicit save. Unknown save results
+perform GET without replaying credentials. Failed read-back stays unknown.
+Aborted/obsolete requests cannot populate a replacement panel or redirect a new
+session. See [the complete contract](../api/SystemSettings.md#review-assistant-and-enrichment).
+`e2e/enrichment-settings.spec.ts` covers partial locales, source locks, bounded
+fields, credential actions, uncertain results, cross-panel/admin revisions,
+cleanup and session races, alongside existing S3 and rate-limit tests.
 
 ### Specific-audio cleanup foundation
 
