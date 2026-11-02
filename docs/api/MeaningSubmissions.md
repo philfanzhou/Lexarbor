@@ -2,7 +2,7 @@
 
 Integration clients submit definitions that no vocabulary book contains. Administrators can review submissions in the administration UI; explicitly enabling automatic AI review lets the background worker decide. Approval writes the reviewed definition into the single supplementary book the deployment configures. See [ADR-009](../adr/ADR-009-meaning-submissions.md) for the decision record.
 
-All responses use the usual envelope: `{"success": true, "data": ...}` or `{"success": false, "message": "..."}`. Exception-generated failures use the Problem Details mapping in [Error handling](../development/ErrorHandling.md).
+Except for the new [learning-question business errors](LearningQuestions.md#errors), responses use the usual envelope: `{"success": true, "data": ...}` or `{"success": false, "message": "..."}`. Exception-generated failures use the Problem Details mapping in [Error handling](../development/ErrorHandling.md).
 
 ## Submission object
 
@@ -52,6 +52,14 @@ Body: `{"chineseToEnglish": true}` (omitted: random). Answers the same shape as 
 - Approved with `definitionKept`: the question is created from the approved meaning in the supplementary book.
 - Rejected, or approved with a changed spelling or definition: `404`.
 - Too few distinct catalog words for four options: `422`.
+
+### `POST /integration/meaning-submissions/{id}/learning-question`
+
+Body: `{"mode":"new"}` or `{"mode":"review"}`. This is the submission adapter
+for the shared [on-demand learning-question contract](LearningQuestions.md).
+It retains the same integration identity, scope and submission eligibility gates;
+its local business-error envelopes include a `code`. See that single contract for
+selection, standalone letter filling, complete examples and error codes.
 
 ## Administrator routes
 

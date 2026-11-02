@@ -21,6 +21,7 @@ Lexarbor is a self-contained vocabulary catalog and quiz service. The backend, t
 - [Administrator enrichment observation and retry](./api/Enrichment.md)
 - [Administrator meaning phonetics](./api/MeaningPhonetics.md)
 - [Meaning submissions API](./api/MeaningSubmissions.md)
+- [On-demand learning questions](./api/LearningQuestions.md)
 - [Database facts](./database/README.md)
 - [Development](./development/README.md)
 - [Repository layout and file ownership](./development/RepositoryLayout.md)

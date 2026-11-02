@@ -322,10 +322,10 @@ public class VocabularyBookUnitTests : TestBase
 
         await _service.RemoveMeaningAsync(unit.Id, meaning.Id, "A", null);
 
-        var remaining = await _meaningUnitRepository.GetByMeaningIdAsync(meaning.Id);
+        var remaining = await _meaningUnitRepository.GetByMeaningIdAsync(meaning.Id, TestContext.Current.CancellationToken);
         Assert.Equal([null, "B"], remaining.Select(membership => membership.Section).Order());
         Assert.NotNull(await _meaningRepository.GetByIdAsync(meaning.Id));
-        Assert.NotNull(await _bookUnitRepository.GetByIdAsync(unit.Id));
+        Assert.NotNull(await _bookUnitRepository.GetByIdAsync(unit.Id, TestContext.Current.CancellationToken));
         // The removed position is gone for good; removing it again is the same
         // not-found as any other missing assignment.
         await Assert.ThrowsAsync<ResourceNotFoundException>(
@@ -352,7 +352,7 @@ public class VocabularyBookUnitTests : TestBase
 
         await _service.RemoveMeaningAsync(unit.Id, meaning.Id, "A", "word");
 
-        var remaining = await _meaningUnitRepository.GetByMeaningIdAsync(meaning.Id);
+        var remaining = await _meaningUnitRepository.GetByMeaningIdAsync(meaning.Id, TestContext.Current.CancellationToken);
         Assert.Equal(
             [("A", null), ("A", "phrase")],
             remaining
@@ -460,7 +460,7 @@ public class VocabularyBookUnitTests : TestBase
 
         await _service.DeleteAsync(book.Id, unit2.Id);
 
-        Assert.Null(await _bookUnitRepository.GetByIdAsync(unit2.Id));
+        Assert.Null(await _bookUnitRepository.GetByIdAsync(unit2.Id, TestContext.Current.CancellationToken));
         // The meaning, its word, and the surviving unit's assignment are all
         // still there.
         Assert.NotNull(await _meaningRepository.GetByIdAsync(meaning.Id));
@@ -485,7 +485,7 @@ public class VocabularyBookUnitTests : TestBase
         Assert.Null(updated.Title);
         Assert.Equal(0, meaningCount);
 
-        var stored = await _bookUnitRepository.GetByIdAsync(unit.Id);
+        var stored = await _bookUnitRepository.GetByIdAsync(unit.Id, TestContext.Current.CancellationToken);
         Assert.NotNull(stored);
         Assert.Equal(2, stored.Number);
         Assert.Null(stored.Title);
@@ -507,11 +507,11 @@ public class VocabularyBookUnitTests : TestBase
         await Assert.ThrowsAsync<ConflictException>(
             () => _service.UpdateAsync(book.Id, unit2.Id, 6, "Moved"));
 
-        var stored = await _bookUnitRepository.GetByIdAsync(unit2.Id);
+        var stored = await _bookUnitRepository.GetByIdAsync(unit2.Id, TestContext.Current.CancellationToken);
         Assert.NotNull(stored);
         Assert.Equal(2, stored.Number);
         Assert.Equal("Second", stored.Title);
-        var other = await _bookUnitRepository.GetByIdAsync(unit6.Id);
+        var other = await _bookUnitRepository.GetByIdAsync(unit6.Id, TestContext.Current.CancellationToken);
         Assert.NotNull(other);
         Assert.Equal(6, other.Number);
         Assert.Equal("Sixth", other.Title);
@@ -535,7 +535,7 @@ public class VocabularyBookUnitTests : TestBase
         await Assert.ThrowsAsync<DomainValidationException>(
             () => _service.UpdateAsync(bookA.Id, unitInA.Id, -3, null));
 
-        var stored = await _bookUnitRepository.GetByIdAsync(unitInA.Id);
+        var stored = await _bookUnitRepository.GetByIdAsync(unitInA.Id, TestContext.Current.CancellationToken);
         Assert.NotNull(stored);
         Assert.Equal(1, stored.Number);
         Assert.Null(stored.Title);
@@ -589,7 +589,7 @@ public class VocabularyBookUnitTests : TestBase
         await Assert.ThrowsAsync<ConflictException>(
             () => _service.DeleteAsync(bookB.Id, unitInA.Id));
 
-        Assert.NotNull(await _bookUnitRepository.GetByIdAsync(unitInA.Id));
+        Assert.NotNull(await _bookUnitRepository.GetByIdAsync(unitInA.Id, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -606,7 +606,7 @@ public class VocabularyBookUnitTests : TestBase
 
         Assert.Equal(0, await _dbContext.VocabularyMeaningUnits.CountAsync(TestContext.Current.CancellationToken));
         Assert.NotNull(await _meaningRepository.GetByIdAsync(meaning.Id));
-        Assert.NotNull(await _bookUnitRepository.GetByIdAsync(unit.Id));
+        Assert.NotNull(await _bookUnitRepository.GetByIdAsync(unit.Id, TestContext.Current.CancellationToken));
         await Assert.ThrowsAsync<ResourceNotFoundException>(
             () => _service.RemoveMeaningAsync(unit.Id, meaning.Id, null, null));
     }
@@ -647,7 +647,7 @@ public class VocabularyBookUnitTests : TestBase
         Assert.Equal(0, await _dbContext.Vocabularies.CountAsync(TestContext.Current.CancellationToken));
         Assert.Equal(0, await _dbContext.VocabularyMeanings.CountAsync(TestContext.Current.CancellationToken));
         Assert.Equal(0, await _dbContext.VocabularyMeaningUnits.CountAsync(TestContext.Current.CancellationToken));
-        Assert.NotNull(await _bookUnitRepository.GetByIdAsync(unit.Id));
+        Assert.NotNull(await _bookUnitRepository.GetByIdAsync(unit.Id, TestContext.Current.CancellationToken));
     }
 
     /// <summary>
@@ -690,7 +690,7 @@ public class VocabularyBookUnitTests : TestBase
 
         await Assert.ThrowsAsync<ConflictException>(
             () => bookService.DeleteAsync(book.Id));
-        Assert.NotNull(await _bookUnitRepository.GetByIdAsync(unit.Id));
+        Assert.NotNull(await _bookUnitRepository.GetByIdAsync(unit.Id, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -722,7 +722,7 @@ public class VocabularyBookUnitTests : TestBase
         // delete, and the units follow it away.
         await bookService.DeleteAsync(book.Id);
 
-        Assert.Null(await _bookRepository.GetByIdAsync(book.Id));
+        Assert.Null(await _bookRepository.GetByIdAsync(book.Id, TestContext.Current.CancellationToken));
         Assert.Equal(0, await _dbContext.VocabularyBookUnits.CountAsync(TestContext.Current.CancellationToken));
         Assert.Equal(0, await _dbContext.VocabularyMeaningUnits.CountAsync(TestContext.Current.CancellationToken));
     }

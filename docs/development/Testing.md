@@ -695,3 +695,19 @@ Release, types/lint/build and full Playwright; persistence changes require a fre
 Docker build and container smoke. Its two recreations now compare check facts
 alongside permanent results/retry state. Audio regressions remain active; synthetic
 provider fixtures never count as real supplier listening.
+
+
+## On-demand learning questions
+
+`LearningQuestionGeneratorTests` enumerates equiprobable random draw sequences for
+all type-availability subsets, proves bounded attempts and new-only direction,
+and rejects fault/cancellation fallback. `LetterHidingTests` migrates the Study
+Unicode/segment/count/subset tests at the source revision recorded in the
+[shared contract](../api/LearningQuestions.md#letter-hiding).
+`LearningQuestionServiceTests` uses real SQLite and forbids distractor reads in
+FillLetters, verifies zero writes, partial direction availability and pending/
+approved-kept/AI-revise gates. HTTP tests cover both adapters, exclusive JSON,
+explicit booleans/scalars, local error status/code pairs, real integration-token
+401/403, configuration 503, concurrent read isolation and legacy error compatibility.
+Existing single/batch/submission tests remain the regression suite. No Study
+checkout, production database or external provider account is needed.

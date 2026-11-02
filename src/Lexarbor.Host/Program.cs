@@ -187,6 +187,7 @@ builder.Services.AddScoped<IVocabularyPublicQueryRepository, VocabularyPublicQue
 builder.Services.AddScoped<VocabularyPublicQueryService>();
 builder.Services.AddScoped<IVocabularyCleanupRepository, VocabularyCleanupRepository>();
 builder.Services.AddScoped<VocabularyCleanupService>();
+builder.Services.AddScoped<LearningQuestionGenerator>();
 builder.Services.AddScoped<VocabularyDomainService>();
 // Meaning submissions: the supplementary book, the one integration client's key
 // ring and the optional review assistant are startup snapshots; a bad value

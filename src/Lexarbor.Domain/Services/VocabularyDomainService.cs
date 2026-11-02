@@ -4,7 +4,7 @@ using Lexarbor.Domain.Repositories;
 
 namespace Lexarbor.Domain.Services;
 
-public class VocabularyDomainService
+public partial class VocabularyDomainService
 {
     /// <summary>
     /// The most entries one batch import may carry. It bounds how long a batch
@@ -31,8 +31,10 @@ public class VocabularyDomainService
         IVocabularyMeaningUnitRepository membershipRepository,
         IUnitOfWork unitOfWork,
         MeaningSubmissionSettings? submissionSettings = null,
-        IMeaningSubmissionRepository? submissionRepository = null)
+        IMeaningSubmissionRepository? submissionRepository = null,
+        LearningQuestionGenerator? learningQuestions = null)
     {
+        _learningQuestions = learningQuestions ?? new LearningQuestionGenerator();
         _submissionSettings = submissionSettings;
         _submissionRepository = submissionRepository;
         _vocabularyRepository = vocabularyRepository;
@@ -362,7 +364,35 @@ public class VocabularyDomainService
         string? unitId = null,
         bool sameEntryKind = false)
     {
-        var (word, meanings) = await GetDetailAsync(wordId, bookId);
+        var cancellationToken = CancellationToken.None;
+        try
+        {
+            var (word, meaning, scope) = await ResolveQuestionTargetAsync(
+                wordId, bookId, meaningId, unitId, sameEntryKind, cancellationToken);
+            return await BuildQuestionAsync(word, meaning, scope, chineseToEnglish, cancellationToken)
+                ?? throw new BusinessRuleException(
+                    "The vocabulary book does not contain enough distinct words to create a question.");
+        }
+        catch (LearningQuestionException exception) when (exception.Failure == LearningQuestionFailure.SourceUnavailable)
+        {
+            throw new BusinessRuleException("Vocabulary book is disabled.");
+        }
+    }
+
+    private async Task<(VocabularyModel Word, VocabularyMeaningModel Meaning, VocabularyDistractorScope? Scope)>
+        ResolveQuestionTargetAsync(string wordId, string bookId, string? meaningId, string? unitId,
+            bool sameEntryKind, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var book = RequireQuestionTarget(await _bookRepository.GetByIdAsync(bookId, cancellationToken),
+            "Vocabulary book was not found.", cancellationToken);
+        if (!book.Status) throw new LearningQuestionException(LearningQuestionFailure.SourceUnavailable);
+        var word = RequireQuestionTarget(await _vocabularyRepository.GetByIdAsync(wordId, cancellationToken),
+            "Vocabulary word was not found.", cancellationToken);
+        var meanings = (await _meaningRepository.GetByBookAndVocabularyIdAsync(bookId, wordId, cancellationToken))
+            .OrderBy(meaning => meaning.PartOfSpeech, StringComparer.Ordinal)
+            .ThenBy(meaning => meaning.Meaning, StringComparer.Ordinal).ToList();
+        cancellationToken.ThrowIfCancellationRequested();
         if (meanings.Count == 0)
         {
             throw new ResourceNotFoundException(
@@ -398,9 +428,8 @@ public class VocabularyDomainService
             var normalizedUnitId = NullIfWhiteSpace(unitId);
             if (normalizedUnitId != null)
             {
-                var unit = await _unitRepository.GetByIdAsync(normalizedUnitId)
-                    ?? throw new ResourceNotFoundException(
-                        "Unit was not found in the requested vocabulary book.");
+                var unit = RequireQuestionTarget(await _unitRepository.GetByIdAsync(normalizedUnitId, cancellationToken),
+                    "Unit was not found in the requested vocabulary book.", cancellationToken);
                 if (unit.BookId != bookId)
                 {
                     // The same answer a missing unit gets, so the id of another
@@ -418,7 +447,7 @@ public class VocabularyDomainService
                 // be drawn from: the unit when one was named, the whole book
                 // otherwise. A meaning with no position in the scope is
                 // unclassified there and asked as a word.
-                var positions = await _membershipRepository.GetByMeaningIdAsync(correctMeaning.Id);
+                var positions = await _membershipRepository.GetByMeaningIdAsync(correctMeaning.Id, cancellationToken);
                 phraseOnly = (normalizedUnitId == null
                         ? positions
                         : positions.Where(position => position.UnitId == normalizedUnitId))
@@ -428,6 +457,22 @@ public class VocabularyDomainService
             scope = new VocabularyDistractorScope(normalizedUnitId, phraseOnly);
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
+        return (word, correctMeaning, scope);
+    }
+
+    private static T RequireQuestionTarget<T>(T? target, string message, CancellationToken cancellationToken) where T : class
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return target ?? throw new ResourceNotFoundException(message);
+    }
+
+    private async Task<VocabularyQuestionModel?> BuildQuestionAsync(
+        VocabularyModel word, VocabularyMeaningModel correctMeaning, VocabularyDistractorScope? scope,
+        bool chineseToEnglish, CancellationToken cancellationToken)
+    {
+        var bookId = correctMeaning.BookId;
+        var wordId = word.Id;
         List<VocabularyQuestionOptionModel> options;
         string questionText;
         if (chineseToEnglish)
@@ -442,7 +487,7 @@ public class VocabularyDomainService
                 word.Word,
                 correctMeaning.Meaning,
                 3,
-                scope);
+                scope, cancellationToken);
             if (distractors.Count < 3 && IsSupplementaryBook(bookId))
             {
                 distractors = TopUp(
@@ -450,7 +495,7 @@ public class VocabularyDomainService
                     await _submissionRepository!.GetCatalogWordDistractorsAsync(
                         word.Word.Trim().ToLowerInvariant(),
                         correctMeaning.Meaning.Trim().ToLowerInvariant(),
-                        3),
+                        3, cancellationToken),
                     item => item.Word.Trim().ToLowerInvariant());
             }
 
@@ -484,7 +529,7 @@ public class VocabularyDomainService
                     wordId,
                     correctMeaning.Meaning,
                     3,
-                    scope);
+                    scope, cancellationToken);
             if (distractors.Count < 3 && IsSupplementaryBook(bookId))
             {
                 distractors = TopUp(
@@ -492,7 +537,7 @@ public class VocabularyDomainService
                     await _submissionRepository!.GetCatalogMeaningDistractorsAsync(
                         word.Word.Trim().ToLowerInvariant(),
                         correctMeaning.Meaning.Trim().ToLowerInvariant(),
-                        3),
+                        3, cancellationToken),
                     item => item.Meaning.Trim());
             }
 
@@ -523,10 +568,10 @@ public class VocabularyDomainService
             .ToList();
         if (options.Count != 4 || options.Count(option => option.IsCorrect) != 1)
         {
-            throw new BusinessRuleException(
-                "The vocabulary book does not contain enough distinct words to create a question.");
+            return null;
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         Shuffle(options);
         return new VocabularyQuestionModel
         {

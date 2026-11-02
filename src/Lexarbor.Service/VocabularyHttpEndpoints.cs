@@ -53,6 +53,7 @@ public static partial class VocabularyHttpEndpoints
         apiGroup.MapGet("/vocabulary/{wordId}", GetVocabulary);
         apiGroup.MapGet("/vocabulary", SearchVocabulary);
         apiGroup.MapPost("/vocabulary/question", GetQuestion);
+        apiGroup.MapPost("/vocabulary/learning-question", LearningQuestionEndpoints.Catalog);
         apiGroup.MapPost("/vocabulary/questions", CreateQuestions)
             .WithMetadata(new RequestSizeLimitAttribute(MaxBatchRequestBytes));
         apiGroup.MapGet("/vocabulary-books/all", GetAllBooks);

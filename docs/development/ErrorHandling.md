@@ -24,6 +24,15 @@ HTTP services must use the standard HTTP status codes:
 2. An error message is short and specific, and carries no technical detail.
 3. The same class of error uses the same wording across services.
 
+## Learning-question business errors
+
+The two new `/learning-question` routes use a local `success:false`, `code`,
+`message` envelope for explicit business failures. Their status/code pairs and
+fixed English messages are defined in [On-demand learning questions](../api/LearningQuestions.md#errors).
+This exception changes neither the legacy three question routes nor the global
+Problem Details mappings. Authentication, rate limits and infrastructure failures
+retain their existing formats; an unknown-route 404 has no question-target code.
+
 ## Two failure shapes
 
 Failures reach a caller in one of two shapes, depending on where they originate.

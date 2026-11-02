@@ -1771,3 +1771,22 @@ tooling to `20261102052837_AddAutomaticMeaningSubmissionReview`. Only checked fa
 are lost by this Down; permanent history, original text and automatic retry state
 remain. Recover lost checks from a matched backup. The existing older-image
 `migration.version_too_new` refusal still applies.
+
+
+## On-demand learning-question rollout
+
+The [learning-question routes](../api/LearningQuestions.md) need no migration,
+new setting, credential, background job or storage directory. The public route
+uses the existing anonymous API limit and deployment boundary; the submission
+route uses the existing integration identity, scope and supplementary-book
+configuration. Correct answers belong in the trusted consumer's snapshots, not
+in an unfiltered browser response.
+
+Validate the providing PR from its source/build before merge. After merge, record
+the first supporting revision or image using actual build/release identity and
+share it with the Study task. Study implementation and isolated integration
+checks can use that merged build; changing a running environment requires
+compatible Lexarbor first, then the updated Study consumer. This task performs
+no production deployment and does not claim an image tag is already deployed.
+Rolling back the application removes only the added routes; no data rollback
+or migration is needed, and the three legacy question routes remain compatible.

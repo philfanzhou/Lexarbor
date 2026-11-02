@@ -93,7 +93,7 @@ public class MeaningSubmissionServiceTests : TestBase
         var meaning = await _meaningRepository.GetByIdAsync(approved.ResultMeaningId!);
         Assert.Equal("意外发现", meaning!.Meaning);
         Assert.Equal(book, meaning.BookId);
-        var word = await _vocabularyRepository.GetByIdAsync(approved.ResultWordId!);
+        var word = await _vocabularyRepository.GetByIdAsync(approved.ResultWordId!, TestContext.Current.CancellationToken);
         Assert.Equal("ˌserənˈdɪpəti", word!.PhoneticUk);
 
         var again = await service.SubmitAsync(Source, "serendipity", "n.", "意外发现", null, Ct);
