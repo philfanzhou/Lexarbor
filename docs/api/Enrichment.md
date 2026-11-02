@@ -7,6 +7,10 @@ over a cookie and requires an administrator token. Ordinary catalog tokens and
 meaning-submission service tokens cannot use these endpoints. No public task API,
 batch-start operation, or supplier call is added.
 
+The administrator SPA at `/#/enrichment` consumes this contract. It links to the
+existing settings and conditional phonetic editor; browser-side waiting, retry
+resolution and cancellation are documented in [the frontend guide](../frontend/README.md#autonomous-enrichment).
+
 All successful responses use `{ "success": true, "data": ... }`. Errors use
 `{ "success": false, "message": "..." }` with English messages.
 

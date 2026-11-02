@@ -114,6 +114,17 @@ public class AdminHostedLoginTests
     [InlineData(null, 302)]
     [InlineData("/books", 302)]
     [InlineData("/settings", 302)]
+    [InlineData("/enrichment", 302)]
+    [InlineData("/#/enrichment", 302)]
+    [InlineData("/enrichment/", 400)]
+    [InlineData("/Enrichment", 400)]
+    [InlineData("/enrichment?wordId=x", 400)]
+    [InlineData("/enrichment#x", 400)]
+    [InlineData("/enrichment%2f", 400)]
+    [InlineData("/%65nrichment", 400)]
+    [InlineData("/enrichment\n", 400)]
+    [InlineData("/enrichment\\other", 400)]
+    [InlineData("//evil.test/enrichment", 400)]
     [InlineData("/books/book_1-X/audio", 400)]
     [InlineData("/#/books/book_1-X/audio", 400)]
     [InlineData("/books/../audio", 400)]
@@ -152,6 +163,22 @@ public class AdminHostedLoginTests
         Assert.Equal("/#" + safe, AdminLoginReturnTarget.Normalize(safe));
         Assert.Null(AdminLoginReturnTarget.Normalize("/books/" + new string('a', 129) + "/words"));
         Assert.Null(AdminLoginReturnTarget.Normalize("/books//words"));
+    }
+
+    [Theory]
+    [InlineData("/enrichment")]
+    [InlineData("/#/enrichment")]
+    public async Task EnrichmentReturn_RealCallbackUsesStoredExactTargetAndSession(string target)
+    {
+        using var f = new Fixture();
+        var transaction = await f.Start(target);
+        using var callback = await f.Send(f.Query(transaction) + "&returnUrl=https%3A%2F%2Fevil.test", transaction.Cookie);
+        Assert.Equal("/#/enrichment", callback.Headers.Location!.OriginalString);
+        var cookie = callback.Headers.GetValues("Set-Cookie").Single(s => s.StartsWith(AdminSessionCookie.Name + "=", StringComparison.Ordinal)).Split(';')[0];
+        using var state = await f.Send("/admin/enrichment/summary", cookie);
+        Assert.Equal(HttpStatusCode.OK, state.StatusCode);
+        Assert.Equal(1, f.TokenPosts);
+        f.AssertSafeLogs(transaction);
     }
 
     [Theory]

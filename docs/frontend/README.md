@@ -20,6 +20,8 @@
 | `/vocabulary` | Administrator | Whole-library word list |
 | `/phrases` | Administrator | Phrase positions by book, unit, section, and keyword |
 | `/submissions` | Administrator | Meaning submission review queue |
+| `/settings` | Administrator | Effective system and review/enrichment configuration |
+| `/enrichment` | Administrator | Autonomous progress, service/cleanup state, histories and single failed-step retry |
 | `/import` | Administrator | Word import |
 | `/import/batch` | Administrator | Mixed vocabulary batch import (legacy default) |
 | `/import/batch/words` | Administrator | Explicit word batch import |
@@ -76,7 +78,7 @@ The Axios response interceptor runs the global 401/403 handling before any compo
 
 SignaCore's hosted pages are the only administrator sign-in, so the login page renders exactly one sign-in action and never asks for a password. The frontend orchestrates navigations only; every protocol value — state, nonce, PKCE verifier, code, access token, ID token, client secret — stays server-side and never enters a browser request, the URL the app controls, or web storage.
 
-The **使用 SignaCore 登录** button runs a top-level navigation to this site's `GET /admin/auth/start`, forwarding the current `redirect` query as `returnUrl` only when it exactly matches the backend's route allowlist (the six fixed routes, or `/books/<id>/words` with a safe id); otherwise the parameter is omitted and the backend default applies. One activation begins exactly one navigation: the button turns busy and a second activation is a no-op. The provider round trip and the callback are backend-driven; on success the browser lands on the stored return page, where the ordinary route guard's `GET /admin/auth/session` restore establishes the username, roles, and the one version request.
+The **使用 SignaCore 登录** button runs a top-level navigation to this site's `GET /admin/auth/start`, forwarding the current `redirect` query as `returnUrl` only when it exactly matches the backend's route allowlist (`/settings`, `/enrichment`, `/books`, `/vocabulary`, `/phrases`, `/import`, `/import/phrase`, `/import/batch`, or `/books/<id>/words` with a safe id); otherwise the parameter is omitted and the backend default applies. One activation begins exactly one navigation: the button turns busy and a second activation is a no-op. The provider round trip and the callback are backend-driven; on success the browser lands on the stored return page, where the ordinary route guard's `GET /admin/auth/session` restore establishes the username, roles, and the one version request.
 
 The login page consumes the six fixed `reason` values of the callback and logout-return routes as exactly one notice each, and ignores an unknown value harmlessly:
 
@@ -287,6 +289,7 @@ Once signed in, every page sits in one shell:
 - Below it, a side navigation `<nav aria-label="主导航">` is grouped by task. Each group is a `role="group"` labelled by its title, and each entry is a real link (`RouterLink`), not a menu item:
   - **教材**: 教材管理 (`/books`), 单词管理 (`/vocabulary`), 短语管理 (`/phrases`), and 投稿审核 (`/submissions`).
   - **词汇导入**: 单条导入 (`/import`), 新增短语 (`/import/phrase`), 批量导入 (`/import/batch`), 批量单词导入 (`/import/batch/words`), and 批量短语导入 (`/import/batch/phrases`).
+  - **系统**: 系统设置 (`/settings`) and 自治补齐进度 (`/enrichment`).
 - A side navigation rather than header links, because the groups need to be visible and later pages need vertical room; three links in the header can show neither.
 - The current page's link is highlighted and carries `aria-current="page"`, for an exact route match only.
 - At 1024 px and wider the navigation is 220 px wide with icons and text. From 768 px to 1023 px it collapses to a 64 px icon bar: each link keeps its name through `aria-label` and a `title` tooltip, and the group titles are hidden visually but not from assistive technology. At 768 px no page scrolls sideways.
@@ -473,7 +476,49 @@ The host now discovers and processes missing default fields/audio and explicit
 nonempty specific-audio targets when an enrichment switch is enabled. Normal
 approval/import/edit flows do not select a range or start a batch. Empty specific
 phonetics continue to inherit. Browser credentials and existing routes are unchanged;
-the [administrator observation API](../api/Enrichment.md) now supplies safe task,
-service, and cleanup state plus atomic single-step retry. Progress UI and retry
-controls remain separate work. See [scheduler behavior](../api/Audio.md#autonomous-enrichment-scheduling)
+the [administrator observation API](../api/Enrichment.md) supplies safe task,
+service, and cleanup state plus atomic single-step retry. Open **自治补齐进度** at
+`/#/enrichment` from the system navigation, settings panel, or vocabulary detail.
+Detail links can filter by word/meaning ID; filters observe work and never start
+a batch. The page also opens the existing word/meaning editor and preview.
+See [scheduler behavior](../api/Audio.md#autonomous-enrichment-scheduling)
 for waiting, shared throttling and exhausted-budget recovery.
+
+Current applicable requirements, completed/missing/unqueued counts and persisted
+steps have separate denominators. An empty persisted list, a disabled deployment,
+or an old successful round does not prove current completion. Each accent/step
+shows current projected state, persisted round, actual requests, consumed failure
+allowance and next processing time. Seven throttled requests can still consume
+zero failures. Services expose pause, configuration/capability blocking and shared
+throttle separately; recovery does not reset exhausted rounds. The detail pages
+round, request, wait and cleanup histories in groups of ten independently of the
+25-step list. Each request observes its own snapshot; page changes may see newer
+commits.
+
+Changing a nonempty specific phonetic stops selecting its old binding immediately,
+then cleanup and replacement proceed independently. A cleanup failure can coexist
+with successful new audio. Clearing a specific restores default inheritance and
+does not require a new specific recording; same-phonetic default playback fallback
+does not satisfy a missing own generation target. No manual old-audio deletion is
+required. The submission-review hint describes these enabled/disabled/waiting
+rules without enabling automatic AI review.
+
+Only a current failed, applicable and still-missing step offers explicit retry.
+It sends the observed `expectedRound` and one fresh UUID `retryKey` through the
+existing session/CSRF client. After an unknown response, GET reads the current
+state before another action is possible. If it still shows the same failed round,
+the administrator may explicitly resend the retained request/key; the browser
+never silently creates a new retry action. Successful sides are not restarted.
+The key stays in page memory only while resolving the action and is dropped on
+departure/sign-out. Configuration corrections can resume work automatically.
+
+The page refreshes every ten seconds after reads finish, pauses while hidden,
+and stops automatic retries after three consecutive read failures (10/20-second
+backoff). Manual refresh or visibility restoration reads again. Pagination,
+filter/target changes, unmount and the beginning of logout cancel obsolete reads;
+late responses, including 401/403, cannot modify a replacement session. Errors
+show unknown state and a manual refresh rather than claiming completion. Catalog
+text is rendered as text; response parsing copies only safe DTO properties. No
+supplier request, credential storage, provider response logging or batch-start
+control is added. Hosted login accepts only the exact `/enrichment` return route;
+query/fragment/trailing-slash variants remain rejected.

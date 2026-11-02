@@ -239,7 +239,8 @@ onMounted(load)
           <p v-if="advice.phoneticUk || advice.phoneticUs">建议音标：{{ advice.phoneticUk ?? '' }} / {{ advice.phoneticUs ?? '' }}</p>
           <el-button size="small" @click="applyAdvice">采用建议</el-button>
         </el-alert>
-        <p class="submissions__hint">通过后可在「单词管理」为这个词上传发音。修改释义文字会让已经在学这条释义的学习者重新学一次。</p>
+        <p class="submissions__hint">通过后，已启用且配置就绪的自治补齐会自动处理缺失默认音标、词性和音频；关闭、缺配置或存储不可用时等待。短语只补音频；专用音标留空继承默认，非空专用读音按对应释义生成。修改专用音标后自动停用旧音频、清理并重生成，清空则恢复默认。无需手动开始或先删除旧音频。修改释义文字会让已经在学这条释义的学习者重新学一次。</p>
+        <p><RouterLink to="/enrichment">查看自治补齐进度与等待原因</RouterLink> · <RouterLink to="/settings">检查补齐设置</RouterLink></p>
       </template>
       <template #footer>
         <el-button v-if="assistantEnabled" :loading="advising" @click="requestAdvice">AI 审核建议</el-button>

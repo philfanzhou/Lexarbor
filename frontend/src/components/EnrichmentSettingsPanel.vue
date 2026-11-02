@@ -121,6 +121,7 @@ onMounted(() => { void load() })
   <el-card class="enrichment-settings" shadow="never">
     <section aria-labelledby="enrichment-settings-heading">
       <h2 id="enrichment-settings-heading">审核与自治补齐</h2>
+      <p><RouterLink to="/enrichment">查看自治进度、服务等待与异常恢复</RouterLink></p>
       <p role="status" aria-live="polite" aria-label="审核与补齐配置状态">{{ notice || '正在读取当前配置…' }}</p>
       <p v-if="!actual">审核与补齐当前配置：未知</p>
       <form v-if="actual" @submit.prevent="save">
