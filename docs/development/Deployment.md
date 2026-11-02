@@ -1690,3 +1690,21 @@ change, automatic specific detach/exact deletion, persistent retry budgets and
 waiting, complete-volume/configuration retention and matched-backup rollback.
 Automated supplier fixtures and same-volume snapshots are separate evidence from
 real MiniMax/OpenAI listening, which is still pending maintainer authorization.
+
+## Submission review outcome upgrade
+
+The `AddMeaningSubmissionReviews` migration adds nullable submission metadata and
+an append-only AI conclusion table. It enables no automatic supplier request and
+needs no new setting or secret. Manual requests remain compatible, including
+bodyless rejection. See [the API contract](../api/MeaningSubmissions.md#review-outcome-metadata).
+Reuse the same `/app/data` volume so original proposals and permanent conclusions
+survive replacement. Later catalog edits or deletion do not remove those records.
+
+Stop writes/workers and back up the database, complete persisted configuration,
+data-protection material and matching objects consistently before upgrading or
+Down. Down removes only this migration's comments/reviewer/AI-verdict columns and
+conclusion table; original submissions, states/result locations and catalog rows
+remain. The explicit AI revise distinction is lost on Down. Restore a matched
+pre-upgrade backup to recover data, and retain the `migration.version_too_new`
+gate: never launch an older image against the newer schema. Automated persistence
+checks use synthetic data and do not establish AI correctness or real listening.

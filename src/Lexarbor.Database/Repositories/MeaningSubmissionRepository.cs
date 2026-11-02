@@ -84,6 +84,36 @@ public sealed class MeaningSubmissionRepository : IMeaningSubmissionRepository
         }
     }
 
+    public async Task<MeaningSubmissionAiReviewRecord?> GetReviewByAttemptIdAsync(string attemptId, CancellationToken cancellationToken = default)
+    {
+        var row = await _context.MeaningSubmissionAiReviews.AsNoTracking().SingleOrDefaultAsync(r => r.AttemptId == attemptId, cancellationToken);
+        return row == null ? null : new(row.Id, new(row.AttemptId, row.SubmissionId, row.Verdict,
+            row.PartOfSpeech, row.Meaning, row.PhoneticUk, row.PhoneticUs, row.Comment, row.Model,
+            DateTimeOffset.FromUnixTimeMilliseconds(row.ReviewedAtUnixMs)), row.Applied);
+    }
+
+    public async Task AddReviewAsync(MeaningSubmissionAiReviewRecord record, CancellationToken cancellationToken = default)
+    {
+        if (!UnitOfWork.OwnsWriteContext(_context))
+            throw new InvalidOperationException("AI review records require their submission writer context.");
+        var review = record.Review;
+        await _context.MeaningSubmissionAiReviews.AddAsync(new()
+        {
+            Id = record.Id,
+            AttemptId = review.AttemptId,
+            SubmissionId = review.SubmissionId,
+            Verdict = review.Verdict,
+            PartOfSpeech = review.PartOfSpeech,
+            Meaning = review.Meaning,
+            PhoneticUk = review.PhoneticUk,
+            PhoneticUs = review.PhoneticUs,
+            Comment = review.Comment,
+            Model = review.Model,
+            ReviewedAtUnixMs = review.ReviewedAt.ToUnixTimeMilliseconds(),
+            Applied = record.Applied
+        }, cancellationToken);
+    }
+
     public async Task<List<CatalogMeaningMatch>> SearchCatalogAsync(
         string normalizedKeyword,
         int wordLimit,
@@ -204,6 +234,9 @@ public sealed class MeaningSubmissionRepository : IMeaningSubmissionRepository
         ResultWord = entity.ResultWord,
         ResultMeaning = entity.ResultMeaning,
         ResultPartOfSpeech = entity.ResultPartOfSpeech,
+        ReviewComment = entity.ReviewComment,
+        ReviewerKind = entity.ReviewerKind,
+        AiReviewVerdict = entity.AiReviewVerdict,
         CreatedAt = DateTimeOffset.FromUnixTimeMilliseconds(entity.CreatedAtUnixMs),
         UpdatedAt = DateTimeOffset.FromUnixTimeMilliseconds(entity.UpdatedAtUnixMs),
         ReviewedAt = entity.ReviewedAtUnixMs is { } reviewed ? DateTimeOffset.FromUnixTimeMilliseconds(reviewed) : null
@@ -224,6 +257,9 @@ public sealed class MeaningSubmissionRepository : IMeaningSubmissionRepository
         entity.ResultWord = model.ResultWord;
         entity.ResultMeaning = model.ResultMeaning;
         entity.ResultPartOfSpeech = model.ResultPartOfSpeech;
+        entity.ReviewComment = model.ReviewComment;
+        entity.ReviewerKind = model.ReviewerKind;
+        entity.AiReviewVerdict = model.AiReviewVerdict;
         entity.CreatedAtUnixMs = model.CreatedAt.ToUnixTimeMilliseconds();
         entity.UpdatedAtUnixMs = model.UpdatedAt.ToUnixTimeMilliseconds();
         entity.ReviewedAtUnixMs = model.ReviewedAt?.ToUnixTimeMilliseconds();

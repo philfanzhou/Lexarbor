@@ -450,6 +450,39 @@ with sqlite3.connect(sys.argv[1]) as connection:
 PYSQL
 done
 
+echo "Checking immutable submission review outcomes survive container recreation"
+review_data="$TEST_ROOT/submission-review"
+mkdir -p "$review_data"
+chmod 700 "$review_data"
+cp "$fresh_data/appsettings.json" "$fresh_data/data-protection-root-key" "$review_data/"
+python3 - "$fresh_data/vocabulary.db" "$review_data/vocabulary.db" "$TEST_ROOT/review-before.json" <<'PYSQL'
+import json
+import sqlite3
+import sys
+with sqlite3.connect(sys.argv[1]) as source, sqlite3.connect(sys.argv[2]) as target:
+    source.backup(target)
+    target.execute("INSERT INTO meaning_submission (id,source,word,part_of_speech,meaning,example,status,created_at_unix_ms,updated_at_unix_ms,reviewed_at_unix_ms,review_comment,reviewer_kind,ai_review_verdict) VALUES ('retained-submission','synthetic-client','Mispelled','n.','original meaning','original example',2,1,2,2,'Synthetic rejection','ai','reject')")
+    target.execute("INSERT INTO meaning_submission_ai_review (id,attempt_id,submission_id,verdict,part_of_speech,meaning,phonetic_uk,phonetic_us,comment,model,reviewed_at_unix_ms,applied) VALUES ('retained-review','retained-attempt','retained-submission','reject','n.','proposed meaning','/uk/','/us/','Synthetic rejection','synthetic-actual-model',2,1)")
+    snapshot = {table: target.execute(f"SELECT * FROM {table} ORDER BY id").fetchall() for table in ('meaning_submission','meaning_submission_ai_review')}
+    with open(sys.argv[3], 'w', encoding='utf-8') as output:
+        json.dump(snapshot, output)
+PYSQL
+for recreation in 1 2; do
+  start_bind_mounted_container "$EXISTING_CONTAINER" "$review_data"
+  docker rm -f "$EXISTING_CONTAINER" >/dev/null
+  python3 - "$review_data/vocabulary.db" "$TEST_ROOT/review-before.json" <<'PYSQL'
+import json
+import sqlite3
+import sys
+with open(sys.argv[2], encoding='utf-8') as source:
+    before = json.load(source)
+with sqlite3.connect(sys.argv[1]) as connection:
+    after = {table: [list(row) for row in connection.execute(f"SELECT * FROM {table} ORDER BY id")] for table in before}
+    assert after == before, "Submission proposal, source, comment and permanent AI conclusion changed on restart"
+    assert connection.execute("SELECT COUNT(*) FROM vocabulary").fetchone()[0] == 0
+PYSQL
+done
+
 # Both explicit values must survive upgrade, and higher-priority overrides must
 # not modify the operator's file. Tiny quotas make both policies observable.
 echo "Checking persisted request switches and environment/argument precedence"

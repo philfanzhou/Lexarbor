@@ -36,7 +36,7 @@ public sealed class MeaningSubmissionMigrationTests : IDisposable
         await context.GetService<IMigrator>().MigrateAsync(Migration, Ct);
 
         Assert.Equal(before, await VocabularySnapshot(context));
-        Assert.Empty(await context.MeaningSubmissions.ToListAsync(Ct));
+        Assert.Equal("[]", await Rows(context, "SELECT id FROM meaning_submission"));
         Assert.False(context.Database.HasPendingModelChanges());
         await Insert(context, "pending", "  Ruoyu ", "N.", " a wise fool ", 0);
         Assert.Equal("""[["ruoyu","n.","a wise fool"]]""", await Rows(context, "SELECT normalized_word, normalized_part_of_speech, normalized_meaning FROM meaning_submission"));

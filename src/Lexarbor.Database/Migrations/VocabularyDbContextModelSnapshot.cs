@@ -783,11 +783,82 @@ namespace Lexarbor.Database.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Lexarbor.Database.Entities.MeaningSubmissionAiReviewEntity", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("Applied")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("applied");
+
+                    b.Property<string>("AttemptId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("attempt_id");
+
+                    b.Property<string>("Comment")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("comment");
+
+                    b.Property<string>("Meaning")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("meaning");
+
+                    b.Property<string>("Model")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("model");
+
+                    b.Property<string>("PartOfSpeech")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("part_of_speech");
+
+                    b.Property<string>("PhoneticUk")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("phonetic_uk");
+
+                    b.Property<string>("PhoneticUs")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("phonetic_us");
+
+                    b.Property<long>("ReviewedAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("reviewed_at_unix_ms");
+
+                    b.Property<string>("SubmissionId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("submission_id");
+
+                    b.Property<string>("Verdict")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("verdict");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AttemptId")
+                        .IsUnique();
+
+                    b.HasIndex("SubmissionId", "ReviewedAtUnixMs");
+
+                    b.ToTable("meaning_submission_ai_review", t =>
+                        {
+                            t.HasCheckConstraint("CK_meaning_submission_ai_review_verdict", "verdict IN ('accept', 'revise', 'reject')");
+                        });
+                });
+
             modelBuilder.Entity("Lexarbor.Database.Entities.MeaningSubmissionEntity", b =>
                 {
                     b.Property<string>("Id")
                         .HasColumnType("TEXT")
                         .HasColumnName("id");
+
+                    b.Property<string>("AiReviewVerdict")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("ai_review_verdict");
 
                     b.Property<long>("CreatedAtUnixMs")
                         .HasColumnType("INTEGER")
@@ -851,9 +922,17 @@ namespace Lexarbor.Database.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("result_word_id");
 
+                    b.Property<string>("ReviewComment")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("review_comment");
+
                     b.Property<long?>("ReviewedAtUnixMs")
                         .HasColumnType("INTEGER")
                         .HasColumnName("reviewed_at_unix_ms");
+
+                    b.Property<string>("ReviewerKind")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("reviewer_kind");
 
                     b.Property<string>("Source")
                         .IsRequired()
@@ -1395,6 +1474,15 @@ namespace Lexarbor.Database.Migrations
                         .HasForeignKey("MeaningId", "WordId")
                         .HasPrincipalKey("Id", "VocabularyId")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Lexarbor.Database.Entities.MeaningSubmissionAiReviewEntity", b =>
+                {
+                    b.HasOne("Lexarbor.Database.Entities.MeaningSubmissionEntity", null)
+                        .WithMany()
+                        .HasForeignKey("SubmissionId")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 
