@@ -367,6 +367,7 @@ invalidation_data="$TEST_ROOT/audio-invalidation"
 mkdir -p "$invalidation_data"
 chmod 700 "$invalidation_data"
 cp "$fresh_data/appsettings.json" "$fresh_data/vocabulary.db" "$fresh_data/data-protection-root-key" "$invalidation_data/"
+cp "$invalidation_data/appsettings.json" "$TEST_ROOT/invalidation-settings-before.json"
 python3 - "$invalidation_data/vocabulary.db" "$TEST_ROOT/invalidation-before.json" <<'PYSQL'
 import json
 import sqlite3
@@ -396,16 +397,34 @@ with sqlite3.connect(sys.argv[1]) as connection:
         target = f'edit-{step}'
         connection.execute("INSERT INTO enrichment_target (id,word_id,meaning_id,locale,step,current_round,epoch,deleted) VALUES (?,'cleanup-word','cleanup-meaning','en-GB',?,1,7,0)", (target, step))
         connection.execute("INSERT INTO enrichment_round (target_id,number,state,input_revision,source_revision,configuration_version,failure_budget,request_count,consumed_failures,lease_fence,created_at_unix_ms,updated_at_unix_ms) VALUES (?,1,'Pending',?,?,'persisted-edit-config',5,0,0,0,3,3)", (target, '0' * 64, '0' * 64))
+    # Synthetic persisted outcomes: this checks exact retention, not provider execution.
+    for target, step, state, requests, failures, reason in (
+        ('saved-prepare', 'Prepare', 'Succeeded', 1, 0, None),
+        ('throttled-audio', 'Audio', 'Waiting', 7, 0, 'Throttled'),
+        ('exhausted-audio', 'Audio', 'Failed', 5, 5, None)):
+        locale = 'en-US' if target != 'saved-prepare' else 'en-GB'
+        meaning = None if target != 'exhausted-audio' else 'cleanup-meaning'
+        connection.execute("INSERT INTO enrichment_target (id,word_id,meaning_id,locale,step,current_round,epoch,deleted) VALUES (?,'cleanup-word',?,?,?,1,1,0)", (target, meaning, locale, step))
+        plan = json.dumps({'SpokenText':'Cleanup probe','PronunciationHint':'Synthetic saved plan','Phonetic':None,'PartsOfSpeech':[],'InferredEntryKind':None,'Preparation':None})
+        connection.execute("INSERT INTO enrichment_round (target_id,number,state,input_revision,source_revision,configuration_version,failure_budget,request_count,consumed_failures,plan_json,wait_reason,next_attempt_at_unix_ms,lease_fence,created_at_unix_ms,updated_at_unix_ms) VALUES (?,1,?,?,?,'persisted-step-config',5,?,?,?,?,?,0,3,9)",
+            (target, state, '0' * 64, '0' * 64, requests, failures, plan, reason, 123456 if reason else None))
+        for index in range(requests):
+            result = 'Throttled' if reason else 'TransientFailure' if failures else 'Succeeded'
+            connection.execute("INSERT INTO enrichment_call (id,target_id,round,service,result,error_code,started_at_unix_ms,finished_at_unix_ms) VALUES (?,?,1,?,?,?,3,9)",
+                (f'{target}-{index}', target, 'text' if step == 'Prepare' else 'tts', result, 'tts.rate_limited' if reason else 'tts.service_unavailable' if failures else None))
+        if reason:
+            connection.execute("INSERT INTO enrichment_wait (id,target_id,round,reason,error_code,recorded_at_unix_ms,next_attempt_at_unix_ms) VALUES ('saved-wait',?,1,'Throttled','tts.rate_limited',9,123456)", (target,))
     connection.execute("INSERT INTO enrichment_discovery (id,cursor,upper_bound) VALUES ('words','cleanup-word','retained-word'),('meanings','cleanup-meaning','retained-meaning')")
     connection.execute("INSERT INTO enrichment_service (id,configuration_version,consecutive_failures,throttle_seconds,paused,blocked,pause_seconds,next_attempt_at_unix_ms,lease_id,lease_expires_at_unix_ms) VALUES ('synthetic-tts-service','synthetic-config',5,120,1,0,600,123456,'interrupted-probe',234567)")
     connection.execute("INSERT INTO enrichment_service_probe (id,service_id,result,request_made,started_at_unix_ms) VALUES ('interrupted-probe','synthetic-tts-service','Started',1,12)")
-    snapshot = {table: connection.execute(f"SELECT * FROM {table} ORDER BY 1").fetchall() for table in ('audio_asset', 'audio_upload_operation', 'audio_invalidation', 'meaning_phonetic_epoch', 'enrichment_target', 'enrichment_round', 'enrichment_discovery', 'enrichment_service', 'enrichment_service_probe')}
+    snapshot = {table: connection.execute(f"SELECT * FROM {table} ORDER BY 1").fetchall() for table in ('audio_asset', 'audio_upload_operation', 'audio_invalidation', 'meaning_phonetic_epoch', 'enrichment_target', 'enrichment_round', 'enrichment_call', 'enrichment_wait', 'enrichment_discovery', 'enrichment_service', 'enrichment_service_probe')}
     with open(sys.argv[2], 'w', encoding='utf-8') as output:
         json.dump(snapshot, output)
 PYSQL
 for recreation in 1 2; do
   start_bind_mounted_container "$EXISTING_CONTAINER" "$invalidation_data"
   docker rm -f "$EXISTING_CONTAINER" >/dev/null
+  cmp "$TEST_ROOT/invalidation-settings-before.json" "$invalidation_data/appsettings.json"
   python3 - "$invalidation_data/vocabulary.db" "$TEST_ROOT/invalidation-before.json" <<'PYSQL'
 import json
 import sqlite3
@@ -420,6 +439,11 @@ with sqlite3.connect(sys.argv[1]) as connection:
     assert connection.execute("SELECT COUNT(*) FROM audio_invalidation WHERE delete_started_at_unix_ms IS NOT NULL").fetchone()[0] == 2
     assert connection.execute("SELECT epoch FROM meaning_phonetic_epoch").fetchone()[0] == 7
     assert connection.execute("SELECT COUNT(*) FROM enrichment_round WHERE state='Pending'").fetchone()[0] == 2
+    assert connection.execute("SELECT request_count,consumed_failures,wait_reason,next_attempt_at_unix_ms FROM enrichment_round WHERE target_id='throttled-audio'").fetchone() == (7,0,'Throttled',123456)
+    assert connection.execute("SELECT state,request_count,consumed_failures,failure_budget FROM enrichment_round WHERE target_id='exhausted-audio'").fetchone() == ('Failed',5,5,5)
+    assert connection.execute("SELECT state,plan_json IS NOT NULL FROM enrichment_round WHERE target_id='saved-prepare'").fetchone() == ('Succeeded',1)
+    assert connection.execute("SELECT COUNT(*) FROM enrichment_call").fetchone()[0] == 13
+    assert connection.execute("SELECT reason,next_attempt_at_unix_ms FROM enrichment_wait WHERE id='saved-wait'").fetchone() == ('Throttled',123456)
     assert connection.execute("SELECT COUNT(*) FROM audio_upload_operation WHERE meaning_phonetic_epoch=6").fetchone()[0] == 3
     assert connection.execute("SELECT consecutive_failures,throttle_seconds,paused,pause_seconds FROM enrichment_service").fetchone() == (5,120,1,600)
     assert connection.execute("SELECT result,request_made FROM enrichment_service_probe").fetchone() == ('Started',1)

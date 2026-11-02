@@ -605,3 +605,17 @@ it confirms the stored exact return target and administrator summary access.
 The Host and `hosted-auth.spec.ts` positive/negative matrices include `/enrichment`
 and reject encoded, case, query, fragment, slash, control and external variants.
 Existing Cookie+CSRF/Bearer priority/custom-role endpoint tests remain required.
+
+## Autonomous enrichment integration acceptance
+
+[Acceptance and migration notes](EnrichmentAcceptance.md) map each cross-component
+scenario to its executable test and separate pending real listening. The new full
+Host tests save actual HTTP settings, wait for hosted workers, edit and query
+through HTTP and reopen the same configuration/database. Only provider transport
+and object storage are substituted. The private S3 script additionally runs the
+actual enrichment executor in a child process, kills it after publication but
+before task receipt recovery, then proves no new chat/TTS/upload on reopening.
+A successful real Delete with lost Delete/observation results remains retryable
+after reopening.
+The container's expanded round/call/wait snapshots test exact retention only;
+they do not claim that the container contacted a supplier.

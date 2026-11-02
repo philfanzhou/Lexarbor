@@ -1681,3 +1681,12 @@ default without generating another specific value. Already signed links and
 client downloads cannot be revoked. Re-read after a lost save response; do not
 replay automatically. Status and cleanup visibility use the
 [administrator observation API](../api/Enrichment.md).
+
+## Enrichment release acceptance
+
+Use the [release and acceptance notes](EnrichmentAcceptance.md) before enabling
+providers or replacing an image. They describe the approved playback-selection
+change, automatic specific detach/exact deletion, persistent retry budgets and
+waiting, complete-volume/configuration retention and matched-backup rollback.
+Automated supplier fixtures and same-volume snapshots are separate evidence from
+real MiniMax/OpenAI listening, which is still pending maintainer authorization.

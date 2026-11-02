@@ -78,3 +78,13 @@ The client signs a short-lived RS256 JWT per request with its deployment private
 - the space-separated `scope` claim contains `meaning-submissions`.
 
 A missing or invalid token answers `401`; a valid token without the scope answers `403`. Administrator sessions and administrator Bearer tokens never authenticate integration routes, and integration tokens never authenticate administrator routes. Configuration is described in [Deployment](../development/Deployment.md#meaning-submissions).
+
+## Enrichment after approval
+
+Approved catalog changes follow the ordinary durable enrichment discovery path
+when its independent switches and required configuration are ready. Approval
+commits before any AI/TTS work; it does not promise immediate generation or enable
+automatic AI review. Empty specific phonetics inherit the default. A later actual
+specific edit uses the shared atomic detach/cleanup/regeneration boundary. See
+[enrichment acceptance](../development/EnrichmentAcceptance.md) for automated
+coverage and the separate pending supplier-listening checks.

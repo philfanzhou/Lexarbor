@@ -706,3 +706,14 @@ and epoch. Existing input/configuration guards remain authoritative at final
 publication. These semantics persist in the existing database across restarts;
 service recovery alone never resets an exhausted round. Existing consistent
 configuration/database/object backup and newer-schema startup policies apply.
+
+## Integration acceptance and retained recovery state
+
+The [acceptance map](../development/EnrichmentAcceptance.md) identifies historical
+schema comparisons, same-mount container snapshots and actual killed-process
+recovery separately. The acceptance changes add no schema. Synthetic container
+fixtures retain successful preparation plans, calls, zero-budget throttle waits,
+exhausted rounds, cleanup authority/epochs and regeneration work without changing their values;
+the private S3 probe separately exercises actual publication before process death.
+Keep a matched configuration/database/object backup: exact authorized cleanup can
+remove published specific objects, so database retention alone is insufficient.

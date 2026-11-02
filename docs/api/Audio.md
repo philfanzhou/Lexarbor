@@ -600,3 +600,11 @@ Administrator state, history, and single failed-step retry are documented in
 [Enrichment](Enrichment.md). The observation API adds no progress UI or batch-start
 API. Real supplier listening remains a separate acceptance step; fixture responses
 do not prove it.
+
+### Integration acceptance and listening
+
+The [integration checklist](../development/EnrichmentAcceptance.md) distinguishes
+protocol/control-flow tests from pending real listening. Synthetic MP3s prove
+validation and publication, not the intended reading or accent. A cleared specific
+selects default audio immediately; exact physical cleanup may continue separately.
+A retained historical receipt never authorizes rebinding a detached target.
