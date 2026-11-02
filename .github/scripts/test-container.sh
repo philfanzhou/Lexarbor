@@ -450,7 +450,7 @@ with sqlite3.connect(sys.argv[1]) as connection:
 PYSQL
 done
 
-echo "Checking immutable submission review outcomes survive container recreation"
+echo "Checking immutable review outcomes and automatic retry state survive container recreation"
 review_data="$TEST_ROOT/submission-review"
 mkdir -p "$review_data"
 chmod 700 "$review_data"
@@ -463,7 +463,10 @@ with sqlite3.connect(sys.argv[1]) as source, sqlite3.connect(sys.argv[2]) as tar
     source.backup(target)
     target.execute("INSERT INTO meaning_submission (id,source,word,part_of_speech,meaning,example,status,created_at_unix_ms,updated_at_unix_ms,reviewed_at_unix_ms,review_comment,reviewer_kind,ai_review_verdict) VALUES ('retained-submission','synthetic-client','Mispelled','n.','original meaning','original example',2,1,2,2,'Synthetic rejection','ai','reject')")
     target.execute("INSERT INTO meaning_submission_ai_review (id,attempt_id,submission_id,verdict,part_of_speech,meaning,phonetic_uk,phonetic_us,comment,model,reviewed_at_unix_ms,applied) VALUES ('retained-review','retained-attempt','retained-submission','reject','n.','proposed meaning','/uk/','/us/','Synthetic rejection','synthetic-actual-model',2,1)")
-    snapshot = {table: target.execute(f"SELECT * FROM {table} ORDER BY id").fetchall() for table in ('meaning_submission','meaning_submission_ai_review')}
+    target.execute("INSERT INTO meaning_submission (id,source,word,meaning,status,created_at_unix_ms,updated_at_unix_ms) VALUES ('pending-auto','synthetic-client','Word','pending original',0,3,3)")
+    validated = json.dumps({"AttemptId":"staged-attempt","SubmissionId":"pending-auto","Verdict":"accept","PartOfSpeech":None,"Meaning":None,"PhoneticUk":None,"PhoneticUs":None,"Comment":None,"Model":"synthetic-model","ReviewedAt":"2026-11-02T00:00:00+00:00"})
+    target.execute("INSERT INTO meaning_submission_auto_review (submission_id,attempt_id,owner,epoch,lease_until_unix_ms,next_attempt_at_unix_ms,consecutive_failures,last_failure_code,last_failure_at_unix_ms,validated_review_json) VALUES ('pending-auto','staged-attempt','previous-process',4,1000,2000,12,'result_commit_failed',3,?)", (validated,))
+    snapshot = {table: target.execute(f"SELECT * FROM {table} ORDER BY 1").fetchall() for table in ('meaning_submission','meaning_submission_ai_review','meaning_submission_auto_review')}
     with open(sys.argv[3], 'w', encoding='utf-8') as output:
         json.dump(snapshot, output)
 PYSQL
@@ -477,7 +480,7 @@ import sys
 with open(sys.argv[2], encoding='utf-8') as source:
     before = json.load(source)
 with sqlite3.connect(sys.argv[1]) as connection:
-    after = {table: [list(row) for row in connection.execute(f"SELECT * FROM {table} ORDER BY id")] for table in before}
+    after = {table: [list(row) for row in connection.execute(f"SELECT * FROM {table} ORDER BY 1")] for table in before}
     assert after == before, "Submission proposal, source, comment and permanent AI conclusion changed on restart"
     assert connection.execute("SELECT COUNT(*) FROM vocabulary").fetchone()[0] == 0
 PYSQL

@@ -1,6 +1,6 @@
 # Meaning submissions API
 
-Integration clients submit definitions that no vocabulary book contains. An administrator reviews each submission in the administration UI; approval writes the reviewed definition into the single supplementary book the deployment configures. See [ADR-009](../adr/ADR-009-meaning-submissions.md) for the decision record.
+Integration clients submit definitions that no vocabulary book contains. Administrators can review submissions in the administration UI; explicitly enabling automatic AI review lets the background worker decide. Approval writes the reviewed definition into the single supplementary book the deployment configures. See [ADR-009](../adr/ADR-009-meaning-submissions.md) for the decision record.
 
 All responses use the usual envelope: `{"success": true, "data": ...}` or `{"success": false, "message": "..."}`. Exception-generated failures use the Problem Details mapping in [Error handling](../development/ErrorHandling.md).
 
@@ -106,12 +106,11 @@ writes retain administrator Cookie+CSRF or administrator Bearer authentication;
 integration credentials cannot review. Oversized comments return 400 without a
 state change. Already reviewed manual requests still return 409.
 
-A new internal result boundary can persist validated AI conclusions; this change
-starts no automatic review, worker or supplier request. Each stable `attemptId`
+The internal result boundary persists validated AI conclusions from the independent automatic worker. Each stable `attemptId`
 records the actual model, review time (UTC Unix milliseconds), bounded verdict,
 POS/meaning/UK-US phonetics/comment and an immutable `applied` fact. Only pending,
 currently eligible submissions may change the catalog. Eligibility is checked
-inside the same serialized writer/context, so a future lease implementation must
+inside the same serialized writer/context, so the automatic lease implementation must
 read its current owner/epoch/expiry there, never pass an earlier boolean. Network
 calls belong outside this transaction.
 
@@ -133,3 +132,71 @@ Records keep the original AI fields after later catalog edits/deletion and are
 not reconstructed from current vocabulary. They contain no raw provider answer
 or credentials. Administrator history queries and separate checked markers are
 provided by a later change; this foundation adds neither interface.
+
+
+## Automatic review (default off)
+
+`reviewAssistant.autoReviewEnabled` in [online settings](SystemSettings.md#review-assistant-and-enrichment)
+uses `MeaningSubmissions:Ai:AutoReviewEnabled` (default `false`). Advice remains
+available whenever endpoint/model are configured. Automatic review additionally
+requires a configured supplementary book and a model name of at most 200 characters.
+A self-hosted endpoint may use an empty API key. Saving incomplete settings is
+allowed; automatic work pauses until repaired. Enabling this switch authorizes AI
+to approve, revise or reject without human confirmation. Incorrect results may
+enter the shared catalog; administrators accept this risk and correct entries
+through the existing vocabulary editor. No checked/history UI is added here.
+
+Only integration submissions are candidates. The successful submission commit
+emits a lossy wakeup; the response never waits for AI. Startup, lost wakeups, older
+pending rows and submissions during a disabled period are recovered from SQLite.
+Each scan claims at most 20 submissions, with one concurrent request and a five-second
+rescan. Claims use short serialized transactions with persistent attempt ID,
+owner, epoch and expiry; the provider request runs outside every database writer.
+Expiry is the captured request timeout plus 30 seconds. Final eligibility reads
+the current lease and pending state in the same result writer. Competing manual
+review and late owners cannot change an already reviewed submission. Every
+validated late result is permanently retained once with `applied=false`.
+
+Accept keeps the submitted word/POS/meaning/example and only fills currently empty
+default phonetic sides. Revise changes POS/meaning/phonetics, keeps word/example,
+and always returns `definitionKept=false` with its comment. Reject preserves the
+proposal and exposes its reason. The prompt requires rejecting a misspelling with
+a likely intended spelling in the reason; no response field can replace the word
+or example. AI accuracy is not guaranteed.
+
+Failures keep pending and retry indefinitely: 8, 16, 32, 64, then 120 seconds
+between attempts, respecting a longer valid HTTP 429 Retry-After. There is no
+exhaustion, manual handover or enrichment-wide pause. Cancellation, disabling or
+missing configuration pauses without consuming a failure. New network retries
+use new attempt IDs. A validated bounded domain result is durably staged before
+application; application failures/restarts resume its exact attempt/model/time
+without another network call. An ambiguous commit replays the immutable outcome.
+Unknown/lost supplier answers produce no invented conclusion; remote billing is
+not guaranteed to occur exactly once.
+
+The independent automatic client sends only word/POS/meaning/example from the
+proposal, with its captured configuration/model. Headers and body share one
+1–300 second cancellation budget. The completion envelope is limited to 64 KiB,
+JSON depth 8, unique names, one textual choice and a complete answer. The decision
+accepts only verdict/POS/meaning/UK-US phonetics/comment, with limits 32/500/100/100/500;
+nullable fields must be explicitly present except accept's optional comment.
+Revise needs a nonempty meaning and explanation; reject needs a nonempty reason.
+Wrong types, unknown/duplicate fields, missing required values, truncation,
+Markdown fences, oversize or unusable answers retry safely, never become rejection.
+No redirect, cookies, tool execution, raw response, credential or private endpoint
+is persisted/logged by this path. Existing manual advice parsing is unchanged.
+
+`GET /admin/meaning-submissions` additionally returns `automaticReview`:
+`{enabled, paused, pauseCode, pendingCount, lastFailureCode, lastFailureAt, nextAttemptAt}`.
+This administrator-only summary counts **all** pending rows, including unqueued
+ones, independent of the current list filter/page. Pause codes are `disabled`,
+`configuration_missing`, `configuration_invalid`, `submissions_not_configured`.
+Failure codes are `rate_limited`, `service_unavailable`, `request_rejected`,
+`response_too_large`, `invalid_response`, `service_timeout`, `connection_failed`,
+`result_commit_failed`. The latest safe failure remains visible after recovery;
+`nextAttemptAt` is the earliest persisted pending due/lease time, or null when
+none is scheduled (including a completely unqueued backlog). Times are UTC.
+No supplier error/header/body or review explanation appears in this summary,
+integration/ordinary DTOs or worker logs. The admin page says work recovers
+automatically, without requiring manual processing. Approval still wakes the
+independent catalog enrichment pipeline after commit.

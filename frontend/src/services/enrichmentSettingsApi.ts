@@ -4,6 +4,7 @@ import type { AudioFieldState, CredentialChange } from './audioStorageSettingsAp
 
 // Names and bounds mirror the administrator settings contract, not supplier defaults.
 export const valueFields = [
+  ['reviewAssistant.autoReviewEnabled', '启用 AI 自动审核投稿（默认关闭）', 'review', 'boolean'],
   ['reviewAssistant.endpoint', '审核服务地址', 'review', 'text'],
   ['reviewAssistant.model', '审核模型', 'review', 'text'],
   ['reviewAssistant.timeoutSeconds', '审核超时（秒）', 'review', 'integer', 1, 300],

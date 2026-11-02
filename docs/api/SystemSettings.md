@@ -329,8 +329,8 @@ whole configuration file, not just visible fields, across container replacement.
 
 The **审核与自治补齐** panel at `/#/settings` edits the same safe contract: review
 advice, independent enrichment switches/text client, speech client, separate UK/US
-voice and nullable speed, and bounded retry/pause/scan controls. It does not add an
-automatic-review switch. No voice or speed is preselected. Current values and
+voice and nullable speed, and bounded retry/pause/scan controls. It includes an independent default-off
+automatic-review switch with an explicit default-off risk explanation. No voice or speed is preselected. Current values and
 per-field source/read-only reasons remain distinct from drafts. Missing one locale
 can be saved without blocking the other. `configurationReady` means durable version
 metadata exists, not supplier availability or completed generation. The page names
@@ -359,3 +359,16 @@ provider/model and both configured accents. Preserve the complete server-side fi
 with private version metadata when replacing a container. Restarting with the same
 configuration preserves failure allowance and waiting; a service becoming healthy
 alone never resets exhausted steps.
+
+
+### Automatic submission review setting
+
+`reviewAssistant.autoReviewEnabled` is a boolean (default false), persisted as
+`MeaningSubmissions:Ai:AutoReviewEnabled`. It shares the existing ETag and dotted
+source/editable metadata. Environment/CLI overrides are read-only online. The
+switch is independent of both enrichment switches and does not reset enrichment
+budgets or pauses. Existing manual advice remains controlled by endpoint/model.
+Incomplete automatic settings can be saved; the panel reports pause and explains
+that configuration repair resumes pending work automatically. Enabling authorizes
+AI decisions without confirmation and carries the risk of incorrect shared
+catalog entries. See [the automatic review contract](MeaningSubmissions.md#automatic-review-default-off).

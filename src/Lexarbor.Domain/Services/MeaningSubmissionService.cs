@@ -27,6 +27,8 @@ public sealed class MeaningSubmissionService
     private readonly MeaningSubmissionSettings _settings;
     private readonly IMeaningSubmissionReviewAssistant? _assistant;
     private readonly TimeProvider _time;
+    private readonly IMeaningSubmissionChangeNotifier? _changes;
+    private readonly IMeaningSubmissionAutomaticReviewStatusProvider? _automaticReview;
 
     public MeaningSubmissionService(
         IMeaningSubmissionRepository submissions,
@@ -36,7 +38,9 @@ public sealed class MeaningSubmissionService
         IUnitOfWork unitOfWork,
         MeaningSubmissionSettings settings,
         TimeProvider time,
-        IMeaningSubmissionReviewAssistant? assistant = null)
+        IMeaningSubmissionReviewAssistant? assistant = null,
+        IMeaningSubmissionChangeNotifier? changes = null,
+        IMeaningSubmissionAutomaticReviewStatusProvider? automaticReview = null)
     {
         _submissions = submissions;
         _vocabularyRepository = vocabularyRepository;
@@ -46,6 +50,8 @@ public sealed class MeaningSubmissionService
         _settings = settings;
         _time = time;
         _assistant = assistant;
+        _changes = changes;
+        _automaticReview = automaticReview;
     }
 
     public bool IsConfigured => _settings.IsConfigured;
@@ -53,6 +59,9 @@ public sealed class MeaningSubmissionService
     public string? BookId => _settings.IsConfigured ? _settings.BookId!.Trim() : null;
 
     public bool ReviewAssistantEnabled => _assistant?.IsEnabled == true;
+    public Task<MeaningSubmissionAutomaticReviewStatus?> AutomaticReviewStatusAsync(CancellationToken token) =>
+        _automaticReview == null ? Task.FromResult<MeaningSubmissionAutomaticReviewStatus?>(null) : ReadAutomaticReviewAsync(token);
+    private async Task<MeaningSubmissionAutomaticReviewStatus?> ReadAutomaticReviewAsync(CancellationToken token) => await _automaticReview!.ReadAsync(token);
 
     /// <summary>
     /// Records a proposed definition and answers its submission. An equivalent
@@ -75,7 +84,7 @@ public sealed class MeaningSubmissionService
         var normalizedExample = Optional(example, MaxExampleLength, "Example");
         var normalizedWord = spelling.ToLowerInvariant();
 
-        return await _unitOfWork.ExecuteInTransactionAsync(async () =>
+        var result = await _unitOfWork.ExecuteInTransactionAsync(async () =>
         {
             var reusable = await _submissions.FindReusableAsync(
                 normalizedWord, normalizedPartOfSpeech ?? string.Empty, definition, cancellationToken);
@@ -112,6 +121,9 @@ public sealed class MeaningSubmissionService
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             return submission;
         }, cancellationToken);
+        if (result.Status == MeaningSubmissionStatus.Pending)
+            try { _changes?.Notify(); } catch (Exception) { /* A lossy wakeup cannot undo a successful commit. */ }
+        return result;
     }
 
     /// <summary>

@@ -850,6 +850,60 @@ namespace Lexarbor.Database.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Lexarbor.Database.Entities.MeaningSubmissionAutoReviewEntity", b =>
+                {
+                    b.Property<string>("SubmissionId")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("submission_id");
+
+                    b.Property<string>("AttemptId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("attempt_id");
+
+                    b.Property<int>("ConsecutiveFailures")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("consecutive_failures");
+
+                    b.Property<long>("Epoch")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("epoch");
+
+                    b.Property<long?>("LastFailureAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("last_failure_at_unix_ms");
+
+                    b.Property<string>("LastFailureCode")
+                        .HasMaxLength(40)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("last_failure_code");
+
+                    b.Property<long>("LeaseUntilUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("lease_until_unix_ms");
+
+                    b.Property<long>("NextAttemptAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("next_attempt_at_unix_ms");
+
+                    b.Property<string>("Owner")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("owner");
+
+                    b.Property<string>("ValidatedReviewJson")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("validated_review_json");
+
+                    b.HasKey("SubmissionId");
+
+                    b.HasIndex("NextAttemptAtUnixMs", "LeaseUntilUnixMs");
+
+                    b.ToTable("meaning_submission_auto_review");
+                });
+
             modelBuilder.Entity("Lexarbor.Database.Entities.MeaningSubmissionEntity", b =>
                 {
                     b.Property<string>("Id")
@@ -1478,6 +1532,15 @@ namespace Lexarbor.Database.Migrations
                 });
 
             modelBuilder.Entity("Lexarbor.Database.Entities.MeaningSubmissionAiReviewEntity", b =>
+                {
+                    b.HasOne("Lexarbor.Database.Entities.MeaningSubmissionEntity", null)
+                        .WithMany()
+                        .HasForeignKey("SubmissionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Lexarbor.Database.Entities.MeaningSubmissionAutoReviewEntity", b =>
                 {
                     b.HasOne("Lexarbor.Database.Entities.MeaningSubmissionEntity", null)
                         .WithMany()

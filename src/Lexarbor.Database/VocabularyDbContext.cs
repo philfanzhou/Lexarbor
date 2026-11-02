@@ -67,6 +67,7 @@ public class VocabularyDbContext : DbContext
     public DbSet<MeaningSubmissionEntity> MeaningSubmissions { get; set; } = null!;
 
     public DbSet<MeaningSubmissionAiReviewEntity> MeaningSubmissionAiReviews { get; set; } = null!;
+    public DbSet<MeaningSubmissionAutoReviewEntity> MeaningSubmissionAutoReviews { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -152,6 +153,12 @@ public class VocabularyDbContext : DbContext
             // already satisfy.
             entity.HasIndex(e => new { e.Id, e.BookId }).IsUnique();
             entity.HasIndex(e => new { e.Id, e.VocabularyId }).IsUnique();
+        });
+
+        modelBuilder.Entity<MeaningSubmissionAutoReviewEntity>(entity =>
+        {
+            entity.HasOne<MeaningSubmissionEntity>().WithMany().HasForeignKey(e => e.SubmissionId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(e => new { e.NextAttemptAtUnixMs, e.LeaseUntilUnixMs });
         });
 
         modelBuilder.Entity<MeaningSubmissionAiReviewEntity>(entity =>

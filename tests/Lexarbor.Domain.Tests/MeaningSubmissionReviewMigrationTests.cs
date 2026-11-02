@@ -55,7 +55,7 @@ public sealed class MeaningSubmissionReviewMigrationTests
     }
     private static async Task<string> OtherTables(VocabularyDbContext db)
     {
-        var names = JsonSerializer.Deserialize<string[][]>(await Rows(db, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT IN ('meaning_submission','meaning_submission_ai_review','__EFMigrationsHistory') AND name NOT LIKE 'sqlite_%' ORDER BY name"))!;
+        var names = JsonSerializer.Deserialize<string[][]>(await Rows(db, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT IN ('meaning_submission','meaning_submission_ai_review','meaning_submission_auto_review','__EFMigrationsHistory') AND name NOT LIKE 'sqlite_%' ORDER BY name"))!;
         var snapshot = new List<string>();
         foreach (var table in names.Select(r => r[0]))
         {

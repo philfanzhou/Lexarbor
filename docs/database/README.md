@@ -750,3 +750,30 @@ status, result and catalog values; older semantics cannot retain that new fact.
 Stop writers and take a consistent pre-upgrade backup before either migration.
 Use the existing newer-schema startup gate and matched configuration/database/
 object restore policy; an older image cannot open an upgraded database directly.
+
+
+## Automatic submission review persistence
+
+`20261102052837_AddAutomaticMeaningSubmissionReview` adds only the empty
+`meaning_submission_auto_review` table, with restrictive submission FK and a
+next-attempt/lease index. No existing row, proposal, permanent conclusion or
+pending-key constraint changes. One row holds current attempt/owner/epoch/expiry,
+next-attempt time, saturating backoff counter and the latest fixed failure code/time.
+A nullable `validated_review_json` temporarily holds only the bounded domain
+review fields (not the supplier JSON) so application retry after a crash retains
+its exact attempt/model/time without another provider call. It is cleared only
+by that attempt's successful completion; a stale owner cannot change newer state.
+Permanent result rows remain append-only, including `applied=false` conclusions.
+
+All claims/releases use short serialized writers. Actual eligibility reads the
+current lease inside the shared outcome writer/context. Pending rows are the
+source of truth even without a scheduling row; failed work has no exhaustion or
+manual handover. Failure delays grow 8–120 seconds, honoring longer Retry-After;
+review never shares enrichment pauses. See [automatic review](../api/MeaningSubmissions.md#automatic-review-default-off).
+
+Down to `20261102043902_AddMeaningSubmissionReviews` drops only automatic scheduling
+and staged application state, preserving submissions, outcomes and catalog rows.
+Stop writers and preserve a consistent backup first: staged conclusions would
+otherwise be lost and pending work may need another model call after a future
+upgrade. Restore database/configuration/root-key/audio objects as one recovery
+point; older images cannot bypass the newer-schema gate.

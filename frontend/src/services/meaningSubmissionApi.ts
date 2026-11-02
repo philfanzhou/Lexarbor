@@ -33,7 +33,18 @@ export interface MeaningSubmissionItem {
   source: string
 }
 
+export interface AutomaticReviewStatus {
+  enabled: boolean
+  paused: boolean
+  pauseCode: string | null
+  pendingCount: number
+  lastFailureCode: string | null
+  lastFailureAt: string | null
+  nextAttemptAt: string | null
+}
+
 export interface MeaningSubmissionPage {
+  automaticReview?: AutomaticReviewStatus | null
   configured: boolean
   bookId?: string | null
   assistantEnabled: boolean

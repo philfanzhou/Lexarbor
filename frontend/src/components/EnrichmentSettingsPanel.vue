@@ -16,7 +16,7 @@ let controller: AbortController | null = null
 const current = () => active && generation === sessionGeneration.value
 const sources = { default: '默认配置', file: '持久化文件', environment: '环境变量', commandLine: '启动参数' }
 const groups = [
-  { key: 'review', title: '审核助手', description: '服务地址和模型均配置时提供审核建议，与补齐文本服务独立；本页不启用自动审核。' },
+  { key: 'review', title: '审核助手', description: '服务地址和模型均配置时提供原有审核建议。自动审核默认关闭；明确开启后，AI 会直接通过、修改或驳回所有待审投稿，无需人工确认，错误结果会进入公共词库。管理员承担此风险，可用现有词库编辑更正。审核与自治补齐独立。' },
   { key: 'text', title: '自治补齐与发音准备', description: '字段补齐和音频生成独立，默认关闭。只开音频也必须先完成发音准备，但不写回文本字段。启用后后台自动发现新增和历史缺失，无需选择范围或点开始。' },
   { key: 'tts', title: '语音服务', description: '保存只提交本地配置，不探测或调用供应商。音频存储、文本准备与该侧语音配置就绪后，后台才可生成。' },
   { key: 'uk', title: 'UK 英式发音', description: '自行配置适合英式发音的音色和语速，留空则该侧等待，不影响 US。' },
@@ -45,6 +45,14 @@ function input(name: ValueField, event: Event, numeric: boolean) {
   draft[name] = numeric ? value === '' ? null : Number(value) : value
 }
 function display(value: unknown) { return value === null || value === '' ? '（空）' : value === true ? '开启' : value === false ? '关闭' : String(value) }
+function reviewStatus() {
+  const v = actual.value?.values
+  if (!v) return '未知'
+  if (!v['reviewAssistant.autoReviewEnabled']) return '暂停：自动审核关闭，原人工审核和建议仍可用'
+  if (!v['reviewAssistant.endpoint'] || !v['reviewAssistant.model']) return '暂停：审核服务地址或模型缺失；配置修复后自动恢复，无需人工处理'
+  if (String(v['reviewAssistant.model']).length > 200) return '暂停：自动审核模型名称超过 200 字符'
+  return '自动审核已启用；后台持续处理全部待审积压，失败后自动重试，无需人工处理'
+}
 function localeStatus(locale: 'uk' | 'us') {
   const state = actual.value
   if (!state) return '未知'
@@ -126,6 +134,7 @@ onMounted(() => { void load() })
       <p v-if="!actual">审核与补齐当前配置：未知</p>
       <form v-if="actual" @submit.prevent="save">
         <p>持久配置版本：{{ actual.configurationReady ? '已就绪' : '等待建立' }}；这不是供应商可用性或生成完成状态。</p>
+        <p aria-label="自动审核配置状态">{{ reviewStatus() }}</p>
         <p aria-label="UK 配置状态">UK 当前配置：{{ localeStatus('uk') }}</p>
         <p aria-label="US 配置状态">US 当前配置：{{ localeStatus('us') }}</p>
         <fieldset v-for="group in groups" :key="group.key">

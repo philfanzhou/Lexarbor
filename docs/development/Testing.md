@@ -642,3 +642,29 @@ inputs are synthetic; no new production worker/client is registered. Run Release
 restore/build/tests and formatting, plus a newly built container persistence
 smoke for this migration. Frontend and private S3 checks in CI retain the existing
 cross-component regression coverage.
+
+
+## Automatic submission review verification
+
+`AutomaticMeaningSubmissionReviewTests` drives the real independent client,
+SQLite repository, result service and hosted worker with synthetic HTTP responses
+and a controlled TimeProvider. It covers default-off/missing settings and manual
+advice compatibility; accept/revise/reject and spelling-reason instructions;
+POS-only/IPA-only revise, original word/example and captured-model retention;
+20-item bounds, lost wakeups, disabled-period backlog, more than ten failures,
+long Retry-After, restart and fair recovery; manual competition, expired/reclaimed
+owners, staged application failure/restart, cancellation and a single headers/body
+budget. Strict invalid JSON/types/duplicates/unknown/missing/oversized fields,
+64 KiB content-length/stream limits and escaped credentials never create a result.
+The migration test preserves old proposals/history through Up/Down and reopens
+persistent retries. Existing review atomic rollback and audio enrichment suites
+continue covering post-approval publication and permanent outcome invariants.
+
+`EnrichmentSettingsTests` verifies the independent flag's default, shared revision,
+incomplete-save pause, persistence/restart and read-only deployment override using
+the real HTTP host. Browser settings/submission specifications cover explicit risk,
+independent save, pause, complete backlog and safe automatic recovery messages while
+preserving the existing enrichment instructions. Run full Release, frontend
+checks and the container script. Its two real container recreations retain pending
+retry/staged input and permanent results; AI uses synthetic fixtures, never real
+supplier credentials or listening claims.

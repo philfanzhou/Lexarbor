@@ -88,6 +88,7 @@ public static class MeaningSubmissionEndpoints
                 configured = service.IsConfigured,
                 bookId = service.BookId,
                 assistantEnabled = service.ReviewAssistantEnabled,
+                automaticReview = await service.AutomaticReviewStatusAsync(cancellationToken),
                 items = items.Select(item => new MeaningSubmissionAdminDto
                 {
                     Submission = MeaningSubmissionDto.From(item),

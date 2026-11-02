@@ -1509,6 +1509,7 @@ Meaning submissions are off unless a supplementary book is configured. See the [
 | `MeaningSubmissions:Ai:Endpoint` / `Model` | Optional OpenAI-compatible base URL (for example `https://api.example.com/v1`) and model; both set enables review advice |
 | `MeaningSubmissions:Ai:ApiKey` | Optional server-only bearer key; set it through the protected review/enrichment settings API (0600 persistent file), or an environment override (`MeaningSubmissions__Ai__ApiKey`, read-only online) |
 | `MeaningSubmissions:Ai:TimeoutSeconds` | 1–300, default 30 |
+| `MeaningSubmissions:Ai:AutoReviewEnabled` | Default false; online `reviewAssistant.autoReviewEnabled` explicitly authorizes automatic decisions |
 
 An invalid value stops startup with a message naming the setting only. Without any public key the integration routes answer `401`. Integration trust settings are read once at startup; signing-key rotation means adding the new public key to the ring, restarting, switching the client's signing key, then removing the old key and restarting again.
 
@@ -1708,3 +1709,43 @@ remain. The explicit AI revise distinction is lost on Down. Restore a matched
 pre-upgrade backup to recover data, and retain the `migration.version_too_new`
 gate: never launch an older image against the newer schema. Automated persistence
 checks use synthetic data and do not establish AI correctness or real listening.
+
+
+## Automatic submission review upgrade
+
+Automatic review defaults to off. Configure the existing supplementary book and
+review endpoint/model, then explicitly enable `reviewAssistant.autoReviewEnabled`
+in the protected shared settings API/page. Environment/CLI override
+`MeaningSubmissions__Ai__AutoReviewEnabled` is read-only online. Endpoint/model
+still enable ordinary manual advice independently; empty keys remain supported
+for authorized self-hosted endpoints. Automatic model names are limited to 200
+characters. Incomplete settings can be saved and pause automatic work. Enabling
+accepts the risk of AI mistakes entering the shared catalog without confirmation.
+Correct mistakes using the existing vocabulary editor.
+
+After migration/configuration completes the worker recovers every pending
+integration proposal, including older/disabled-period backlog. It never reviews
+imports or administrator catalog edits. A 20-item bounded batch, one concurrent
+request and five-second rescan recover lost wakeups. Failures retry indefinitely
+at 8–120 seconds, respecting longer valid Retry-After; there is no manual handover
+or coupling to enrichment pauses. Disable/cancellation pauses safely, and
+configuration repair/restart resumes. The admin submission summary exposes only
+fixed safe pause/failure codes, complete pending count and UTC retry/failure times.
+It does not expose credentials, endpoint, model answer or review explanation.
+
+`20261102052837_AddAutomaticMeaningSubmissionReview` adds one empty scheduling table
+in the unchanged `/app/data/vocabulary.db`, preserving all old data and immutable
+AI history. The whole database includes expiring lease fences, retry times and
+bounded validated application input. Keep the same bind mount/named volume across
+replacement, and consistently back up database, `/app/data/appsettings.json`, root
+key and matching private audio objects. A validated application failure resumes
+its exact staged attempt/model/time without a new supplier call. Unknown remote
+answers retry with a new attempt; exactly-once remote billing is not guaranteed.
+
+An older image is refused by `migration.version_too_new`. To roll back, stop all
+writers, back up, then use current migration tooling to return to
+`20261102043902_AddMeaningSubmissionReviews` before deploying the previous image.
+Down drops only automatic scheduling/staged application state; proposals,
+permanent conclusions and catalog outcomes remain. Any staged unapplied conclusion
+is lost by Down; restore the full matching pre-upgrade backup when that is the
+required recovery point. Never point an older image directly at the upgraded DB.

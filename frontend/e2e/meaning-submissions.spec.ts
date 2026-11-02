@@ -55,3 +55,22 @@ test('warns when no supplementary book is configured', async ({ page }) => {
   await page.goto('/#/submissions')
   await expect(page.getByText('未配置补充词书')).toBeVisible()
 })
+
+
+test('shows complete pending backlog and only fixed safe recovery messages', async ({ page }) => {
+  await page.route('**/admin/auth/session', route => json(route, { success: true, data: { username: 'admin', roles: ['admin'] } }))
+  await mockAntiforgery(page)
+  await page.route('**/admin/system/version', route => json(route, { success: true, data: { version: '1', revision: null, channel: 'test' } }))
+  await page.route(/\/admin\/meaning-submissions\?/, route => json(route, { success: true, data: {
+    configured: true, assistantEnabled: true, items: [pending], totalCount: 1, totalPage: 1,
+    automaticReview: { enabled: true, paused: false, pauseCode: null, pendingCount: 47, lastFailureCode: 'rate_limited', lastFailureAt: '2026-11-02T00:00:00Z', nextAttemptAt: '2026-11-02T00:10:00Z' }
+  } }))
+  await page.goto('/#/submissions')
+  const state = page.getByLabel('自动审核状态')
+  await expect(state).toContainText('全部待审积压 47 条')
+  await expect(state).toContainText('服务限流')
+  await expect(state).toContainText('无需人工处理')
+  await expect(state.getByRole('link', { name: '检查自动审核设置' })).toHaveAttribute('href', '#/settings')
+  await page.getByRole('button', { name: '审核', exact: true }).click()
+  await expect(page.getByText('无需手动开始或先删除旧音频', { exact: false })).toBeVisible()
+})
