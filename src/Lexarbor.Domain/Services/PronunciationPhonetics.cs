@@ -22,15 +22,15 @@ public static class PronunciationPhonetics
         return common is { Count: > 0 };
     }
 
-    public static string? Concrete(string value)
+    public static string? Concrete(string? value)
     {
         var clean = Unwrap(value);
         return clean is { Length: > 0 } && clean.IndexOfAny([';', '(', ')', '/', '[', ']']) < 0 ? clean : null;
     }
 
-    private static string? Unwrap(string value)
+    private static string? Unwrap(string? value)
     {
-        if (value.Length > 512 || value.Any(char.IsControl)) return null;
+        if (value == null || value.Length > 512 || value.Any(char.IsControl)) return null;
         var clean = value.Normalize(NormalizationForm.FormC).Trim();
         if (clean.Length >= 2 && (clean[0] == '/' && clean[^1] == '/' || clean[0] == '[' && clean[^1] == ']'))
             clean = clean[1..^1].Trim();

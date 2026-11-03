@@ -12,12 +12,15 @@ public sealed partial class PronunciationSpeechTests
 {
     private static HttpResponseMessage IpaCompletion(string spoken, string? echo, string ipa, string? candidate = null,
         string control = "ipa") => new(HttpStatusCode.OK)
-    {
-        Content = JsonContent.Create(new { choices = new[] { new { finish_reason = "stop", message = new
+        {
+            Content = JsonContent.Create(new
+            {
+                choices = new[] { new { finish_reason = "stop", message = new
         { content = JsonSerializer.Serialize(new { certain = true, entryKind = "phrase", classificationBasis = "Fixture classification",
             spokenText = spoken, pronunciationHint = ipa, requiredPhonetic = echo, phonetic = candidate,
-            partsOfSpeech = Array.Empty<object>(), pronunciationControl = control, speechPhonetic = control == "ipa" ? ipa : null }) } } } })
-    };
+            partsOfSpeech = Array.Empty<object>(), pronunciationControl = control, speechPhonetic = control == "ipa" ? ipa : null }) } } }
+            })
+        };
 
     private static PronunciationPreparationRequest NotationRequest(string word, string? notation, AudioLocale locale)
     {
