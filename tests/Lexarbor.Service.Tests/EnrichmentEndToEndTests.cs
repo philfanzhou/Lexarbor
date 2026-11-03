@@ -129,11 +129,42 @@ public sealed class EnrichmentEndToEndTests
         {
             await using var host = new Host(root, network, store); await host.Seed();
             await host.Configure(false, "tts-1");
-            await Eventually(async () => (await host.Data("/admin/enrichment/tasks?wordId=word&step=Audio")).ToJsonString().Contains("provider.capability_unsupported", StringComparison.Ordinal));
+            await Eventually(async () => (await host.Data("/admin/enrichment/tasks?wordId=word&step=Prepare")).ToJsonString().Contains("text.pronunciation_control_unsupported", StringComparison.Ordinal));
             Assert.Equal(0, network.SpeechCount); Assert.Empty(store.Bytes);
             await host.Settings(new { enrichment = new { tts = new { model = "gpt-4o-mini-tts" } } });
             await Eventually(async () => await host.Bindings() == 2);
             Assert.Equal(2, network.SpeechCount);
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConditionalUnbind_WakesHostedGenerationWithoutWaitingForHistoricalScan(bool meaning)
+    {
+        var root = VocabularyWebApplicationFactory.CreateGateSafeDirectory("enrichment-unbind-" + Guid.NewGuid().ToString("N"));
+        File.WriteAllText(Path.Combine(root, "appsettings.json"), "{}");
+        using var network = new Network(true); var store = new Objects();
+        try
+        {
+            await using var host = new Host(root, network, store); await host.Seed(); await host.Configure(true);
+            await Eventually(async () => await host.Bindings() == 2);
+            if (meaning)
+            {
+                await host.Edit("lɛd");
+                await Eventually(async () => (await host.Play("en-GB", true))["source"]?.GetValue<string>() == "meaning");
+            }
+            await host.Settings(new { enrichment = new { scanIntervalSeconds = 300 } });
+            var old = (await host.Play("en-GB", meaning))["assetId"]!.GetValue<string>();
+            var us = (await host.Play("en-US"))["assetId"]!.GetValue<string>();
+            var calls = network.SpeechCount;
+            var oldObjects = store.Bytes.Keys.ToArray();
+            await host.Unbind(old, meaning);
+            await Eventually(async () => (await host.Play("en-GB", meaning))["assetId"]?.GetValue<string>() is { } asset && asset != old);
+            Assert.Equal(calls + 1, network.SpeechCount);
+            Assert.Equal(us, (await host.Play("en-US"))["assetId"]!.GetValue<string>());
+            Assert.All(oldObjects, key => Assert.True(store.Bytes.ContainsKey(key))); // Manual DELETE remains logical unbinding.
         }
         finally { Directory.Delete(root, true); }
     }
@@ -211,6 +242,13 @@ public sealed class EnrichmentEndToEndTests
             return JsonNode.Parse(await response.Content.ReadAsStringAsync(Ct))!["data"]!;
         }
         public Task<JsonNode> Play(string locale, bool meaning = false) => Data($"/admin/vocabulary/word/audio/{locale}/playback" + (meaning ? "?meaningId=meaning" : ""));
+        public async Task Unbind(string asset, bool meaning)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Delete, "/admin/vocabulary/word/audio/en-GB" + (meaning ? "?meaningId=meaning" : ""));
+            request.Headers.IfMatch.Add(new("\"" + asset + "\""));
+            using var response = await _client.SendAsync(request, Ct);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
         public async Task<JsonNode> Meaning() => (await Data("/admin/vocabulary/word"))["meanings"]![0]!;
         public async Task Edit(string? ipa)
         {

@@ -95,6 +95,7 @@ public sealed class EnrichmentAdminRepository(VocabularyDbContext context) : IEn
     { "audio.invalidation_referenced" => "audio.invalidation_referenced", "audio.invalidation_expired" => "audio.invalidation_expired", _ => "audio.invalidation_failed" };
     private static string? SafeError(string? code) => code == null ? null : code switch
     {
+        "text.phonetic_constraint_mismatch" or "text.template_unexpanded" or "text.pronunciation_control_unsupported" => code,
         "preparation.failed" or "fields.candidates_missing" or "fields.equivalent_meaning" or "fields.plan_too_large"
             or "text.outcome_unknown" or "tts.outcome_unknown" => code,
         _ when code.EndsWith(".throttled", StringComparison.Ordinal) => "provider.throttled",

@@ -1628,6 +1628,14 @@ permanent upload receipts across two container recreations. Restart, scanning an
 provider recovery do not revive exhausted targets. Real MiniMax and supported
 OpenAI-compatible listening acceptance remains separate.
 
+Dictionary-notation and template fixes do not require a schema migration or bulk
+retry. After upgrading, use the existing single-step retry once for a previously
+failed preparation (or locally rejected legacy Audio plan). Related TTS corrections
+refresh new preparation rounds for their own accent. Successful conditional manual
+audio unbinding wakes discovery after commit; it retains the old object and receipt.
+Preparation now checks configured speech capabilities before marking a plan ready;
+fields-only enrichment remains independent of TTS availability.
+
 For explicit Down, stop workers/writes, back up database/configuration/objects,
 then use current tooling to migrate to `20261101194034_AddMeaningPhoneticEpochs`.
 This loses only scheduler cursor/service/probe history; prior tasks/receipts remain.

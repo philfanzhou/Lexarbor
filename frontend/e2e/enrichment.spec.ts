@@ -78,6 +78,17 @@ test('服务恢复保留耗尽，能力不支持须修正配置，成功侧无�
   await expect(page.getByLabel('tts 服务状态')).toContainText('未暂停')
 })
 
+for (const [code, message] of [
+  ['text.phonetic_constraint_mismatch', '准备读音与词库音标不符'],
+  ['text.template_unexpanded', '朗读模板未完整展开'],
+  ['text.pronunciation_control_unsupported', '准备计划无法表达所需读音']
+]) test(`准备错误 ${code} 显示具体原因并保留单条重试`, async ({ page }) => {
+  const t = failed(); t.current.errorCode = code
+  await setup(page, [t]); const region = await openDetail(page)
+  await expect(region).toContainText(message)
+  await expect(region.getByRole('button', { name: '仅重试此失败步骤', exact: true })).toBeEnabled()
+})
+
 test('旧清理失败和新生成成功独立，清空只恢复继承，默认回落不是own完成', async ({ page }) => {
   const t = task('task', { state: 'Succeeded', missing: false })
   t.current.state = 'Succeeded'; t.cleanup = { waiting: 1, running: 0, observed: 0, attempts: 8, nextAttemptAtUnixMs: now + 60000, errorCode: 'audio.invalidation_failed' }

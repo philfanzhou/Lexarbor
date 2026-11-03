@@ -8,7 +8,8 @@ public sealed record EnrichmentAdminConfiguration(bool FieldsEnabled, bool Audio
 {
     public string Version(EnrichmentTargetKey key) => key.Step == EnrichmentStep.Audio
         ? key.Locale == AudioLocale.EnGb ? UkAudioVersion : UsAudioVersion
-        : key.MeaningId == null ? DefaultPreparationVersion : SpecificPreparationVersion;
+        : (key.MeaningId == null ? DefaultPreparationVersion : SpecificPreparationVersion)
+            + (key.Step == EnrichmentStep.Prepare && AudioEnabled ? ":speech:" + (key.Locale == AudioLocale.EnGb ? UkAudioVersion : UsAudioVersion) : "");
 }
 public sealed record EnrichmentAdminFilter(string? WordId = null, string? MeaningId = null, string? Locale = null,
     string? State = null, string? Step = null, int Page = 1, int Size = 25);

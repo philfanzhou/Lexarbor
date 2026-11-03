@@ -17,11 +17,14 @@ public sealed class EnrichmentTargetExecutor(IEnrichmentTaskRepository tasks, IE
     private long Now => clock.GetUtcNow().ToUnixTimeMilliseconds();
     // Stable relevant versions, independent of the HTTP settings ETag. Audio
     // depends on text and its own accent, never the other accent or review AI.
-    public static string ConfigurationVersion(EnrichmentTargetKey key, EnrichmentConfigurationSnapshot snapshot) =>
-        key.Step == EnrichmentStep.Audio
-            ? (snapshot.TextVersion ?? "configuration.missing") + "." +
-                ((key.Locale == AudioLocale.EnGb ? snapshot.UkTtsVersion : snapshot.UsTtsVersion) ?? "configuration.missing")
-            : (snapshot.TextVersion ?? "configuration.missing") + (key.MeaningId == null && snapshot.Enrichment.FieldsEnabled ? ".fields" : ".audio");
+    public static string ConfigurationVersion(EnrichmentTargetKey key, EnrichmentConfigurationSnapshot snapshot)
+    {
+        var audio = (snapshot.TextVersion ?? "configuration.missing") + "." +
+            ((key.Locale == AudioLocale.EnGb ? snapshot.UkTtsVersion : snapshot.UsTtsVersion) ?? "configuration.missing");
+        return key.Step == EnrichmentStep.Audio ? audio
+            : (snapshot.TextVersion ?? "configuration.missing") + (key.MeaningId == null && snapshot.Enrichment.FieldsEnabled ? ".fields" : ".audio")
+                + (key.Step == EnrichmentStep.Prepare && snapshot.Enrichment.AudioEnabled ? ":speech:" + audio : "");
+    }
 
     public async Task<EnrichmentTask?> ExecuteAsync(string targetId, string owner, CancellationToken token = default)
     {

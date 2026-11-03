@@ -1,12 +1,27 @@
 using System.Text;
 using System.Text.RegularExpressions;
 using Lexarbor.Domain.Models;
+using Lexarbor.Domain.Services;
 using Lexarbor.Host.Configuration;
 
 namespace Lexarbor.Host.Integration;
 
 internal static class SpeechProviderCapabilities
 {
+    public static string? PreparationError(PreparedPronunciation plan, EnrichmentConfigurationSnapshot snapshot)
+    {
+        if (!snapshot.Enrichment.AudioEnabled || !snapshot.HasTtsConfiguration(plan.Input.Locale == AudioLocale.EnGb ? "uk" : "us")) return null;
+        if (snapshot.Enrichment.Provider == "MiniMaxNative" && plan.Content.SpokenText.IndexOfAny(['/', '(', ')', '<', '>', '[', ']']) >= 0)
+            return "template_unexpanded";
+        var voice = plan.Input.Locale == AudioLocale.EnGb ? snapshot.Enrichment.Uk : snapshot.Enrichment.Us;
+        var body = snapshot.Enrichment.Provider switch
+        {
+            "MiniMaxNative" => MiniMaxSpeechAdapter.Request(plan, snapshot.Enrichment.Tts, voice),
+            "OpenAICompatible" => OpenAiCompatibleSpeechAdapter.Request(plan, snapshot.Enrichment.Tts, voice),
+            _ => null
+        };
+        return body == null ? "pronunciation_control_unsupported" : null;
+    }
     // Deliberate allowlist, not a claim that arbitrary compatible servers or
     // future model aliases implement these pronunciation controls.
     public static bool OpenAiInstructions(string model) => model is "gpt-4o-mini-tts" or "gpt-4o-mini-tts-2025-12-15";
@@ -30,8 +45,8 @@ internal static class SpeechProviderCapabilities
         if (plan.RequiredPhonetic != null && plan.Content.SpokenText.Normalize(NormalizationForm.FormC) != plan.Input.Word.Trim().Normalize(NormalizationForm.FormC)) return null;
         var ipa = plan.SpeechPhonetic;
         if (string.IsNullOrWhiteSpace(ipa)) return null;
-        ipa = ipa.Normalize(NormalizationForm.FormC).Trim();
-        if (ipa.Length >= 2 && (ipa[0] == '/' && ipa[^1] == '/' || ipa[0] == '[' && ipa[^1] == ']')) ipa = ipa[1..^1].Trim();
+        ipa = PronunciationPhonetics.Concrete(ipa);
+        if (ipa == null) return null;
         return ipa.Length > 0 && ipa is not ("laughs" or "chuckle" or "coughs" or "clear-throat" or "groans" or "breath" or "pant" or "inhale" or "exhale" or "gasps" or "sniffs" or "sighs" or "snorts" or "burps" or "lip-smacking" or "humming" or "hissing" or "emm" or "sneezes")
             && Regex.IsMatch(ipa, @"\A[a-zæøðŋœθβχ\u0250-\u02FF\u0300-\u036F\u1D00-\u1D7F \u00A0.‿↗↘|‖]+\z", RegexOptions.CultureInvariant)
             && !ipa.Any(char.IsControl) ? ipa : null;

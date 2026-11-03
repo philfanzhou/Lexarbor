@@ -473,6 +473,12 @@ of an explicitly deleted specific object needs its matching remote backup. See
 
 ## Autonomous enrichment
 
+Preparation failures distinguish catalog-IPA mismatch, unresolved templates and
+unsupported speech control with fixed administrator messages. The existing
+single-step retry applies after correcting data/configuration; legacy failed
+preparation may need one explicit retry following an upgrade. No model response
+or full preparation plan is exposed to the browser.
+
 The host now discovers and processes missing default fields/audio and explicit
 nonempty specific-audio targets when an enrichment switch is enabled. Normal
 approval/import/edit flows do not select a range or start a batch. Empty specific

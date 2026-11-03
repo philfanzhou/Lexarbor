@@ -15,7 +15,7 @@ using OpenTelemetry;
 
 namespace Lexarbor.Service.Tests;
 
-public sealed class PronunciationSpeechTests
+public sealed partial class PronunciationSpeechTests
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
     private const string Secret = "synthetic-speech-key";
@@ -124,7 +124,9 @@ public sealed class PronunciationSpeechTests
     {
         using var f = new Fixture(true); await f.Publish(new() { ["Enrichment:Tts:Model"] = model });
         var result = await f.Client.GenerateAsync(f.Plan(spoken: spoken, phonetic: phonetic), Ct);
-        Assert.Equal("capability_unsupported", result.ErrorCode); Assert.False(result.RequestMade); Assert.Empty(f.Handler.Bodies);
+        var malformed = phonetic is "liːd)(sighs" or "https://untrusted.test/audio" or "[[liːd]]";
+        Assert.Equal(malformed ? "prepared_plan_required" : "capability_unsupported", result.ErrorCode);
+        Assert.False(result.RequestMade); Assert.Empty(f.Handler.Bodies);
     }
 
     [Theory]

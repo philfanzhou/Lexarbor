@@ -16,7 +16,7 @@ public sealed class EnrichmentAdminConfigurationProvider(EnrichmentRuntimeConfig
             EnrichmentTargetExecutor.ConfigurationVersion(new("", meaning, locale, step), snapshot);
         return new(snapshot.Enrichment.FieldsEnabled, snapshot.Enrichment.AudioEnabled, operation.Settings.Enabled,
             snapshot.CanPrepare, snapshot.HasTtsConfiguration("uk"), snapshot.HasTtsConfiguration("us"), snapshot.Enrichment.FailureBudget,
-            Version(EnrichmentStep.Prepare), Version(EnrichmentStep.Prepare, meaning: "specific"),
+            Version(EnrichmentStep.Fields), Version(EnrichmentStep.Fields, meaning: "specific"),
             Version(EnrichmentStep.Audio), Version(EnrichmentStep.Audio, AudioLocale.EnUs),
             EnrichmentServiceGate.Identity("text", snapshot), snapshot.TextVersion ?? "configuration.missing",
             EnrichmentServiceGate.Identity("tts", snapshot), snapshot.TtsServiceVersion ?? "configuration.missing");

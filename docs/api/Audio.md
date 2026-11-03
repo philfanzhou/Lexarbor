@@ -344,7 +344,13 @@ the captured opaque text-configuration version, classification basis and mandato
 human IPA constraint. It also carries `Control` and optional `SpeechPhonetic` for speech
 adapters. `Instructions` mode retains free-form pronunciation directions. In `Ipa` mode,
 the model must provide one complete spoken-target IPA and the hint must equal that IPA
-exactly, with no additional directions; nonempty human IPA must be copied exactly.
+exactly, with no additional directions. Human IPA remains stored verbatim; generation
+accepts Unicode normalization, surrounding whitespace and one `/.../` or `[...]`
+wrapper. Parenthesized sounds are optional (`ˈsteɪb(ə)l` permits `ˈsteɪbəl` and
+`ˈsteɪbl`); semicolon-separated readings permit any one listed reading. The concrete
+speech IPA, echoed constraint and any candidate must agree on the same complete
+reading. Malformed/nested optional notation or more than 64 variants is rejected.
+This generation-only rule does not change playback equivalence or source revisions.
 Invalid modes, conflicting IPA and extra directions reject the plan. Speech IPA does
 not grant permission to write a catalog field: audio-only and phrase plans can carry
 it with no writable IPA/POS candidates. An omitted mode retains `Instructions` for
@@ -365,9 +371,17 @@ missing applicable default IPA/POS can be returned as writable candidates, and o
 with `fieldsEnabled`. Existing nonempty human IPA remains an enforced speech constraint;
 a contradictory model candidate is rejected. Phrase plans return no writable IPA/POS.
 Default-reading uncertainty stops the item instead of choosing a meaning's special
-reading. Preparation expands `sb.`/`sth.`, resolves template slash alternatives and
+reading. Preparation expands `sb.`/`sth.` including teaching parentheses, speaks
+parallel slash alternatives with `or` (`a lot of/lots of` becomes `a lot of or lots of`), and
 provides pronunciation directions for proper names. Semantic quality is still subject
 to the separate real-supplier listening acceptance; fixed HTTP fixtures do not prove it.
+
+With audio enabled and that accent's TTS configured, preparation also validates the
+current adapter's request mapping without making a speech request. Its text-model
+request identifies the provider/model and required control mode; MiniMax requires
+whole-text IPA. An expanded template with human IPA that cannot safely be assigned
+to the changed text still stops. Native syntax checks remain enforced. When only
+fields are enabled, unavailable/unsupported TTS does not block independent field work.
 
 Requests and responses are limited to 64 KiB, including streamed responses without a
 length header. There are at most 100 meanings/position kinds and POS candidates;
@@ -407,10 +421,16 @@ There are no new HTTP parameters, manual batch actions or selection steps.
 Preparation is a separate durable step and budget for each explicit target/accent.
 It captures current catalog/position data, records dispatch through `beforeDispatch`,
 and saves the full successful envelope before proceeding. Content-only legacy plans
-require fresh preparation. A relevant text or applicable default-field permission
+require fresh preparation. A relevant text, own-accent TTS or applicable default-field permission
 change refreshes
 preparation; published unchanged own audio is retained. Audio rounds depend on the
 text version and their own TTS version, independently of the opposite accent.
+Legacy failed preparations retain their allowance/history until explicit single-step
+retry or a relevant catalog/text correction; upgrading alone does not revive them.
+Successful conditional manual unbinding notifies discovery after commit, so a newly
+missing default or explicit-specific audio target need not wait for a historical
+cursor sweep. Notification loss still recovers through bounded scans. Manual DELETE
+continues to retain the old objects and receipts.
 
 When field filling is enabled, preparation conditionally fills only missing default
 IPA and eligible empty meaning POS, in the final serialized SQLite writer transaction.

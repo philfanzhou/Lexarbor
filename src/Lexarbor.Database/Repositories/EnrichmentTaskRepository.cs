@@ -64,7 +64,11 @@ public sealed partial class EnrichmentTaskRepository(VocabularyDbContext context
                 return await GetCoreAsync(target.Id, CancellationToken.None);
             if (retryKey != null && await Rounds.AnyAsync(row => row.TargetId == target.Id && row.RetryKey == retryKey))
                 return await GetCoreAsync(target.Id, CancellationToken.None);
-            if (!invalidate && !missingEnvelope && retryKey == null && Version(previous) == input && previous.ConfigurationVersion == config && previous.State != EnrichmentState.Cancelled)
+            // Legacy failed preparations did not capture TTS capabilities. An
+            // upgrade alone must not revive them or replenish their allowance.
+            var sameConfiguration = previous.ConfigurationVersion == config || key.Step == EnrichmentStep.Prepare
+                && previous.State == EnrichmentState.Failed && config.StartsWith(previous.ConfigurationVersion + ":speech:", StringComparison.Ordinal);
+            if (!invalidate && !missingEnvelope && retryKey == null && Version(previous) == input && sameConfiguration && previous.State != EnrichmentState.Cancelled)
                 return await GetCoreAsync(target.Id, CancellationToken.None);
             if (previous.State is EnrichmentState.Pending or EnrichmentState.Running or EnrichmentState.Waiting)
                 await RoundQuery(target.Id, target.CurrentRound).ExecuteUpdateAsync(set => set
