@@ -61,6 +61,29 @@ public sealed partial class EnrichmentTargetExecutorTests
     }
 
     [Fact]
+    public async Task TtsSwitchDuringPreparation_RefreshesBeforeNewAdapterDispatchWithoutFailingTheTarget()
+    {
+        await using var f = await Fixture.Create(fields: false);
+        f.Http.BeforeTextResponse = async () =>
+        {
+            await f.Publish(new()
+            {
+                ["Enrichment:Tts:Provider"] = "MiniMaxNative",
+                ["Enrichment:Tts:Endpoint"] = "https://api.minimax.io/v1",
+                ["Enrichment:Tts:Model"] = "speech-2.8-hd"
+            });
+            f.Http.Ipa = true;
+        };
+        var task = (await f.Run(Key()))!;
+        Assert.Equal(EnrichmentState.Waiting, Round(task).State); Assert.Equal(0, f.Http.SpeechCalls);
+        Assert.DoesNotContain(task.Rounds, round => round.State == EnrichmentState.Failed);
+        f.Http.BeforeTextResponse = null; f.Clock.Now += 1001;
+        task = (await f.Run(Key()))!;
+        Assert.Equal(EnrichmentState.Succeeded, Round(task).State);
+        Assert.Equal(2, f.Http.TextCalls); Assert.Equal(1, f.Http.SpeechCalls);
+    }
+
+    [Fact]
     public async Task TtsCorrection_RefreshesFailedPreparationForOnlyItsOwnAccent()
     {
         await using var f = await Fixture.Create(fields: false, native: true, shared: true);

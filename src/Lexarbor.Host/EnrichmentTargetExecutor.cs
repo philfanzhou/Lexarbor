@@ -79,6 +79,9 @@ public sealed class EnrichmentTargetExecutor(IEnrichmentTaskRepository tasks, IE
         if (task.Target.Step == EnrichmentStep.Prepare) return await PrepareAsync(task, guard, token);
 
         var preparedRound = preparedTask?.Rounds.Single(round => round.Number == preparedTask.CurrentRound);
+        if (preparedRound?.State == EnrichmentState.Succeeded && preparedRound.ConfigurationVersion
+            != ConfigurationVersion(task.Target with { Step = EnrichmentStep.Prepare }, runtime.Current))
+            return await WaitAsync(guard, EnrichmentWaitReason.ConfigurationMissing, 1000, token);
         if (preparedRound?.State != EnrichmentState.Succeeded || EnrichmentPreparedPlans.Restore(preparedRound.Plan) is not { } ready)
         {
             if (preparedRound?.State == EnrichmentState.Failed)
