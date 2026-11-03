@@ -431,6 +431,11 @@ Successful conditional manual unbinding notifies discovery after commit, so a ne
 missing default or explicit-specific audio target need not wait for a historical
 cursor sweep. Notification loss still recovers through bounded scans. Manual DELETE
 continues to retain the old objects and receipts.
+The notification includes the exact word/meaning/accent Audio requirement. A
+bounded 256-target channel feeds task discovery independently of the word's
+bounded meaning page, so an unbound specific beyond the first 20 meanings is not
+discarded with that page. Duplicate targets are coalesced; queue overflow or lost
+wakeups retain the existing historical-scan fallback and do not roll back unbinding.
 
 When field filling is enabled, preparation conditionally fills only missing default
 IPA and eligible empty meaning POS, in the final serialized SQLite writer transaction.

@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 using Lexarbor.Domain.Services;
 using Lexarbor.Host.Configuration;
@@ -10,6 +11,14 @@ public sealed class EnrichmentNotifications : IEnrichmentChangeNotifier
 {
     private readonly Channel<string> _words = Channel.CreateBounded<string>(new BoundedChannelOptions(256)
     { FullMode = BoundedChannelFullMode.DropWrite, SingleReader = true, SingleWriter = false });
+    private readonly Channel<EnrichmentTargetKey> _audioTargets = Channel.CreateBounded<EnrichmentTargetKey>(new BoundedChannelOptions(256)
+    { FullMode = BoundedChannelFullMode.DropWrite, SingleReader = true, SingleWriter = false });
+    public void Notify(IReadOnlyList<string> wordIds, IReadOnlyList<EnrichmentTargetKey> audioTargets)
+    {
+        foreach (var target in audioTargets.Take(256)) _audioTargets.Writer.TryWrite(target);
+        // Enqueue the target before waking the worker through the word channel.
+        Notify(wordIds);
+    }
     public void Notify(IReadOnlyList<string> wordIds)
     {
         if (wordIds.Count == 0) _words.Writer.TryWrite("");
@@ -23,6 +32,12 @@ public sealed class EnrichmentNotifications : IEnrichmentChangeNotifier
         return result.ToArray();
     }
     public Task WaitAsync(CancellationToken token) => _words.Reader.WaitToReadAsync(token).AsTask();
+    public IReadOnlyList<EnrichmentTargetKey> DrainAudioTargets()
+    {
+        var result = new HashSet<EnrichmentTargetKey>();
+        for (var i = 0; i < 256 && _audioTargets.Reader.TryRead(out var target); i++) result.Add(target);
+        return result.ToArray();
+    }
 }
 
 public sealed class EnrichmentWorker(IServiceScopeFactory scopes, EnrichmentRuntimeConfiguration runtime,
@@ -58,14 +73,16 @@ public sealed class EnrichmentWorker(IServiceScopeFactory scopes, EnrichmentRunt
     {
         var settings = runtime.Current.Enrichment;
         if (!settings.FieldsEnabled && !settings.AudioEnabled)
-        { notifications.Drain(); return 0; }
+        { notifications.Drain(); notifications.DrainAudioTargets(); return 0; }
         string[] due;
         await using (var scope = scopes.CreateAsyncScope())
         {
             var repository = scope.ServiceProvider.GetRequiredService<IEnrichmentSchedulerRepository>();
             var tasks = scope.ServiceProvider.GetRequiredService<IEnrichmentTaskRepository>();
-            var targets = await repository.DiscoverAsync(settings.DiscoveryBatchSize, notifications.Drain(), token);
-            foreach (var key in targets)
+            var recentWords = notifications.Drain();
+            var audioTargets = notifications.DrainAudioTargets();
+            var targets = await repository.DiscoverAsync(settings.DiscoveryBatchSize, recentWords, token);
+            foreach (var key in audioTargets.Concat(targets).Distinct())
                 await tasks.EnsureAsync(key, EnrichmentTargetExecutor.ConfigurationVersion(key, runtime.Current),
                     clock.GetUtcNow().ToUnixTimeMilliseconds(), token, runtime.Current.Enrichment.FailureBudget);
             var gate = scope.ServiceProvider.GetRequiredService<EnrichmentServiceGate>();

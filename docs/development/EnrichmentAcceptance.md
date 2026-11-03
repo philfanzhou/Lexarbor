@@ -82,6 +82,12 @@ behavior; `ConditionalUnbind_WakesHostedGenerationWithoutWaitingForHistoricalSca
 uses HTTP and the hosted worker for both default and specific audio with a
 300-second scan interval. The administrator browser tests verify the three fixed
 preparation messages and existing single-step retry.
+The specific-unbind regression also uses a 25-meaning word, 1,000 earlier historical
+meanings and 25 newer unrelated meanings with the default batch of 20. Only the
+last specific binding is removed; the exact notification must regenerate it while
+the earlier 24 bindings and opposite accent remain. `EnrichmentNotificationTests`
+checks exact-target deduplication and the bounded 256-target lane; transaction
+tests check that exact notifications are absent on rollback and failed conditions.
 
 These are synthetic protocol/control-flow results, not a reconstruction of the
 original `stable`/`accident` failures. After upgrading, a maintainer can retry an

@@ -139,9 +139,10 @@ public sealed class EnrichmentEndToEndTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task ConditionalUnbind_WakesHostedGenerationWithoutWaitingForHistoricalScan(bool meaning)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task ConditionalUnbind_WakesHostedGenerationWithoutWaitingForHistoricalScan(bool meaning, bool beyondFirstPage)
     {
         var root = VocabularyWebApplicationFactory.CreateGateSafeDirectory("enrichment-unbind-" + Guid.NewGuid().ToString("N"));
         File.WriteAllText(Path.Combine(root, "appsettings.json"), "{}");
@@ -156,6 +157,7 @@ public sealed class EnrichmentEndToEndTests
                 await Eventually(async () => (await host.Play("en-GB", true))["source"]?.GetValue<string>() == "meaning");
             }
             await host.Settings(new { enrichment = new { scanIntervalSeconds = 300 } });
+            if (beyondFirstPage) await host.SeedMeaningDiscoveryPages();
             var old = (await host.Play("en-GB", meaning))["assetId"]!.GetValue<string>();
             var us = (await host.Play("en-US"))["assetId"]!.GetValue<string>();
             var calls = network.SpeechCount;
@@ -264,6 +266,36 @@ public sealed class EnrichmentEndToEndTests
             var source = await db.VocabularyAudioBindings.SingleAsync(b => b.AssetId == asset, Ct);
             db.VocabularyAudioBindings.Add(new() { Id = "legacy", WordId = "word", MeaningId = "meaning", Locale = AudioLocale.EnGb, AssetId = asset, SourceRevision = source.SourceRevision });
             await db.SaveChangesAsync(Ct);
+        }
+        public async Task SeedMeaningDiscoveryPages()
+        {
+            using var scope = App.Services.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+            await new Lexarbor.Database.Repositories.UnitOfWork(db).ExecuteInTransactionAsync(async () =>
+            {
+                var defaults = await db.VocabularyAudioBindings.Where(b => b.WordId == "word" && b.MeaningId == null).ToArrayAsync(Ct);
+                var specific = await db.VocabularyAudioBindings.SingleAsync(b => b.WordId == "word" && b.MeaningId == "meaning", Ct);
+                // "meaning" is the 25th specific; the earlier 24 all retain audio.
+                for (var i = 0; i < 24; i++)
+                {
+                    var id = $"extra-{i:D2}";
+                    db.VocabularyMeanings.Add(new() { Id = id, VocabularyId = "word", BookId = "book", Meaning = id, PartOfSpeech = "n.", PhoneticUk = "lɛd" });
+                    db.VocabularyAudioBindings.Add(new() { Id = id, WordId = "word", MeaningId = id, Locale = AudioLocale.EnGb, AssetId = specific.AssetId, SourceRevision = specific.SourceRevision });
+                }
+                foreach (var id in new[] { "history", "newest" })
+                {
+                    db.Vocabularies.Add(new() { Id = id, Word = id, PhoneticUk = "liːd", PhoneticUs = "liːd" });
+                    foreach (var binding in defaults)
+                        db.VocabularyAudioBindings.Add(new() { Id = id + binding.Locale, WordId = id, Locale = binding.Locale, AssetId = binding.AssetId, SourceRevision = binding.SourceRevision });
+                }
+                for (var i = 0; i < 1000; i++)
+                    db.VocabularyMeanings.Add(new() { Id = $"0history-{i:D4}", VocabularyId = "history", BookId = "book", Meaning = $"history {i}", PartOfSpeech = "n." });
+                for (var i = 0; i < 25; i++)
+                    db.VocabularyMeanings.Add(new() { Id = $"znewest-{i:D2}", VocabularyId = "newest", BookId = "book", Meaning = $"newest {i}", PartOfSpeech = "n." });
+                var cursor = await db.EnrichmentDiscovery.SingleAsync(c => c.Id == "meanings", Ct);
+                cursor.Cursor = ""; cursor.UpperBound = "zzzz";
+                await db.SaveChangesAsync(Ct);
+                return 0;
+            }, Ct);
         }
         public async Task<bool> CleanupObserved(string asset)
         { using var scope = App.Services.CreateScope(); return await scope.ServiceProvider.GetRequiredService<VocabularyDbContext>().AudioInvalidations.AnyAsync(a => a.AssetId == asset && a.State == AudioInvalidationState.Observed, Ct); }

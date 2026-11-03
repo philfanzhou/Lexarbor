@@ -237,7 +237,7 @@ public sealed class AudioUploadRepository(VocabularyDbContext context, TimeProvi
         if (target.Value.AssetId != expectedAssetId) return AudioUnbindDisposition.Conflict;
         await context.VocabularyAudioBindings.Where(row => row.WordId == wordId && row.MeaningId == meaningId && row.Locale == locale
             && row.AssetId == expectedAssetId).ExecuteDeleteAsync();
-        context.EnrichmentWordChanged(wordId);
+        context.EnrichmentAudioUnbound(wordId, meaningId, locale);
         return AudioUnbindDisposition.Removed;
     }, cancellationToken);
 
