@@ -143,7 +143,7 @@ public sealed class PronunciationPreparationTests
     [Theory]
     [InlineData("sb.", "somebody")]
     [InlineData("sth.", "something")]
-    [InlineData("give sb. sth./a hand", "give somebody a hand")]
+    [InlineData("give sb. sth./a hand", "give somebody something or give somebody a hand")]
     public async Task TemplatePreparation_ReturnsOnlyExpandedSpeech(string word, string spoken)
     {
         using var fixture = new Fixture();

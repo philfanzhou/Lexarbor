@@ -8,6 +8,9 @@ const reasons: Record<string, string> = {
   Retry: '等待下次自动尝试', LeaseExpired: '执行租约已过期，等待恢复'
 }
 const errors: Record<string, string> = {
+  'text.phonetic_constraint_mismatch': '准备读音与词库音标不符，请核对音标后重试',
+  'text.template_unexpanded': '朗读模板未完整展开，请重试发音准备',
+  'text.pronunciation_control_unsupported': '准备计划无法表达所需读音，请核对语音配置后重试',
   'provider.capability_unsupported': '服务或模型不支持所需读音，请修正配置；不会忽略约束生成',
   'provider.configuration_rejected': '服务拒绝配置或凭据，请修正服务配置',
   'provider.throttled': '供应商限流，不扣失败额度',

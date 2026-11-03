@@ -70,6 +70,31 @@ successfully do not substitute for either new scenario.
   when rolling back. A database backup alone may reference an object already
   removed under exact specific-phonetic authority.
 
+## Dictionary notation and template regression
+
+`PronunciationNotationSpeechTests` covers both accents for optional sounds, IPA
+wrappers/alternatives, matching `accident` IPA, complete expanded template IPA,
+persisted-plan restoration, and refusal of conflicting/malformed readings with no
+TTS dispatch. `EnrichmentPronunciationRecoveryTests` covers safe diagnostics,
+explicit legacy retry, refresh of locally rejected plans and own-accent TTS changes.
+`EnrichmentSchedulerRepositoryTests` verifies commit/rollback/notification-failure
+behavior; `ConditionalUnbind_WakesHostedGenerationWithoutWaitingForHistoricalScan`
+uses HTTP and the hosted worker for both default and specific audio with a
+300-second scan interval. The administrator browser tests verify the three fixed
+preparation messages and existing single-step retry.
+The specific-unbind regression also uses a 25-meaning word, 1,000 earlier historical
+meanings and 25 newer unrelated meanings with the default batch of 20. Only the
+last specific binding is removed; the exact notification must regenerate it while
+the earlier 24 bindings and opposite accent remain. `EnrichmentNotificationTests`
+checks exact-target deduplication and the bounded 256-target lane; transaction
+tests check that exact notifications are absent on rollback and failed conditions.
+
+These are synthetic protocol/control-flow results, not a reconstruction of the
+original `stable`/`accident` failures. After upgrading, a maintainer can retry an
+old failed preparation once, unbind the sample audio, and listen to the new result.
+Wrong actual IPA must fail explicitly; a successful response is not required when
+the model violates the catalog constraint.
+
 ## Pending real listening
 
 Use a disposable catalog and only configuration authorized for this test. Never
@@ -87,7 +112,7 @@ Complete every row for **MiniMaxNative** and for one explicitly supported
 | Ordinary word (for example `book`) | Pending authorized preparation | Not listened | Pending |
 | Polyphonic word (`lead`, distinct default and explicit meaning IPA) | Pending authorized preparation; include explicit IPA | Not listened | Pending |
 | `give sb. sth.` | Must expand somebody/something | Not listened | Pending |
-| Slash template (`do/does sth.`) | One natural expanded alternative, no slash | Not listened | Pending |
+| Slash alternatives (`a lot of/lots of`) | `a lot of or lots of`, whole-text IPA, no slash | Not listened | Pending |
 | Proper name (maintainer-selected known pronunciation) | Record intended pronunciation before testing | Not listened | Pending |
 
 Listen to the actual generated result. It must speak the prepared text, follow

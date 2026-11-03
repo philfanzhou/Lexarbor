@@ -107,12 +107,15 @@ public sealed class PronunciationSpeechClient(IHttpClientFactory clients, Enrich
         && Optional(plan.SpeechPhonetic, 512) && Enum.IsDefined(plan.Control)
         && (plan.Control == PronunciationControl.Instructions ? plan.SpeechPhonetic == null
             : Bounded(plan.SpeechPhonetic, 512) && plan.Content.PronunciationHint == plan.SpeechPhonetic
-                && (Clean(plan.RequiredPhonetic) == null || Clean(plan.RequiredPhonetic) == plan.SpeechPhonetic)
-                && (Clean(plan.Content.Phonetic) == null || Clean(plan.Content.Phonetic) == plan.SpeechPhonetic))
+                && (Clean(plan.RequiredPhonetic) == null || PronunciationPhonetics.Allows(plan.RequiredPhonetic!, plan.SpeechPhonetic!))
+                && (Clean(plan.Content.Phonetic) == null || PronunciationPhonetics.Allows(plan.Content.Phonetic!, plan.SpeechPhonetic!)))
         && Clean(plan.RequiredPhonetic) == Clean(plan.Input.Phonetic)
-        && (Clean(plan.RequiredPhonetic) == null || Clean(plan.Content.Phonetic) == null || Clean(plan.RequiredPhonetic) == Clean(plan.Content.Phonetic))
+        && (Clean(plan.RequiredPhonetic) == null || Clean(plan.Content.Phonetic) == null
+            || (plan.Control == PronunciationControl.Ipa
+                ? PronunciationPhonetics.Allows(plan.Content.Phonetic!, plan.SpeechPhonetic!)
+                : PronunciationPhonetics.ShareReading(plan.RequiredPhonetic!, plan.Content.Phonetic!)))
         && plan.InputVersion.SourceRevision == AudioSelectionService.ComputeRevision(plan.Input)
-        && !plan.Content.SpokenText.Contains('/') && !Regex.IsMatch(plan.Content.SpokenText, @"\b(?:sb|sth)\.", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        && OpenAiCompatiblePronunciationPreparationClient.TemplateExpanded(plan.Input.Word, plan.Content.SpokenText);
     private static bool Bounded(string? text, int length) => !string.IsNullOrWhiteSpace(text) && text.Length <= length && !text.Any(char.IsControl);
     private static bool Optional(string? text, int length) => text == null || text.Length <= length && !text.Any(char.IsControl);
     private static string? Clean(string? text) => string.IsNullOrWhiteSpace(text) ? null : text.Trim();

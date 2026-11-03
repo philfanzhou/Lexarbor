@@ -249,11 +249,62 @@ public sealed class EnrichmentSchedulerRepositoryTests
         Assert.Empty(await file.RowsAsync("PRAGMA foreign_key_check"));
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("meaning")]
+    public async Task Unbind_NotifiesAfterCommitOnly_AndNotificationFailureStillAllowsDiscovery(string? meaning)
+    {
+        using var file = new AudioTestDatabase();
+        await using (var seed = file.Open())
+        {
+            await seed.Database.MigrateAsync(Ct); await AudioTestDatabase.SeedAsync(seed);
+            if (meaning != null) await seed.VocabularyMeanings.Where(m => m.Id == meaning).ExecuteUpdateAsync(s => s.SetProperty(m => m.PhoneticUk, "uk"), Ct);
+            seed.AudioAssets.Add(AudioTestDatabase.Asset("asset"));
+            seed.VocabularyAudioBindings.Add(AudioTestDatabase.Binding("asset", AudioLocale.EnGb, meaning, AudioTestDatabase.Hash));
+            await seed.SaveChangesAsync(Ct);
+        }
+        var notifier = new Notifier(); var fault = new FailUnbindCommit();
+        await using var db = new VocabularyDbContext(new DbContextOptionsBuilder<VocabularyDbContext>()
+            .UseSqlite($"Data Source={file.PathName};Pooling=False").AddInterceptors(fault).Options, notifier);
+        var repository = new AudioUploadRepository(db);
+        Assert.Equal(AudioUnbindDisposition.Conflict, await repository.UnbindAsync("word", meaning, AudioLocale.EnGb, "wrong", Ct));
+        Assert.Equal(AudioUnbindDisposition.NotFound, await repository.UnbindAsync("absent", meaning, AudioLocale.EnGb, "asset", Ct));
+        Assert.Equal(0, notifier.Calls);
+        Assert.Empty(notifier.AudioTargets);
+        fault.Enabled = true;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => repository.UnbindAsync("word", meaning, AudioLocale.EnGb, "asset", Ct));
+        Assert.Equal(0, notifier.Calls); Assert.Single(await db.VocabularyAudioBindings.ToListAsync(Ct));
+        Assert.Empty(notifier.AudioTargets);
+        fault.Enabled = false; notifier.Throw = true;
+        Assert.Equal(AudioUnbindDisposition.Removed, await repository.UnbindAsync("word", meaning, AudioLocale.EnGb, "asset", Ct));
+        Assert.Equal(1, notifier.Calls); Assert.Equal("word", Assert.Single(notifier.Words));
+        Assert.Equal(new("word", meaning, AudioLocale.EnGb, EnrichmentStep.Audio), Assert.Single(notifier.AudioTargets));
+        Assert.Empty(await db.VocabularyAudioBindings.ToListAsync(Ct)); Assert.Single(await db.AudioAssets.ToListAsync(Ct));
+        Assert.Contains(new("word", meaning, AudioLocale.EnGb, EnrichmentStep.Audio),
+            await new EnrichmentSchedulerRepository(db).DiscoverAsync(100, [], Ct));
+        Assert.Equal(AudioUnbindDisposition.NotFound, await repository.UnbindAsync("word", meaning, AudioLocale.EnGb, "asset", Ct));
+        Assert.Equal(1, notifier.Calls);
+    }
+
+    private sealed class FailUnbindCommit : DbTransactionInterceptor
+    {
+        public bool Enabled;
+        public override ValueTask<InterceptionResult> TransactionCommittingAsync(DbTransaction transaction, TransactionEventData eventData,
+            InterceptionResult result, CancellationToken cancellationToken = default)
+        {
+            if (Enabled) throw new InvalidOperationException("Synthetic unbind commit failure.");
+            return ValueTask.FromResult(result);
+        }
+    }
+
     private sealed class FixedClock : TimeProvider
     { public long Now = 1; public override DateTimeOffset GetUtcNow() => DateTimeOffset.FromUnixTimeMilliseconds(Now); }
     private sealed class Notifier : IEnrichmentChangeNotifier
     {
         public int Calls; public bool Throw; public IReadOnlyList<string> Words = [];
+        public IReadOnlyList<EnrichmentTargetKey> AudioTargets = [];
+        public void Notify(IReadOnlyList<string> wordIds, IReadOnlyList<EnrichmentTargetKey> audioTargets)
+        { AudioTargets = audioTargets; Notify(wordIds); }
         public void Notify(IReadOnlyList<string> wordIds) { Calls++; Words = wordIds; if (Throw) throw new InvalidOperationException("Synthetic notifier failure."); }
     }
     private sealed class FailServiceUpdate : DbCommandInterceptor

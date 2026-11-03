@@ -69,6 +69,11 @@ seven throttled requests may still have zero consumed failures. A failed exhaust
 round stays `Failed` when its service recovers. Safe errors distinguish rejected
 provider configuration/capabilities, preparation/field failures, and generic
 failures; arbitrary stored error strings are replaced with fixed safe summaries.
+Preparation errors preserve `text.phonetic_constraint_mismatch` (reading violates
+the catalog constraint), `text.template_unexpanded` (unresolved speech template or
+native text syntax), and `text.pronunciation_control_unsupported` (the captured
+adapter cannot express the plan). They fail only that target; they neither expose
+model responses nor pause the shared service as an outage.
 
 `cleanup` gives independent `waiting`, `running`, `observed`, `attempts`,
 `nextAttemptAtUnixMs`, and safe `errorCode`. Detail cleanup history contains the
@@ -127,3 +132,9 @@ existing input-version rules to advance a dependent field round again. The retry
 receipt identifies the round created by the action, not a promise that it remains
 current forever. Configuration correction and ordinary discovery still work
 without this endpoint; retry never enables generation or starts a manual batch.
+
+Retrying a legacy `Audio` failure with `tts.capability_unsupported` or
+`tts.prepared_plan_required` also refreshes its preparation in that transaction;
+network/audio-publication failures retain successful preparation. Old failed
+preparations may require one explicit retry after upgrading. The upgrade does not
+bulk-reset exhausted work or regenerate completed audio.

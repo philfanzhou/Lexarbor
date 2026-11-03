@@ -1,4 +1,5 @@
 using Lexarbor.Database.Entities;
+using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 using Microsoft.EntityFrameworkCore;
 using ServiceMantle.Persistence.Relational.DataProtection;
@@ -10,6 +11,7 @@ public class VocabularyDbContext : DbContext
 {
     private readonly IEnrichmentChangeNotifier? _enrichmentChanges;
     private readonly HashSet<string> _changedWords = [];
+    private readonly HashSet<EnrichmentTargetKey> _changedAudioTargets = [];
     private bool _catalogChanged;
     public VocabularyDbContext(DbContextOptions<VocabularyDbContext> options, IEnrichmentChangeNotifier? enrichmentChanges = null) : base(options)
     {
@@ -32,14 +34,20 @@ public class VocabularyDbContext : DbContext
     internal void FinishEnrichmentChanges(bool committed)
     {
         var words = _changedWords.ToArray();
+        var audioTargets = _changedAudioTargets.ToArray();
         var changed = _catalogChanged;
-        _changedWords.Clear(); _catalogChanged = false;
+        _changedWords.Clear(); _changedAudioTargets.Clear(); _catalogChanged = false;
         // A wakeup cannot reverse an already committed business operation.
         if (committed && changed)
-            try { _enrichmentChanges?.Notify(words); } catch (Exception) { }
+            try { _enrichmentChanges?.Notify(words, audioTargets); } catch (Exception) { }
     }
     internal void EnrichmentWordChanged(string wordId)
     { _catalogChanged = true; if (_changedWords.Count < 256) _changedWords.Add(wordId); }
+    internal void EnrichmentAudioUnbound(string wordId, string? meaningId, AudioLocale locale)
+    {
+        EnrichmentWordChanged(wordId);
+        if (_changedAudioTargets.Count < 256) _changedAudioTargets.Add(new(wordId, meaningId, locale, EnrichmentStep.Audio));
+    }
 
     public DbSet<VocabularyEntity> Vocabularies { get; set; } = null!;
     public DbSet<VocabularyBookEntity> VocabularyBooks { get; set; } = null!;

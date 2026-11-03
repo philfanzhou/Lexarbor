@@ -34,14 +34,20 @@ public sealed class OpenAiCompatiblePronunciationPreparationClient(
         "pronunciationControl (ipa or instructions), speechPhonetic (complete spokenText IPA or null). " +
         "Use ipa mode only when all reading directions can be expressed by one IPA for the complete spokenText; " +
         "then pronunciationHint must equal speechPhonetic exactly, without extra directions. " +
-        "speechPhonetic must copy nonempty requiredPhonetic exactly; never change a human reading. " +
+        "speechPhonetic must select one complete reading allowed by requiredPhonetic; never invent or change a human reading. " +
+        "Dictionary /.../ or [...] wrappers and surrounding whitespace are notation. Parenthesized IPA sounds are optional: include or omit them. " +
+        "Semicolon-separated IPA readings are alternatives: select one, never combine them. Return speechPhonetic as concrete IPA without wrappers, parentheses or semicolons. " +
         "Speech IPA is pronunciation control, not permission to write a catalog field, including in audio-only and phrase mode. " +
         "Otherwise use instructions mode and speechPhonetic=null; do not discard directions just to fit ipa mode. " +
         "Explicit entryKind wins. For mixed positions follow the supplied writable permissions. Never invent a position, meaning or specific phonetic. " +
-        "The target's nonempty requiredPhonetic must be copied exactly and obeyed, never replaced with another reading. " +
+        "Echo requiredPhonetic using its original notation or the same selected allowed reading, and obey it. " +
+        "If speech.requiredControl is ipa, provide IPA for the entire expanded spokenText with no additional hint directions; " +
+        "if those constraints cannot be expressed safely, set certain=false. Do not discard human IPA to support an expansion. " +
         "For a default target choose only a reliable headword default reading; never substitute one meaning's special reading. " +
         "If uncertain about the default reading, a proper name, classification, template expansion or any pronunciation constraint, set certain=false. " +
-        "Expand sb. to somebody and sth. to something. Resolve template slash alternatives semantically into one natural spoken form; " +
+        "Expand sb. to somebody and sth. to something, including parenthesized placeholders. Remove teaching parentheses from speech. " +
+        "Resolve template slash alternatives semantically, speaking both natural alternatives joined by or and preserving shared context. " +
+        "For example a lot of/lots of becomes a lot of or lots of; It took (sb.) some time to do sth. becomes It took somebody some time to do something. " +
         "do not read slashes, abbreviations, instructions or commentary aloud. spokenText contains only what to speak, " +
         "pronunciationHint contains any proper-name/reading/accent directions. Do not add definitions or examples to spokenText. " +
         "Return candidates only for the supplied writable missing fields. Phrase targets have no writable IPA/POS. " +
@@ -79,6 +85,12 @@ public sealed class OpenAiCompatiblePronunciationPreparationClient(
             locale = input.Locale.ToCode(),
             target = input.IsMeaning ? "meaning" : "default",
             requiredPhonetic = Clean(input.Phonetic),
+            speech = snapshot.Enrichment.AudioEnabled ? new
+            {
+                provider = snapshot.Enrichment.Provider,
+                model = snapshot.Enrichment.Tts.Model,
+                requiredControl = snapshot.Enrichment.Provider == "MiniMaxNative" ? "ipa" : "instructions"
+            } : null,
             entryKind = explicitKind,
             meanings = request.Meanings.Select(m => new { meaningId = m.Meaning.MeaningId, m.Meaning.Meaning, m.Meaning.PartOfSpeech, m.PositionKinds }),
             targetMeaningId = request.TargetMeaning?.MeaningId,
@@ -137,7 +149,7 @@ public sealed class OpenAiCompatiblePronunciationPreparationClient(
                 return Result(PronunciationPreparationOutcome.Uncertain, "pronunciation_uncertain", true);
             if (!completion.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.String)
                 return Result(PronunciationPreparationOutcome.InvalidPlan, "invalid_response", true);
-            return Validate(content.GetString()!, request, input, snapshot.TextVersion!, explicitKind, phoneticWritable, posWritable, settings.ApiKey);
+            return Validate(content.GetString()!, request, input, snapshot, explicitKind, phoneticWritable, posWritable, settings.ApiKey);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         { return Result(PronunciationPreparationOutcome.ServiceFailure, "service_timeout", true); }
@@ -148,7 +160,7 @@ public sealed class OpenAiCompatiblePronunciationPreparationClient(
     }
 
     private static PronunciationPreparationResult Validate(string content, PronunciationPreparationRequest request,
-        AudioGenerationInput input, string version, string? explicitKind, bool phoneticWritable, string[] posWritable, string apiKey)
+        AudioGenerationInput input, EnrichmentConfigurationSnapshot snapshot, string? explicitKind, bool phoneticWritable, string[] posWritable, string apiKey)
     {
         using var document = JsonDocument.Parse(content, new JsonDocumentOptions { MaxDepth = 8 });
         if (!UniqueProperties(document.RootElement) || ContainsCredential(document.RootElement, apiKey))
@@ -160,11 +172,15 @@ public sealed class OpenAiCompatiblePronunciationPreparationClient(
             || !Bounded(plan.SpokenText, 4096) || !Bounded(plan.PronunciationHint, 1024)
             || !Optional(plan.RequiredPhonetic, 512) || !Optional(plan.Phonetic, 512)
             || plan.PartsOfSpeech == null || plan.PartsOfSpeech.Length > 100
-            || explicitKind != null && plan.EntryKind != explicitKind
-            || Clean(plan.RequiredPhonetic) != Clean(input.Phonetic)
-            || !string.IsNullOrWhiteSpace(input.Phonetic) && Clean(plan.Phonetic) is { } candidate && candidate != Clean(input.Phonetic)
-            || !TemplateExpanded(request.Word.Word, plan.SpokenText))
+            || explicitKind != null && plan.EntryKind != explicitKind)
             return Result(PronunciationPreparationOutcome.InvalidPlan, "invalid_plan", true);
+        var required = Clean(input.Phonetic);
+        var echo = Clean(plan.RequiredPhonetic);
+        if (required == null ? echo != null : echo == null || !PronunciationPhonetics.ShareReading(
+            Clean(plan.Phonetic) is { } candidate ? [required, echo, candidate] : [required, echo]))
+            return Result(PronunciationPreparationOutcome.InvalidPlan, "phonetic_constraint_mismatch", true);
+        if (!TemplateExpanded(request.Word.Word, plan.SpokenText))
+            return Result(PronunciationPreparationOutcome.InvalidPlan, "template_unexpanded", true);
         // Ignore unsolicited field candidates. These permissions are determined
         // from captured catalog data and switches, never model claims.
         var parts = new List<EnrichmentMeaningPartOfSpeech>();
@@ -177,24 +193,29 @@ public sealed class OpenAiCompatiblePronunciationPreparationClient(
             if (plan.EntryKind != "phrase" && posWritable.Contains(part.MeaningId, StringComparer.Ordinal))
                 parts.Add(new(part.MeaningId, part.PartOfSpeech.Trim()));
         }
-        var required = Clean(input.Phonetic);
         var control = plan.PronunciationControl switch { null or "instructions" => PronunciationControl.Instructions, "ipa" => PronunciationControl.Ipa, _ => (PronunciationControl?)null };
-        var speechPhonetic = Clean(plan.SpeechPhonetic);
+        var speechPhonetic = Clean(plan.SpeechPhonetic) is { } rawSpeech ? PronunciationPhonetics.Concrete(rawSpeech) : null;
         if (control == null || !Optional(plan.SpeechPhonetic, 512)
-            || control == PronunciationControl.Instructions && speechPhonetic != null
-            || control == PronunciationControl.Ipa && (speechPhonetic == null || Clean(plan.PronunciationHint) != speechPhonetic
-                || required != null && required != speechPhonetic
-                || phoneticWritable && plan.EntryKind != "phrase" && Clean(plan.Phonetic) is { } speechCandidate && speechCandidate != speechPhonetic))
+            || control == PronunciationControl.Instructions && Clean(plan.SpeechPhonetic) != null
+            || control == PronunciationControl.Ipa && (speechPhonetic == null || PronunciationPhonetics.Concrete(plan.PronunciationHint) != speechPhonetic))
             return Result(PronunciationPreparationOutcome.InvalidPlan, "invalid_plan", true);
-        var hint = Clean(plan.PronunciationHint);
+        if (control == PronunciationControl.Ipa && (required != null && (!PronunciationPhonetics.Allows(required, speechPhonetic!)
+                || !PronunciationPhonetics.Allows(echo!, speechPhonetic!))
+            || (required != null || phoneticWritable && plan.EntryKind != "phrase")
+                && Clean(plan.Phonetic) is { } speechCandidate && !PronunciationPhonetics.Allows(speechCandidate, speechPhonetic!)))
+            return Result(PronunciationPreparationOutcome.InvalidPlan, "phonetic_constraint_mismatch", true);
+        var hint = control == PronunciationControl.Ipa ? speechPhonetic : Clean(plan.PronunciationHint);
         if (required != null && control == PronunciationControl.Instructions)
             hint = $"Required IPA ({input.Locale.ToCode()}): {required}." + (hint == null ? "" : " " + hint);
         var stored = new EnrichmentPlan(plan.SpokenText.Trim(), hint,
             phoneticWritable && plan.EntryKind != "phrase" ? Clean(plan.Phonetic) : null, parts.ToArray(), explicitKind == null ? plan.EntryKind : null);
         if (JsonSerializer.Serialize(stored).Length > 16384)
             return Result(PronunciationPreparationOutcome.InvalidPlan, "plan_too_large", true);
-        return new(PronunciationPreparationOutcome.Ready,
-            new(stored, input, request.InputVersion, version, plan.EntryKind, plan.ClassificationBasis.Trim(), required, speechPhonetic, control.Value), RequestMade: true);
+        var prepared = new PreparedPronunciation(stored, input, request.InputVersion, snapshot.TextVersion!, plan.EntryKind,
+            plan.ClassificationBasis.Trim(), required, speechPhonetic, control.Value);
+        if (SpeechProviderCapabilities.PreparationError(prepared, snapshot) is { } error)
+            return Result(PronunciationPreparationOutcome.InvalidPlan, error, true);
+        return new(PronunciationPreparationOutcome.Ready, prepared, RequestMade: true);
     }
 
     private static string? ExplicitKind(PronunciationPreparationRequest request)
@@ -227,12 +248,24 @@ public sealed class OpenAiCompatiblePronunciationPreparationClient(
         _ => false
     };
     private static bool PhoneticInput(string? value) => value == null || value.Length <= 512 && (string.IsNullOrWhiteSpace(value) || !value.Any(char.IsControl));
-    private static bool TemplateExpanded(string headword, string spoken)
+    internal static bool TemplateExpanded(string headword, string spoken)
     {
         const RegexOptions options = RegexOptions.IgnoreCase | RegexOptions.CultureInvariant;
         if (Regex.IsMatch(spoken, @"\b(?:sb|sth)\.", options)) return false;
-        if (headword.Contains('/')) return !spoken.Contains('/');
-        // With no slash alternative, a placeholder cannot silently disappear.
+        if (spoken.Contains('/') || (headword.Contains('/') && !Regex.IsMatch(spoken, @"\bor\b", options))) return false;
+        if (headword.Contains('/'))
+        {
+            static string Words(string value) => Regex.Replace(Regex.Replace(Regex.Replace(value, @"\bsb\.", "somebody", options),
+                @"\bsth\.", "something", options), @"[^\p{L}\p{M}\p{N}']+", " ").Trim();
+            var normalized = " " + Words(spoken).ToLowerInvariant() + " ";
+            foreach (var alternative in headword.Split('/'))
+            {
+                var words = Words(alternative).ToLowerInvariant();
+                if (words.Length == 0 || !normalized.Contains(" " + words + " ", StringComparison.Ordinal)) return false;
+            }
+        }
+        if (headword.IndexOfAny(['(', ')']) >= 0 && spoken.IndexOfAny(['(', ')']) >= 0) return false;
+        // Placeholders must survive expansion, including slash alternatives.
         return (!Regex.IsMatch(headword, @"\bsb\.", options) || Regex.IsMatch(spoken, @"\bsomebody\b", options))
             && (!Regex.IsMatch(headword, @"\bsth\.", options) || Regex.IsMatch(spoken, @"\bsomething\b", options));
     }

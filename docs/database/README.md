@@ -707,6 +707,21 @@ publication. These semantics persist in the existing database across restarts;
 service recovery alone never resets an exhausted round. Existing consistent
 configuration/database/object backup and newer-schema startup policies apply.
 
+Provider-aware preparation adds no migration or new tables. Its configuration
+identity includes its own accent's TTS settings when audio is enabled. Legacy
+failed preparations with the same catalog/text inputs retain their old round and
+allowance until an explicit retry. Single-step retry of locally rejected legacy
+Audio plans also refreshes Prepare atomically; transport failures retain it.
+Generation accepts bounded optional/alternative dictionary IPA notation while
+preserving the original input, persisted envelope and playback source revision.
+Successful conditional manual unbinding marks its word for the existing post-commit
+notification; rollback clears that mark and notification failure leaves the durable
+unbinding intact for cursor discovery. It authorizes no object deletion.
+The post-commit mark also carries the exact Audio target (word, optional meaning,
+accent). Its bounded notification lane bypasses the word-meaning discovery page
+without changing task budgets or adding a durable queue/schema; a lost/overflowed
+notification still uses the existing bounded historical discovery.
+
 ## Integration acceptance and retained recovery state
 
 The [acceptance map](../development/EnrichmentAcceptance.md) identifies historical

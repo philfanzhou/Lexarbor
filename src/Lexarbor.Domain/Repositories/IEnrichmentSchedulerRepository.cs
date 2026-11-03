@@ -3,7 +3,13 @@ using Lexarbor.Domain.Models;
 namespace Lexarbor.Domain.Repositories;
 
 // Best-effort wakeups only. Durable discovery remains authoritative.
-public interface IEnrichmentChangeNotifier { void Notify(IReadOnlyList<string> wordIds); }
+public interface IEnrichmentChangeNotifier
+{
+    void Notify(IReadOnlyList<string> wordIds);
+    // Exact audio requirements bypass the bounded word/meaning discovery page.
+    // Existing notification consumers retain their word-only fallback.
+    void Notify(IReadOnlyList<string> wordIds, IReadOnlyList<EnrichmentTargetKey> audioTargets) => Notify(wordIds);
+}
 
 public sealed record EnrichmentServicePolicy(int FailureThreshold, int PauseSeconds, int MaxPauseSeconds,
     int ThrottleSeconds, int MaxThrottleSeconds);

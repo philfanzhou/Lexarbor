@@ -31,10 +31,11 @@ public sealed partial class EnrichmentTaskRepository
             var renewed = await EnsureCoreAsync(key, configuration.Version(key), now, configuration.FailureBudget, retryKey, true);
             if (renewed == null || renewed.CurrentRound != expectedRound + 1)
                 throw new InvalidOperationException("The retry round could not be created.");
-            if (key.Step == EnrichmentStep.Fields)
+            if (key.Step == EnrichmentStep.Fields || key.Step == EnrichmentStep.Audio
+                && current.ErrorCode is "tts.capability_unsupported" or "tts.prepared_plan_required")
             {
-                // Fields failures can be the RESULT of a successful preparation
-                // with missing/equivalent candidates. Never reuse that old plan.
+                // Locally rejected legacy speech plans also need fresh preparation;
+                // transport failures retain successful preparation work.
                 var prepare = key with { Step = EnrichmentStep.Prepare };
                 await EnsureCoreAsync(prepare, configuration.Version(prepare), now, configuration.FailureBudget, null, true);
             }
