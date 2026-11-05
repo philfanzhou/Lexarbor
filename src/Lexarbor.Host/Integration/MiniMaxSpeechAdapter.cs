@@ -19,10 +19,17 @@ internal static class MiniMaxSpeechAdapter
             stream = false,
             output_format = "hex",
             language_boost = "English",
-            voice_setting = new { voice_id = voice.Voice, speed = voice.Speed },
+            voice_setting = new
+            {
+                voice_id = voice.Voice,
+                speed = voice.Speed,
+                pitch = voice.Pitch,
+                vol = voice.Volume,
+                emotion = voice.Emotion.Length == 0 ? null : voice.Emotion
+            },
             pronunciation_dict = new { tone = new[] { plan.Content.SpokenText + "/(" + ipa + ")" } },
             audio_setting = new { format = "mp3", sample_rate = 32000, bitrate = 128000, channel = 1 }
-        });
+        }, new JsonSerializerOptions { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull });
     }
 
     public static PronunciationSpeechResult Decode(byte[] bytes, TimeSpan? retry)

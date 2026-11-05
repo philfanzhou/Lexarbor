@@ -6,12 +6,15 @@ using Lexarbor.Host.Integration;
 
 namespace Lexarbor.Host.Configuration;
 
-internal enum EnrichmentFieldKind { String, Boolean, Integer, Speed }
+internal enum EnrichmentFieldKind { String, Boolean, Integer, Speed, Decimal, Style, Emotion }
 internal sealed record EnrichmentConfigurationField(string Name, string Key, EnrichmentFieldKind Kind,
     object? Default, decimal Minimum = 0, decimal Maximum = 0, bool Secret = false)
 {
     public bool Valid(JsonNode? value) => Kind switch
     {
+        EnrichmentFieldKind.Decimal => value is JsonValue number && number.TryGetValue<decimal>(out var d) && d >= Minimum && d <= Maximum,
+        EnrichmentFieldKind.Style => value is JsonValue style && style.TryGetValue<string>(out var description) && description.Length <= 512 && !description.Any(c => char.IsControl(c) && c is not ('\r' or '\n' or '\t')),
+        EnrichmentFieldKind.Emotion => value is JsonValue emotion && emotion.TryGetValue<string>(out var e) && e is "" or "happy" or "sad" or "angry" or "fearful" or "disgusted" or "surprised" or "calm",
         EnrichmentFieldKind.Speed => value is null || value is JsonValue speed && speed.TryGetValue<decimal>(out var n) && n >= Minimum && n <= Maximum,
         EnrichmentFieldKind.Boolean => value is JsonValue boolean && boolean.TryGetValue<bool>(out _),
         EnrichmentFieldKind.Integer => value is JsonValue integer && integer.TryGetValue<int>(out var n) && n >= Minimum && n <= Maximum,
@@ -49,6 +52,10 @@ internal static class EnrichmentConfigurationFields
         {
             var name = "enrichment.tts." + locale.ToLowerInvariant();
             Add(name + ".voice", "Enrichment:Tts:" + locale + ":Voice", EnrichmentFieldKind.String, "");
+            Add(name + ".style", "Enrichment:Tts:" + locale + ":Style", EnrichmentFieldKind.Style, "");
+            Add(name + ".emotion", "Enrichment:Tts:" + locale + ":Emotion", EnrichmentFieldKind.Emotion, "");
+            Add(name + ".pitch", "Enrichment:Tts:" + locale + ":Pitch", EnrichmentFieldKind.Integer, 0, -12, 12);
+            Add(name + ".volume", "Enrichment:Tts:" + locale + ":Volume", EnrichmentFieldKind.Decimal, 1m, 0.1m, 10m);
             Add(name + ".speed", "Enrichment:Tts:" + locale + ":Speed", EnrichmentFieldKind.Speed, null, 0.1m, 4m);
         }
         foreach (var setting in new[] {
@@ -75,8 +82,8 @@ internal static class EnrichmentConfigurationFields
                 EnrichmentFieldKind.Boolean when bool.TryParse(text, out var boolean) => JsonValue.Create(boolean),
                 EnrichmentFieldKind.Integer when int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var integer) => JsonValue.Create(integer),
                 EnrichmentFieldKind.Speed when string.IsNullOrEmpty(text) => null,
-                EnrichmentFieldKind.Speed when decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture, out var speed) => JsonValue.Create(decimal.Parse(speed.ToString("G29", CultureInfo.InvariantCulture), CultureInfo.InvariantCulture)),
-                EnrichmentFieldKind.String => JsonValue.Create(field.Secret ? text : text.Trim()),
+                EnrichmentFieldKind.Speed or EnrichmentFieldKind.Decimal when decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture, out var speed) => JsonValue.Create(decimal.Parse(speed.ToString("G29", CultureInfo.InvariantCulture), CultureInfo.InvariantCulture)),
+                EnrichmentFieldKind.String or EnrichmentFieldKind.Style or EnrichmentFieldKind.Emotion => JsonValue.Create(field.Secret ? text : text.Trim()),
                 _ => throw new InvalidOperationException("Invalid enrichment settings.")
             };
             if (!field.Valid(value)) throw new InvalidOperationException("Invalid enrichment settings.");
@@ -103,7 +110,7 @@ public sealed class EnrichmentClientSettings(string endpoint, string model, stri
     public int TimeoutSeconds { get; } = timeoutSeconds;
     public bool Configured => Endpoint.Length > 0 && Model.Length > 0 && !string.IsNullOrWhiteSpace(ApiKey);
 }
-public sealed record EnrichmentVoiceSettings(string Voice, decimal? Speed);
+public sealed record EnrichmentVoiceSettings(string Voice, decimal? Speed, string Style = "", string Emotion = "", int Pitch = 0, decimal Volume = 1m);
 public sealed class EnrichmentSettings
 {
     internal EnrichmentSettings(IReadOnlyDictionary<string, JsonNode?> fields)
@@ -115,8 +122,10 @@ public sealed class EnrichmentSettings
         Text = new(S("Text:Endpoint"), S("Text:Model"), S("Text:ApiKey"), I("Text:TimeoutSeconds"));
         Tts = new(S("Tts:Endpoint"), S("Tts:Model"), S("Tts:ApiKey"), I("Tts:TimeoutSeconds"));
         Provider = S("Tts:Provider");
-        Uk = new(S("Tts:Uk:Voice"), fields["Enrichment:Tts:Uk:Speed"]?.GetValue<decimal>());
-        Us = new(S("Tts:Us:Voice"), fields["Enrichment:Tts:Us:Speed"]?.GetValue<decimal>());
+        Uk = new(S("Tts:Uk:Voice"), fields["Enrichment:Tts:Uk:Speed"]?.GetValue<decimal>(),
+            S("Tts:Uk:Style"), S("Tts:Uk:Emotion"), I("Tts:Uk:Pitch"), fields["Enrichment:Tts:Uk:Volume"]!.GetValue<decimal>());
+        Us = new(S("Tts:Us:Voice"), fields["Enrichment:Tts:Us:Speed"]?.GetValue<decimal>(),
+            S("Tts:Us:Style"), S("Tts:Us:Emotion"), I("Tts:Us:Pitch"), fields["Enrichment:Tts:Us:Volume"]!.GetValue<decimal>());
         Concurrency = I("Concurrency"); FailureBudget = I("FailureBudget");
         ServiceFailureThreshold = I("ServiceFailureThreshold"); ServicePauseSeconds = I("ServicePauseSeconds");
         MaxServicePauseSeconds = I("MaxServicePauseSeconds"); ThrottleInitialSeconds = I("ThrottleInitialSeconds");
@@ -205,6 +214,14 @@ public sealed class EnrichmentRuntimeConfiguration
         lock (_gate) { Volatile.Write(ref _current, candidate); changed = _changed; _changed = new(TaskCreationOptions.RunContinuationsAsynchronously); }
         changed.TrySetResult();
     }
+    private static bool DefaultStyleField(string key, JsonNode? value)
+    {
+        var field = EnrichmentConfigurationFields.Find(key)!;
+        return (key.EndsWith(":Style", StringComparison.Ordinal) || key.EndsWith(":Emotion", StringComparison.Ordinal)
+            || key.EndsWith(":Pitch", StringComparison.Ordinal) || key.EndsWith(":Volume", StringComparison.Ordinal))
+            && JsonNode.DeepEquals(value, JsonSerializer.SerializeToNode(field.Default));
+    }
+
     private static (EnrichmentConfigurationSnapshot Snapshot, JsonObject? Metadata) Create(IConfiguration configuration, bool persist, IConfiguration? persisted = null)
     {
         var fields = EnrichmentConfigurationFields.Read(configuration);
@@ -217,7 +234,7 @@ public sealed class EnrichmentRuntimeConfiguration
         string? Version(string name, Func<string, bool> include)
         {
             if (key is null) return null;
-            var selected = fields.Where(f => include(f.Key)).OrderBy(f => f.Key, StringComparer.Ordinal).ToDictionary(f => f.Key, f => f.Value);
+            var selected = fields.Where(f => include(f.Key) && !DefaultStyleField(f.Key, f.Value)).OrderBy(f => f.Key, StringComparer.Ordinal).ToDictionary(f => f.Key, f => f.Value);
             var digest = Convert.ToBase64String(HMACSHA256.HashData(key, JsonSerializer.SerializeToUtf8Bytes(selected)));
             var oldDigest = versions[$"{Metadata}:{name}:Digest"];
             var version = versions[$"{Metadata}:{name}:Version"];

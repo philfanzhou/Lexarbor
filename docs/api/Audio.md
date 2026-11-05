@@ -489,7 +489,8 @@ preparation result. It checks the captured source revision, required human IPA a
 text-configuration version before using the current per-locale TTS snapshot. It
 never falls back to a headword or drops an unexpressible constraint. Registration
 alone does not generate audio, start a worker, write fields, upload objects or bind
-audio. There are no new public routes or configuration keys.
+audio. Administrator draft previews are a separate, explicit operation; see
+[speech styles and previews](SystemSettings.md#speech-styles-and-draft-previews).
 
 The explicit support matrix, checked against official documentation on 2026-11-02:
 
@@ -515,6 +516,14 @@ chosen voice must be available from the provider and appropriate for that accent
 the adapter does not select a default voice, clone a voice or promise a voice's
 listening quality. Unknown/unsupported capability yields `capability_unsupported`
 and zero HTTP requests. Missing configuration or disabled audio yields waiting.
+
+Per-locale style settings use the same adapters for saved generation and draft
+previews. MiniMax maps emotion, pitch and volume to `voice_setting`; OpenAI combines
+the bounded delivery description with existing accent/pronunciation instructions,
+keeping it out of spoken input. Text and required pronunciation take precedence.
+The default empty style preserves existing behavior, and unsupported instruction
+models reject a nonempty style before dispatch. See the
+[style fields and preview contract](SystemSettings.md#speech-styles-and-draft-previews).
 
 Executors use `beforeDispatch` to validate the input, text and locale-specific TTS
 versions and persist `BeginCall`. The callback ends its transaction before network

@@ -463,7 +463,7 @@ with S3 and rate limits.
 - **后台策略** (Background policies) contains discovery, concurrency, failure
   budget, pause, and backoff settings.
 
-There is no supplier connection test or browser-side supplier request. Enabled enrichment is discovered by the hosted
+The Speech generation tab offers explicit draft previews through the server; the browser never calls suppliers directly. Enabled enrichment is discovered by the hosted
 scheduler without selecting a range or starting a batch.
 
 Every field displays its actual value, source and deployment override reason. A
@@ -487,6 +487,32 @@ session. See [the complete contract](../api/SystemSettings.md#review-assistant-a
 `e2e/enrichment-settings.spec.ts` covers partial locales, source locks, bounded
 fields, credential actions, uncertain results, cross-panel/admin revisions,
 cleanup and session races, alongside existing S3 and rate-limit tests.
+
+### Speech style draft previews
+
+UK and US retain independent styles. MiniMax shows emotion, pitch and volume;
+OpenAI shows a bounded delivery description and explains when the chosen model does
+not support it. Switching providers preserves their separate options. Existing
+voice and speed controls remain unchanged, with no automatic voice selection.
+
+Each locale can generate an `apple` or `Welcome to our English lesson.` sample from
+its unsaved values and the shared service/credential draft. The page labels the
+potential cost before the button. No save, background enablement, text preparation
+or object storage is required. Native audio controls replay the returned MP3
+without additional supplier calls. Only one player plays at a time.
+
+Changing parameters cancels a pending request or marks an existing sample stale.
+Explicit cancellation, navigation and sign-out stop requests and media; replaced
+or abandoned object URLs are revoked. A canceled supplier call may still be billed.
+Safe fixed notices cover validation, revision conflicts, throttling and invalid
+audio. Preview never automatically retries or saves. Password drafts remain for an
+explicit save and follow the existing clearing rules. Saved styles are used for
+future generated audio; existing bindings are not regenerated.
+
+See [the preview API](../api/SystemSettings.md#speech-styles-and-draft-previews) for
+admission limits and exact fields. `e2e/enrichment-settings.spec.ts` covers draft
+isolation, locale-specific payloads, save-after-preview, provider controls, stale
+samples, cancellation, error handling and object URL cleanup using synthetic audio.
 
 ### Specific-audio cleanup foundation
 
