@@ -92,7 +92,13 @@ The startup gate also performs an upgrade check an operator can rely on: a datab
 
 ## Shared word replacement
 
-The administrator word PUT uses `VocabularyWordEditService` within the existing serialized UnitOfWork. It reads the current word from SQLite without relying on tracked values, then checks for any other ID with a parameterized `EXISTS` query. A connection-local SQLite function applies .NET `Trim().ToLowerInvariant()` to stored spelling, including historical non-ASCII capitals and Unicode whitespace. The generated `normalized_word` column uses SQLite ASCII case folding and space trimming, so its index cannot answer this complete check. The edit check scans stored spellings until a conflict is found without materializing vocabulary entities; its cost can grow with the catalogue. The target ID is excluded, while all other historical duplicates count as conflicts. No new uniqueness constraint or migration is added. Only the shared word/phonetics/updated timestamp change; meaning rows and their ownership are untouched. The submitted spelling is stored as the display value, trimmed but with its casing — this is the one write that may correct casing, because the conflict check has already confined it to a row whose normalized key is unchanged. Explicit null/blank phonetics clear stored values, unlike import merging. Constraint and busy failures retain the existing atomic rollback and HTTP mappings.
+The administrator word PUT uses `VocabularyWordEditService` within the existing serialized UnitOfWork. It reads the current word from SQLite without relying on tracked values, then checks for any other ID with a parameterized `EXISTS` query. A connection-local SQLite function applies .NET `Trim().ToLowerInvariant()` to stored spelling, including historical non-ASCII capitals and Unicode whitespace. The generated `normalized_word` column uses SQLite ASCII case folding and space trimming, so its index cannot answer this complete check. The edit check scans stored spellings until a conflict is found without materializing vocabulary entities; its cost can grow with the catalogue. The target ID is excluded, while all other historical duplicates count as conflicts. No new uniqueness constraint or migration is added. The word fields and any incident relation invalidations change together; meaning rows and their ownership are untouched. The submitted spelling is stored as the display value, trimmed but with its casing — this is the explicit spelling replacement path, and its conflict check rejects another word with the requested normalized key. Explicit null/blank phonetics clear stored values, unlike import merging. Constraint and busy failures retain the existing atomic rollback and HTTP mappings.
+
+The word replacement transaction also invalidates every incident vocabulary
+relation when .NET `Trim().ToLowerInvariant()` spelling changes. It sets
+`needs_review/word_changed`, increments each version once (including self-relations),
+and preserves the last confirmation time. Case/whitespace and phonetic-only edits
+do not invalidate relations. This side effect commits or rolls back with the word.
 
 ## Meaning replacement
 
@@ -125,9 +131,48 @@ Filtering, distinct-word counting and paging run in SQL. Only the current page's
 
 The new cleanup commands are separate from the legacy book DELETE, which still refuses a book with meanings. `VocabularyCleanupService` validates the current book, ownership, selected memberships and optional exact name within the same UnitOfWork write transaction as deletion. Preview instead uses a deferred read transaction without the process write semaphore.
 
-Let R be the meanings selected by book and action, and A the distinct word IDs in R. One shared parameterized predicate defines R in preview counts and commit. Commit records A in a connection-local temporary table, deletes R, deletes only words in A with `NOT EXISTS` any remaining meaning, then optionally deletes the book. Other/disabled books' references and unrelated historical orphan words remain untouched. No cascade is used to widen the scope, no whole book of meaning entities is loaded, and there is no new business table or migration. The temporary table is dropped in `finally`; tracked entries are cleared after bulk SQL so later operations cannot reuse deleted entities. Failure at any stage rolls back all business rows.
+Let R be the meanings selected by book and action, and A the distinct word IDs in R. One shared parameterized predicate defines R in preview counts and commit. Commit records A in a connection-local temporary table, deletes R, deletes only words in A with no remaining meaning and no incoming or outgoing vocabulary relation, then optionally deletes the book. Pending and self-relations also retain their endpoints. Other/disabled books' references and unrelated historical orphan words remain untouched. No cascade is used to widen the scope, and no whole book of meaning entities is loaded. The temporary table is dropped in `finally`; tracked entries are cleared after bulk SQL so later operations cannot reuse deleted entities. Failure at any stage rolls back all business rows.
+
+Preview keeps `orphanWordCount` as the number losing all meanings, adds
+`retainedRelatedWordCount`, and computes `deletableWordCount` as their difference.
+Commit adds `retainedRelatedWordCount`; `deletedWordCount` remains the actual
+number deleted. Both phases use the same retention conditions, evaluated at the
+time of their own transaction. Removing a relation never sweeps newly unreferenced
+words.
 
 A single instance remains the supported deployment. SQLite serializes external writers; busy/constraint failures keep existing 503/409 mappings. Preview counts can become stale between requests. These destructive commands offer no undo, replay safety or automatic orphan sweep.
+
+## Vocabulary relations
+
+`20261105011010_AddVocabularyRelations` adds the empty `vocabulary_relation`
+table and its indexes; existing catalog rows and tables are not rewritten.
+Its thirteen columns are `id`, `source_word_id`, `target_word_id`, `type`,
+`usage_note`, `status`, `review_reason`, `origin_kind`, `origin_reference`,
+`version`, `created_at_unix_ms`, `updated_at_unix_ms`, and
+`last_confirmed_at_unix_ms`. It has no book, meaning, or part-of-speech columns.
+See [the relation API](../api/VocabularyRelations.md) for field and maintenance
+semantics.
+
+The three non-null identity columns `(source_word_id, target_word_id, type)`
+have one unique index. Two foreign keys reference `vocabulary.id` with RESTRICT
+on deletion (and explicit RESTRICT on parent-key updates in the migration).
+Application connections must enforce foreign keys. Self-relations are valid.
+CHECK constraints enforce the fixed type/state/reason/origin codes, bounded notes
+and references, a positive integer version, consistent confirmation state, and
+ordered nonnegative integer UTC timestamps. They do not validate linguistic
+correctness or maintain versions automatically.
+
+Outgoing and incoming indexes start with the corresponding word ID, then type,
+status and relation ID. A partial `(updated_at_unix_ms, id)` index contains only
+`needs_review` rows. Lists count and page in one deferred read transaction.
+Mutation reads are untracked/current and occur inside the existing serialized
+UnitOfWork. Conditional UPDATE/DELETE predicates include the expected version;
+batch creation uses one transaction. Provenance and creation time are immutable
+through the APIs. The table stores current state, not an edit-history ledger.
+
+Downgrade drops this table and its indexes, losing all relationship data while
+preserving catalog rows. Coordinate the migration with the updated cleanup and
+word replacement code; see [deployment](../development/Deployment.md#vocabulary-relation-upgrade).
 
 ## Meaning submissions
 

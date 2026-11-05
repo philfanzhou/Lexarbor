@@ -1343,6 +1343,111 @@ namespace Lexarbor.Database.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Lexarbor.Database.Entities.VocabularyRelationEntity", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("id");
+
+                    b.Property<long>("CreatedAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("created_at_unix_ms");
+
+                    b.Property<long?>("LastConfirmedAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("last_confirmed_at_unix_ms");
+
+                    b.Property<string>("OriginKind")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("origin_kind");
+
+                    b.Property<string>("OriginReference")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("origin_reference");
+
+                    b.Property<string>("ReviewReason")
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("new_relation")
+                        .HasColumnName("review_reason");
+
+                    b.Property<string>("SourceWordId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("source_word_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("needs_review")
+                        .HasColumnName("status");
+
+                    b.Property<string>("TargetWordId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("target_word_id");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("type");
+
+                    b.Property<long>("UpdatedAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("updated_at_unix_ms");
+
+                    b.Property<string>("UsageNote")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("usage_note");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(1L)
+                        .HasColumnName("version");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UpdatedAtUnixMs", "Id")
+                        .HasDatabaseName("IX_vocabulary_relation_needs_review")
+                        .HasFilter("status = 'needs_review'");
+
+                    b.HasIndex("SourceWordId", "TargetWordId", "Type")
+                        .IsUnique()
+                        .HasDatabaseName("UX_vocabulary_relation_identity");
+
+                    b.HasIndex("SourceWordId", "Type", "Status", "Id")
+                        .HasDatabaseName("IX_vocabulary_relation_source_type_status");
+
+                    b.HasIndex("TargetWordId", "Type", "Status", "Id")
+                        .HasDatabaseName("IX_vocabulary_relation_target_type_status");
+
+                    b.ToTable("vocabulary_relation", t =>
+                        {
+                            t.HasCheckConstraint("CK_vocabulary_relation_confirmation", "(status = 'confirmed' AND review_reason IS NULL AND last_confirmed_at_unix_ms IS NOT NULL) OR (status = 'needs_review' AND review_reason IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_vocabulary_relation_id", "length(id) BETWEEN 1 AND 64 AND id = trim(id)");
+
+                            t.HasCheckConstraint("CK_vocabulary_relation_origin", "origin_kind IN ('manual', 'import', 'generated')");
+
+                            t.HasCheckConstraint("CK_vocabulary_relation_origin_reference", "origin_reference IS NULL OR (length(origin_reference) BETWEEN 1 AND 200 AND origin_reference = trim(origin_reference))");
+
+                            t.HasCheckConstraint("CK_vocabulary_relation_review_reason", "review_reason IS NULL OR review_reason IN ('new_relation', 'word_changed', 'relation_changed')");
+
+                            t.HasCheckConstraint("CK_vocabulary_relation_status", "status IN ('confirmed', 'needs_review')");
+
+                            t.HasCheckConstraint("CK_vocabulary_relation_times", "typeof(created_at_unix_ms) = 'integer' AND created_at_unix_ms >= 0 AND typeof(updated_at_unix_ms) = 'integer' AND updated_at_unix_ms >= created_at_unix_ms AND (last_confirmed_at_unix_ms IS NULL OR (typeof(last_confirmed_at_unix_ms) = 'integer' AND last_confirmed_at_unix_ms >= created_at_unix_ms AND last_confirmed_at_unix_ms <= updated_at_unix_ms))");
+
+                            t.HasCheckConstraint("CK_vocabulary_relation_type", "type IN ('past_tense', 'past_participle', 'ing_form', 'third_person_singular', 'plural', 'comparative', 'superlative', 'derived_noun', 'derived_verb', 'derived_adjective', 'derived_adverb')");
+
+                            t.HasCheckConstraint("CK_vocabulary_relation_usage_note", "usage_note IS NULL OR (length(usage_note) BETWEEN 1 AND 2000 AND usage_note = trim(usage_note))");
+
+                            t.HasCheckConstraint("CK_vocabulary_relation_version", "typeof(version) = 'integer' AND version >= 1");
+                        });
+                });
+
             modelBuilder.Entity("ServiceMantle.Persistence.Relational.DataProtection.DataProtectionKeyEntity", b =>
                 {
                     b.Property<string>("ServiceId")
@@ -1643,6 +1748,23 @@ namespace Lexarbor.Database.Migrations
                     b.Navigation("Meaning");
 
                     b.Navigation("Unit");
+                });
+
+            modelBuilder.Entity("Lexarbor.Database.Entities.VocabularyRelationEntity", b =>
+                {
+                    b.HasOne("Lexarbor.Database.Entities.VocabularyEntity", null)
+                        .WithMany()
+                        .HasForeignKey("SourceWordId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_vocabulary_relation_source");
+
+                    b.HasOne("Lexarbor.Database.Entities.VocabularyEntity", null)
+                        .WithMany()
+                        .HasForeignKey("TargetWordId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_vocabulary_relation_target");
                 });
 
             modelBuilder.Entity("Lexarbor.Database.Entities.VocabularyBookEntity", b =>

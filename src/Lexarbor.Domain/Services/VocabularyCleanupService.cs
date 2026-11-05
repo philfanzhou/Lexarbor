@@ -15,7 +15,7 @@ public sealed class VocabularyCleanupService(IVocabularyCleanupRepository reposi
             var book = await ResolveAsync(bookId, selection, cancellationToken);
             var counts = await repository.CountAsync(bookId, selection, cancellationToken);
             return new VocabularyCleanupPreview(bookId, book.BookName, selection.Action,
-                counts.AffectedWordCount, counts.MeaningCount, counts.OrphanWordCount);
+                counts.AffectedWordCount, counts.MeaningCount, counts.OrphanWordCount, counts.RetainedRelatedWordCount);
         }, cancellationToken);
     }
 

@@ -84,7 +84,13 @@ public sealed class VocabularyCleanupRepository(VocabularyDbContext context) : I
             SELECT count(*) FROM (SELECT DISTINCT m.vocabulary_id FROM vocabulary_meaning m WHERE {predicate}) a
             WHERE NOT EXISTS (SELECT 1 FROM vocabulary_meaning m WHERE m.vocabulary_id=a.vocabulary_id AND NOT ({predicate}))
             """, bookId, selection, cancellationToken);
-        return new VocabularyCleanupCounts(words, meanings, orphans);
+        var retained = await ScalarAsync($"""
+            SELECT count(*) FROM (SELECT DISTINCT m.vocabulary_id FROM vocabulary_meaning m WHERE {predicate}) a
+            WHERE NOT EXISTS (SELECT 1 FROM vocabulary_meaning m WHERE m.vocabulary_id=a.vocabulary_id AND NOT ({predicate}))
+            AND (EXISTS (SELECT 1 FROM vocabulary_relation r WHERE r.source_word_id=a.vocabulary_id)
+              OR EXISTS (SELECT 1 FROM vocabulary_relation r WHERE r.target_word_id=a.vocabulary_id))
+            """, bookId, selection, cancellationToken);
+        return new VocabularyCleanupCounts(words, meanings, orphans, retained);
     }
 
     public async Task<VocabularyCleanupResult> DeleteAsync(string bookId, VocabularyCleanupSelection selection)
@@ -95,13 +101,21 @@ public sealed class VocabularyCleanupRepository(VocabularyDbContext context) : I
             await ExecuteAsync($"CREATE TEMP TABLE lexarbor_cleanup_affected(id TEXT PRIMARY KEY)", bookId, selection);
             var affected = await ExecuteAsync($"INSERT INTO {table} SELECT DISTINCT m.vocabulary_id FROM vocabulary_meaning m WHERE {Predicate(selection)}", bookId, selection);
             var deletedMeanings = await ExecuteAsync($"DELETE FROM vocabulary_meaning AS m WHERE {Predicate(selection)}", bookId, selection);
+            var retained = await ScalarAsync($"""
+                SELECT count(*) FROM vocabulary WHERE id IN (SELECT id FROM {table})
+                AND NOT EXISTS (SELECT 1 FROM vocabulary_meaning m WHERE m.vocabulary_id=vocabulary.id)
+                AND (EXISTS (SELECT 1 FROM vocabulary_relation r WHERE r.source_word_id=vocabulary.id)
+                  OR EXISTS (SELECT 1 FROM vocabulary_relation r WHERE r.target_word_id=vocabulary.id))
+                """, bookId, selection, CancellationToken.None);
             var deletedWords = await ExecuteAsync($"""
                 DELETE FROM vocabulary WHERE id IN (SELECT id FROM {table})
                 AND NOT EXISTS (SELECT 1 FROM vocabulary_meaning m WHERE m.vocabulary_id=vocabulary.id)
+                AND NOT EXISTS (SELECT 1 FROM vocabulary_relation r WHERE r.source_word_id=vocabulary.id)
+                AND NOT EXISTS (SELECT 1 FROM vocabulary_relation r WHERE r.target_word_id=vocabulary.id)
                 """, bookId, selection);
             var deletedBook = selection.Action == "delete" &&
                 await ExecuteAsync("DELETE FROM vocabulary_book WHERE id=@book", bookId, selection) == 1;
-            return new VocabularyCleanupResult(bookId, selection.Action, affected, deletedMeanings, deletedWords, deletedBook);
+            return new VocabularyCleanupResult(bookId, selection.Action, affected, deletedMeanings, deletedWords, deletedBook, retained);
         }
         finally
         {

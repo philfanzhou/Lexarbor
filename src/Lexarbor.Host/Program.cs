@@ -143,6 +143,8 @@ builder.Services.AddScoped<IManagementAuditWriter, EfCoreManagementAuditWriter<V
 builder.Services.AddScoped<AdminAuthenticationAudit>();
 builder.Services.AddScoped<IVocabularyWordEditRepository, VocabularyWordEditRepository>();
 builder.Services.AddScoped<VocabularyWordEditService>();
+builder.Services.AddScoped<IVocabularyRelationRepository, VocabularyRelationRepository>();
+builder.Services.AddScoped<VocabularyRelationService>();
 builder.Services.AddScoped<VocabularyMeaningEditService>();
 builder.Services.AddScoped<VocabularyMeaningPhoneticEditService>();
 builder.Services.AddScoped<IMeaningPhoneticWorkVersionsProvider, MeaningPhoneticWorkVersionsProvider>();
@@ -872,6 +874,7 @@ adminSurface.MapAdminAuthEndpoints();
 adminSurface.MapSystemVersionEndpoints();
 adminSurface.MapSystemSettingsEndpoints();
 adminSurface.MapVocabularyWordEditEndpoints();
+adminSurface.MapVocabularyRelationEndpoints();
 adminSurface.MapVocabularyMeaningEditEndpoints();
 adminSurface.MapVocabularyBookUnitEndpoints();
 adminSurface.MapVocabularyMeaningPositionEndpoints();

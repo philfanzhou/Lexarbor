@@ -8,6 +8,7 @@ Lexarbor is a self-hosted vocabulary catalog and quiz service. It combines a .NE
 ## Features
 
 - Manage vocabulary books, entries, meanings, examples, and UK/US phonetics.
+- Maintain typed word relations through administrator APIs, with confirmation, conditional edits, and atomic batch creation; see [Vocabulary relations](docs/api/VocabularyRelations.md).
 - Import words idempotently with database-backed integrity constraints.
 - Generate four-option translation questions from one vocabulary book.
 - Browse an enabled book's units and paged entries anonymously for external study tools.

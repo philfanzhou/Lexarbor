@@ -28,12 +28,12 @@ public class VocabularyCleanupEndpointTests
         var before = await StateAsync(factory.Services);
         using var preview = await PostAsync(client, """{"action":"clear"}""", true);
         using var previewBody = await DataAsync(preview);
-        Assert.Equal(new[] { "action", "affectedWordCount", "bookId", "bookName", "meaningCount", "orphanWordCount" }, previewBody.RootElement.EnumerateObject().Select(p => p.Name).Order());
+        Assert.Equal(new[] { "action", "affectedWordCount", "bookId", "bookName", "deletableWordCount", "meaningCount", "orphanWordCount", "retainedRelatedWordCount" }, previewBody.RootElement.EnumerateObject().Select(p => p.Name).Order());
         Assert.Equal(3, previewBody.RootElement.GetProperty("meaningCount").GetInt32());
         Assert.Equal(before, await StateAsync(factory.Services));
         using var commit = await PostAsync(client, """{"action":"clear"}""");
         using var committed = await DataAsync(commit);
-        Assert.Equal(new[] { "action", "affectedWordCount", "bookId", "deletedBook", "deletedMeaningCount", "deletedWordCount" }, committed.RootElement.EnumerateObject().Select(p => p.Name).Order());
+        Assert.Equal(new[] { "action", "affectedWordCount", "bookId", "deletedBook", "deletedMeaningCount", "deletedWordCount", "retainedRelatedWordCount" }, committed.RootElement.EnumerateObject().Select(p => p.Name).Order());
         Assert.Equal(3, committed.RootElement.GetProperty("deletedMeaningCount").GetInt32());
         Assert.Equal(1, committed.RootElement.GetProperty("deletedWordCount").GetInt32());
         Assert.False(committed.RootElement.GetProperty("deletedBook").GetBoolean());

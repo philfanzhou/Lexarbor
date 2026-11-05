@@ -263,6 +263,33 @@ Down loses the two specific phonetic values while preserving old data and audio
 history; restore the pre-upgrade backup instead when that is the required recovery
 point. Old-image direct access to an upgraded database is not supported.
 
+### Vocabulary relation upgrade
+
+`20261105011010_AddVocabularyRelations` adds one empty relationship table and its
+indexes to the existing SQLite database. It requires no new configuration,
+credentials, seed data, storage directory, or external service. Existing book,
+word, meaning, and audio rows are preserved. Relationship administration is
+available through [administrator APIs](../api/VocabularyRelations.md); no relation
+UI is included.
+
+Ship this migration with the corresponding word-edit and cleanup code. Relation
+foreign keys protect both words: book cleanup now retains a word referenced by
+any relation even when its final meaning is removed. Preview provides separate
+orphan, retained, and deletable counts; clients must use `deletableWordCount` for
+the estimate. Existing UI versions that use the old orphan count can overestimate
+deletions. Backend retention is authoritative. Word renaming atomically invalidates
+the affected relation confirmations.
+
+Before upgrading, take the usual consistent database backup; retain the deployment's
+Data Protection root key and any audio-object backup needed for full recovery.
+Keep the same `/app/data` volume. An older image refuses the upgraded schema with
+`migration.version_too_new`. To roll back, stop writes, preserve a backup, and use
+the current migration tooling to return to
+`20261102063605_AddMeaningSubmissionReviewChecks` before starting the older image. Down drops
+all relations and leaves catalog rows as they currently stand; it does not undo
+maintenance performed after the upgrade. Restore the pre-upgrade backup when that
+earlier data state is required.
+
 ### Enrichment task upgrade
 
 `AddEnrichmentTasks` creates four empty task/round/call/wait tables and deletion

@@ -50,6 +50,7 @@ public class VocabularyDbContext : DbContext
     }
 
     public DbSet<VocabularyEntity> Vocabularies { get; set; } = null!;
+    public DbSet<VocabularyRelationEntity> VocabularyRelations { get; set; } = null!;
     public DbSet<VocabularyBookEntity> VocabularyBooks { get; set; } = null!;
     public DbSet<VocabularyMeaningEntity> VocabularyMeanings { get; set; } = null!;
     public DbSet<MeaningPhoneticEpochEntity> MeaningPhoneticEpochs { get; set; } = null!;
@@ -82,6 +83,7 @@ public class VocabularyDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        VocabularyRelationModelConfiguration.Configure(modelBuilder);
         AudioModelConfiguration.Configure(modelBuilder);
         EnrichmentModelConfiguration.Configure(modelBuilder);
         // Data Protection keys live in the business database as authenticated
