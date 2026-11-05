@@ -147,7 +147,12 @@ onBeforeUnmount(() => { stop(); document.removeEventListener('visibilitychange',
 <template>
   <section class="enrichment">
     <PageHeader title="自治补齐进度" description="后台自动发现新增与历史缺失，无需选择词书或点击开始。字段、两侧音频、服务与旧文件清理分别记录。" />
-    <p><RouterLink to="/settings">检查审核与补齐 / 音频存储设置</RouterLink></p>
+    <p>
+      <RouterLink to="/settings/text">检查文本补齐</RouterLink> ·
+      <RouterLink to="/settings/speech">检查语音生成</RouterLink> ·
+      <RouterLink to="/settings/audio-storage">检查音频存储</RouterLink> ·
+      <RouterLink to="/settings/background">查看后台策略</RouterLink>
+    </p>
     <p>限流和未调用的等待不消耗失败额度；服务恢复不会清零已耗尽任务。修正相关配置或数据后，仍缺失的部分会自动继续。</p>
     <p role="status" aria-label="自动刷新状态">{{ polling }}{{ loading ? ' · 正在读取…' : '' }}</p>
     <p v-if="notice" role="status" aria-label="单条重试结果">{{ notice }}</p>

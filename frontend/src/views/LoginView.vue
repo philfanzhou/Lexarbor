@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import { settingsPages } from '@/router/settingsPages'
 
 const route = useRoute()
 const starting = ref(false)
@@ -32,7 +33,7 @@ const reasonNotice = computed(() => {
 // an unusable `redirect` is dropped — the backend then falls back to its own
 // default — instead of turning a top-level navigation into a bare 400.
 const hostedReturnRoutes = new Set([
-  '/settings',
+  ...settingsPages.map(page => page.path),
   '/enrichment',
   '/books',
   '/vocabulary',

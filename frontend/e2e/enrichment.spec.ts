@@ -249,8 +249,13 @@ test('安全DTO文本渲染、浏览器无秘密存储日志及供应商请求�
   expect(logs.join('\n')).not.toContain('synthetic-private-marker')
   await expect(page.locator('body')).not.toContainText('synthetic-private-marker')
   expect(external).toEqual([])
-  await page.getByRole('link', { name: '检查审核与补齐 / 音频存储设置' }).focus()
-  await expect(page.getByRole('link', { name: '检查审核与补齐 / 音频存储设置' })).toBeFocused()
+  const speechSettings = page.getByRole('link', { name: '检查语音生成' })
+  await speechSettings.focus()
+  await expect(speechSettings).toBeFocused()
+  await expect(speechSettings).toHaveAttribute('href', '#/settings/speech')
+  await expect(page.getByRole('link', { name: '检查文本补齐' })).toHaveAttribute('href', '#/settings/text')
+  await expect(page.getByRole('link', { name: '检查音频存储' })).toHaveAttribute('href', '#/settings/audio-storage')
+  await expect(page.getByRole('link', { name: '查看后台策略' })).toHaveAttribute('href', '#/settings/background')
 })
 
 test('处理中与旧成功后的新需求保留投影，不提供成功或取消任务重试', async ({ page }) => {

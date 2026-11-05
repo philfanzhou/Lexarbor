@@ -202,6 +202,7 @@ async function handleLogout() {
               <RouterLink
                 :to="link.to"
                 class="app-nav__link"
+                :class="{ 'is-active': link.to === '/settings' && $route.matched.some(record => record.name === 'settings') }"
                 exact-active-class="is-active"
                 :aria-label="link.label"
                 :title="link.label"

@@ -145,13 +145,15 @@ public class AdminHostedLoginMigrationTests
         Assert.Equal("/", callback.Headers.Location!.OriginalString);
     }
 
-    [Fact]
-    public async Task SettingsReturnTarget_CompletesHostedCallback()
+    [Theory]
+    [InlineData("/settings")]
+    [InlineData("/settings/speech")]
+    public async Task SettingsReturnTarget_CompletesHostedCallback(string target)
     {
         using var f = new HostedLoginMigrationFixture();
-        var transaction = await f.Start("/settings");
+        var transaction = await f.Start(target);
         using var callback = await f.Callback(transaction);
-        Assert.Equal("/#/settings", callback.Headers.Location!.OriginalString);
+        Assert.Equal("/#" + target, callback.Headers.Location!.OriginalString);
     }
 
     private sealed class HostedLoginMigrationFixture : IDisposable

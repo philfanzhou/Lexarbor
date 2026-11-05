@@ -70,7 +70,7 @@ test('shows complete pending backlog and only fixed safe recovery messages', asy
   await expect(state).toContainText('全部待审积压 47 条')
   await expect(state).toContainText('服务限流')
   await expect(state).toContainText('无需人工处理')
-  await expect(state.getByRole('link', { name: '检查自动审核设置' })).toHaveAttribute('href', '#/settings')
+  await expect(state.getByRole('link', { name: '检查自动审核设置' })).toHaveAttribute('href', '#/settings/review')
   await page.getByRole('button', { name: '审核', exact: true }).click()
   await expect(page.getByText('无需手动开始或先删除旧音频', { exact: false })).toBeVisible()
 })

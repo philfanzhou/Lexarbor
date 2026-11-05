@@ -185,6 +185,7 @@ test('the hosted button sends one start navigation with the allowlisted return r
 
 for (const { redirect, expected } of [
   { redirect: '/settings', expected: '/admin/auth/start?returnUrl=%2Fsettings' },
+  { redirect: '/settings/unknown', expected: '/admin/auth/start' },
   { redirect: '/enrichment', expected: '/admin/auth/start?returnUrl=%2Fenrichment' },
   { redirect: '/enrichment/', expected: '/admin/auth/start' },
   { redirect: '/Enrichment', expected: '/admin/auth/start' },

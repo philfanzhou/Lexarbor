@@ -38,6 +38,7 @@ declare module 'vue' {
     MeaningPositionDialog: typeof import('./src/components/MeaningPositionDialog.vue')['default']
     MeaningSubmissionReviewsPanel: typeof import('./src/components/MeaningSubmissionReviewsPanel.vue')['default']
     PageHeader: typeof import('./src/components/PageHeader.vue')['default']
+    RateLimitSettingsPanel: typeof import('./src/components/RateLimitSettingsPanel.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     VocabularyAudioPreview: typeof import('./src/components/VocabularyAudioPreview.vue')['default']
