@@ -23,6 +23,34 @@ async function admin(page: Page) {
 const publicSwitch = (page: Page) => page.getByRole('checkbox', { name: '公共 API草稿开关' })
 const save = (page: Page) => page.getByRole('button', { name: '保存限流设置' })
 
+test('settings defaults to reading rate limits and only loads the selected category', async ({ page }) => {
+  await admin(page)
+  const requests: string[] = []
+  await page.route(url, route => json(route, state()))
+  page.on('request', request => {
+    const path = new URL(request.url()).pathname
+    if (path.startsWith('/admin/') && path.includes('/settings')) requests.push(`${request.method()} ${path}`)
+  })
+  await page.goto('/#/books')
+  const system = page.getByRole('link', { name: '系统设置', exact: true })
+  await system.click()
+  const categories = page.getByRole('navigation', { name: '设置分类' })
+  await expect(categories.getByRole('link')).toHaveText(['请求限流', '音频存储', '审核助手', '文本补齐', '语音生成', '后台策略'])
+  await expect(categories.getByRole('link', { name: '请求限流' })).toHaveAttribute('aria-current', 'page')
+  await expect(publicSwitch(page)).not.toBeChecked()
+  expect(requests).toEqual(['GET /admin/system/settings/rate-limits'])
+
+  const audio = categories.getByRole('link', { name: '音频存储' })
+  await audio.focus()
+  await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(/#\/settings\/audio-storage$/)
+  await expect(audio).toHaveAttribute('aria-current', 'page')
+  await expect(system).toHaveClass(/is-active/)
+  await expect(publicSwitch(page)).toHaveCount(0)
+  await expect(page.getByRole('status', { name: '音频存储状态' })).toContainText('读取失败')
+  expect(requests).toEqual(['GET /admin/system/settings/rate-limits', 'GET /admin/system/settings/audio-storage'])
+})
+
 test('actual custom values, draft, If-Match and CSRF, GET confirmation and one submission', async ({ page }) => {
   await admin(page)
   let current = state()
@@ -168,14 +196,17 @@ test('logout clears pending settings and late results cannot restore panel', asy
   await json(pending!, state(true)).catch(() => undefined)
   await expect(page.getByRole('heading', { name: '请求限流' })).toHaveCount(0)
 })
-test('unauthorized navigation returns to login with exact settings target', async ({ page }) => {
-  await page.route('**/admin/auth/session', route => json(route, { message: 'Unauthorized' }, 401))
-  await page.route('**/admin/auth/start?returnUrl=%2Fsettings', route => route.fulfill({ contentType: 'text/html', body: '<p>Sign in</p>' }))
-  await page.goto('/#/settings')
-  await expect(page).toHaveURL(/#\/login\?redirect=\/settings/)
-  await page.getByRole('button', { name: '使用 SignaCore 登录' }).click()
-  await expect(page).toHaveURL(/admin\/auth\/start\?returnUrl=%2Fsettings/)
-})
+for (const target of ['/settings', '/settings/speech']) {
+  test(`unauthorized navigation keeps the exact login return target ${target}`, async ({ page }) => {
+    await page.route('**/admin/auth/session', route => json(route, { message: 'Unauthorized' }, 401))
+    const start = `/admin/auth/start?returnUrl=${encodeURIComponent(target)}`
+    await page.route(`**${start}`, route => route.fulfill({ contentType: 'text/html', body: '<p>Sign in</p>' }))
+    await page.goto(`/#${target}`)
+    await expect(page).toHaveURL(`/#/login?redirect=${target}`)
+    await page.getByRole('button', { name: '使用 SignaCore 登录' }).click()
+    await expect(page).toHaveURL(start)
+  })
+}
 test('forbidden session has no settings navigation', async ({ page }) => {
   await page.route('**/admin/auth/session', route => json(route, { message: 'Forbidden' }, 403))
   await page.goto('/#/settings')

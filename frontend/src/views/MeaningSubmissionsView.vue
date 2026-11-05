@@ -148,7 +148,7 @@ onMounted(load)
         <aside v-if="automaticReview" aria-label="自动审核状态">
           <p>AI 自动审核：{{ automaticReview.paused ? `暂停（${pauseLabels[automaticReview.pauseCode ?? ''] ?? '状态未知'}）` : '运行中' }}；全部待审积压 {{ automaticReview.pendingCount }} 条。</p>
           <p v-if="automaticReview.lastFailureCode">最近失败：{{ failureLabels[automaticReview.lastFailureCode] ?? '暂不可用' }}（{{ formatTime(automaticReview.lastFailureAt) }}）；下次尝试：{{ formatTime(automaticReview.nextAttemptAt) }}。</p>
-          <p>失败后持续自动重试；关闭或缺配置时暂停，恢复后自动处理积压，无需人工处理。<RouterLink to="/settings">检查自动审核设置</RouterLink></p>
+          <p>失败后持续自动重试；关闭或缺配置时暂停，恢复后自动处理积压，无需人工处理。<RouterLink to="/settings/review">检查自动审核设置</RouterLink></p>
         </aside>
         <p role="status">{{ loading ? '正在加载投稿…' : `共 ${totalCount} 条` }}</p>
         <el-table v-loading="loading" :data="items" row-key="submission.id" empty-text="没有投稿">
@@ -229,7 +229,7 @@ onMounted(load)
           <el-button size="small" @click="applyAdvice">采用建议</el-button>
         </el-alert>
         <p class="submissions__hint">通过后，已启用且配置就绪的自治补齐会自动处理缺失默认音标、词性和音频；关闭、缺配置或存储不可用时等待。短语只补音频；专用音标留空继承默认，非空专用读音按对应释义生成。修改专用音标后自动停用旧音频、清理并重生成，清空则恢复默认。无需手动开始或先删除旧音频。修改释义文字会让已经在学这条释义的学习者重新学一次。</p>
-        <p><RouterLink to="/enrichment">查看自治补齐进度与等待原因</RouterLink> · <RouterLink to="/settings">检查补齐设置</RouterLink></p>
+        <p><RouterLink to="/enrichment">查看自治补齐进度与等待原因</RouterLink> · <RouterLink to="/settings/text">检查补齐设置</RouterLink></p>
       </template>
       <template #footer>
         <el-button v-if="assistantEnabled" :loading="advising" :disabled="saving" @click="requestAdvice">AI 审核建议</el-button>

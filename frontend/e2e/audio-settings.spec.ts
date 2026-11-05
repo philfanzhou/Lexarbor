@@ -39,7 +39,7 @@ test('first setup sends changed fields with CSRF/revision; one PUT, passwords cl
     current = { ...current, revision: nextRevision, enabled: true, internalEndpoint: 'http://storage.test/', publicEndpoint: 'https://audio.test/', hasAccessKey: true, hasSecretKey: true }
     return json(route, current)
   })
-  await page.goto('/#/settings')
+  await page.goto('/#/settings/audio-storage')
   await page.getByLabel('服务访问地址 InternalEndpoint', { exact: true }).fill('http://storage.test/')
   await page.getByLabel('浏览器播放地址 PublicEndpoint', { exact: true }).fill('https://audio.test/')
   await access(page).fill('synthetic-new-access'); await secret(page).fill('synthetic-new-secret')
@@ -61,7 +61,7 @@ test('blank keeps existing keys; explicit replacement/clear and disabled incompl
     if (route.request().method() === 'PUT') payloads.push(route.request().postDataJSON())
     return json(route, { ...state(), hasAccessKey: true, hasSecretKey: true })
   })
-  await page.goto('/#/settings'); await change(page); await save(page).click()
+  await page.goto('/#/settings/audio-storage'); await change(page); await save(page).click()
   await expect(notice(page)).toContainText('已保存')
   expect(payloads[0]).toEqual({ region: 'test-region', accessKey: { action: 'keep' }, secretKey: { action: 'keep' } })
   await page.getByRole('combobox', { name: 'secretKey操作' }).selectOption('clear')
@@ -80,7 +80,7 @@ for (const status of [400, 409, 412, 428, 503]) {
       if (route.request().method() === 'GET') return json(route, state())
       puts++; return json(route, { message: 'synthetic-secret-do-not-echo' }, status)
     })
-    await page.goto('/#/settings'); await change(page); await secret(page).fill('synthetic-secret-do-not-echo'); await save(page).click()
+    await page.goto('/#/settings/audio-storage'); await change(page); await secret(page).fill('synthetic-secret-do-not-echo'); await save(page).click()
     await expect(notice(page)).toContainText(`保存失败（${status}）`)
     await expect(page.locator('body')).not.toContainText('synthetic-secret-do-not-echo')
     expect(puts).toBe(1)
@@ -100,7 +100,7 @@ test('lost PUT response performs GET only, clears secrets, exposes actual state'
     if (route.request().method() === 'GET') { gets++; return json(route, current) }
     puts++; current = { ...state(), region: 'test-region', hasSecretKey: true, revision: nextRevision }; return route.abort('failed')
   })
-  await page.goto('/#/settings'); await change(page); await secret(page).fill('synthetic-new-secret'); await save(page).click()
+  await page.goto('/#/settings/audio-storage'); await change(page); await secret(page).fill('synthetic-new-secret'); await save(page).click()
   await expect(notice(page)).toContainText('已回读当前生效配置')
   await expect(secret(page)).toHaveValue(''); expect(puts).toBe(1); expect(gets).toBe(2)
   await expect(save(page)).toBeDisabled()
@@ -113,7 +113,7 @@ test('lost response and failed read stay unknown until explicit retry; no replay
     if (route.request().method() === 'PUT') { puts++; return route.abort('timedout') }
     reads++; return reads === 2 ? route.abort('failed') : json(route, state())
   })
-  await page.goto('/#/settings'); await change(page); await secret(page).fill('synthetic-new-secret'); await save(page).click()
+  await page.goto('/#/settings/audio-storage'); await change(page); await secret(page).fill('synthetic-new-secret'); await save(page).click()
   await expect(notice(page)).toContainText('保存结果未知，回读失败')
   await expect(save(page)).toHaveCount(0)
   await page.getByRole('button', { name: '重新读取音频存储' }).click()
@@ -134,7 +134,7 @@ test('failed/malformed GET stays unknown; readonly deployment fields omitted fro
     value.fields.accessKey = { source: 'commandLine', editable: false, reason: 'Overridden by deployment configuration.' }
     return json(route, reads === 1 ? {} : reads === 2 ? { revision } : value, reads === 1 ? 503 : 200)
   })
-  await page.goto('/#/settings'); await expect(notice(page)).toContainText('配置状态未知')
+  await page.goto('/#/settings/audio-storage'); await expect(notice(page)).toContainText('配置状态未知')
   await page.getByRole('button', { name: '重新读取音频存储' }).click(); await expect(notice(page)).toContainText('配置状态未知')
   await page.getByRole('button', { name: '重新读取音频存储' }).click()
   await expect(page.getByLabel('服务访问地址 InternalEndpoint', { exact: true })).toBeDisabled()
@@ -145,7 +145,7 @@ test('failed/malformed GET stays unknown; readonly deployment fields omitted fro
 for (const status of [401, 403]) {
   test(`current ${status} respects global authentication navigation`, async ({ page }) => {
     await admin(page); await page.route(url, route => json(route, {}, status))
-    await page.goto('/#/settings'); await expect(page).toHaveURL(status === 401 ? /#\/login/ : /#\/forbidden/)
+    await page.goto('/#/settings/audio-storage'); await expect(page).toHaveURL(status === 401 ? /#\/login/ : /#\/forbidden/)
   })
 }
 for (const leave of ['navigate', 'logout'] as const) {
@@ -153,7 +153,7 @@ for (const leave of ['navigate', 'logout'] as const) {
     await admin(page)
     let pending: Route | undefined
     await page.route(url, route => route.request().method() === 'GET' ? json(route, state()) : (pending = route, undefined))
-    await page.goto('/#/settings'); await change(page); await secret(page).fill('synthetic-private-draft'); await save(page).click()
+    await page.goto('/#/settings/audio-storage'); await change(page); await secret(page).fill('synthetic-private-draft'); await save(page).click()
     await expect.poll(() => Boolean(pending)).toBe(true)
     if (leave === 'navigate') await page.getByRole('link', { name: '单条导入', exact: true }).click()
     else await page.getByRole('button', { name: '退出登录' }).click()
@@ -162,7 +162,8 @@ for (const leave of ['navigate', 'logout'] as const) {
     await expect(page.getByRole('heading', { name: '音频存储（S3）' })).toHaveCount(0)
     if (leave === 'navigate') {
       await expect(page.locator('.session')).toContainText('ci-admin')
-      await page.getByRole('link', { name: '系统设置' }).click(); await expect(secret(page)).toHaveValue('')
+      await page.getByRole('link', { name: '系统设置' }).click()
+      await page.getByRole('link', { name: '音频存储', exact: true }).click(); await expect(secret(page)).toHaveValue('')
     }
   })
 }
@@ -170,7 +171,7 @@ for (const leave of ['navigate', 'logout'] as const) {
 test('narrow screen, keyboard, accessible labels and no secret in storage/URL/logs', async ({ page }) => {
   await admin(page); await page.route(url, route => json(route, state()))
   const logs: string[] = []; page.on('console', message => logs.push(message.text()))
-  await page.setViewportSize({ width: 375, height: 812 }); await page.goto('/#/settings')
+  await page.setViewportSize({ width: 375, height: 812 }); await page.goto('/#/settings/audio-storage')
   await page.getByRole('checkbox', { name: '音频存储草稿开关' }).focus(); await page.keyboard.press('Space')
   await expect(page.getByRole('checkbox', { name: '音频存储草稿开关' })).toBeChecked()
   await access(page).fill('synthetic-memory-access'); await secret(page).fill('synthetic-memory-secret')
@@ -186,10 +187,11 @@ test('late successful PUT cannot populate a replacement settings panel', async (
   await admin(page)
   let pending: Route | undefined
   await page.route(url, route => route.request().method() === 'GET' ? json(route, state()) : (pending = route, undefined))
-  await page.goto('/#/settings'); await change(page); await secret(page).fill('synthetic-private-draft'); await save(page).click()
+  await page.goto('/#/settings/audio-storage'); await change(page); await secret(page).fill('synthetic-private-draft'); await save(page).click()
   await expect.poll(() => Boolean(pending)).toBe(true)
   await page.getByRole('link', { name: '单条导入', exact: true }).click()
   await page.getByRole('link', { name: '系统设置' }).click()
+  await page.getByRole('link', { name: '音频存储', exact: true }).click()
   await expect(page.getByLabel('区域 Region', { exact: true })).toHaveValue('us-east-1')
   await json(pending!, { ...state(), enabled: true, region: 'late-region', hasSecretKey: true, revision: nextRevision }).catch(() => undefined)
   await expect(page.getByLabel('区域 Region', { exact: true })).toHaveValue('us-east-1')
@@ -211,7 +213,7 @@ test('412 requires explicit read and new submission with the fresh revision and 
     expect(route.request().postDataJSON()).toEqual({ region: 'test-region', accessKey: { action: 'keep' }, secretKey: { action: 'keep' } })
     return json(route, { ...state(), region: 'test-region', revision: nextRevision })
   })
-  await page.goto('/#/settings'); await change(page); await secret(page).fill('synthetic-do-not-replay'); await save(page).click()
+  await page.goto('/#/settings/audio-storage'); await change(page); await secret(page).fill('synthetic-do-not-replay'); await save(page).click()
   await expect(notice(page)).toContainText('保存失败（412）'); expect(puts).toBe(1)
   await page.getByRole('button', { name: '重新读取音频存储' }).click()
   await expect(page.getByLabel('区域 Region', { exact: true })).toHaveValue('test-region')

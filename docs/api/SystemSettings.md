@@ -95,9 +95,9 @@ The page disables duplicate submission, keeps nonsecret drafts after failures,
 and reads back after saving. A lost PUT response may mean the file was committed:
 it displays an unknown outcome and performs GET, never automatically resubmits.
 If confirmation fails, retry the read and compare the current state with the draft.
-Leaving the page or logging out aborts reads and discards drafts; no draft is
-stored in browser storage or a URL. The exact `/settings` return target is accepted
-by hosted login; external URLs and encoded variants remain rejected.
+Leaving the page or logging out aborts reads and discards drafts. Drafts live in
+memory. Hosted login accepts the six exact routes listed in the
+[frontend route table](../frontend/README.md#routes).
 
 These are process-local request ceilings, not distributed quotas or DDoS protection.
 Configure trusted proxies correctly and respect 429 Retry-After guidance; see
@@ -327,27 +327,28 @@ whole configuration file, not just visible fields, across container replacement.
 
 ### Administrator page
 
-The **审核与自治补齐** panel at `/#/settings` edits the same safe contract: review
-advice, independent enrichment switches/text client, speech client, separate UK/US
-voice and nullable speed, and bounded retry/pause/scan controls. It includes an independent default-off
-automatic-review switch with an explicit default-off risk explanation. No voice or speed is preselected. Current values and
+The administrator UI splits this contract across Review assistant
+(`/#/settings/review`), Text enrichment (`/#/settings/text`), Speech generation
+(`/#/settings/speech`), and Background policies (`/#/settings/background`).
+Review assistant explains the risk beside the default-off automatic-review
+switch. No voice or speed is preselected. Current values and
 per-field source/read-only reasons remain distinct from drafts. Missing one locale
 can be saved without blocking the other. `configurationReady` means durable version
 metadata exists, not supplier availability or completed generation. The page names
 the implemented speech combinations and links the [support matrix](Audio.md#speech-adapters);
 it performs no supplier discovery, browser-side supplier call or paid preview.
 
-Only changed editable values and explicit credential actions are submitted. All
-three settings panels share the configuration revision, so another panel or
-administrator can cause 412. The user must read again, compare nonsecret drafts,
-and explicitly save with the new revision; 409/428 also require rereading. Fixed
+Each tab submits its changed editable values and explicit credential actions.
+The shared configuration revision means a concurrent save can cause 412. After
+409, 412, or 428, reread the configuration, review the draft, and explicitly save
+with the new revision. Fixed
 local notices for 400/409/412/413/428/503 never display server error bodies.
 
-Every save attempt clears the three password drafts before awaiting a reply. An
-unknown or malformed successful response triggers GET only, never credential
-replay; failed confirmation stays unknown until an explicit read. Nonsecret drafts
-are retained for comparison, and newly overridden fields adopt the actual server
-value. Reading clears password drafts. Navigation and sign-out abort requests and
+Every save attempt clears the current tab's password draft before awaiting a
+reply. An unknown or malformed successful response triggers a GET to check the
+current configuration. If confirmation fails, the state stays unknown until an
+explicit read. Rereading preserves nonsecret edits and adopts server values for
+untouched or newly overridden fields. Reading clears password drafts. Navigation and sign-out abort requests and
 discard drafts; session guards ignore late successes and authentication failures.
 No drafts or credentials enter web storage, URLs or console output.
 

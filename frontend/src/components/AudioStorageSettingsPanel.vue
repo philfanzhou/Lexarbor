@@ -1,37 +1,46 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useSettingsDraftGuard } from '@/router/settingsDraftGuard'
 import { sessionGeneration } from '@/services/authState'
 import { getApiError } from '@/services/apiError'
 import { audioTextFields, credentialFields, readAudioStorage, saveAudioStorage } from '@/services/audioStorageSettingsApi'
 import type { AudioStorageChanges, AudioStorageSettings, CredentialAction } from '@/services/audioStorageSettingsApi'
 
-const actual = ref<AudioStorageSettings | null>(null)
+const lastRead = ref<AudioStorageSettings | null>(null)
+const available = ref(false)
+const actual = computed(() => available.value ? lastRead.value : null)
 const draft = reactive({ enabled: false, internalEndpoint: '', publicEndpoint: '', region: '', bucket: '', keyPrefix: '' })
 const credentials = reactive({ accessKey: { action: 'keep' as CredentialAction, value: '' }, secretKey: { action: 'keep' as CredentialAction, value: '' } })
 const busy = ref(false)
 const notice = ref('')
 const generation = sessionGeneration.value
 let active = true
-let draftReady = false
+let saving = false
 let controller: AbortController | null = null
 const current = () => active && generation === sessionGeneration.value
 const labels = { internalEndpoint: '服务访问地址 InternalEndpoint', publicEndpoint: '浏览器播放地址 PublicEndpoint', region: '区域 Region', bucket: '私有桶 Bucket', keyPrefix: '对象前缀 KeyPrefix', accessKey: 'AccessKey', secretKey: 'SecretKey' }
 const sources = { default: '默认配置', file: '持久化文件', environment: '环境变量', commandLine: '启动参数' }
-const changed = computed(() => actual.value && (['enabled', ...audioTextFields] as const).some(key => actual.value!.fields[key].editable && actual.value![key] !== draft[key])
-  || actual.value && credentialFields.some(key => actual.value!.fields[key].editable && (credentials[key].action === 'clear' || credentials[key].value !== '')))
+const changed = computed(() => {
+  const settings = lastRead.value
+  return settings !== null && ((['enabled', ...audioTextFields] as const).some(key => settings.fields[key].editable && settings[key] !== draft[key])
+    || credentialFields.some(key => settings.fields[key].editable && (credentials[key].action === 'clear' || credentials[key].value !== '')))
+})
 const invalidReplacement = computed(() => credentialFields.some(key => credentials[key].action === 'replace' && !credentials[key].value.trim()))
+useSettingsDraftGuard(() => current() && !saving && (changed.value || invalidReplacement.value))
+
 function clearCredentials() {
   for (const key of credentialFields) { credentials[key].value = ''; credentials[key].action = 'keep' }
 }
 function adopt(value: AudioStorageSettings, resetDraft: boolean) {
-  actual.value = value
+  const previous = lastRead.value
   for (const key of ['enabled', ...audioTextFields] as const) {
-    if (resetDraft || !draftReady || !value.fields[key].editable) {
+    if (resetDraft || !previous || !value.fields[key].editable || previous[key] === draft[key]) {
       if (key === 'enabled') draft.enabled = value.enabled
       else draft[key] = value[key]
     }
   }
-  draftReady = true
+  lastRead.value = value
+  available.value = true
 }
 function begin() {
   controller?.abort()
@@ -47,7 +56,7 @@ async function load() {
     const value = await readAudioStorage(signal, current)
     if (current()) { adopt(value, false); notice.value = '已读取当前生效配置，请核对草稿后保存。' }
   } catch {
-    if (current()) { actual.value = null; notice.value = '配置状态未知：读取失败，请重试。' }
+    if (current()) { available.value = false; notice.value = '配置状态未知：读取失败，请重试。' }
   } finally { if (current()) busy.value = false }
 }
 async function save() {
@@ -62,6 +71,7 @@ async function save() {
       : credential.value !== '' ? { action: 'replace', value: credential.value } : { action: 'keep' }
   }
   const signal = begin()
+  saving = true
   notice.value = '正在保存，等待服务器确认。'
   // A credential-bearing attempt is never retained as a retryable component draft.
   clearCredentials()
@@ -72,7 +82,7 @@ async function save() {
     if (!current()) return
     const status = getApiError(error).status
     if (status === undefined) {
-      actual.value = null
+      available.value = false
       notice.value = '保存结果未知，正在回读；不会自动重复提交密钥。'
       try {
         const value = await readAudioStorage(signal, current)
@@ -88,15 +98,19 @@ async function save() {
         503: '配置文件不可写或保存服务不可用，原配置保留。请检查文件权限后重试。'
       }
       notice.value = `保存失败（${status}）：${messages[status] ?? '请求未被服务器接受，请重新读取并检查配置。'} 密钥输入已清空。`
-      if ([409, 412, 428].includes(status)) actual.value = null
+      if ([409, 412, 428].includes(status)) available.value = false
     }
-  } finally { if (current()) busy.value = false }
+  } finally {
+    saving = false
+    if (current()) busy.value = false
+  }
 }
 function cancel() {
   active = false
   controller?.abort()
   clearCredentials()
-  actual.value = null
+  available.value = false
+  lastRead.value = null
   for (const key of audioTextFields) draft[key] = ''
   draft.enabled = false
 }
@@ -142,7 +156,6 @@ onMounted(() => { void load() })
 </template>
 
 <style scoped>
-.audio-settings { margin-top: var(--lx-space-4); }
 h2 { margin-top: 0; }
 p { overflow-wrap: anywhere; line-height: 1.6; }
 .audio-field { padding: var(--lx-space-3) 0; border-top: 1px solid var(--lx-color-border-light); }

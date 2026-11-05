@@ -10,7 +10,8 @@ function check(value) { if (!value) throw new Error('Assertion failed'); }
 try {
   const context = await browser.newContext();
   const page = await context.newPage();
-  await page.goto(base + '#/settings');
+  await page.goto(base + '#/settings/audio-storage');
+  const tab = name => page.getByRole('navigation', { name: '设置分类' }).getByRole('link', { name, exact: true });
   const audioNotice = page.getByRole('status', { name: '音频存储状态' });
   await page.getByLabel('区域 Region', { exact: true }).waitFor();
   const save = page.getByRole('button', { name: '保存音频存储设置' });
@@ -18,7 +19,8 @@ try {
     step = 'initial disabled state without file';
     check(!await page.getByRole('checkbox', { name: '音频存储草稿开关' }).isChecked());
     const second = await context.newPage(); await second.goto(base + '#/settings');
-    await second.getByLabel('区域 Region', { exact: true }).waitFor();
+    const secondRateSwitch = second.getByRole('checkbox', { name: '公共 API草稿开关' });
+    await secondRateSwitch.waitFor();
     step = 'first browser save with CSRF and If-Match';
     for (const [label, value] of [
       ['服务访问地址 InternalEndpoint', process.env.LEXARBOR_S3_TEST_INTERNAL],
@@ -35,7 +37,7 @@ try {
     step = 'reload and concurrent cross-panel version conflict';
     await page.reload(); await page.getByLabel('区域 Region', { exact: true }).waitFor();
     check(await page.getByRole('checkbox', { name: '音频存储草稿开关' }).isChecked());
-    await second.getByRole('checkbox', { name: '公共 API草稿开关' }).check();
+    await secondRateSwitch.check();
     await second.getByRole('button', { name: '保存限流设置' }).click();
     await second.getByText('当前生效状态：未知', { exact: true }).waitFor();
     check((await second.getByRole('status').first().textContent()).includes('版本已变化'));
@@ -45,23 +47,26 @@ try {
       const values = []; for (let i = 0; i < 4; i++) values.push((await fetch('/api/settings-probe')).status); return values;
     });
     const disabledStatuses = await statuses(); console.log('Rate-limit disabled statuses: ' + disabledStatuses.join(',')); check(disabledStatuses.every(status => status === 200));
-    // S3 save changed the shared version, so refresh this panel before saving.
-    step = 'refresh rate-limit version before enabling';
-    await page.getByRole('button', { name: '重新读取', exact: true }).click();
-    await page.getByRole('checkbox', { name: '公共 API草稿开关' }).check();
+    // Opening the rate-limit tab reads the shared version after the S3 save.
+    step = 'open rate-limit settings before enabling';
+    await tab('请求限流').click();
+    const rateSwitch = page.getByRole('checkbox', { name: '公共 API草稿开关' });
+    const rateSaved = page.getByRole('status').filter({ hasText: '保存后已回读' });
+    const saveRateLimits = page.getByRole('button', { name: '保存限流设置' });
+    await rateSwitch.check();
     step = 'enable rate-limit save and confirmation';
-    await page.getByRole('button', { name: '保存限流设置' }).click();
-    await page.waitForFunction(() => document.querySelector('.settings-page [role="status"]').textContent.includes('保存后已回读'));
+    await saveRateLimits.click();
+    await rateSaved.waitFor();
     step = 'enabled quota enforcement';
     const enabledStatuses = await statuses(); console.log('Rate-limit enabled statuses: ' + enabledStatuses.join(','));
     check(JSON.stringify(enabledStatuses) === '[200,200,429,429]');
     step = 'disable rate-limit save and confirmation';
-    await page.getByRole('checkbox', { name: '公共 API草稿开关' }).uncheck();
-    await page.getByRole('button', { name: '保存限流设置' }).click();
-    await page.waitForFunction(() => document.querySelector('.settings-page [role="status"]').textContent.includes('保存后已回读'));
+    await rateSwitch.uncheck();
+    await saveRateLimits.click();
+    await rateSaved.waitFor();
     check((await statuses()).every(status => status === 200));
     step = 'lost committed response recovers with GET without replay';
-    await page.getByRole('button', { name: '重新读取音频存储' }).click();
+    await tab('音频存储').click();
     let puts = 0;
     await page.route('**/admin/system/settings/audio-storage', async route => {
       if (route.request().method() !== 'PUT') return route.continue();
@@ -109,7 +114,8 @@ try {
       window.Audio = class extends OriginalAudio { constructor() { super(); window.__probeAudios.push(this); } };
     });
     step = 'actual vocabulary list query';
-    await page.goto(base + '#/vocabulary');
+    if (mode === 'playback') page.once('dialog', dialog => dialog.accept());
+    await page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name: '单词管理', exact: true }).click();
     await page.locator('.el-table__row', { hasText: 'tone' }).getByRole('button', { name: '详情' }).click();
     step = 'actual administrator MP3 media playback';
     await page.getByRole('button', { name: '试听单词默认英式音频' }).click();

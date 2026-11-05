@@ -1432,7 +1432,7 @@ Administrators can read the effective switches and save editable fields at `/#/s
 
 ### Online S3 settings page
 
-Open the authenticated `/#/settings` page and its Audio storage (S3) panel to
+Open the Audio storage (S3) tab at `/#/settings/audio-storage` to
 configure the server access address, browser playback address, Region, private
 Bucket, KeyPrefix and credential actions. Save creates
 `<contentRoot>/data/appsettings.json` when absent (`/app/data/appsettings.json` in
@@ -1462,8 +1462,9 @@ administrator/public playback to establish remote connectivity. See the
 Administrators can GET and conditionally PUT `/admin/enrichment/settings` using the
 shared settings ETag and Cookie/CSRF or administrator Bearer authentication. See
 [the API contract](../api/SystemSettings.md#review-assistant-and-enrichment) for
-exact fields, bounds, defaults and credential operations. The System settings page exposes the same contract in separate review, text,
-speech/locale and policy sections; see [the frontend guide](../frontend/README.md#review-and-autonomous-enrichment).
+exact fields, bounds, defaults and credential operations. System settings exposes
+the contract in four tabs for review, text enrichment, speech generation, and
+background policies. See [the frontend guide](../frontend/README.md#review-and-autonomous-enrichment).
 The review assistant
 keeps `MeaningSubmissions:Ai` keys; enrichment uses its independent `Enrichment`
 section. Environment/command-line overrides remain read-only. Keys remain only in

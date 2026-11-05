@@ -20,7 +20,12 @@
 | `/vocabulary` | Administrator | Whole-library word list |
 | `/phrases` | Administrator | Phrase positions by book, unit, section, and keyword |
 | `/submissions` | Administrator | Meaning submission review queue |
-| `/settings` | Administrator | Effective system and review/enrichment configuration |
+| `/settings` | Administrator | System settings, open to Request limits |
+| `/settings/audio-storage` | Administrator | S3 storage for audio assets |
+| `/settings/review` | Administrator | Review assistant and automatic review |
+| `/settings/text` | Administrator | Field enrichment and pronunciation preparation |
+| `/settings/speech` | Administrator | Speech generation and UK/US voices |
+| `/settings/background` | Administrator | Enrichment discovery, retry, and pause policies |
 | `/enrichment` | Administrator | Autonomous progress, service/cleanup state, histories and single failed-step retry |
 | `/import` | Administrator | Word import |
 | `/import/batch` | Administrator | Mixed vocabulary batch import (legacy default) |
@@ -78,7 +83,7 @@ The Axios response interceptor runs the global 401/403 handling before any compo
 
 SignaCore's hosted pages are the only administrator sign-in, so the login page renders exactly one sign-in action and never asks for a password. The frontend orchestrates navigations only; every protocol value — state, nonce, PKCE verifier, code, access token, ID token, client secret — stays server-side and never enters a browser request, the URL the app controls, or web storage.
 
-The **使用 SignaCore 登录** button runs a top-level navigation to this site's `GET /admin/auth/start`, forwarding the current `redirect` query as `returnUrl` only when it exactly matches the backend's route allowlist (`/settings`, `/enrichment`, `/books`, `/vocabulary`, `/phrases`, `/import`, `/import/phrase`, `/import/batch`, or `/books/<id>/words` with a safe id); otherwise the parameter is omitted and the backend default applies. One activation begins exactly one navigation: the button turns busy and a second activation is a no-op. The provider round trip and the callback are backend-driven; on success the browser lands on the stored return page, where the ordinary route guard's `GET /admin/auth/session` restore establishes the username, roles, and the one version request.
+The **使用 SignaCore 登录** button runs a top-level navigation to this site's `GET /admin/auth/start`, forwarding the current `redirect` query as `returnUrl` only when it exactly matches the backend's route allowlist (the six System settings routes listed above, `/enrichment`, `/books`, `/vocabulary`, `/phrases`, `/import`, `/import/phrase`, `/import/batch`, or `/books/<id>/words` with a safe id); otherwise the parameter is omitted and the backend default applies. One activation begins exactly one navigation: the button turns busy and a second activation is a no-op. The provider round trip and the callback are backend-driven; on success the browser lands on the stored return page, where the ordinary route guard's `GET /admin/auth/session` restore establishes the username, roles, and the one version request.
 
 The login page consumes the six fixed `reason` values of the callback and logout-return routes as exactly one notice each, and ignores an unknown value harmlessly:
 
@@ -376,11 +381,27 @@ Vite writes to the frontend's own `dist/`, and the root Dockerfile copies that d
 
 ## System settings
 
-The authenticated `/#/settings` route shows the effective login/public API ceilings, actual numeric values, and switch configuration sources. Only editable switches can be saved. Drafts stay separate from actual state; read failures show unknown and offer retry. Save uses strong If-Match and CSRF, blocks duplicates, then confirms by GET. A lost response triggers read-back without automatically resubmitting. Failures retain nonsecret drafts, while navigation/sign-out discards them and cancels pending reads. Environment/command-line overrides are shown as read-only. The hosted login return allowlist includes the exact `/settings` route. See [System settings API](../api/SystemSettings.md).
+System settings opens at `/#/settings` on **请求限流** (Request limits).
+Opening the tab reads the current state without changing either switch.
+The other five tabs have their own URLs and can be bookmarked. Each tab loads its
+settings when opened and has its own save and reread controls. The four review
+and enrichment tabs use the shared settings endpoint and submit only the changed
+fields on the current tab. Hosted login accepts each of the six exact routes.
+
+Switching tabs or following another link inside the admin app prompts before
+discarding unsubmitted changes. Staying preserves the draft. Leaving clears the
+draft, including any secret inputs, and cancels pending requests. Signing out
+clears drafts immediately.
+
+The Request limits tab shows the effective login and public API ceilings and
+configuration sources. Environment and command-line overrides are read-only.
+Save uses strong If-Match and CSRF, blocks duplicates, then confirms by GET.
+A lost response triggers read-back without resubmitting. If a read fails, the tab
+shows an unknown state and offers a retry. See [System settings API](../api/SystemSettings.md).
 
 ### Audio storage (S3)
 
-The same System settings page contains 音频存储（S3）. It displays the effective
+The **音频存储** (Audio storage) tab at `/#/settings/audio-storage` displays the effective
 Enabled, InternalEndpoint (server access address), PublicEndpoint (browser
 playback address), Region, Bucket and KeyPrefix values, and the source and
 editability of every field. Deployment overrides explain why a field is read-only.
@@ -409,12 +430,11 @@ Timeouts and lost responses trigger GET only; a successful read shows the actual
 configuration without claiming the uncertain PUT succeeded. There is no automatic
 credential replay. Every save attempt clears secret inputs, including refusal or
 an unknown outcome; enter a new value again only after checking the result.
-Nonsecret drafts survive a failed save or explicit read for comparison; a newly
-locked field adopts the server value. Navigation and sign-out abort in-flight work,
-discard drafts and ignore stale replies through the existing session guard.
-Neither drafts nor credentials are stored in web storage, URLs, console output or
-analytics. The rate-limit panel keeps its own draft, notice and save operation;
-saving either panel can make the other's revision stale and cause 412.
+Nonsecret edits survive a failed save or explicit read. Untouched and newly locked
+fields adopt the server value on reread. Navigation and sign-out abort in-flight
+work, discard drafts and ignore stale replies through the session guard. Drafts
+and credential inputs live in memory. A save in another browser tab or by another
+administrator can make the current revision stale and cause 412.
 
 ## Textbook recording removal
 
@@ -428,12 +448,21 @@ for retained files and recording metadata backups.
 
 ### Review and autonomous enrichment
 
-The **审核与自治补齐** panel on `/#/settings` uses `/admin/enrichment/settings`
-for the review assistant, separate text preparation, default-off field/audio
-switches, speech service, independent UK/US voice and nullable speed, and bounded
-background policies. It shares the existing configuration revision with S3 and
-rate limits. Its separate default-off automatic-review switch explains that AI
-decides without human confirmation and may write incorrect shared vocabulary.
+Four tabs use `/admin/enrichment/settings` and share the configuration revision
+with S3 and rate limits.
+
+- **审核助手** (Review assistant) contains the review client and the default-off
+  automatic-review switch. The switch explains that AI can approve, edit, or
+  reject submissions without human confirmation and may write incorrect shared
+  vocabulary.
+- **文本补齐** (Text enrichment) contains the field enrichment switch and the text
+  client used for both field enrichment and pronunciation preparation.
+- **语音生成** (Speech generation) contains the audio generation switch, the
+  speech client, and separate UK and US voices and speeds. It links to Text
+  enrichment and Audio storage so administrators can set up those dependencies.
+- **后台策略** (Background policies) contains discovery, concurrency, failure
+  budget, pause, and backoff settings.
+
 There is no supplier connection test or browser-side supplier request. Enabled enrichment is discovered by the hosted
 scheduler without selecting a range or starting a batch.
 
@@ -441,8 +470,9 @@ Every field displays its actual value, source and deployment override reason. A
 failed or invalid read is unknown. Missing one locale can be saved without blocking
 the other; voice and speed are never filled on the user's behalf. Durable
 `configurationReady` does not prove supplier availability or generation completion.
-The local [speech matrix](../api/Audio.md#speech-adapters) is shown as guidance:
-only explicitly supported endpoint/model combinations can express the required IPA
+The Speech generation tab has an expandable explanation of supported providers,
+models, and speeds. See the [speech matrix](../api/Audio.md#speech-adapters).
+Only explicitly supported endpoint/model combinations can express the required IPA
 or instructions. Unsupported combinations stop safely. Storage accepts speed
 0.1–4, but MiniMax generation requires 0.5–2 and OpenAI 0.25–4.
 
@@ -485,7 +515,7 @@ approval/import/edit flows do not select a range or start a batch. Empty specifi
 phonetics continue to inherit. Browser credentials and existing routes are unchanged;
 the [administrator observation API](../api/Enrichment.md) supplies safe task,
 service, and cleanup state plus atomic single-step retry. Open **自治补齐进度** at
-`/#/enrichment` from the system navigation, settings panel, or vocabulary detail.
+`/#/enrichment` from the system navigation, an enrichment settings tab, or vocabulary detail.
 Detail links can filter by word/meaning ID; filters observe work and never start
 a batch. The page also opens the existing word/meaning editor and preview.
 See [scheduler behavior](../api/Audio.md#autonomous-enrichment-scheduling)

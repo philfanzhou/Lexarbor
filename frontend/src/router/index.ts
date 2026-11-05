@@ -14,12 +14,13 @@ import PhrasePositionsView from '@/views/PhrasePositionsView.vue'
 import SettingsView from '@/views/SettingsView.vue'
 import EnrichmentView from '@/views/EnrichmentView.vue'
 import VocabularyView from '@/views/VocabularyView.vue'
+import { settingsPages } from './settingsPages'
 
 const routes: RouteRecordRaw[] = [
   { path: '/', redirect: '/books' },
   { path: '/login', name: 'login', component: LoginView, meta: { public: true } },
   { path: '/forbidden', name: 'forbidden', component: ForbiddenView, meta: { public: true } },
-  { path: '/settings', name: 'settings', component: SettingsView },
+  { path: '/settings', name: 'settings', component: SettingsView, children: settingsPages },
   { path: '/enrichment', name: 'enrichment', component: EnrichmentView },
   { path: '/books', name: 'books', component: BooksView },
   { path: '/books/:bookId/words', name: 'book-words', component: BookWordsView },
