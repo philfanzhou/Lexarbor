@@ -147,7 +147,7 @@ public sealed class MeaningSubmissionReviewAdminTests : IDisposable
             var connection = db.Database.GetDbConnection(); var tables = new List<string>();
             using (var command = connection.CreateCommand())
             {
-                command.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name NOT IN ('meaning_submission_review_check','__EFMigrationsHistory') AND name NOT LIKE 'sqlite_%' ORDER BY name";
+                command.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name NOT IN ('meaning_submission_review_check','vocabulary_relation','__EFMigrationsHistory') AND name NOT LIKE 'sqlite_%' ORDER BY name";
                 using var names = await command.ExecuteReaderAsync(Ct); while (await names.ReadAsync(Ct)) tables.Add(names.GetString(0));
             }
             var snapshot = new List<object>();

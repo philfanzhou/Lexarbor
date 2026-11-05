@@ -42,6 +42,27 @@ SDK no longer supports running xUnit v3 under VSTest. The conventions that follo
 - The xUnit1051 analyzer in xUnit v3 requires asynchronous calls to be passed
   `TestContext.Current.CancellationToken`, so that tests respond to cancellation and timeouts.
 
+## Vocabulary relation verification
+
+`VocabularyRelationTests` covers directed and self-relations, multiple sources
+and targets, create replay/provenance, conditional maintenance, atomic batch
+failure, independent-context races, rename invalidation/rollback, and retention
+of related words during cleanup. `VocabularyRelationMigrationTests` upgrades an
+existing database, checks the thirteen-column schema and constraints directly,
+and verifies downgrade preserves the catalog. `VocabularyRelationEndpointTests`
+exercises Bearer and session authentication, custom roles, CSRF, strict JSON,
+batch behavior, versions, query responses, and rename/cleanup integration.
+
+Run the solution checks and container persistence checks for these changes:
+
+```bash
+dotnet restore Lexarbor.sln
+dotnet build Lexarbor.sln --configuration Release --no-restore
+dotnet test --solution Lexarbor.sln --configuration Release --no-build --no-restore
+docker build -t lexarbor:ci .
+bash .github/scripts/test-container.sh lexarbor:ci
+```
+
 ## Build identity verification
 
 `ApplicationVersion.Read(Assembly)` is an internal assembly reader exposed to the service

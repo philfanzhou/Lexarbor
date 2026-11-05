@@ -2,8 +2,12 @@ namespace Lexarbor.Domain.Models;
 
 public sealed record VocabularyCleanupSelection(string Action, string? WordId = null, string? MeaningId = null,
     IReadOnlyList<string>? WordIds = null, string? ConfirmedBookName = null);
-public sealed record VocabularyCleanupCounts(int AffectedWordCount, int MeaningCount, int OrphanWordCount);
+public sealed record VocabularyCleanupCounts(int AffectedWordCount, int MeaningCount, int OrphanWordCount,
+    int RetainedRelatedWordCount = 0);
 public sealed record VocabularyCleanupPreview(string BookId, string BookName, string Action,
-    int AffectedWordCount, int MeaningCount, int OrphanWordCount);
+    int AffectedWordCount, int MeaningCount, int OrphanWordCount, int RetainedRelatedWordCount = 0)
+{
+    public int DeletableWordCount => OrphanWordCount - RetainedRelatedWordCount;
+}
 public sealed record VocabularyCleanupResult(string BookId, string Action, int AffectedWordCount,
-    int DeletedMeaningCount, int DeletedWordCount, bool DeletedBook);
+    int DeletedMeaningCount, int DeletedWordCount, bool DeletedBook, int RetainedRelatedWordCount = 0);

@@ -21,6 +21,7 @@ public sealed class VocabularyWordEditService(IVocabularyRepository words,
                 ?? throw new ResourceNotFoundException("Vocabulary word was not found.");
             if (await edits.HasOtherNormalizedWordAsync(normalized, wordId))
                 throw new ConflictException("A vocabulary word with the same normalized value already exists.");
+            var spellingChanged = current.Word.Trim().ToLowerInvariant() != normalized;
             var newPhoneticUk = Optional(phoneticUk);
             var newPhoneticUs = Optional(phoneticUs);
             var addsUk = IsNewValue(newPhoneticUk, current.PhoneticUk);
@@ -28,16 +29,17 @@ public sealed class VocabularyWordEditService(IVocabularyRepository words,
             if ((addsUk || addsUs) && await IsUsedOnlyAsPhraseAsync(wordId))
                 throw new DomainValidationException(
                     $"Words used only as phrases must not include {(addsUk ? "phoneticUk" : "phoneticUs")}.");
-            // The submitted spelling is the display value: an explicit edit is
-            // the one path allowed to correct casing, because it is confined to
-            // the row whose normalized key is unchanged. Imports never rewrite
-            // display spelling; equivalence stays keyed on the normalized form.
+            // Explicit replacement owns display spelling. Imports never rewrite
+            // it; substantive spelling changes invalidate relations in this transaction.
             current.Word = word.Trim();
             current.PhoneticUk = newPhoneticUk;
             current.PhoneticUs = newPhoneticUs;
             current.UpdatedAt = DateTimeOffset.UtcNow;
             await words.UpdateAsync(current);
-            return await unitOfWork.SaveChangesAsync();
+            var count = await unitOfWork.SaveChangesAsync();
+            if (spellingChanged)
+                await edits.InvalidateRelationsAsync(wordId, current.UpdatedAt.ToUnixTimeMilliseconds());
+            return count;
         });
     }
 
