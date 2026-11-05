@@ -12,6 +12,7 @@ public static class EnrichmentSettingsEndpoints
     {
         group.MapGet("", ReadAsync);
         group.MapPut("", SaveAsync);
+        group.MapPost("/speech-preview", SpeechPreviewEndpoints.GenerateAsync);
     }
     private static async Task<IResult> ReadAsync(HttpContext context, PersistentConfigurationCoordinator coordinator, EnrichmentRuntimeConfiguration runtime)
         => await ReadResponse(context, coordinator, runtime, context.RequestAborted);
@@ -68,36 +69,7 @@ public static class EnrichmentSettingsEndpoints
         try
         {
             using var document = JsonDocument.Parse(buffer.ToArray(), new JsonDocumentOptions { MaxDepth = 8 });
-            bool Visit(JsonElement element, string prefix)
-            {
-                if (element.ValueKind != JsonValueKind.Object) return false;
-                var seen = new HashSet<string>(StringComparer.Ordinal);
-                foreach (var property in element.EnumerateObject())
-                {
-                    if (!seen.Add(property.Name)) return false;
-                    var name = prefix.Length == 0 ? property.Name : prefix + "." + property.Name;
-                    var field = EnrichmentConfigurationFields.All.FirstOrDefault(f => f.Name == name);
-                    if (field is null)
-                    {
-                        if (!EnrichmentConfigurationFields.All.Any(f => f.Name.StartsWith(name + ".", StringComparison.Ordinal)) || !Visit(property.Value, name)) return false;
-                        continue;
-                    }
-                    if (!supplied.Add(field.Key)) return false;
-                    if (field.Secret)
-                    {
-                        if (!Credential(property.Value, out var action, out var value)) return false;
-                        if (action != "keep") changes.Add(field.Key, JsonValue.Create(action == "clear" ? "" : value));
-                    }
-                    else
-                    {
-                        var value = JsonNode.Parse(property.Value.GetRawText());
-                        if (!field.Valid(value)) return false;
-                        changes.Add(field.Key, value);
-                    }
-                }
-                return seen.Count > 0;
-            }
-            if (!Visit(document.RootElement, "") || supplied.Count == 0) return Error(400, Invalid);
+            if (!ReadChanges(document.RootElement, "", changes, supplied) || supplied.Count == 0) return Error(400, Invalid);
         }
         catch (JsonException) { return Error(400, Invalid); }
         var retained = await coordinator.ReadAsync(read => (Read: read, Snapshot: runtime.Current), context.RequestAborted);
@@ -122,6 +94,36 @@ public static class EnrichmentSettingsEndpoints
             _ => Error(503, ConfigurationSaveResult.StorageFailureMessage)
         };
     }
+    internal static bool ReadChanges(JsonElement element, string prefix, Dictionary<string, JsonNode?> changes, HashSet<string> supplied)
+    {
+        if (element.ValueKind != JsonValueKind.Object) return false;
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var property in element.EnumerateObject())
+        {
+            if (!seen.Add(property.Name)) return false;
+            var name = prefix.Length == 0 ? property.Name : prefix + "." + property.Name;
+            var field = EnrichmentConfigurationFields.All.FirstOrDefault(f => f.Name == name);
+            if (field is null)
+            {
+                if (!EnrichmentConfigurationFields.All.Any(f => f.Name.StartsWith(name + ".", StringComparison.Ordinal)) || !ReadChanges(property.Value, name, changes, supplied)) return false;
+                continue;
+            }
+            if (!supplied.Add(field.Key)) return false;
+            if (field.Secret)
+            {
+                if (!Credential(property.Value, out var action, out var value)) return false;
+                if (action != "keep") changes.Add(field.Key, JsonValue.Create(action == "clear" ? "" : value));
+            }
+            else
+            {
+                var value = JsonNode.Parse(property.Value.GetRawText());
+                if (!field.Valid(value)) return false;
+                changes.Add(field.Key, value);
+            }
+        }
+        return seen.Count > 0;
+    }
+
     private static bool Credential(JsonElement element, out string? action, out string? value)
     {
         action = null; value = null;

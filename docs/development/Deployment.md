@@ -1483,6 +1483,24 @@ shared S3/rate-limit/admin updates require rereading after a 412 conflict. Passw
 drafts are cleared before save, reread, navigation or sign-out; unknown save results
 use GET only and never automatically replay credentials.
 
+Speech styles are optional per locale: `Enrichment:Tts:Uk:Style`, `Emotion`,
+`Pitch`, `Volume` and the corresponding `Us` keys. Defaults are empty style/emotion,
+zero pitch and volume one. Environment equivalents use double underscores, such as
+`Enrichment__Tts__Uk__Emotion`; deployment overrides remain read-only online.
+Styles persist in the existing protected settings file. Default style additions
+preserve existing configuration versions; changed styles advance only their locale.
+No business database migration or new storage path is required. Back up the whole
+configuration file, including private version metadata, as before.
+
+The administrator speech page offers explicit, potentially billable draft previews.
+They work while background generation is disabled and do not require a text client
+or S3. The server still needs outbound access to an allowed speech endpoint and a
+valid saved or request-local credential. Preview audio is returned directly and
+never persisted. Admission is process-local: one active preview and six attempts
+per rolling minute, independent of background task failure budgets. See the
+[preview contract](../api/SystemSettings.md#speech-styles-and-draft-previews).
+Saved styles affect future generation; existing audio is not automatically replaced.
+
 The registered pronunciation planner uses the independent text snapshot and its
 configured timeout for both headers and body reads. It accepts only bounded validated
 JSON plans; missing configuration waits without dispatch and an uncertain/invalid plan

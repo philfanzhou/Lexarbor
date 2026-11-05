@@ -18,8 +18,16 @@ export const valueFields = [
   ['enrichment.tts.model', '语音模型', 'tts', 'text'],
   ['enrichment.tts.timeoutSeconds', '语音超时（秒）', 'tts', 'integer', 1, 300],
   ['enrichment.tts.uk.voice', 'UK 音色', 'uk', 'text'],
+  ['enrichment.tts.uk.style', 'UK 风格描述', 'uk', 'style'],
+  ['enrichment.tts.uk.emotion', 'UK 情绪', 'uk', 'emotion'],
+  ['enrichment.tts.uk.pitch', 'UK 音高', 'uk', 'integer', -12, 12],
+  ['enrichment.tts.uk.volume', 'UK 音量', 'uk', 'decimal', 0.1, 10],
   ['enrichment.tts.uk.speed', 'UK 语速', 'uk', 'speed', 0.1, 4],
   ['enrichment.tts.us.voice', 'US 音色', 'us', 'text'],
+  ['enrichment.tts.us.style', 'US 风格描述', 'us', 'style'],
+  ['enrichment.tts.us.emotion', 'US 情绪', 'us', 'emotion'],
+  ['enrichment.tts.us.pitch', 'US 音高', 'us', 'integer', -12, 12],
+  ['enrichment.tts.us.volume', 'US 音量', 'us', 'decimal', 0.1, 10],
   ['enrichment.tts.us.speed', 'US 语速', 'us', 'speed', 0.1, 4],
   ['enrichment.concurrency', '并发上限', 'policy', 'integer', 1, 8],
   ['enrichment.failureBudget', '每步骤失败额度（含首次）', 'policy', 'integer', 1, 20],
@@ -64,9 +72,9 @@ function parse(value: unknown): EnrichmentSettings {
   for (const field of valueFields) {
     const [name, , , kind] = field, item = get(value, name)
     const valid = kind === 'boolean' ? typeof item === 'boolean'
-      : kind === 'integer' || kind === 'speed' ? kind === 'speed' && item === null
-        || typeof item === 'number' && Number.isFinite(item) && item >= field[4]! && item <= field[5]! && (kind === 'speed' || Number.isInteger(item))
-        : typeof item === 'string' && item.length <= 2048 && (kind !== 'provider' || ['MiniMaxNative', 'OpenAICompatible'].includes(item))
+      : kind === 'integer' || kind === 'speed' || kind === 'decimal' ? kind === 'speed' && item === null
+        || typeof item === 'number' && Number.isFinite(item) && item >= field[4]! && item <= field[5]! && (kind !== 'integer' || Number.isInteger(item))
+        : typeof item === 'string' && item.length <= (kind === 'style' ? 512 : 2048) && (kind !== 'emotion' || ['', 'happy', 'sad', 'angry', 'fearful', 'disgusted', 'surprised', 'calm'].includes(item)) && (kind !== 'provider' || ['MiniMaxNative', 'OpenAICompatible'].includes(item))
     if (!valid) return invalid()
     values[name] = item as SettingValue
   }
@@ -91,7 +99,7 @@ const url = '/admin/enrichment/settings'
 export async function readEnrichmentSettings(signal: AbortSignal, isCurrent: () => boolean) {
   return parse(await api.get<unknown>(url, { signal, lxIsCurrent: isCurrent }))
 }
-export async function saveEnrichmentSettings(revision: string, changes: EnrichmentChanges, signal: AbortSignal, isCurrent: () => boolean) {
+export function enrichmentChangesBody(changes: EnrichmentChanges) {
   const body: Record<string, unknown> = {}
   for (const [name, value] of Object.entries(changes)) {
     const path = name.split('.'), leaf = path.pop()!
@@ -102,5 +110,8 @@ export async function saveEnrichmentSettings(revision: string, changes: Enrichme
     }
     parent[leaf] = value
   }
-  return parse(await api.put<unknown>(url, body, { headers: { 'If-Match': revision }, signal, lxIsCurrent: isCurrent }))
+  return body
+}
+export async function saveEnrichmentSettings(revision: string, changes: EnrichmentChanges, signal: AbortSignal, isCurrent: () => boolean) {
+  return parse(await api.put<unknown>(url, enrichmentChangesBody(changes), { headers: { 'If-Match': revision }, signal, lxIsCurrent: isCurrent }))
 }

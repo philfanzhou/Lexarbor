@@ -6,10 +6,11 @@ const url = '**/admin/enrichment/settings'
 const revision = '"1234567890abcdef1234567890abcdef"'
 const nextRevision = '"abcdef1234567890abcdef1234567890"'
 function state() {
+  const voice = () => ({ voice: '', speed: null as number | null, style: '', emotion: '', pitch: 0, volume: 1 })
   const client = () => ({ endpoint: '', model: '', hasApiKey: false, timeoutSeconds: 30 })
   const body = { revision, configurationReady: false, reviewAssistant: { ...client(), autoReviewEnabled: false }, enrichment: {
     fieldsEnabled: false, audioEnabled: false, text: client(),
-    tts: { ...client(), provider: 'MiniMaxNative', model: 'speech-2.8-hd', uk: { voice: '', speed: null as number | null }, us: { voice: '', speed: null as number | null } },
+    tts: { ...client(), provider: 'MiniMaxNative', model: 'speech-2.8-hd', uk: voice(), us: voice() },
     concurrency: 1, failureBudget: 5, serviceFailureThreshold: 5, servicePauseSeconds: 60, maxServicePauseSeconds: 600,
     throttleInitialSeconds: 8, throttleMaxSeconds: 120, discoveryBatchSize: 20, scanIntervalSeconds: 30
   }, fields: {} as Record<string, { source: string; editable: boolean; reason: string | null }> }
@@ -111,7 +112,7 @@ test('text preparation and US-only speech save separately using the current revi
       } } })
       await new Promise(resolve => setTimeout(resolve, 100))
       current = { ...current, enrichment: { ...current.enrichment, audioEnabled: true,
-        tts: { ...current.enrichment.tts, endpoint: 'https://api.minimax.io/v1', hasApiKey: true, us: { voice: 'configured-us-voice', speed: 1.1 } }
+        tts: { ...current.enrichment.tts, endpoint: 'https://api.minimax.io/v1', hasApiKey: true, us: { ...current.enrichment.tts.us, voice: 'configured-us-voice', speed: 1.1 } }
       } }
     }
     return json(route, current)
@@ -144,7 +145,7 @@ test('text preparation and US-only speech save separately using the current revi
 test('credential edits belong to their section and empty locale speed sends null', async ({ page }) => {
   await admin(page)
   const current = state()
-  current.enrichment.tts.uk = { voice: 'existing-uk', speed: 1 }
+  current.enrichment.tts.uk = { ...current.enrichment.tts.uk, voice: 'existing-uk', speed: 1 }
   const payloads: unknown[] = []
   await page.route(url, route => {
     if (route.request().method() === 'PUT') payloads.push(route.request().postDataJSON())
@@ -444,4 +445,161 @@ test('automatic review risk flag saves independently and reports pause until con
   expect(puts).toBe(1)
   await tab(page, '文本补齐').click()
   await expect(page.getByLabel('启用默认字段补齐', { exact: true })).not.toBeChecked()
+})
+
+test('draft previews use independent locale styles and credentials without saving, then save the same styles', async ({ page }) => {
+  await admin(page)
+  const current = state()
+  let puts = 0
+  const previews: Array<Record<string, unknown>> = []
+  await page.route(url, route => {
+    if (route.request().method() === 'GET') return json(route, current)
+    puts++
+    const patch = route.request().postDataJSON().enrichment.tts
+    expect(patch.uk).toEqual({ voice: 'uk-draft', speed: 0.9, emotion: 'calm', pitch: -2, volume: 0.8 })
+    expect(patch.us).toEqual({ voice: 'us-draft', speed: 1.1, emotion: 'happy' })
+    current.enrichment.tts = { ...current.enrichment.tts, ...patch, hasApiKey: true,
+      uk: { ...current.enrichment.tts.uk, ...patch.uk }, us: { ...current.enrichment.tts.us, ...patch.us } }
+    current.revision = nextRevision
+    return json(route, current)
+  })
+  await page.route('**/admin/enrichment/settings/speech-preview', async route => {
+    expect(route.request().headers()['if-match']).toBe(revision)
+    expect(route.request().headers()['x-signacore-csrf']).toBeTruthy()
+    previews.push(route.request().postDataJSON())
+    await route.fulfill({ contentType: 'audio/mpeg', path: '../tests/AudioStorageProbe/Fixtures/tone.mp3' })
+  })
+  await page.goto('/#/settings/speech')
+  await page.getByLabel('语音服务地址', { exact: true }).fill('https://api.minimax.io/v1')
+  await key(page, '语音 API Key').fill('synthetic-draft-key')
+  await page.getByLabel('UK 音色', { exact: true }).fill('uk-draft')
+  await page.getByLabel('UK 语速', { exact: true }).fill('0.9')
+  await page.getByLabel('UK 情绪', { exact: true }).selectOption('calm')
+  await page.getByLabel('UK 音高', { exact: true }).fill('-2')
+  await page.getByLabel('UK 音量', { exact: true }).fill('0.8')
+  await page.getByLabel('US 音色', { exact: true }).fill('us-draft')
+  await page.getByLabel('US 语速', { exact: true }).fill('1.1')
+  await page.getByLabel('US 情绪', { exact: true }).selectOption('happy')
+  await page.getByRole('button', { name: '生成 UK 试听', exact: true }).click()
+  await expect(page.getByLabel('UK 试听播放器')).toHaveAttribute('src', /^blob:/)
+  await page.getByLabel('US 试听样本').selectOption('sentence')
+  await page.getByRole('button', { name: '生成 US 试听', exact: true }).click()
+  await expect(page.getByLabel('US 试听播放器')).toHaveAttribute('src', /^blob:/)
+  expect(puts).toBe(0)
+  expect(previews).toEqual([
+    { locale: 'uk', sample: 'word', tts: { endpoint: 'https://api.minimax.io/v1', apiKey: { action: 'replace', value: 'synthetic-draft-key' }, uk: { voice: 'uk-draft', speed: 0.9, emotion: 'calm', pitch: -2, volume: 0.8 } } },
+    { locale: 'us', sample: 'sentence', tts: { endpoint: 'https://api.minimax.io/v1', apiKey: { action: 'replace', value: 'synthetic-draft-key' }, us: { voice: 'us-draft', speed: 1.1, emotion: 'happy' } } }
+  ])
+  await expect(key(page, '语音 API Key')).toHaveValue('synthetic-draft-key')
+  await save(page, '语音生成').click()
+  await expect(notice(page, '语音生成')).toContainText('已保存')
+  expect(puts).toBe(1)
+  await expect(key(page, '语音 API Key')).toHaveValue('')
+  await expect(page.getByText('已有音频不会自动重新生成', { exact: false })).toBeVisible()
+})
+
+test('provider style controls preserve independent drafts and unsupported-model explanation', async ({ page }) => {
+  await admin(page)
+  await page.route(url, route => json(route, state()))
+  const previews: unknown[] = []
+  await page.route('**/admin/enrichment/settings/speech-preview', route => {
+    previews.push(route.request().postDataJSON())
+    return route.fulfill({ contentType: 'audio/mpeg', path: '../tests/AudioStorageProbe/Fixtures/tone.mp3' })
+  })
+  await page.goto('/#/settings/speech')
+  await page.getByLabel('UK 情绪', { exact: true }).selectOption('calm')
+  await page.getByLabel('语音提供方', { exact: true }).selectOption('OpenAICompatible')
+  await page.getByLabel('语音模型', { exact: true }).fill('gpt-4o-mini-tts')
+  await expect(page.getByLabel('UK 情绪', { exact: true })).toHaveCount(0)
+  await page.getByLabel('UK 风格描述', { exact: true }).fill('清晰、平静，适合教学。')
+  await page.getByLabel('US 风格描述', { exact: true }).fill('自然、活泼。')
+  await page.getByRole('button', { name: '生成 UK 试听', exact: true }).click()
+  await expect(page.getByLabel('UK 试听播放器')).toBeVisible()
+  expect(previews[0]).toMatchObject({ locale: 'uk', tts: { uk: { style: '清晰、平静，适合教学。' } } })
+  await page.getByLabel('UK 风格描述', { exact: true }).fill('温和。')
+  await expect(page.getByText('当前试听对应旧参数', { exact: false })).toBeVisible()
+  await page.getByLabel('语音模型', { exact: true }).fill('tts-1')
+  await expect(page.getByText('当前模型不支持风格描述', { exact: false })).toBeVisible()
+  await page.getByLabel('语音提供方', { exact: true }).selectOption('MiniMaxNative')
+  await expect(page.getByLabel('UK 情绪', { exact: true })).toHaveValue('calm')
+  await page.getByLabel('语音提供方', { exact: true }).selectOption('OpenAICompatible')
+  await expect(page.getByLabel('UK 风格描述', { exact: true })).toHaveValue('温和。')
+  await expect(page.getByLabel('US 风格描述', { exact: true })).toHaveValue('自然、活泼。')
+})
+
+test('preview cancellation and changed drafts cannot publish a late result; leaving releases audio', async ({ page }) => {
+  await admin(page)
+  await page.addInitScript(() => {
+    const original = URL.revokeObjectURL
+    Object.assign(window, { revokedAudio: [] as string[] })
+    URL.revokeObjectURL = value => { (window as unknown as { revokedAudio: string[] }).revokedAudio.push(value); original.call(URL, value) }
+  })
+  await page.route(url, route => json(route, state()))
+  let pending: Route | undefined
+  await page.route('**/admin/enrichment/settings/speech-preview', route => { pending = route })
+  await page.goto('/#/settings/speech')
+  await page.getByRole('button', { name: '生成 UK 试听', exact: true }).click()
+  await expect.poll(() => Boolean(pending)).toBe(true)
+  await page.getByLabel('UK 情绪', { exact: true }).selectOption('calm')
+  await expect(page.getByRole('status', { name: 'UK 试听状态' })).toContainText('参数已变化')
+  await pending!.fulfill({ contentType: 'audio/mpeg', path: '../tests/AudioStorageProbe/Fixtures/tone.mp3' }).catch(() => undefined)
+  await expect(page.getByLabel('UK 试听播放器')).toHaveCount(0)
+  pending = undefined
+  await page.getByRole('button', { name: '生成 UK 试听', exact: true }).click()
+  await expect.poll(() => Boolean(pending)).toBe(true)
+  await page.getByRole('button', { name: '取消 UK 试听', exact: true }).click()
+  await expect(page.getByRole('status', { name: 'UK 试听状态' })).toContainText('已取消等待')
+  await pending!.fulfill({ contentType: 'audio/mpeg', path: '../tests/AudioStorageProbe/Fixtures/tone.mp3' }).catch(() => undefined)
+  await page.unroute('**/admin/enrichment/settings/speech-preview')
+  await page.route('**/admin/enrichment/settings/speech-preview', route => route.fulfill({ contentType: 'audio/mpeg', path: '../tests/AudioStorageProbe/Fixtures/tone.mp3' }))
+  await page.getByRole('button', { name: '生成 UK 试听', exact: true }).click()
+  const player = page.getByLabel('UK 试听播放器')
+  await expect(player).toBeVisible()
+  const objectUrl = await player.getAttribute('src')
+  page.once('dialog', dialog => dialog.accept())
+  await tab(page, '文本补齐').click()
+  expect(await page.evaluate(() => (window as unknown as { revokedAudio: string[] }).revokedAudio)).toContain(objectUrl)
+})
+
+for (const status of [400, 412, 429, 502]) {
+  test(`preview ${status} is safe, retains drafts and never retries`, async ({ page }) => {
+    await admin(page)
+    await page.route(url, route => json(route, state()))
+    let calls = 0
+    await page.route('**/admin/enrichment/settings/speech-preview', route => { calls++; return json(route, { message: 'synthetic-secret-error' }, status) })
+    await page.goto('/#/settings/speech')
+    await page.getByLabel('UK 情绪', { exact: true }).selectOption('happy')
+    await page.getByRole('button', { name: '生成 UK 试听', exact: true }).click()
+    await expect(page.getByRole('status', { name: 'UK 试听状态' })).not.toContainText('正在使用草稿')
+    await expect(page.getByLabel('UK 情绪', { exact: true })).toHaveValue('happy')
+    await expect(page.locator('body')).not.toContainText('synthetic-secret-error')
+    await expect(page.getByLabel('UK 试听播放器')).toHaveCount(0)
+    expect(calls).toBe(1)
+  })
+}
+
+test('speech previews decode in Chromium, work on narrow screens, and ignore logout responses', async ({ page }) => {
+  await admin(page)
+  await page.setViewportSize({ width: 375, height: 812 })
+  await page.route(url, route => json(route, state()))
+  await page.route('**/admin/enrichment/settings/speech-preview', route => route.fulfill({ contentType: 'audio/mpeg', path: '../tests/AudioStorageProbe/Fixtures/tone.mp3' }))
+  await page.goto('/#/settings/speech')
+  await page.getByRole('button', { name: '生成 UK 试听', exact: true }).click()
+  const player = page.getByLabel('UK 试听播放器')
+  await expect(player).toBeVisible()
+  await player.evaluate(async node => { await (node as HTMLAudioElement).play() })
+  await expect.poll(() => player.evaluate(node => (node as HTMLAudioElement).currentTime)).toBeGreaterThan(0)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  const accessibility = await new AxeBuilder({ page }).include('.enrichment-settings').withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze()
+  expect(accessibility.violations).toEqual([])
+  let pending: Route | undefined
+  await page.unroute('**/admin/enrichment/settings/speech-preview')
+  await page.route('**/admin/enrichment/settings/speech-preview', route => { pending = route })
+  await page.getByRole('button', { name: '生成 US 试听', exact: true }).click()
+  await expect.poll(() => Boolean(pending)).toBe(true)
+  await page.getByRole('button', { name: '退出登录', exact: true }).click()
+  await expect(page).toHaveURL(/#\/login/)
+  await pending!.fulfill({ contentType: 'audio/mpeg', path: '../tests/AudioStorageProbe/Fixtures/tone.mp3' }).catch(() => undefined)
+  await expect(page.getByLabel('US 试听播放器')).toHaveCount(0)
+  await expect(page).toHaveURL(/#\/login/)
 })

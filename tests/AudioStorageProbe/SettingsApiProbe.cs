@@ -12,6 +12,7 @@ using Lexarbor.Domain.Services;
 using Lexarbor.Host;
 using Lexarbor.Host.Audio;
 using Lexarbor.Host.Configuration;
+using Lexarbor.Host.Integration;
 using Lexarbor.Host.RateLimiting;
 using Lexarbor.Service;
 using Microsoft.AspNetCore.Builder;
@@ -176,6 +177,13 @@ internal static class SettingsApiProbe
             if (commandLineOverride) builder.Configuration.AddCommandLine(["--Audio:Region=us-east-1"]);
             builder.Services.AddSingleton(file);
             builder.Services.AddSingleton<EnrichmentRuntimeConfiguration>();
+            // MapSystemSettingsEndpoints includes draft speech previews; its service
+            // parameters must resolve even when this probe only exercises S3 settings.
+            builder.Services.AddHttpClient(PronunciationSpeechClient.HttpClientName, client => client.Timeout = Timeout.InfiniteTimeSpan)
+                .RemoveAllLoggers()
+                .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false });
+            builder.Services.AddSingleton<PronunciationSpeechClient>();
+            builder.Services.AddSingleton<SpeechPreviewAdmission>();
             builder.Services.AddSingleton(provider => new PersistentConfigurationCoordinator((IConfigurationRoot)provider.GetRequiredService<IConfiguration>(), file));
             var serviceId = ServiceId.Parse("settings-browser-probe");
             builder.Services.AddServiceMantle(serviceId, InstanceId.CreateRandom(serviceId)).AddLexarborRateLimiting(builder.Configuration);

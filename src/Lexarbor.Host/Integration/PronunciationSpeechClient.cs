@@ -33,11 +33,27 @@ public sealed class PronunciationSpeechClient(IHttpClientFactory clients, Enrich
         var locale = plan.Input.Locale == AudioLocale.EnGb ? "uk" : "us";
         if (!snapshot.HasTtsConfiguration(locale)) return Failure(PronunciationSpeechOutcome.Waiting, "configuration_missing");
         if (plan.ConfigurationVersion != snapshot.TextVersion) return Failure(PronunciationSpeechOutcome.Superseded, "preparation_changed");
-        var settings = snapshot.Enrichment.Tts;
-        var voice = locale == "uk" ? snapshot.Enrichment.Uk : snapshot.Enrichment.Us;
+        var dispatch = new PronunciationSpeechDispatch(plan.InputVersion, plan.ConfigurationVersion,
+            (locale == "uk" ? snapshot.UkTtsVersion : snapshot.UsTtsVersion)!);
+        return await GenerateCoreAsync(plan, snapshot.Enrichment, cancellationToken,
+            beforeDispatch == null ? null : ct => beforeDispatch(dispatch, ct));
+    }
+
+    // Preview supplies an immutable, request-local candidate. It never publishes configuration.
+    public Task<PronunciationSpeechResult> PreviewAsync(EnrichmentSettings settings, AudioLocale locale, string sample,
+        CancellationToken cancellationToken = default)
+        => GenerateCoreAsync(SpeechPreviewSamples.Plan(locale, sample, settings.Provider), settings, cancellationToken);
+
+    private async Task<PronunciationSpeechResult> GenerateCoreAsync(PreparedPronunciation plan, EnrichmentSettings enrichment,
+        CancellationToken cancellationToken, Func<CancellationToken, Task<bool>>? beforeDispatch = null)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var settings = enrichment.Tts;
+        if (!settings.Configured) return Failure(PronunciationSpeechOutcome.Waiting, "configuration_missing");
+        var voice = plan.Input.Locale == AudioLocale.EnGb ? enrichment.Uk : enrichment.Us;
         if (!SpeechProviderCapabilities.ValidVoice(voice)) return Failure(PronunciationSpeechOutcome.Rejected, "parameters_rejected");
-        var native = snapshot.Enrichment.Provider == "MiniMaxNative";
-        var body = snapshot.Enrichment.Provider switch
+        var native = enrichment.Provider == "MiniMaxNative";
+        var body = enrichment.Provider switch
         {
             "MiniMaxNative" => MiniMaxSpeechAdapter.Request(plan, settings, voice),
             "OpenAICompatible" => OpenAiCompatibleSpeechAdapter.Request(plan, settings, voice),
@@ -50,9 +66,7 @@ public sealed class PronunciationSpeechClient(IHttpClientFactory clients, Enrich
         message.Content = new ByteArrayContent(body);
         message.Content.Headers.ContentType = new("application/json");
         var client = clients.CreateClient(HttpClientName);
-        var dispatch = new PronunciationSpeechDispatch(plan.InputVersion, plan.ConfigurationVersion,
-            (locale == "uk" ? snapshot.UkTtsVersion : snapshot.UsTtsVersion)!);
-        if (beforeDispatch != null && !await beforeDispatch(dispatch, cancellationToken))
+        if (beforeDispatch != null && !await beforeDispatch(cancellationToken))
             return Failure(PronunciationSpeechOutcome.Superseded, "dispatch_rejected");
         cancellationToken.ThrowIfCancellationRequested();
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
