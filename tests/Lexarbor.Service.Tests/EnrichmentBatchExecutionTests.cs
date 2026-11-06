@@ -1,3 +1,4 @@
+using System.Data.Common;
 using System.Net;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -8,6 +9,7 @@ using Lexarbor.Domain.Services;
 using Lexarbor.Host;
 using Lexarbor.Host.Integration;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace Lexarbor.Service.Tests;
 
@@ -90,7 +92,7 @@ public sealed partial class EnrichmentTargetExecutorTests
         var members = new List<AiBatchMember>();
         foreach (var task in new[] { first, second }) members.Add(new(Guid.NewGuid().ToString(),
             (await f.Tasks.ClaimAsync(task.Id, "batch", f.Clock.Now, f.Clock.Now + 10000, Ct))!));
-        var fault = new FailFieldPlanWrite { Enabled = false };
+        var fault = new FailSecondBatchPlanWrite();
         await using var writer = f.Open(fault); var tasks = new EnrichmentTaskRepository(writer, f.Clock);
         var scheduler = new EnrichmentSchedulerRepository(writer, tasks);
         var repo = new AiRequestBatchRepository(writer, tasks, new MeaningSubmissionAutoReviewRepository(writer, f.Clock), scheduler);
@@ -98,6 +100,7 @@ public sealed partial class EnrichmentTargetExecutorTests
         var results = members.Select(m => new AiBatchResult(m.Id, new("fixture", null, null, []))).ToArray();
         fault.Enabled = true;
         await Assert.ThrowsAsync<InvalidOperationException>(() => repo.CompleteAsync(receipt, results, "Ready", null, 6, f.Clock.Now, null, Ct));
+        Assert.Equal(2, fault.Writes);
         Assert.All(await writer.EnrichmentRounds.AsNoTracking().ToArrayAsync(Ct), r => Assert.Null(r.PlanJson));
         Assert.All(await writer.EnrichmentCalls.AsNoTracking().ToArrayAsync(Ct), r => Assert.Equal(EnrichmentCallResult.Started, r.Result));
         Assert.Null((await writer.AiRequestBatches.SingleAsync(Ct)).FinishedAtUnixMs); writer.ChangeTracker.Clear();
@@ -152,6 +155,19 @@ public sealed partial class EnrichmentTargetExecutorTests
         Assert.Equal(1, handler.Calls);
         Assert.Equal(2, await reopened.VocabularyMeanings.CountAsync(m => m.BookId == "supplement", Ct));
         Assert.Equal(2, await reopened.EnrichmentGeneratedWords.CountAsync(Ct));
+    }
+
+    private sealed class FailSecondBatchPlanWrite : DbCommandInterceptor
+    {
+        public bool Enabled; public int Writes;
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command, CommandEventData eventData,
+            InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            if (Enabled && command.CommandText.StartsWith("UPDATE \"enrichment_round\"", StringComparison.Ordinal)
+                && command.CommandText.Contains("plan_json", StringComparison.Ordinal) && ++Writes == 2)
+                throw new InvalidOperationException("Synthetic failure after the first batch member was staged.");
+            return ValueTask.FromResult(result);
+        }
     }
 
     private sealed class BatchHandler(bool partial) : HttpMessageHandler

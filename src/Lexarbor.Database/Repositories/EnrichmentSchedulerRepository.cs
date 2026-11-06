@@ -193,7 +193,7 @@ public sealed class EnrichmentSchedulerRepository(VocabularyDbContext context, I
                     row.ConsecutiveFailures = 0;
                     row.ThrottleSeconds = Math.Min(policy.MaxThrottleSeconds,
                         Math.Max(policy.ThrottleSeconds, row.ThrottleSeconds * 2));
-                    row.NextAttemptAtUnixMs = Math.Max(now + row.ThrottleSeconds * 1000L, retryAfterAt ?? 0);
+                    row.NextAttemptAtUnixMs = Math.Max(row.NextAttemptAtUnixMs, Math.Max(now + row.ThrottleSeconds * 1000L, retryAfterAt ?? 0));
                     if (row.Paused) row.NextAttemptAtUnixMs = Math.Max(row.NextAttemptAtUnixMs, now + row.PauseSeconds * 1000L);
                 }
                 else if (outcome == "ServiceFailure")
@@ -203,7 +203,7 @@ public sealed class EnrichmentSchedulerRepository(VocabularyDbContext context, I
                     {
                         row.Paused = true;
                         row.PauseSeconds = admission.Probe ? Math.Min(policy.MaxPauseSeconds, Math.Max(policy.PauseSeconds, row.PauseSeconds * 2)) : policy.PauseSeconds;
-                        row.NextAttemptAtUnixMs = now + row.PauseSeconds * 1000L;
+                        row.NextAttemptAtUnixMs = Math.Max(row.NextAttemptAtUnixMs, now + row.PauseSeconds * 1000L);
                     }
                 }
                 else

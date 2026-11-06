@@ -37,6 +37,24 @@ public sealed class EnrichmentSchedulerRepositoryTests
         Assert.False((await repo.ServiceAsync("tts", Ct))!.Blocked);
     }
 
+    [Theory]
+    [InlineData("Throttled")]
+    [InlineData("ServiceFailure")]
+    public async Task ConcurrentFailureCannotShortenAnExistingLongerCooldown(string outcome)
+    {
+        using var file = new AudioTestDatabase(); await using var db = file.Open(); await db.Database.MigrateAsync(Ct);
+        var repo = new EnrichmentSchedulerRepository(db);
+        var first = await repo.EnterServiceAsync("tts", "v", false, 1000, 10000, Ct, 2);
+        var second = await repo.EnterServiceAsync("tts", "v", false, 1000, 10000, Ct, 2);
+        await repo.FinishServiceAsync(first, "Throttled", "rate_limited", true, 1000, 600000, Policy, Ct);
+        var next = await repo.FinishServiceAsync(second, outcome, "synthetic_failure", true, 1001, 9000,
+            new(1, 60, 600, 8, 120), Ct);
+        Assert.Equal(600000, next);
+        await using var restarted = file.Open(); var resumed = new EnrichmentSchedulerRepository(restarted);
+        Assert.Equal(600000, (await resumed.ServiceAsync("tts", Ct))!.NextAttemptAtUnixMs);
+        Assert.Null((await resumed.EnterServiceAsync("tts", "v", false, 100000, 110000, Ct, 2)).LeaseId);
+    }
+
     [Fact]
     public async Task UpgradeRetainsLegacyLeaseUntilItFinishes()
     {
