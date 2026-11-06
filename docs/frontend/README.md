@@ -294,7 +294,7 @@ Once signed in, every page sits in one shell:
 - Below it, a side navigation `<nav aria-label="主导航">` is grouped by task. Each group is a `role="group"` labelled by its title, and each entry is a real link (`RouterLink`), not a menu item:
   - **教材**: 教材管理 (`/books`), 单词管理 (`/vocabulary`), 短语管理 (`/phrases`), and 投稿审核 (`/submissions`).
   - **词汇导入**: 单条导入 (`/import`), 新增短语 (`/import/phrase`), 批量导入 (`/import/batch`), 批量单词导入 (`/import/batch/words`), and 批量短语导入 (`/import/batch/phrases`).
-  - **系统**: 系统设置 (`/settings`) and 自治补齐进度 (`/enrichment`).
+  - **系统**: 系统设置 (`/settings`) and 词汇自动完善 (`/enrichment`).
 - A side navigation rather than header links, because the groups need to be visible and later pages need vertical room; three links in the header can show neither.
 - The current page's link is highlighted and carries `aria-current="page"`, for an exact route match only.
 - At 1024 px and wider the navigation is 220 px wide with icons and text. From 768 px to 1023 px it collapses to a 64 px icon bar: each link keeps its name through `aria-label` and a `title` tooltip, and the group titles are hidden visually but not from assistive technology. At 768 px no page scrolls sideways.
@@ -540,15 +540,15 @@ nonempty specific-audio targets when the text model is configured. Normal
 approval/import/edit flows do not select a range or start a batch. Empty specific
 phonetics continue to inherit. Browser credentials and existing routes are unchanged;
 the [administrator observation API](../api/Enrichment.md) supplies safe task,
-service, and cleanup state plus atomic single-step retry. Open **自治补齐进度** at
+service, and cleanup state plus atomic single-step retry. Open **词汇自动完善** at
 `/#/enrichment` from the system navigation, an enrichment settings tab, or vocabulary detail.
 Detail links can filter by word/meaning ID; filters observe work and never start
 a batch. The page also opens the existing word/meaning editor and preview.
 See [scheduler behavior](../api/Audio.md#autonomous-enrichment-scheduling)
 for waiting, shared throttling and exhausted-budget recovery.
 
-Current applicable requirements, completed/missing/unqueued counts and persisted
-steps have separate denominators. An empty persisted list, a disabled deployment,
+The API distinguishes current applicable requirements, completed/missing/unqueued
+counts and persisted steps; the overview shows progress for current requirements. An empty persisted list, a disabled deployment,
 or an old successful round does not prove current completion. Each accent/step
 shows current projected state, persisted round, actual requests, consumed failure
 allowance and next processing time. Seven throttled requests can still consume
@@ -642,3 +642,28 @@ expansion; speech also requires text preparation, per-accent settings and storag
 The progress page includes `Expand` tasks and displays their null locale as
 不限口音. New words enter the existing submission supplement and receive normal
 field/audio enrichment. Student book selection remains unchanged.
+
+
+### Task management and next actions
+
+The **词汇自动完善** page groups progress into fields, vocabulary expansion and
+pronunciation cards. Configuration links are shown where requirements are missing;
+there are no separate field/audio enable switches. Empty task lists distinguish
+not-yet-queued demands from completed work. Counts are targets, not unique words.
+Search accepts word or source/specific-meaning text; exact IDs and full state
+filters remain available under advanced filters. Quick filters and ordering put
+failed or configuration-blocked tasks first, while ordinary automatic waits remain
+separate. Progress cards retain the current word/search/accent scope when the task
+list is narrowed by type or state. Expansion is accent-independent: select all
+accents to include it.
+
+Task detail begins with the current outcome, reason and appropriate next action.
+Single-step retry and existing word editing keep their original safety checks.
+Technical round/call/wait/cleanup histories are collapsed until requested; replaced
+rounds are labeled explicitly. Opening detail moves keyboard focus to its heading;
+small screens stack detail above the list. Polling does not move focus. Submission
+automatic review separately shows idle, processing or paused status and retains
+manual review access.
+
+These are additive read-only API/UI changes: no database migration or catalog,
+learning-plan, model configuration or scheduling change is introduced.

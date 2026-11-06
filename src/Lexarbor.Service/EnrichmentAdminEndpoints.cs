@@ -84,11 +84,17 @@ public sealed class EnrichmentAdminQuery
     [FromQuery] public string? Step { get; set; }
     [FromQuery] public int? Page { get; set; }
     [FromQuery] public int? Size { get; set; }
+    [FromQuery] public string? Search { get; set; }
+    [FromQuery] public bool? AttentionOnly { get; set; }
+    [FromQuery] public string? Sort { get; set; }
     internal bool Valid() => Page is not (< 1 or > 1000000) && Size is not (< 1 or > 100)
         && (WordId == null || WordId.Length is > 0 and <= 128 && !WordId.Any(char.IsControl))
         && (MeaningId == null || MeaningId.Length is > 0 and <= 128 && !MeaningId.Any(char.IsControl))
+        && (Search == null || Search.Length <= 200 && !Search.Any(char.IsControl))
+        && Sort is null or "word" or "attention" or "recent"
         && Locale is null or "en-GB" or "en-US"
         && State is null or "Pending" or "Running" or "Waiting" or "Succeeded" or "Failed" or "Cancelled"
         && Step is null or "Prepare" or "Fields" or "Audio" or "Expand";
-    internal EnrichmentAdminFilter Filter() => new(WordId, MeaningId, Locale, State, Step, Page ?? 1, Size ?? 25);
+    internal EnrichmentAdminFilter Filter() => new(WordId, MeaningId, Locale, State, Step, Page ?? 1, Size ?? 25,
+        string.IsNullOrWhiteSpace(Search) ? null : Search.Trim(), AttentionOnly ?? false, Sort ?? "word");
 }

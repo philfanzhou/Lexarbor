@@ -37,7 +37,7 @@ const navigation = [
   },
   { id: 'nav-group-system', title: '系统', links: [
     { to: '/settings', label: '系统设置', icon: Setting },
-    { to: '/enrichment', label: '自治补齐进度', icon: Checked }
+    { to: '/enrichment', label: '词汇自动完善', icon: Checked }
   ] }
 ]
 

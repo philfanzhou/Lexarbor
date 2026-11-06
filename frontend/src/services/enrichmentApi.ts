@@ -6,10 +6,11 @@ export const steps = ['Prepare', 'Fields', 'Audio', 'Expand'] as const
 export type TaskState = typeof states[number]
 export interface EnrichmentQuery {
   wordId?: string; meaningId?: string; locale?: string; state?: string; step?: string
+  search?: string; attentionOnly?: boolean; sort?: 'word' | 'attention' | 'recent'
 }
 export interface EnrichmentPage<T> { items: T[]; totalCount: number; page: number; size: number }
 export interface EnrichmentRound {
-  number: number; state: TaskState; requestCount: number; consumedFailures: number; failureBudget: number
+  number: number; state: TaskState | 'Superseded'; requestCount: number; consumedFailures: number; failureBudget: number
   waitReason: string | null; errorCode: string | null; nextAttemptAtUnixMs: number | null
   createdAtUnixMs: number; updatedAtUnixMs: number
 }
@@ -41,6 +42,7 @@ export interface EnrichmentSummary {
   applicableTargets: number; completedTargets: number; missingTargets: number; unqueuedTargets: number; persistedTasks: number
   targets: { state: TaskState; waitReason: string | null; count: number }[]
   services: { service: string; paused: boolean; blocked: boolean; consecutiveFailures: number; throttleSeconds: number; nextAttemptAtUnixMs: number | null }[]
+  activities: { step: 'Fields' | 'Expand' | 'Audio'; total: number; completed: number; actionRequired: number; unqueued: number; missingRequirements: string[] }[]
 }
 
 // Copy the safe DTO only. Extra configuration, provider or credential properties
@@ -60,7 +62,7 @@ function page<T>(value: unknown, parse: (v: unknown) => T): EnrichmentPage<T> {
 }
 function round(value: unknown): EnrichmentRound {
   const v = object(value)
-  return { number: number(v.number), state: choice(v.state, states), requestCount: number(v.requestCount), consumedFailures: number(v.consumedFailures), failureBudget: number(v.failureBudget), waitReason: nullable(v.waitReason, string), errorCode: nullable(v.errorCode, string), nextAttemptAtUnixMs: nullable(v.nextAttemptAtUnixMs, number), createdAtUnixMs: number(v.createdAtUnixMs), updatedAtUnixMs: number(v.updatedAtUnixMs) }
+  return { number: number(v.number), state: choice(v.state, [...states, 'Superseded'] as const), requestCount: number(v.requestCount), consumedFailures: number(v.consumedFailures), failureBudget: number(v.failureBudget), waitReason: nullable(v.waitReason, string), errorCode: nullable(v.errorCode, string), nextAttemptAtUnixMs: nullable(v.nextAttemptAtUnixMs, number), createdAtUnixMs: number(v.createdAtUnixMs), updatedAtUnixMs: number(v.updatedAtUnixMs) }
 }
 function task(value: unknown): EnrichmentTask {
   const v = object(value), c = object(v.cleanup)
@@ -82,7 +84,8 @@ export async function readEnrichmentTasks(query: EnrichmentQuery, currentPage: n
 }
 export async function readEnrichmentSummary(query: EnrichmentQuery, signal: AbortSignal, current: () => boolean): Promise<EnrichmentSummary> {
   const v = object(await api.get<unknown>(`${url}/summary`, { ...config(signal, current), params: query }))
-  return { applicableTargets: number(v.applicableTargets), completedTargets: number(v.completedTargets), missingTargets: number(v.missingTargets), unqueuedTargets: number(v.unqueuedTargets), persistedTasks: number(v.persistedTasks), targets: array(v.targets, value => { const t = object(value); return { state: choice(t.state, states), waitReason: nullable(t.waitReason, string), count: number(t.count) } }), services: array(v.services, value => { const s = object(value); return { service: choice(s.service, ['text', 'tts']), paused: bool(s.paused), blocked: bool(s.blocked), consecutiveFailures: number(s.consecutiveFailures), throttleSeconds: number(s.throttleSeconds), nextAttemptAtUnixMs: nullable(s.nextAttemptAtUnixMs, number) } }) }
+  return { applicableTargets: number(v.applicableTargets), completedTargets: number(v.completedTargets), missingTargets: number(v.missingTargets), unqueuedTargets: number(v.unqueuedTargets), persistedTasks: number(v.persistedTasks), targets: array(v.targets, value => { const t = object(value); return { state: choice(t.state, states), waitReason: nullable(t.waitReason, string), count: number(t.count) } }), services: array(v.services, value => { const s = object(value); return { service: choice(s.service, ['text', 'tts']), paused: bool(s.paused), blocked: bool(s.blocked), consecutiveFailures: number(s.consecutiveFailures), throttleSeconds: number(s.throttleSeconds), nextAttemptAtUnixMs: nullable(s.nextAttemptAtUnixMs, number) } }),
+    activities: v.activities == null ? [] : array(v.activities, value => { const a = object(value); return { step: choice(a.step, ['Fields', 'Expand', 'Audio'] as const), total: number(a.total), completed: number(a.completed), actionRequired: number(a.actionRequired), unqueued: number(a.unqueued), missingRequirements: array(a.missingRequirements, value => choice(value, ['text', 'supplement', 'ukSpeech', 'usSpeech', 'storage'])) } }) }
 }
 export async function readEnrichmentDetail(id: string, historyPage: number, signal: AbortSignal, current: () => boolean) {
   return detail(await api.get<unknown>(`${url}/tasks/${encodeURIComponent(id)}`, { ...config(signal, current), params: { historyPage, historySize: 10 } }))

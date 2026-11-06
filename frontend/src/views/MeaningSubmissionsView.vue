@@ -19,7 +19,7 @@ let active = true, loadGeneration = 0, reviewGeneration = 0
 let readController: AbortController | null = null, reviewController: AbortController | null = null
 let rejectPromptOpen = false
 const live = () => active && session === sessionGeneration.value
-const pauseLabels: Record<string, string> = { disabled: '开关关闭', configuration_missing: '审核配置缺失', configuration_invalid: '审核配置不适用于自动审核', submissions_not_configured: '投稿服务未配置' }
+const pauseLabels: Record<string, string> = { disabled: '自动审核未启用', configuration_missing: '审核配置缺失', configuration_invalid: '审核配置不适用于自动审核', submissions_not_configured: '投稿服务未配置' }
 const failureLabels: Record<string, string> = { rate_limited: '服务限流', service_unavailable: '服务暂不可用', request_rejected: '请求未被服务接受', response_too_large: '回答超过大小限制', invalid_response: '回答无法安全使用', service_timeout: '服务超时', connection_failed: '连接失败', result_commit_failed: '结果尚未提交' }
 const reviewing = ref<MeaningSubmissionItem | null>(null)
 const form = reactive({ word: '', partOfSpeech: '', meaning: '', example: '', phoneticUk: '', phoneticUs: '', reviewComment: '' })
@@ -145,10 +145,12 @@ onMounted(load)
         <el-button @click="load">重试</el-button>
       </el-alert>
       <template v-else>
-        <aside v-if="automaticReview" aria-label="自动审核状态">
-          <p>AI 自动审核：{{ automaticReview.paused ? `暂停（${pauseLabels[automaticReview.pauseCode ?? ''] ?? '状态未知'}）` : '运行中' }}；全部待审积压 {{ automaticReview.pendingCount }} 条。</p>
+        <aside v-if="automaticReview" aria-label="自动审核状态" class="automatic-review">
+          <div class="automatic-review__heading"><strong>AI 自动审核</strong><span>{{ automaticReview.paused ? `暂停（${pauseLabels[automaticReview.pauseCode ?? ''] ?? '状态未知'}）` : automaticReview.pendingCount ? '后台自动处理' : '暂无待审投稿' }}</span></div>
+          <p>全部待审积压 {{ automaticReview.pendingCount }} 条<span v-if="automaticReview.pendingCount">，可等待自动处理，也可在下方人工审核</span>。</p>
           <p v-if="automaticReview.lastFailureCode">最近失败：{{ failureLabels[automaticReview.lastFailureCode] ?? '暂不可用' }}（{{ formatTime(automaticReview.lastFailureAt) }}）；下次尝试：{{ formatTime(automaticReview.nextAttemptAt) }}。</p>
-          <p>失败后持续自动重试；关闭或缺配置时暂停，恢复后自动处理积压，无需人工处理。<RouterLink to="/settings/review">检查自动审核设置</RouterLink></p>
+          <p v-if="automaticReview.paused">恢复配置后将自动处理积压。<RouterLink to="/settings/review">检查自动审核设置 →</RouterLink></p>
+          <p v-else>失败后后台自动重试，离开页面不影响审核。<RouterLink to="/settings/review">查看审核设置 →</RouterLink></p>
         </aside>
         <p role="status">{{ loading ? '正在加载投稿…' : `共 ${totalCount} 条` }}</p>
         <el-table v-loading="loading" :data="items" row-key="submission.id" empty-text="没有投稿">
@@ -229,7 +231,7 @@ onMounted(load)
           <el-button size="small" @click="applyAdvice">采用建议</el-button>
         </el-alert>
         <p class="submissions__hint">通过后，已启用且配置就绪的自治补齐会自动处理缺失默认音标、词性和音频；关闭、缺配置或存储不可用时等待。短语只补音频；专用音标留空继承默认，非空专用读音按对应释义生成。修改专用音标后自动停用旧音频、清理并重生成，清空则恢复默认。无需手动开始或先删除旧音频。修改释义文字会让已经在学这条释义的学习者重新学一次。</p>
-        <p><RouterLink to="/enrichment">查看自治补齐进度与等待原因</RouterLink> · <RouterLink to="/settings/text">检查补齐设置</RouterLink></p>
+        <p><RouterLink to="/enrichment">查看词汇自动完善进度</RouterLink> · <RouterLink to="/settings/text">检查补齐设置</RouterLink></p>
       </template>
       <template #footer>
         <el-button v-if="assistantEnabled" :loading="advising" :disabled="saving" @click="requestAdvice">AI 审核建议</el-button>
@@ -241,6 +243,11 @@ onMounted(load)
 </template>
 
 <style scoped>
+.automatic-review { padding: 16px 20px; margin: 16px 0; border: 1px solid var(--lx-color-border); border-radius: 10px; background: var(--lx-color-bg-page); }
+.automatic-review__heading { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.automatic-review__heading span { color: var(--lx-color-text-secondary); font-size: 13px; }
+.automatic-review p { margin: 8px 0 0; line-height: 1.6; font-size: 14px; }
+.automatic-review a { color: var(--lx-color-primary); }
 .submissions__alert {
   margin-bottom: var(--lx-space-4);
 }
