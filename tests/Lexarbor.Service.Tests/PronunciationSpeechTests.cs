@@ -570,8 +570,8 @@ public sealed partial class PronunciationSpeechTests
             // versions stay stable across TTS-only changes.
             var fields = _settings.ToDictionary(p => p.Key, p => p.Key.EndsWith("Enabled", StringComparison.Ordinal)
                 ? JsonValue.Create(bool.Parse(p.Value!)) as JsonNode
-                : p.Key.EndsWith("TimeoutSeconds", StringComparison.Ordinal) ? JsonValue.Create(int.Parse(p.Value!, System.Globalization.CultureInfo.InvariantCulture))
-                : p.Key.EndsWith("Speed", StringComparison.Ordinal) ? string.IsNullOrEmpty(p.Value) ? null : JsonValue.Create(decimal.Parse(p.Value, System.Globalization.CultureInfo.InvariantCulture))
+                : (p.Key.EndsWith("TimeoutSeconds", StringComparison.Ordinal) || p.Key.EndsWith("Pitch", StringComparison.Ordinal)) ? JsonValue.Create(int.Parse(p.Value!, System.Globalization.CultureInfo.InvariantCulture))
+                : (p.Key.EndsWith("Speed", StringComparison.Ordinal) || p.Key.EndsWith("Volume", StringComparison.Ordinal)) ? string.IsNullOrEmpty(p.Value) ? null : JsonValue.Create(decimal.Parse(p.Value, System.Globalization.CultureInfo.InvariantCulture))
                 : JsonValue.Create(p.Value));
             var saved = await _coordinator.SaveAsync((await _coordinator.ReadAsync(Ct)).Revision, fields, Runtime.PrepareAsync, Ct);
             if (saved.Status != ConfigurationSaveStatus.Success) throw new InvalidOperationException("synthetic-invalid-configuration");

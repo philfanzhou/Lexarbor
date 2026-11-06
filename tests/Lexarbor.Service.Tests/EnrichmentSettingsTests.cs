@@ -18,7 +18,7 @@ using OpenTelemetry.Trace;
 
 namespace Lexarbor.Service.Tests;
 
-public sealed class EnrichmentSettingsTests : IDisposable
+public sealed partial class EnrichmentSettingsTests : IDisposable
 {
     private const string Url = EnrichmentSettingsEndpoints.Path;
     private const string Secret = "synthetic-enrichment-key-marker";

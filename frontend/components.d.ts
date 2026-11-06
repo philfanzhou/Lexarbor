@@ -41,6 +41,7 @@ declare module 'vue' {
     RateLimitSettingsPanel: typeof import('./src/components/RateLimitSettingsPanel.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+    SpeechSettingsPreview: typeof import('./src/components/SpeechSettingsPreview.vue')['default']
     VocabularyAudioPreview: typeof import('./src/components/VocabularyAudioPreview.vue')['default']
     VocabularyBookUnitDialog: typeof import('./src/components/VocabularyBookUnitDialog.vue')['default']
     VocabularyCleanupDialog: typeof import('./src/components/VocabularyCleanupDialog.vue')['default']

@@ -232,7 +232,9 @@ builder.Services.AddHttpClient(PronunciationSpeechClient.HttpClientName,
         client => client.Timeout = Timeout.InfiniteTimeSpan)
     .RemoveAllLoggers()
     .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false });
-builder.Services.AddSingleton<IPronunciationSpeechClient, PronunciationSpeechClient>();
+builder.Services.AddSingleton<PronunciationSpeechClient>();
+builder.Services.AddSingleton<IPronunciationSpeechClient>(p => p.GetRequiredService<PronunciationSpeechClient>());
+builder.Services.AddSingleton<SpeechPreviewAdmission>();
 builder.Services.AddScoped<VocabularyBookDomainService>();
 builder.Services.AddScoped<VocabularyBookUnitDomainService>();
 builder.Services.Configure<RouteHandlerOptions>(options =>

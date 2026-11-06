@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SpeechSettingsPreview from './SpeechSettingsPreview.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useSettingsDraftGuard } from '@/router/settingsDraftGuard'
 import { sessionGeneration } from '@/services/authState'
@@ -44,6 +45,14 @@ const changed = computed(() => {
   return settings !== null && (sectionValues.some(([name]) => settings.fields[name].editable && settings.values[name] !== draft[name])
     || sectionSecrets.some(([name]) => settings.fields[name].editable && (credentials[name].action === 'clear' || credentials[name].value !== '')))
 })
+const nativeSpeech = computed(() => draft['enrichment.tts.provider'] === 'MiniMaxNative')
+const supportsStyle = computed(() => ['gpt-4o-mini-tts', 'gpt-4o-mini-tts-2025-12-15'].includes(String(draft['enrichment.tts.model'])))
+function groupFields(group: string) {
+  return sectionValues.filter(field => field[2] === group
+    && (field[3] !== 'style' || !nativeSpeech.value)
+    && (!['emotion', 'pitch', 'volume'].some(suffix => field[0].endsWith(`.${suffix}`)) || nativeSpeech.value))
+}
+const emotions = [['', '自动'], ['calm', '平静'], ['happy', '开心'], ['sad', '悲伤'], ['angry', '生气'], ['fearful', '害怕'], ['disgusted', '厌恶'], ['surprised', '惊讶']]
 const invalidReplacement = computed(() => sectionSecrets.some(([name]) => credentials[name].action === 'replace' && !credentials[name].value.trim()))
 useSettingsDraftGuard(() => current() && !saving && (changed.value || invalidReplacement.value))
 
@@ -187,13 +196,17 @@ onMounted(() => { void load() })
           <p>{{ group.description }}</p>
           <p v-if="group.key === 'uk'" aria-label="UK 配置状态">UK 当前配置：{{ localeStatus('uk') }}</p>
           <p v-if="group.key === 'us'" aria-label="US 配置状态">US 当前配置：{{ localeStatus('us') }}</p>
-          <div v-for="field in sectionValues.filter(item => item[2] === group.key)" :key="field[0]" class="enrichment-field">
+          <div v-for="field in groupFields(group.key)" :key="field[0]" class="enrichment-field">
             <label :for="`enrichment-${field[0]}`">{{ field[1] }}</label>
             <input v-if="field[3] === 'boolean'" :id="`enrichment-${field[0]}`" v-model="draft[field[0]]" type="checkbox" :disabled="busy || !actual.fields[field[0]].editable" :aria-describedby="field[0] === 'reviewAssistant.autoReviewEnabled' ? `auto-review-risk source-${field[0]}` : `source-${field[0]}`">
             <select v-else-if="field[3] === 'provider'" :id="`enrichment-${field[0]}`" v-model="draft[field[0]]" :disabled="busy || !actual.fields[field[0]].editable" :aria-describedby="`source-${field[0]}`">
               <option value="MiniMaxNative">MiniMaxNative</option><option value="OpenAICompatible">OpenAICompatible</option>
             </select>
-            <input v-else :id="`enrichment-${field[0]}`" :value="draft[field[0]] ?? ''" :type="field[3] === 'text' ? 'text' : 'number'" :min="field[4]" :max="field[5]" :step="field[3] === 'speed' ? 'any' : 1" :required="field[3] === 'integer'" :maxlength="2048" :disabled="busy || !actual.fields[field[0]].editable" :aria-describedby="`source-${field[0]}`" autocomplete="off" spellcheck="false" @input="input(field[0], $event, field[3] !== 'text')">
+            <textarea v-else-if="field[3] === 'style'" :id="`enrichment-${field[0]}`" :value="String(draft[field[0]] ?? '')" maxlength="512" rows="3" :disabled="busy || !actual.fields[field[0]].editable" :aria-describedby="`source-${field[0]}`" placeholder="例如：清晰、平静，适合词汇教学；不改变朗读内容和口音。" @input="input(field[0], $event, false)" />
+            <select v-else-if="field[3] === 'emotion'" :id="`enrichment-${field[0]}`" v-model="draft[field[0]]" :disabled="busy || !actual.fields[field[0]].editable" :aria-describedby="`source-${field[0]}`">
+              <option v-for="[value, label] in emotions" :key="value" :value="value">{{ label }}</option>
+            </select>
+            <input v-else :id="`enrichment-${field[0]}`" :value="draft[field[0]] ?? ''" :type="field[3] === 'text' ? 'text' : 'number'" :min="field[4]" :max="field[5]" :step="field[3] === 'speed' || field[3] === 'decimal' ? 'any' : 1" :required="field[3] === 'integer'" :maxlength="2048" :disabled="busy || !actual.fields[field[0]].editable" :aria-describedby="`source-${field[0]}`" autocomplete="off" spellcheck="false" @input="input(field[0], $event, field[3] !== 'text')">
             <p :id="`source-${field[0]}`">当前生效：{{ display(actual.values[field[0]]) }} · {{ sources[actual.fields[field[0]].source] }}<span v-if="!actual.fields[field[0]].editable"> · 网页只读：{{ actual.fields[field[0]].reason }}</span></p>
             <p v-if="field[0] === 'reviewAssistant.autoReviewEnabled'" id="auto-review-risk">开启后，AI 会直接通过、修改或驳回所有待审投稿，无需人工确认。错误结果可能进入公共词库，管理员承担此风险，可在词库中更正。</p>
           </div>
@@ -206,6 +219,11 @@ onMounted(() => { void load() })
             <input :id="`enrichment-${name}`" v-model="credentials[name].value" type="password" :maxlength="4096" :disabled="busy || !actual.fields[name].editable || credentials[name].action === 'clear'" :aria-describedby="`source-${name}`" autocomplete="new-password" spellcheck="false">
           </div>
         </fieldset>
+        <template v-if="props.section === 'speech'">
+          <p v-if="!nativeSpeech && !supportsStyle">当前模型不支持风格描述，请将两侧的风格描述留空；可配置音色和语速。</p>
+          <p>保存后用于后续生成，已有音频不会自动重新生成。切换供应商时保留各自的样式设置，仅应用当前供应商支持的选项。</p>
+          <SpeechSettingsPreview :settings="actual" :draft="draft" :credential="credentials['enrichment.tts.apiKey']" :disabled="busy" />
+        </template>
         <details v-if="props.section === 'speech'" class="speech-capabilities">
           <summary>语音能力限制</summary>
           <p>MiniMaxNative：仅 https://api.minimax.io/v1 或 https://api.minimax.cn/v1，speech-2.8-hd / speech-2.8-turbo。要求覆盖完整朗读目标的 IPA，不接受自由指令；语速 0.5–2。</p>
@@ -228,7 +246,7 @@ fieldset { min-width: 0; margin: var(--lx-space-4) 0; padding: var(--lx-space-3)
 legend { font-weight: 600; }
 .enrichment-field { padding: var(--lx-space-3) 0; border-top: 1px solid var(--lx-color-border-light); }
 .enrichment-field > label { display: block; margin-bottom: var(--lx-space-2); }
-.enrichment-field input:not([type='checkbox']), select { width: 100%; box-sizing: border-box; min-height: 36px; padding: var(--lx-space-2); border: 1px solid var(--lx-color-border); border-radius: var(--lx-radius-sm); color: var(--lx-color-text-primary); background: var(--lx-color-bg-surface); }
+.enrichment-field input:not([type='checkbox']), select, textarea { width: 100%; box-sizing: border-box; min-height: 36px; padding: var(--lx-space-2); border: 1px solid var(--lx-color-border); border-radius: var(--lx-radius-sm); color: var(--lx-color-text-primary); background: var(--lx-color-bg-surface); }
 .enrichment-field input:disabled, select:disabled { opacity: .7; }
 select { margin-bottom: var(--lx-space-2); }
 .reload-enrichment { margin: var(--lx-space-3) 0 0; }

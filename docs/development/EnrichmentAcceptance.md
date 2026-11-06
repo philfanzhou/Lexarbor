@@ -95,6 +95,23 @@ old failed preparation once, unbind the sample audio, and listen to the new resu
 Wrong actual IPA must fail explicitly; a successful response is not required when
 the model violates the catalog constraint.
 
+## Speech styles and draft previews
+
+Automated coverage uses synthetic MP3 only: `SpeechStyleTests` verifies saved
+per-locale provider mapping and preservation of pronunciation constraints;
+`SpeechPreviewEndpointTests` verifies draft isolation, credentials, administrator
+and CSRF boundaries, deployment overrides, conditional revisions and bounded safe
+errors. `SpeechPreviewAdmissionTests` covers concurrency and the rolling budget.
+The browser settings tests exercise draft previews and save-after-preview.
+
+For real listening, use the Speech generation page to compare the fixed word and
+sentence samples for both accents before saving. Confirm that style changes affect
+delivery without adding words or changing the intended accent. After saving, test
+a newly generated catalog target with an explicit phonetic as well: a successful
+sample does not establish compliance with that target's pronunciation constraints.
+Existing catalog audio is retained when styles change. Real supplier listening
+remains unverified by the synthetic suite.
+
 ## Pending real listening
 
 Use a disposable catalog and only configuration authorized for this test. Never

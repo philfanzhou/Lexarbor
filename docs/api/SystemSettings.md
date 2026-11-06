@@ -317,7 +317,7 @@ version. Internal text/UK-TTS/US-TTS random versions survive restart. Only relev
 client settings advance their step/locale version; review settings, enable flags,
 scan controls and retry/service controls do not reset task failure budgets. A
 shared TTS provider/model/endpoint/key change affects both locales; a voice/speed
-change affects only its locale. Private keyed comparison metadata is atomically
+or style change affects only its locale. Private keyed comparison metadata is atomically
 stored with the configuration at 0600; keys and comparison digests are not exposed
 in responses or task history. Older files with no metadata still start, but
 `configurationReady` is false until startup initialization or an authorized save
@@ -339,7 +339,7 @@ per-field source/read-only reasons remain distinct from drafts. Missing one loca
 can be saved without blocking the other. `configurationReady` means durable version
 metadata exists, not supplier availability or completed generation. The page names
 the implemented speech combinations and links the [support matrix](Audio.md#speech-adapters);
-it performs no supplier discovery, browser-side supplier call or paid preview.
+it performs no supplier discovery or browser-side supplier call. Explicit draft previews call the server-side speech adapter as described below.
 
 Each tab submits its changed editable values and explicit credential actions.
 The shared configuration revision means a concurrent save can cause 412. After
@@ -354,6 +354,80 @@ explicit read. Rereading preserves nonsecret edits and adopts server values for
 untouched or newly overridden fields. Reading clears password drafts. Navigation and sign-out abort requests and
 discard drafts; session guards ignore late successes and authentication failures.
 No drafts or credentials enter web storage, URLs or console output.
+
+### Speech styles and draft previews
+
+Each `enrichment.tts.uk` and `enrichment.tts.us` object also accepts:
+
+| Field | Default and bounds | Applied by |
+| --- | --- | --- |
+| `style` | Empty string; at most 512 characters, allowing ordinary line breaks/tabs but no other control characters | OpenAI instruction-capable models; delivery only, subordinate to input text, accent and pronunciation constraints |
+| `emotion` | Empty string (automatic), `calm`, `happy`, `sad`, `angry`, `fearful`, `disgusted`, `surprised` | MiniMax `voice_setting.emotion`; empty omits the parameter |
+| `pitch` | Integer -12 to 12, default 0 | MiniMax `voice_setting.pitch` |
+| `volume` | 0.1 to 10, default 1 | MiniMax `voice_setting.vol` |
+
+Settings retain both providers' values when switching providers; each adapter uses
+only its own style fields. OpenAI `tts-1`/`tts-1-hd` reject a nonempty `style` before
+HTTP; clear it when selecting these models. MiniMax 2.8 does not expose `fluent` or
+`whisper`. Voice and speed remain explicit, with no new defaults. Saved changes
+apply to subsequent generation and do not regenerate existing bound audio.
+Default style fields are excluded from the private version digest so upgrading an
+unchanged configuration preserves its existing locale versions.
+
+`POST /admin/enrichment/settings/speech-preview` requires the same administrator
+policy and cookie CSRF protection as settings PUT, plus the current settings
+`If-Match`. It accepts this bounded, strict JSON object (maximum 16 KiB):
+
+```json
+{
+  "locale": "uk",
+  "sample": "sentence",
+  "tts": {
+    "uk": { "voice": "<supported UK voice>", "speed": 1, "emotion": "calm" },
+    "apiKey": { "action": "keep" }
+  }
+}
+```
+
+`locale` is `uk` or `us`; `sample` is `word` (`apple`) or `sentence`
+(`Welcome to our English lesson.`). `tts` is a partial object with the same fields
+and credential actions as settings PUT; `{}` uses the captured saved configuration.
+Omitted fields and a `keep` credential use server-side values; `replace` is used only
+for this request, and `clear` cannot generate audio. Deployment-controlled fields
+cannot be changed. Arbitrary text, extra fields, duplicate properties and invalid
+values are rejected. The endpoint and model allowlists still apply before dispatch.
+
+A successful response is a validated `audio/mpeg` body, at most 5 MiB, with
+`Cache-Control: no-store`. It uses one immutable candidate without saving settings,
+advancing versions, writing catalog data, creating jobs or uploading to S3. Fixed
+samples include complete-target IPA for MiniMax. No text-model request is made;
+background audio enablement, durable configuration versions and storage availability
+are not prerequisites. A plain-text OpenAI preview does not prove a model can
+consume the pronunciation constraints of an actual catalog target.
+
+Errors return `{ "message": "Speech preview could not be generated.", "code": "..." }`.
+400 covers invalid parameters/configuration or provider rejection; 409 means a
+changed field is deployment-controlled; 412 means the shared revision changed;
+413 means the body is too large; 428 means `If-Match` is missing; 429 means local
+admission or supplier throttling; 502 means supplier failure or invalid audio.
+Authentication retains the existing 401/403 behavior. Raw supplier bodies and
+credentials are never returned. There is no automatic retry.
+
+Per application process, preview admission allows one active operation and at
+most six admitted attempts in any rolling minute. Rejected admission returns
+`Retry-After`. Preview attempts do not consume or reset background task failure
+budgets or alter its service-gate state; supplier account quotas are still shared.
+Each request uses the selected TTS timeout (1–300 seconds), including body reads.
+Cancellation stops waiting and cancels the outbound request, but an already
+accepted supplier call may still be billed.
+
+The UI sends the selected locale's unsaved changes and shared TTS changes. It keeps
+new password input for a subsequent explicit save; save, reread, navigation and
+sign-out retain the existing password-clearing rules. Returned audio stays in a
+browser object URL and can be replayed without another supplier call. Parameter
+changes cancel pending previews and label completed audio as using old parameters.
+Replacement, navigation and sign-out release the audio; late responses from canceled
+requests or old sessions are ignored. No preview data enters web storage.
 
 ### Acceptance after configuration
 
