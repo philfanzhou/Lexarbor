@@ -28,7 +28,7 @@ public interface IEnrichmentSchedulerRepository
     Task<IReadOnlyList<EnrichmentTargetKey>> DiscoverAsync(int batchSize, IReadOnlyList<string> recentWordIds, CancellationToken token);
     Task<IReadOnlyList<string>> DueAsync(int limit, long now, CancellationToken token);
     Task<EnrichmentServiceAdmission> EnterServiceAsync(string serviceId, string configurationVersion,
-        bool probe, long now, long expiresAt, CancellationToken token);
+        bool probe, long now, long expiresAt, CancellationToken token, int capacity = 1);
     Task<long> FinishServiceAsync(EnrichmentServiceAdmission admission, string outcome, string? errorCode,
         bool requestMade, long now, long? retryAfterAt, EnrichmentServicePolicy policy, CancellationToken token,
         EnrichmentCallCompletion? completion = null);

@@ -1886,3 +1886,26 @@ history and generated-word provenance, retains published words/meanings/relation
 and preserves pronunciation tasks. Re-upgrading after Down can analyze those words
 again because provenance was removed. Restore the matching backup for a complete
 rollback of published content. Do not start an older image against the new schema.
+
+## Automatic text batching upgrade
+
+The `AiRequestBatching` migration is additive. Startup upgrades from both `v0.1.8`
+and `v0.1.9-rc.2` preserve existing vocabulary, learning data, submission history,
+audio bindings and task state. The upgrade tests compare populated pre-upgrade
+rows and exercise interruption/restart. Keep the normal consistent database,
+configuration, root-key and audio backup before upgrading. Older images reject a
+newer schema; restore a matching backup when rolling back the application.
+
+No batch switch or new model configuration is required. Preparation starts at six
+independent words per request, expansion at three source senses, and automatic
+submission review at six submissions. Existing automatic-review authorization
+still applies. Inputs and responses are bounded to 64 KiB. Incomplete or invalid
+responses and timeouts reduce subsequent batches for that task kind and model
+configuration, down to the original single-item request schema. A configuration
+change starts a fresh batch-size history. Existing request timeouts remain in
+force. Single pending items are dispatched without waiting for a full batch.
+
+Due work drains continuously between discovery sweeps. TTS retains one audio file
+per request and uses the existing `Enrichment:Concurrency` limit (1–8), subject to
+upload admission and shared throttling. A concurrent successful request never
+shortens an already established throttle window.

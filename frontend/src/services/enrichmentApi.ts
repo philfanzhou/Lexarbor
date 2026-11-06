@@ -39,6 +39,7 @@ export interface EnrichmentDetail {
   waits: EnrichmentPage<EnrichmentWait>; cleanup: EnrichmentPage<CleanupHistory>
 }
 export interface EnrichmentSummary {
+  textRequests: { requests: number; participations: number; completed: number; unknown: number } | null
   applicableTargets: number; completedTargets: number; missingTargets: number; unqueuedTargets: number; persistedTasks: number
   targets: { state: TaskState; waitReason: string | null; count: number }[]
   services: { service: string; paused: boolean; blocked: boolean; consecutiveFailures: number; throttleSeconds: number; nextAttemptAtUnixMs: number | null }[]
@@ -85,6 +86,7 @@ export async function readEnrichmentTasks(query: EnrichmentQuery, currentPage: n
 export async function readEnrichmentSummary(query: EnrichmentQuery, signal: AbortSignal, current: () => boolean): Promise<EnrichmentSummary> {
   const v = object(await api.get<unknown>(`${url}/summary`, { ...config(signal, current), params: query }))
   return { applicableTargets: number(v.applicableTargets), completedTargets: number(v.completedTargets), missingTargets: number(v.missingTargets), unqueuedTargets: number(v.unqueuedTargets), persistedTasks: number(v.persistedTasks), targets: array(v.targets, value => { const t = object(value); return { state: choice(t.state, states), waitReason: nullable(t.waitReason, string), count: number(t.count) } }), services: array(v.services, value => { const s = object(value); return { service: choice(s.service, ['text', 'tts']), paused: bool(s.paused), blocked: bool(s.blocked), consecutiveFailures: number(s.consecutiveFailures), throttleSeconds: number(s.throttleSeconds), nextAttemptAtUnixMs: nullable(s.nextAttemptAtUnixMs, number) } }),
+    textRequests: v.textRequests == null ? null : (() => { const b = object(v.textRequests); return { requests: number(b.requests), participations: number(b.participations), completed: number(b.completed), unknown: number(b.unknown) } })(),
     activities: v.activities == null ? [] : array(v.activities, value => { const a = object(value); return { step: choice(a.step, ['Fields', 'Expand', 'Audio'] as const), total: number(a.total), completed: number(a.completed), actionRequired: number(a.actionRequired), unqueued: number(a.unqueued), missingRequirements: array(a.missingRequirements, value => choice(value, ['text', 'supplement', 'ukSpeech', 'usSpeech', 'storage'])) } }) }
 }
 export async function readEnrichmentDetail(id: string, historyPage: number, signal: AbortSignal, current: () => boolean) {

@@ -24,7 +24,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Lexarbor.Service.Tests;
 
-public sealed class AutomaticMeaningSubmissionReviewTests
+public sealed partial class AutomaticMeaningSubmissionReviewTests
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
     private static string Decision(string verdict = "accept", string? meaning = "corrected", string? pos = "v.", string? uk = "ai-uk", string? us = "ai-us", string? comment = "Synthetic explanation") =>
@@ -505,6 +505,9 @@ public sealed class AutomaticMeaningSubmissionReviewTests
             var services = new ServiceCollection(); services.AddScoped(_ => Open());
             services.AddScoped<IMeaningSubmissionRepository>(p => new MeaningSubmissionRepository(p.GetRequiredService<VocabularyDbContext>()));
             services.AddScoped<IMeaningSubmissionAutoReviewRepository>(p => new MeaningSubmissionAutoReviewRepository(p.GetRequiredService<VocabularyDbContext>(), Clock));
+            services.AddScoped(p => new EnrichmentTaskRepository(p.GetRequiredService<VocabularyDbContext>(), Clock));
+            services.AddScoped<IEnrichmentSchedulerRepository>(p => new EnrichmentSchedulerRepository(p.GetRequiredService<VocabularyDbContext>(), p.GetRequiredService<EnrichmentTaskRepository>()));
+            services.AddScoped<IAiRequestBatchRepository, AiRequestBatchRepository>();
             services.AddScoped(p => Service(p.GetRequiredService<VocabularyDbContext>()).Submissions);
             Provider = services.BuildServiceProvider(); Worker = NewWorker();
         }
@@ -514,6 +517,8 @@ public sealed class AutomaticMeaningSubmissionReviewTests
             db.VocabularyBooks.Add(new() { Id = "book", BookName = "Synthetic", Status = true }); await db.SaveChangesAsync(Ct); return f;
         }
         public MeaningSubmissionReviewWorker NewWorker() => new(Provider.GetRequiredService<IServiceScopeFactory>(), Runtime, _submissionSettings, Notifications, Clock, Client, NullLogger<MeaningSubmissionReviewWorker>.Instance);
+        public MeaningSubmissionReviewBatchExecutor BatchWorker() => new(Provider.GetRequiredService<IServiceScopeFactory>(), Runtime, _submissionSettings,
+            new AiTextBatchClient(Clients, Clock), Client, Clock);
         public VocabularyDbContext Open() => new(new DbContextOptionsBuilder<VocabularyDbContext>().UseSqlite($"Data Source={Path.Combine(_root, "fixture.db")};Pooling=False").AddInterceptors(Fault).Options);
         public (MeaningSubmissionService Submissions, VocabularyDomainService Vocabulary) Service(VocabularyDbContext db)
         {
@@ -566,7 +571,7 @@ public sealed class AutomaticMeaningSubmissionReviewTests
             Instructions.Add(json.RootElement.GetProperty("messages")[0].GetProperty("content").GetString()!);
             var proposal = JsonDocument.Parse(json.RootElement.GetProperty("messages")[1].GetProperty("content").GetString()!);
             using (proposal) Proposals.Add(proposal.RootElement.Clone()); Called.TrySetResult();
-            return await Respond(Proposals.Last().GetProperty("word").GetString()!, token);
+            return await Respond(Proposals.Last().TryGetProperty("word", out var word) ? word.GetString()! : "batch", token);
         }
     }
     private sealed class HttpFactory(Handler handler) : IHttpClientFactory, IDisposable

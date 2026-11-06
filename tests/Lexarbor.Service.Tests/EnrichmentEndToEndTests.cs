@@ -348,39 +348,43 @@ public sealed class EnrichmentEndToEndTests
             if (path == "/v1/chat/completions")
             {
                 var input = JsonNode.Parse(body["messages"]![1]!["content"]!.GetValue<string>())!;
-                if (input["relationTypes"] != null)
-                    return new(HttpStatusCode.OK)
+                var content = input["items"] is JsonArray items
+                    ? new JsonObject
                     {
-                        Content = JsonContent.Create(new
-                        {
-                            choices = new[] { new { finish_reason = "stop", message = new
-                    { content = JsonSerializer.Serialize(new { candidates = new[] { new { word = "leader", type = "derived_noun", partOfSpeech = "n.",
-                        meaning = "领导者", example = "She is a leader.", usageNote = "A person who guides others." } } }) } } }
-                        })
-                    };
-                var required = input["requiredPhonetic"]?.GetValue<string>();
-                var ipa = required ?? "liːd";
-                var plan = new
-                {
-                    certain = true,
-                    entryKind = "word",
-                    classificationBasis = "Fixture word position",
-                    spokenText = input["word"]!.GetValue<string>(),
-                    requiredPhonetic = required,
-                    phonetic = ipa,
-                    partsOfSpeech = input["writable"]!["partsOfSpeech"]!.AsArray()
-                        .Select(id => new { meaningId = id!.GetValue<string>(), partOfSpeech = "v." }).ToArray(),
-                    pronunciationHint = native ? ipa : "Use the required reading.",
-                    pronunciationControl = native ? "ipa" : "instructions",
-                    speechPhonetic = native ? ipa : null
-                };
-                return new(HttpStatusCode.OK) { Content = JsonContent.Create(new { choices = new[] { new { finish_reason = "stop", message = new { content = JsonSerializer.Serialize(plan) } } } }) };
+                        ["results"] = new JsonArray(items.Select(item => (JsonNode)new JsonObject
+                        { ["id"] = item!["id"]!.DeepClone(), ["result"] = Plan(item["data"]!) }).ToArray())
+                    }
+                    : Plan(input);
+                return new(HttpStatusCode.OK) { Content = JsonContent.Create(new { choices = new[] { new { finish_reason = "stop", message = new { content = content.ToJsonString() } } } }) };
             }
             Assert.Equal(native ? "api.minimax.io" : "api.openai.com", request.RequestUri.Host);
             Interlocked.Increment(ref _speechCount);
             if (Release is { } release) { Entered!.TrySetResult(); await release.Task.WaitAsync(token); }
             var bytes = await File.ReadAllBytesAsync(Path.Combine(AppContext.BaseDirectory, "Fixtures/tone.mp3"), token);
             return new(HttpStatusCode.OK) { Content = native ? JsonContent.Create(new { base_resp = new { status_code = 0 }, data = new { status = 2, audio = Convert.ToHexString(bytes) } }) : new ByteArrayContent(bytes) };
+        }
+        private JsonNode Plan(JsonNode input)
+        {
+            if (input["relationTypes"] != null)
+                return JsonSerializer.SerializeToNode(new
+                {
+                    candidates = new[] { new { word = "leader", type = "derived_noun", partOfSpeech = "n.",
+                    meaning = "领导者", example = "She is a leader.", usageNote = "A person who guides others." } }
+                })!;
+            var required = input["requiredPhonetic"]?.GetValue<string>(); var ipa = required ?? "liːd";
+            return JsonSerializer.SerializeToNode(new
+            {
+                certain = true,
+                entryKind = "word",
+                classificationBasis = "Fixture word position",
+                spokenText = input["word"]!.GetValue<string>(),
+                requiredPhonetic = required,
+                phonetic = ipa,
+                partsOfSpeech = input["writable"]!["partsOfSpeech"]!.AsArray().Select(id => new { meaningId = id!.GetValue<string>(), partOfSpeech = "v." }).ToArray(),
+                pronunciationHint = native ? ipa : "Use the required reading.",
+                pronunciationControl = native ? "ipa" : "instructions",
+                speechPhonetic = native ? ipa : null
+            })!;
         }
     }
     private sealed class Objects : IAudioObjectStoreFactory, IAudioObjectStore

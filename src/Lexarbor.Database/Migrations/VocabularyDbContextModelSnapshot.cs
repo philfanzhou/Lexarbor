@@ -39,6 +39,78 @@ namespace Lexarbor.Database.Migrations
                     b.ToTable("admin_session");
                 });
 
+            modelBuilder.Entity("Lexarbor.Database.Entities.AiRequestBatchEntity", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ConfigurationVersion")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("configuration_version");
+
+                    b.Property<long?>("FinishedAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("finished_at_unix_ms");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("kind");
+
+                    b.Property<int>("NextSize")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("next_size");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("outcome");
+
+                    b.Property<long>("StartedAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("started_at_unix_ms");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Outcome");
+
+                    b.HasIndex("Kind", "ConfigurationVersion", "FinishedAtUnixMs");
+
+                    b.ToTable("ai_request_batch", (string)null);
+                });
+
+            modelBuilder.Entity("Lexarbor.Database.Entities.AiRequestBatchMemberEntity", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("id");
+
+                    b.Property<string>("BatchId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("batch_id");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("outcome");
+
+                    b.Property<string>("TargetId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("target_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BatchId");
+
+                    b.HasIndex("TargetId");
+
+                    b.ToTable("ai_request_batch_member", (string)null);
+                });
+
             modelBuilder.Entity("Lexarbor.Database.Entities.AudioAssetEntity", b =>
                 {
                     b.Property<string>("Id")
@@ -629,6 +701,33 @@ namespace Lexarbor.Database.Migrations
 
                             t.HasCheckConstraint("CK_enrichment_service_lease", "(lease_id IS NULL) = (lease_expires_at_unix_ms IS NULL)");
                         });
+                });
+
+            modelBuilder.Entity("Lexarbor.Database.Entities.EnrichmentServiceLeaseEntity", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ConfigurationVersion")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("configuration_version");
+
+                    b.Property<long>("ExpiresAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("expires_at_unix_ms");
+
+                    b.Property<string>("ServiceId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("service_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ServiceId", "ConfigurationVersion", "ExpiresAtUnixMs");
+
+                    b.ToTable("enrichment_service_lease", (string)null);
                 });
 
             modelBuilder.Entity("Lexarbor.Database.Entities.EnrichmentServiceProbeEntity", b =>
@@ -1606,6 +1705,15 @@ namespace Lexarbor.Database.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Lexarbor.Database.Entities.AiRequestBatchMemberEntity", b =>
+                {
+                    b.HasOne("Lexarbor.Database.Entities.AiRequestBatchEntity", null)
+                        .WithMany()
+                        .HasForeignKey("BatchId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Lexarbor.Database.Entities.AudioInvalidationEntity", b =>
                 {
                     b.HasOne("Lexarbor.Database.Entities.AudioAssetEntity", null)
@@ -1647,6 +1755,15 @@ namespace Lexarbor.Database.Migrations
                     b.HasOne("Lexarbor.Database.Entities.EnrichmentTargetEntity", null)
                         .WithMany()
                         .HasForeignKey("TargetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Lexarbor.Database.Entities.EnrichmentServiceLeaseEntity", b =>
+                {
+                    b.HasOne("Lexarbor.Database.Entities.EnrichmentServiceEntity", null)
+                        .WithMany()
+                        .HasForeignKey("ServiceId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

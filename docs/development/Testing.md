@@ -763,3 +763,17 @@ backward compatibility, attention filtering and stable paging, per-activity read
 before discovery, and unchanged database snapshots after reads. Browser tests cover
 progress cards, scoped filtering, collapsed/replaced history, keyboard focus, mobile
 layout and WCAG checks, alongside existing retry/session/cancellation regressions.
+
+## AI batching verification
+
+`AiTextBatchClientTests` checks out-of-order IDs, duplicate/foreign IDs, partial
+validation, truncation, bounded responses, secret rejection and the original
+single-item schema. `EnrichmentBatchExecutionTests` and `AutomaticReviewBatchTests`
+exercise physical request counts, independent results, atomic staging rollback,
+restart reuse, source separation, shared failure accounting and manual review
+competition. `EnrichmentSchedulerRepositoryTests` covers concurrent TTS capacity,
+legacy lease preservation and a successful sibling retaining a throttle window.
+`ReleaseUpgradeMigrationTests` compares pre-upgrade data from `v0.1.8` and
+`v0.1.9-rc.2`, including an interrupted additive migration and repeated startup.
+The hosted enrichment tests exercise continuous draining and configuration-change
+wakeups. Browser tests keep request totals separate from per-task participation.
