@@ -69,8 +69,8 @@ test('shows complete pending backlog and only fixed safe recovery messages', asy
   const state = page.getByLabel('自动审核状态')
   await expect(state).toContainText('全部待审积压 47 条')
   await expect(state).toContainText('服务限流')
-  await expect(state).toContainText('无需人工处理')
-  await expect(state.getByRole('link', { name: '检查自动审核设置' })).toHaveAttribute('href', '#/settings/review')
+  await expect(state).toContainText('后台自动重试')
+  await expect(state.getByRole('link', { name: '查看审核设置' })).toHaveAttribute('href', '#/settings/review')
   await page.getByRole('button', { name: '审核', exact: true }).click()
   await expect(page.getByText('无需手动开始或先删除旧音频', { exact: false })).toBeVisible()
 })
@@ -142,4 +142,21 @@ test('关闭审核后迟到建议不能污染下一条或新草稿', async ({ pa
   await held?.fulfill({ contentType: 'application/json', body: JSON.stringify({ success: true, data: { verdict: 'revise', meaning: 'STALE-ADVICE', comment: 'STALE-COMMENT' } }) }).catch(() => undefined)
   await expect(page.locator('body')).not.toContainText('STALE-ADVICE')
   await expect(page.getByPlaceholder('修改说明或驳回原因（可选）')).toHaveValue('')
+})
+
+
+for (const paused of [false, true]) test(`自动审核${paused ? '配置暂停' : '队列为空'}提供准确状态和下一步`, async ({ page }) => {
+  await page.route('**/admin/auth/session', route => json(route, { success: true, data: { username: 'admin', roles: ['admin'] } }))
+  await mockAntiforgery(page)
+  await page.route('**/admin/system/version', route => json(route, { success: true, data: { version: '1', revision: null, channel: 'test' } }))
+  await page.route(/\/admin\/meaning-submissions\?/, route => json(route, { success: true, data: {
+    configured: true, assistantEnabled: true, items: [], totalCount: 0, totalPage: 0,
+    automaticReview: { enabled: true, paused, pauseCode: paused ? 'configuration_missing' : null, pendingCount: paused ? 4 : 0, lastFailureCode: null, lastFailureAt: null, nextAttemptAt: null }
+  } }))
+  await page.goto('/#/submissions')
+  const status = page.getByLabel('自动审核状态')
+  await expect(status).toContainText(paused ? '暂停（审核配置缺失）' : '暂无待审投稿')
+  await expect(status).not.toContainText('运行中')
+  await expect(status.getByRole('link')).toHaveAttribute('href', '#/settings/review')
+  if (paused) await expect(status).toContainText('恢复配置后将自动处理积压')
 })

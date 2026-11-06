@@ -73,6 +73,9 @@ public sealed class EnrichmentAdminEndpointTests
     [InlineData("/admin/enrichment/tasks?page=0")]
     [InlineData("/admin/enrichment/tasks?size=101")]
     [InlineData("/admin/enrichment/tasks?state=Invalid")]
+    [InlineData("/admin/enrichment/tasks?sort=invalid")]
+    [InlineData("/admin/enrichment/tasks?attentionOnly=invalid")]
+    [InlineData("/admin/enrichment/summary?search=bad%0Aquery")]
     [InlineData("/admin/enrichment/summary?locale=uk")]
     [InlineData("/admin/enrichment/summary?step=Invalid")]
     [InlineData("/admin/enrichment/tasks/unknown?historySize=101")]
@@ -113,7 +116,14 @@ public sealed class EnrichmentAdminEndpointTests
         Assert.Equal("en-US", next.GetProperty("items")[0].GetProperty("locale").GetString());
         var filtered = await Data(await client.GetAsync("/admin/enrichment/tasks?wordId=admin-word&locale=en-GB&step=Audio&state=Failed", Ct));
         Assert.Equal(1, filtered.GetProperty("totalCount").GetInt32());
-        await Data(await client.GetAsync("/admin/enrichment/summary", Ct));
+        var search = await Data(await client.GetAsync("/admin/enrichment/tasks?search=%20EXAMPLE%20&attentionOnly=true&sort=attention", Ct));
+        Assert.Equal(2, search.GetProperty("totalCount").GetInt32()); // failed UK + unconfigured US
+        Assert.Equal(id, search.GetProperty("items")[0].GetProperty("id").GetString());
+        var literal = await Data(await client.GetAsync("/admin/enrichment/tasks?search=%25", Ct));
+        Assert.Equal(0, literal.GetProperty("totalCount").GetInt32());
+        var summary = await Data(await client.GetAsync("/admin/enrichment/summary?search=example", Ct));
+        Assert.Equal(3, summary.GetProperty("activities").GetArrayLength());
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync("/admin/enrichment/tasks?search=" + new string('a', 201), Ct)).StatusCode);
         await Data(await client.GetAsync("/admin/enrichment/tasks/" + id, Ct));
         Assert.Equal(before, await EnrichmentTargetExecutorTests.Dump(db));
     }

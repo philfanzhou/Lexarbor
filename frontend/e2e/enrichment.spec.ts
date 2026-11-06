@@ -16,6 +16,11 @@ function failed() { const t = task(); t.state = 'Failed'; Object.assign(t.curren
 function paged<T>(items: T[], page = 1, size = 10, totalCount = items.length) { return { items, totalCount, page, size } }
 function summary() {
   return { applicableTargets: 5, completedTargets: 1, missingTargets: 4, unqueuedTargets: 2, persistedTasks: 3,
+    activities: [
+      { step: 'Fields', total: 2, completed: 0, actionRequired: 2, unqueued: 2, missingRequirements: ['text'] },
+      { step: 'Expand', total: 1, completed: 0, actionRequired: 0, unqueued: 0, missingRequirements: ['supplement'] },
+      { step: 'Audio', total: 2, completed: 1, actionRequired: 0, unqueued: 0, missingRequirements: ['ukSpeech', 'storage'] }
+    ],
     targets: [{ state: 'Waiting', waitReason: 'Disabled', count: 2 }, { state: 'Succeeded', waitReason: null, count: 1 }, { state: 'Waiting', waitReason: 'Throttled', count: 2 }],
     services: [{ service: 'text', paused: false, blocked: false, consecutiveFailures: 0, throttleSeconds: 0, nextAttemptAtUnixMs: null }, { service: 'tts', paused: true, blocked: false, consecutiveFailures: 5, throttleSeconds: 8, nextAttemptAtUnixMs: now + 60000 }] }
 }
@@ -43,16 +48,19 @@ test('新增历史与部分成功、未排队关闭、429请求和额度分开�
   await setup(page, [task(), task('uk-success', { meaningId: null, meaning: null, state: 'Succeeded', missing: false, locale: 'en-US' })])
   await page.goto('/#/enrichment')
   const counts = page.getByRole('region', { name: '当前需求与服务' })
-  await expect(counts).toContainText('适用目标 5 · 已完成 1 · 仍缺失 4 · 尚未排队 2')
-  await expect(counts).toContainText('持久步骤 3')
-  await expect(counts).toContainText('生成或字段补齐已关闭')
+  await expect(counts).toContainText('已完成 1 / 5 个目标 · 仍需完善 4')
+  await expect(counts).toContainText('2 个等待后台扫描排队')
+  await expect(counts.getByRole('article', { name: '音标与词性' })).toContainText('配置未就绪')
   await expect(page.getByLabel('自动刷新状态')).toContainText('新增优先、历史持续推进')
   const table = page.getByRole('table', { name: '补齐任务列表' })
-  await expect(table).toContainText('请求 7')
-  await expect(table).toContainText('已消耗 0 / 5')
+  await expect(table).not.toContainText('已消耗')
   await expect(table).toContainText('服务限流')
   await expect(table).toContainText('已完成')
   await expect(page.getByRole('button', { name: /重试此失败步骤|开始批次/ })).toHaveCount(0)
+  await page.getByRole('button', { name: '查看 lead en-GB 音频生成 详情', exact: true }).click()
+  const detail = page.getByRole('region', { name: '任务详情', exact: true })
+  await expect(detail).toContainText('本轮模型请求7 次')
+  await expect(detail).toContainText('已消耗 0 / 5')
 })
 
 for (const [reason, text] of [
@@ -171,18 +179,19 @@ test('任务与四类历史真实分页，切换筛选取消迟到读取', async
   await page.route(/\/tasks\/task\?/, route => {
     const p = Number(new URL(route.request().url()).searchParams.get('historyPage'))
     const d = detail(task(), p); d.rounds.totalCount = 11; d.calls.totalCount = 11; d.waits.totalCount = 11; d.cleanup.totalCount = 11
-    if (p === 2) { d.calls.items[0].id = 'second'; d.calls.items[0].service = 'history-second' }
+    if (p === 2) { d.calls.items[0].id = 'second'; d.calls.items[0].result = 'TerminalFailure' }
     return json(route, d)
   })
   const region = await openDetail(page)
+  await region.getByText('技术详情与执行历史', { exact: true }).click()
   await region.getByRole('button', { name: '下一页历史' }).click()
-  await expect(region).toContainText('history-second')
+  await expect(region).toContainText('本轮停止')
   await expect(region.getByRole('navigation', { name: '历史分页' })).toContainText('第 2 页')
   await page.getByRole('button', { name: '下一页任务' }).click()
   await expect.poll(() => held !== null).toBe(true)
   await page.getByLabel('口音', { exact: true }).selectOption('en-US')
   await page.getByRole('button', { name: '应用筛选' }).click()
-  await expect(page.getByRole('navigation', { name: '任务分页' })).toContainText('第 1 页')
+  await expect(page.getByRole('navigation', { name: '任务分页' })).toContainText('第 1 / 2 页')
   await held?.fulfill({ contentType: 'application/json', body: JSON.stringify({ success: true, data: paged([task('late', { word: 'LATE-OLD-PAGE' })], 2, 25, 26) }) }).catch(() => undefined)
   await expect(page.getByRole('table')).not.toContainText('LATE-OLD-PAGE')
   expect(requests.at(-1)?.searchParams.get('locale')).toBe('en-US')
@@ -195,7 +204,7 @@ test('空列表与GET错误保持未知，连续失败有界，隐藏暂停并�
   let reads = 0, broken = false
   await page.route(/\/tasks(?:\?.*)?$/, route => { reads += 1; return broken ? json(route, null, 503) : json(route, paged([], 1, 25)) })
   await page.goto('/#/enrichment')
-  await expect(page.getByText('没有匹配的持久任务；请同时查看当前需求、等待配置或未排队状态。')).toBeVisible()
+  await expect(page.getByText('仍有 2 个目标等待扫描排队，请查看上方配置提示。')).toBeVisible()
   await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: true }); document.dispatchEvent(new Event('visibilitychange')) })
   await page.clock.fastForward(60000)
   expect(reads).toBe(1)
@@ -249,13 +258,13 @@ test('安全DTO文本渲染、浏览器无秘密存储日志及供应商请求�
   expect(logs.join('\n')).not.toContain('synthetic-private-marker')
   await expect(page.locator('body')).not.toContainText('synthetic-private-marker')
   expect(external).toEqual([])
-  const speechSettings = page.getByRole('link', { name: '检查语音生成' })
+  const speechSettings = page.getByRole('link', { name: '检查英式语音配置' })
   await speechSettings.focus()
   await expect(speechSettings).toBeFocused()
   await expect(speechSettings).toHaveAttribute('href', '#/settings/speech')
-  await expect(page.getByRole('link', { name: '检查文本补齐' })).toHaveAttribute('href', '#/settings/text')
-  await expect(page.getByRole('link', { name: '检查音频存储' })).toHaveAttribute('href', '#/settings/audio-storage')
-  await expect(page.getByRole('link', { name: '查看后台策略' })).toHaveAttribute('href', '#/settings/background')
+  await expect(page.getByRole('link', { name: '配置文本模型' })).toHaveAttribute('href', '#/settings/text')
+  await expect(page.getByRole('link', { name: '配置音频存储' })).toHaveAttribute('href', '#/settings/audio-storage')
+  await expect(page.getByRole('link', { name: '后台策略' })).toHaveAttribute('href', '#/settings/background')
 })
 
 test('处理中与旧成功后的新需求保留投影，不提供成功或取消任务重试', async ({ page }) => {
@@ -332,8 +341,52 @@ test('词汇扩展使用同一进度页，显示不限口音并可筛选详情',
   await page.goto('/#/enrichment')
   const table = page.getByRole('table', { name: '补齐任务列表' })
   await expect(table).toContainText('不限口音')
-  await expect(table).toContainText('词形与派生词扩展')
+  await expect(table).toContainText('词形与派生词')
   await page.getByLabel('步骤', { exact: true }).selectOption('Expand')
   await page.getByRole('button', { name: '查看 lead 不限口音 词形与派生词扩展 详情', exact: true }).click()
   await expect(page.getByRole('region', { name: '任务详情', exact: true })).toContainText('词形与派生词扩展')
+})
+
+
+test('按词搜索、任务入口与需要处理筛选保留完整范围进度', async ({ page }) => {
+  await setup(page)
+  const lists: URL[] = [], summaries: URL[] = []
+  await page.route(/\/tasks(?:\?.*)?$/, route => { lists.push(new URL(route.request().url())); return json(route, paged([task()], 1, 25)) })
+  await page.route(/\/summary(?:\?.*)?$/, route => { summaries.push(new URL(route.request().url())); return json(route, summary()) })
+  await page.goto('/#/enrichment')
+  await page.getByLabel('搜索单词或释义', { exact: true }).fill('  lead  ')
+  await page.getByRole('button', { name: '应用筛选', exact: true }).click()
+  await expect.poll(() => lists.at(-1)?.searchParams.get('search')).toBe('lead')
+  await page.getByRole('article', { name: '单词读音' }).getByRole('button', { name: '查看相关任务' }).click()
+  await expect.poll(() => lists.at(-1)?.searchParams.get('step')).toBe('Audio')
+  await page.getByRole('button', { name: '需要处理', exact: true }).click()
+  await expect.poll(() => lists.at(-1)?.searchParams.get('attentionOnly')).toBe('true')
+  expect(lists.at(-1)?.searchParams.get('sort')).toBe('attention')
+  expect(summaries.at(-1)?.searchParams.get('search')).toBe('lead')
+  expect(summaries.at(-1)?.searchParams.has('attentionOnly')).toBe(false)
+  expect(summaries.at(-1)?.searchParams.has('step')).toBe(false)
+  await expect(page.getByRole('article', { name: '音标与词性' })).toBeVisible()
+  await page.getByRole('button', { name: '重置筛选', exact: true }).click()
+  await expect.poll(() => lists.at(-1)?.searchParams.has('search')).toBe(false)
+  await expect(page.getByLabel('步骤', { exact: true })).toHaveValue('')
+})
+
+test('技术历史默认收起，旧轮次被替代可读，窄屏详情可关闭并通过无障碍检查', async ({ page }) => {
+  await setup(page, [failed()])
+  await page.route(/\/tasks\/task\?/, route => {
+    const d = detail(failed()); d.rounds.items.push({ ...d.task.current, state: 'Superseded', number: 0 })
+    return json(route, d)
+  })
+  await page.setViewportSize({ width: 390, height: 844 })
+  const region = await openDetail(page)
+  await expect(region.getByRole('heading', { name: '任务详情', exact: true })).toBeFocused()
+  await expect(region.getByText('本轮已停止，需要处理', { exact: true })).toBeVisible()
+  await expect(region.getByRole('heading', { name: /轮次历史/ })).not.toBeVisible()
+  await region.getByText('技术详情与执行历史', { exact: true }).click()
+  await expect(region.getByText(/已被新一轮替代/)).toBeVisible()
+  expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([])
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await region.getByRole('button', { name: '关闭任务详情' }).click()
+  await expect(region).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '查看 lead en-GB 音频生成 详情', exact: true })).toBeFocused()
 })

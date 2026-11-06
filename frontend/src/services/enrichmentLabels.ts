@@ -1,6 +1,6 @@
 import type { EnrichmentTask } from './enrichmentApi'
 
-export const stateLabels: Record<string, string> = { Pending: '待处理', Running: '处理中', Waiting: '等待', Succeeded: '已完成', Failed: '失败', Cancelled: '已取消' }
+export const stateLabels: Record<string, string> = { Pending: '待处理', Running: '处理中', Waiting: '等待', Succeeded: '已完成', Failed: '失败', Cancelled: '已取消', Superseded: '已被新一轮替代' }
 export const stepLabels: Record<string, string> = { Prepare: '发音准备', Fields: '默认字段', Audio: '音频生成', Expand: '词形与派生词扩展' }
 const reasons: Record<string, string> = {
   Disabled: '生成或字段补齐已关闭', ConfigurationMissing: '等待模型、口音或补充词书配置就绪', StorageDisabled: '音频存储关闭',
@@ -33,4 +33,37 @@ export function taskLabel(task: EnrichmentTask) {
   if (task.state === 'Failed' && task.current.consumedFailures >= task.current.failureBudget) return '失败额度已耗尽；服务恢复不会清零'
   if (task.meaningId && task.step === 'Audio' && task.missing) return `专用音频仍缺失：${stateLabels[task.state]}；默认播放回落不代表专用生成完成`
   return stateLabels[task.state] ?? task.state
+}
+
+export const activityLabels: Record<string, string> = { Fields: '音标与词性', Expand: '词形与派生词', Audio: '单词读音' }
+export const activityDescriptions: Record<string, string> = {
+  Fields: '补齐已有词汇缺失的音标和词性。', Expand: '生成新词并加入补充词书，已有词直接复用。', Audio: '补齐英式、美式及释义专用读音。'
+}
+export const requirementLabels: Record<string, string> = {
+  text: '配置文本模型', supplement: '检查补充词书', ukSpeech: '检查英式语音配置', usSpeech: '检查美式语音配置', storage: '配置音频存储'
+}
+export const requirementLinks: Record<string, string> = {
+  text: '/settings/text', supplement: '/books', ukSpeech: '/settings/speech', usSpeech: '/settings/speech', storage: '/settings/audio-storage'
+}
+export const callLabels: Record<string, string> = { Started: '请求已发出，结果待确认', Succeeded: '成功', Throttled: '服务限流', TransientFailure: '暂时失败', TerminalFailure: '本轮停止' }
+export const cleanupLabels: Record<string, string> = { Waiting: '等待清理', Claimed: '正在清理', Observed: '已确认清理' }
+
+export function guidance(task: EnrichmentTask): { title: string; description: string; link?: string; action?: string } {
+  if (!task.applicable) return { title: '无需处理', description: task.inheritsDefault ? '此释义已恢复使用单词的默认读音。' : '词条或生成需求已经变化，这条任务仅保留历史。' }
+  if (!task.missing) return { title: '已完成，无需重试', description: task.step === 'Expand' ? '本轮扩展已处理。没有可靠的新词时也会正常完成；可在词条中查看已有关系。' : '当前需要的内容已经具备，系统不会重复生成。' }
+  if (task.waitReason === 'StorageDisabled') return { title: '需要配置音频存储', description: '存储就绪后，缺失的读音会自动继续生成。', link: '/settings/audio-storage', action: '检查音频存储' }
+  if (task.waitReason === 'ConfigurationMissing' || task.waitReason === 'Disabled') return {
+    title: '需要检查配置', description: task.step === 'Expand' ? '文本模型和补充词书均须就绪。请检查上方对应任务卡片，补充词书须存在且启用。' : task.step === 'Audio' ? '需要文本模型、语音模型和当前口音的音色配置。配置就绪后自动继续。' : '文本模型配置就绪后自动继续，无需另开功能开关。',
+    link: task.step === 'Audio' ? '/settings/speech' : '/settings/text', action: task.step === 'Audio' ? '检查语音配置' : '检查文本模型'
+  }
+  if (task.state === 'Failed') {
+    const configuration = task.current.errorCode === 'provider.configuration_rejected' || task.current.errorCode === 'provider.capability_unsupported' || task.current.errorCode === 'text.pronunciation_control_unsupported'
+    return { title: '本轮已停止，需要处理', description: `${errorLabel(task.current.errorCode)}。${configuration ? '先修正对应模型配置，再重试此步骤。' : '先检查词条内容与失败原因，再重试此步骤；已完成的其他内容会保留。'}`,
+      ...(configuration ? { link: task.step === 'Audio' || task.current.errorCode === 'text.pronunciation_control_unsupported' ? '/settings/speech' : '/settings/text', action: '检查模型配置' } : {}) }
+  }
+  if (task.state === 'Running') return { title: '正在处理，无需操作', description: '页面会自动更新结果，离开页面不会停止后台任务。' }
+  if (task.waitReason === 'Throttled' || task.waitReason === 'ServicePaused' || task.waitReason === 'Retry' || task.waitReason === 'LeaseExpired') return {
+    title: '系统会自动继续', description: task.waitReason === 'Throttled' ? '模型服务暂时限制请求频率。系统会退避后再试，不消耗失败额度，无需手动重试。' : '后台正在等待服务恢复或下一次尝试，无需手动启动。'
+  }
+  return { title: '已排队，无需操作', description: '后台会逐步处理新增和历史缺失，离开页面不影响任务执行。' }
 }

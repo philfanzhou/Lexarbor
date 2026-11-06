@@ -756,3 +756,10 @@ SQLite integrity and foreign keys. Fault injection after the target rebuild and
 before EF writes the migration-history record proves rollback and successful retry.
 Historical migration files through that boundary match release commit
 `55ab685939b065eaa4b8940a7f96ceb78bdd3a5b`; fixture values are entirely synthetic.
+
+
+The enrichment admin usability tests cover literal text search, optional-query
+backward compatibility, attention filtering and stable paging, per-activity readiness
+before discovery, and unchanged database snapshots after reads. Browser tests cover
+progress cards, scoped filtering, collapsed/replaced history, keyboard focus, mobile
+layout and WCAG checks, alongside existing retry/session/cancellation regressions.

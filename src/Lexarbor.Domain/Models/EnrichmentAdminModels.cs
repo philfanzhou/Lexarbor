@@ -12,7 +12,8 @@ public sealed record EnrichmentAdminConfiguration(bool FieldsEnabled, bool Audio
             + (key.Step == EnrichmentStep.Prepare && AudioEnabled ? ":speech:" + (key.Locale == AudioLocale.EnGb ? UkAudioVersion : UsAudioVersion) : "");
 }
 public sealed record EnrichmentAdminFilter(string? WordId = null, string? MeaningId = null, string? Locale = null,
-    string? State = null, string? Step = null, int Page = 1, int Size = 25);
+    string? State = null, string? Step = null, int Page = 1, int Size = 25,
+    string? Search = null, bool AttentionOnly = false, string Sort = "word");
 public sealed record EnrichmentAdminPage<T>(IReadOnlyList<T> Items, int TotalCount, int Page, int Size);
 public sealed record EnrichmentAdminRound(int Number, string State, int RequestCount, int ConsumedFailures,
     int FailureBudget, string? WaitReason, string? ErrorCode, long? NextAttemptAtUnixMs,
@@ -35,6 +36,8 @@ public sealed record EnrichmentAdminService(string Service, bool Paused, bool Bl
     int ThrottleSeconds, long? NextAttemptAtUnixMs);
 public sealed record EnrichmentAdminSummary(int ApplicableTargets, int CompletedTargets, int MissingTargets,
     int UnqueuedTargets, int PersistedTasks, IReadOnlyList<EnrichmentAdminCount> Targets,
-    IReadOnlyList<EnrichmentAdminService> Services);
+    IReadOnlyList<EnrichmentAdminService> Services, IReadOnlyList<EnrichmentAdminActivity>? Activities = null);
+public sealed record EnrichmentAdminActivity(string Step, int Total, int Completed, int ActionRequired,
+    int Unqueued, IReadOnlyList<string> MissingRequirements);
 public enum EnrichmentRetryStatus { Started, Replayed, NotFound, Conflict }
 public sealed record EnrichmentRetryResult(EnrichmentRetryStatus Status, string TargetId, int? Round = null);

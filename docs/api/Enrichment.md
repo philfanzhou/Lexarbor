@@ -27,10 +27,34 @@ List and summary accept exact `wordId`, `meaningId`, `locale` (`en-GB`/`en-US`),
 `step` (`Prepare`/`Fields`/`Audio`/`Expand`), and projected `state` filters. State values are
 `Pending`, `Running`, `Waiting`, `Succeeded`, `Failed`, and `Cancelled`. List paging
 uses `page` (default 1, maximum 1,000,000) and `size` (default 25, maximum 100).
-The stable order is word ID, meaning ID, locale, step, then target ID. Detail uses
+Optional `search` matches a literal substring of the task word or its source/specific
+meaning (ASCII case-insensitive; trimmed, at most 200 characters, no control
+characters). `%` and `_` are literal characters. Default-field/audio tasks have
+no source meaning, so only their word is searched. `attentionOnly=true` restricts
+to applicable, still-missing targets with a failed round, missing configuration,
+or disabled storage. Normal throttling, service recovery and scheduled retries
+remain automatic and are excluded. Both filters also apply to summary demands,
+including demands not yet queued.
+
+`sort` accepts `word` (default; preserves word ID ordering), `attention` (failed,
+configuration/storage waits, running, pending/other waits, then remaining states),
+or `recent` (latest round update first). Ties use word text, word ID, meaning ID,
+locale, step, then target ID for stable paging. Detail uses
 `historyPage`/`historySize` with the same bounds/defaults; newest rounds/events
 come first, with an ID tie-breaker. Each page has `items`, `totalCount`, `page`,
 and `size`. Invalid filters/paging return 400; an unknown task returns 404.
+Summary adds `activities`: one item each for `Fields`, `Expand`, and `Audio`,
+with `step`, `total`, `completed`, `actionRequired`, `unqueued`, and
+`missingRequirements`. Counts represent targets, not unique words. `actionRequired`
+uses the same predicate as `attentionOnly`, including unqueued demands. Requirements
+are safe identifiers: `text`, `supplement`, `ukSpeech`, `usSpeech`, `storage`.
+They describe configuration readiness even before discovery; the supplement must
+exist and be enabled. Speech requirements are shown after text preparation is
+configured and respect the requested locale. Service rejection/recovery is
+reported separately in `services`. No model name, credential or storage destination
+is exposed. The SPA requests summary with only word/meaning/search/locale so task
+state/type filters do not hide progress or setup problems in the current scope.
+
 Summary filters apply to current requirements; `Prepare` is an internal prerequisite
 and has no separate current field/audio requirement count.
 
