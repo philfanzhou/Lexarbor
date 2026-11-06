@@ -50,12 +50,32 @@ public sealed class EnrichmentWorker(IServiceScopeFactory scopes, EnrichmentRunt
         await Task.Yield();
         try
         {
+            var nextScan = DateTimeOffset.MinValue;
+            EnrichmentConfigurationSnapshot? scannedConfiguration = null;
             while (!stoppingToken.IsCancellationRequested)
             {
                 var observed = runtime.Current;
-                try { await RunBatchAsync(stoppingToken); }
+                var successful = false;
+                try
+                {
+                    var discover = scannedConfiguration != observed || clock.GetUtcNow() >= nextScan;
+                    if (discover) { nextScan = clock.GetUtcNow().AddSeconds(observed.Enrichment.ScanIntervalSeconds); scannedConfiguration = observed; }
+                    await RunBatchAsync(stoppingToken, discover);
+                    successful = true;
+                }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
                 catch (Exception) { logger.LogWarning("Enrichment batch failed; durable work will be retried."); }
+                if (successful)
+                {
+                    await using var scope = scopes.CreateAsyncScope();
+                    if ((runtime.Current.Enrichment.FieldsEnabled || runtime.Current.Enrichment.AudioEnabled)
+                        && (await scope.ServiceProvider.GetRequiredService<IEnrichmentSchedulerRepository>()
+                            .DueAsync(1, clock.GetUtcNow().ToUnixTimeMilliseconds(), stoppingToken)).Count > 0)
+                    {
+                        await Task.Delay(TimeSpan.FromMilliseconds(100), clock, stoppingToken);
+                        continue;
+                    }
+                }
                 using var wait = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
                 try
                 {
@@ -69,7 +89,7 @@ public sealed class EnrichmentWorker(IServiceScopeFactory scopes, EnrichmentRunt
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
     }
 
-    public async Task<int> RunBatchAsync(CancellationToken token)
+    public async Task<int> RunBatchAsync(CancellationToken token, bool discover = true)
     {
         var settings = runtime.Current.Enrichment;
         if (!settings.FieldsEnabled && !settings.AudioEnabled)
@@ -82,7 +102,8 @@ public sealed class EnrichmentWorker(IServiceScopeFactory scopes, EnrichmentRunt
             var tasks = scope.ServiceProvider.GetRequiredService<IEnrichmentTaskRepository>();
             var recentWords = notifications.Drain();
             var audioTargets = notifications.DrainAudioTargets();
-            var targets = await repository.DiscoverAsync(settings.DiscoveryBatchSize, recentWords, token);
+            var targets = discover || recentWords.Count > 0
+                ? await repository.DiscoverAsync(settings.DiscoveryBatchSize, recentWords, token) : [];
             foreach (var key in audioTargets.Concat(targets).Distinct())
             {
                 var ensured = await tasks.EnsureAsync(key, EnrichmentTargetExecutor.ConfigurationVersion(key, runtime.Current),
@@ -98,6 +119,8 @@ public sealed class EnrichmentWorker(IServiceScopeFactory scopes, EnrichmentRunt
             due = (await repository.DueAsync(Math.Max(2, Math.Max(settings.DiscoveryBatchSize, settings.Concurrency)),
                 clock.GetUtcNow().ToUnixTimeMilliseconds(), token)).ToArray();
             due = urgent.Concat(due).Distinct(StringComparer.Ordinal).ToArray();
+            if (scope.ServiceProvider.GetService<EnrichmentTextBatchExecutor>() is { } batch)
+                due = (await batch.PrepareAsync(due, token)).ToArray();
         }
         // Only this bounded slice exists in memory. Each target gets its own
         // scoped context; no provider IO occurs inside a discovery transaction.

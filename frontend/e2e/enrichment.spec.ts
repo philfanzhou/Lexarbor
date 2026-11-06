@@ -390,3 +390,16 @@ test('技术历史默认收起，旧轮次被替代可读，窄屏详情可关�
   await expect(region).toHaveCount(0)
   await expect(page.getByRole('button', { name: '查看 lead en-GB 音频生成 详情', exact: true })).toBeFocused()
 })
+
+
+test('文本请求与任务参与次数分别展示，旧服务响应仍可读取', async ({ page }) => {
+  await setup(page)
+  await page.route(/\/admin\/enrichment\/summary(?:\?.*)?$/, route => json(route, {
+    ...summary(), textRequests: { requests: 2, participations: 9, completed: 8, unknown: 1 }
+  }))
+  await page.goto('/#/enrichment')
+  const stats = page.getByLabel('文本请求统计')
+  await expect(stats).toContainText('全站文本请求 2 次，处理 9 项任务，已保存 8 项有效结果')
+  await expect(stats).toContainText('1 次请求正在处理或结果尚未确认')
+  await expect(stats).toContainText('包含补齐、词变和自动审核')
+})

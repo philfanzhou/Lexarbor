@@ -171,3 +171,17 @@ Retrying a legacy `Audio` failure with `tts.capability_unsupported` or
 network/audio-publication failures retain successful preparation. Old failed
 preparations may require one explicit retry after upgrading. The upgrade does not
 bulk-reset exhausted work or regenerate completed audio.
+
+### Text request counters
+
+The summary optionally includes `textRequests` with nonnegative integer fields
+`requests`, `participations`, `completed`, and `unknown`. These are global counters
+since batch scheduling was introduced, independent of task filters. They include
+preparation, vocabulary expansion and automatic submission review, including
+single-item fallback requests; they exclude TTS and older call history.
+`requests` counts persisted dispatch attempts, `participations` counts member
+attempts, `completed` counts validated/staged member results, and `unknown` counts
+requests still running or lacking a confirmed outcome. These counters do not
+represent unique words, published items, provider billing, or token savings.
+Older clients may ignore this additive field; the admin client tolerates its
+absence when connected to an older server.

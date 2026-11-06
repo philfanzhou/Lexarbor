@@ -888,3 +888,20 @@ newly created words so they receive field/audio enrichment without recursive
 expansion; deleting a word cascades its marker. Task histories outlive deletions
 as before. See [expansion behavior](../api/VocabularyExpansion.md) and
 [upgrade/rollback](../development/Deployment.md#vocabulary-expansion-and-model-driven-activation-upgrade).
+
+## AI request batching
+
+`AiRequestBatching` adds three tables without altering existing business rows:
+`ai_request_batch`, `ai_request_batch_member`, and `enrichment_service_lease`.
+Each physical text request records its kind, opaque configuration version and
+member attempt IDs before dispatch. Validated member plans, per-target call
+outcomes, adaptive batch size and the shared service outcome commit in one short
+transaction. Publication remains independently guarded by the existing catalog
+revision and lease. No raw provider envelope or credential is stored.
+
+A crash before that transaction leaves an explicitly unconfirmed request; an
+expired target/review lease recovers through its existing retry mechanism. A
+provider may have processed such a request, so exactly-once remote execution is
+not promised. A crash after staging reuses saved plans without another request.
+The new service leases enforce bounded TTS concurrency across workers and retain
+an in-flight scalar lease from the previous version until completion or expiry.

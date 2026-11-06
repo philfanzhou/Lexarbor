@@ -91,7 +91,10 @@ public sealed class EnrichmentAdminRepository(VocabularyDbContext context) : IEn
                 s?.ThrottleSeconds ?? 0, s?.NextAttemptAtUnixMs is > 0 ? s.NextAttemptAtUnixMs : null));
         }
         return new EnrichmentAdminSummary(total, completed, total - completed, unqueued, persisted,
-            counts.OrderBy(c => c.State, StringComparer.Ordinal).ThenBy(c => c.WaitReason, StringComparer.Ordinal).ToArray(), services, activities);
+            counts.OrderBy(c => c.State, StringComparer.Ordinal).ThenBy(c => c.WaitReason, StringComparer.Ordinal).ToArray(), services, activities, new(
+                await context.AiRequestBatches.CountAsync(token), await context.AiRequestBatchMembers.CountAsync(token),
+                await context.AiRequestBatchMembers.CountAsync(r => r.Outcome == "Ready", token),
+                await context.AiRequestBatches.CountAsync(r => r.FinishedAtUnixMs == null, token)));
     }, token);
 
     private static IQueryable<EnrichmentAdminRow> Filter(IQueryable<EnrichmentAdminRow> query, EnrichmentAdminFilter filter)

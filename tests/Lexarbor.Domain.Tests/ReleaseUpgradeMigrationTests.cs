@@ -31,7 +31,7 @@ public sealed class ReleaseUpgradeMigrationTests
         await AssertPreserved(file, before);
         var upgraded = await file.RowsAsync("SELECT * FROM __EFMigrationsHistory ORDER BY MigrationId");
         Assert.Equal(JsonSerializer.Serialize(history), JsonSerializer.Serialize(upgraded.Take(history.Length)));
-        Assert.Equal(history.Length + 2, upgraded.Length);
+        Assert.Equal(history.Length + 3, upgraded.Length);
         await using (var restarted = file.Open()) await restarted.Database.MigrateAsync(Ct);
         await AssertPreserved(file, before);
         Assert.Equal(JsonSerializer.Serialize(upgraded), JsonSerializer.Serialize(await file.RowsAsync("SELECT * FROM __EFMigrationsHistory ORDER BY MigrationId")));
@@ -58,6 +58,34 @@ public sealed class ReleaseUpgradeMigrationTests
         Assert.Empty(await file.RowsAsync("SELECT name FROM sqlite_master WHERE name LIKE 'expansion_%' OR name='enrichment_generated_word'"));
         Assert.Empty(await file.RowsAsync($"SELECT * FROM __EFMigrationsHistory WHERE MigrationId='{Expansion}'"));
         await using (var resumed = file.Open()) await resumed.Database.MigrateAsync(Ct);
+        await AssertPreserved(file, before);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FromRc2_BatchingIsAdditiveAndCrashSafe(bool interrupt)
+    {
+        using var file = new AudioTestDatabase();
+        await SeedRelease(file);
+        await using (var db = file.Open())
+        {
+            await db.GetService<IMigrator>().MigrateAsync(Expansion, Ct);
+            await db.Database.ExecuteSqlRawAsync("INSERT INTO enrichment_generated_word VALUES ('word','existing-expansion-task');", Ct);
+        }
+        var before = await Snapshot(file);
+        if (interrupt)
+        {
+            var fault = new MigrationFault("CREATE TABLE \"ai_request_batch_member\"");
+            await using var db = file.Open(fault);
+            await Assert.ThrowsAsync<InvalidOperationException>(() => db.Database.MigrateAsync(Ct));
+            Assert.True(fault.Triggered);
+            Assert.Empty(await file.RowsAsync("SELECT name FROM sqlite_master WHERE name='ai_request_batch'"));
+            await AssertPreserved(file, before);
+        }
+        await using (var db = file.Open()) await db.Database.MigrateAsync(Ct);
+        await AssertPreserved(file, before);
+        await using (var db = file.Open()) await db.Database.MigrateAsync(Ct);
         await AssertPreserved(file, before);
     }
 

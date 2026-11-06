@@ -18,6 +18,42 @@ public sealed class EnrichmentSchedulerRepositoryTests
     private static EnrichmentServicePolicy Policy => new(5, 60, 600, 8, 120);
 
     [Fact]
+    public async Task ConcurrentAdmissionsRespectCapacityAndPreserveSiblingThrottle()
+    {
+        using var file = new AudioTestDatabase(); await using var db = file.Open(); await db.Database.MigrateAsync(Ct);
+        var repo = new EnrichmentSchedulerRepository(db);
+        var first = await repo.EnterServiceAsync("tts", "v", false, 1000, 10000, Ct, 2);
+        var second = await repo.EnterServiceAsync("tts", "v", false, 1000, 10000, Ct, 2);
+        Assert.NotNull(first.LeaseId); Assert.NotNull(second.LeaseId); Assert.NotEqual(first.LeaseId, second.LeaseId);
+        Assert.Null((await repo.EnterServiceAsync("tts", "v", false, 1000, 10000, Ct, 2)).LeaseId);
+        var until = await repo.FinishServiceAsync(first, "Throttled", "rate_limited", true, 1000, 50000, Policy, Ct);
+        await repo.FinishServiceAsync(second, "Ready", null, true, 1001, null, Policy, Ct);
+        Assert.Equal(until, (await repo.ServiceAsync("tts", Ct))!.NextAttemptAtUnixMs);
+        Assert.Null((await repo.EnterServiceAsync("tts", "v", false, 2000, 10000, Ct, 2)).LeaseId);
+        Assert.Empty(await db.EnrichmentServiceLeases.ToArrayAsync(Ct));
+        var corrected = await repo.EnterServiceAsync("tts", "v2", false, 2000, 10000, Ct, 2);
+        Assert.NotNull(corrected.LeaseId);
+        await repo.FinishServiceAsync(first, "Rejected", "credentials_rejected", true, 2000, null, Policy, Ct);
+        Assert.False((await repo.ServiceAsync("tts", Ct))!.Blocked);
+    }
+
+    [Fact]
+    public async Task UpgradeRetainsLegacyLeaseUntilItFinishes()
+    {
+        using var file = new AudioTestDatabase(); await using var db = file.Open(); await db.Database.MigrateAsync(Ct);
+        db.EnrichmentServices.Add(new() { Id = "tts", ConfigurationVersion = "v", LeaseId = "legacy", LeaseExpiresAtUnixMs = 10000 });
+        await db.SaveChangesAsync(Ct); db.ChangeTracker.Clear();
+        var repo = new EnrichmentSchedulerRepository(db);
+        Assert.Null((await repo.EnterServiceAsync("tts", "v", false, 1000, 10000, Ct)).LeaseId);
+        var second = await repo.EnterServiceAsync("tts", "v", false, 1000, 10000, Ct, 2);
+        Assert.NotNull(second.LeaseId);
+        Assert.Null((await repo.EnterServiceAsync("tts", "v", false, 1000, 10000, Ct, 2)).LeaseId);
+        await repo.FinishServiceAsync(new("tts", "v", "legacy", false, null, 0), "Ready", null, true, 1001, null, Policy, Ct);
+        Assert.Equal(second.LeaseId, (await repo.ServiceAsync("tts", Ct))!.LeaseId);
+        Assert.NotNull((await repo.EnterServiceAsync("tts", "v", false, 1001, 10000, Ct, 2)).LeaseId);
+    }
+
+    [Fact]
     public async Task ThrottleAndServiceLease_SurviveRestart_RespectRetryAfter_AndRecoverGradually()
     {
         using var file = new AudioTestDatabase();

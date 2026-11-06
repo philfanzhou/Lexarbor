@@ -63,6 +63,10 @@ public class VocabularyDbContext : DbContext
 
     public DbSet<AudioInvalidationEntity> AudioInvalidations { get; set; } = null!;
 
+    public DbSet<AiRequestBatchEntity> AiRequestBatches { get; set; } = null!;
+    public DbSet<AiRequestBatchMemberEntity> AiRequestBatchMembers { get; set; } = null!;
+    public DbSet<EnrichmentServiceLeaseEntity> EnrichmentServiceLeases { get; set; } = null!;
+
     public DbSet<EnrichmentGeneratedWordEntity> EnrichmentGeneratedWords { get; set; } = null!;
     public DbSet<EnrichmentTargetEntity> EnrichmentTargets { get; set; } = null!;
     public DbSet<EnrichmentRoundEntity> EnrichmentRounds { get; set; } = null!;
@@ -87,6 +91,7 @@ public class VocabularyDbContext : DbContext
         VocabularyRelationModelConfiguration.Configure(modelBuilder);
         AudioModelConfiguration.Configure(modelBuilder);
         EnrichmentModelConfiguration.Configure(modelBuilder);
+        AiRequestBatchModelConfiguration.Configure(modelBuilder);
         // Data Protection keys live in the business database as authenticated
         // envelopes (sm:v1:) scoped to the lexarbor service id, replacing the
         // former plaintext file ring under data/admin-keys.

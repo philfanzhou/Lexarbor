@@ -35,7 +35,8 @@ public sealed class MeaningSubmissionAutomaticReviewStatusProvider(EnrichmentRun
 /// <summary>One bounded queue, one concurrent call, no shared enrichment pause or failure budget.</summary>
 public sealed class MeaningSubmissionReviewWorker(IServiceScopeFactory scopes, EnrichmentRuntimeConfiguration runtime,
     MeaningSubmissionSettings settings, MeaningSubmissionReviewNotifications notifications, TimeProvider clock,
-    AutomaticMeaningSubmissionReviewClient client, ILogger<MeaningSubmissionReviewWorker> logger) : BackgroundService
+    AutomaticMeaningSubmissionReviewClient client, ILogger<MeaningSubmissionReviewWorker> logger,
+    MeaningSubmissionReviewBatchExecutor? batching = null) : BackgroundService
 {
     public const int BatchSize = 20;
     public static readonly TimeSpan ScanInterval = TimeSpan.FromSeconds(5);
@@ -50,7 +51,7 @@ public sealed class MeaningSubmissionReviewWorker(IServiceScopeFactory scopes, E
             while (!stoppingToken.IsCancellationRequested)
             {
                 var observed = runtime.Current;
-                try { await RunBatchAsync(stoppingToken); }
+                try { if (await RunBatchAsync(stoppingToken) > 0 && batching != null) continue; }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
                 catch (Exception) { logger.LogWarning("Automatic review scheduling failed; pending submissions will be retried."); }
                 using var wait = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
@@ -68,6 +69,7 @@ public sealed class MeaningSubmissionReviewWorker(IServiceScopeFactory scopes, E
     public async Task<int> RunBatchAsync(CancellationToken token)
     {
         notifications.Drain();
+        if (batching != null) return await batching.RunAsync(token);
         var count = 0;
         for (; count < BatchSize; count++)
         {

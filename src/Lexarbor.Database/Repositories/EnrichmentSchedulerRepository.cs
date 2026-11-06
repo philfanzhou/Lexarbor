@@ -111,10 +111,10 @@ public sealed class EnrichmentSchedulerRepository(VocabularyDbContext context, I
     }
 
     public Task<EnrichmentServiceAdmission> EnterServiceAsync(string serviceId, string configurationVersion,
-        bool probe, long now, long expiresAt, CancellationToken token)
+        bool probe, long now, long expiresAt, CancellationToken token, int capacity = 1)
     {
         if (string.IsNullOrWhiteSpace(serviceId) || serviceId.Length > 128 || string.IsNullOrWhiteSpace(configurationVersion)
-            || configurationVersion.Length > 128 || now < 0 || expiresAt <= now) throw new ArgumentException("Invalid enrichment service admission.");
+            || configurationVersion.Length > 128 || now < 0 || expiresAt <= now || capacity is < 1 or > 8) throw new ArgumentException("Invalid enrichment service admission.");
         return _writer.ExecuteAdmittedTransactionAsync(async () =>
         {
             var row = await context.EnrichmentServices.SingleOrDefaultAsync(r => r.Id == serviceId);
@@ -122,20 +122,35 @@ public sealed class EnrichmentSchedulerRepository(VocabularyDbContext context, I
             { row = new() { Id = serviceId, ConfigurationVersion = configurationVersion }; context.EnrichmentServices.Add(row); }
             else if (row.ConfigurationVersion != configurationVersion)
             {
+                await context.EnrichmentServiceLeases.Where(l => l.ServiceId == serviceId).ExecuteDeleteAsync();
                 // A relevant durable configuration correction may release a
                 // stopped service; it never rewrites any target/round budget.
                 row.ConfigurationVersion = configurationVersion; row.ConsecutiveFailures = 0;
                 row.Paused = false; row.Blocked = false; row.PauseSeconds = 0;
                 row.ThrottleSeconds = 0; row.NextAttemptAtUnixMs = 0; row.LeaseId = null; row.LeaseExpiresAtUnixMs = null;
             }
+            await context.EnrichmentServiceLeases.Where(l => l.ServiceId == serviceId && l.ExpiresAtUnixMs <= now).ExecuteDeleteAsync();
+            var active = await context.EnrichmentServiceLeases.Where(l => l.ServiceId == serviceId).ToArrayAsync();
+            // The scalar lease survives upgrades: honor an in-flight request from the previous version.
+            var legacy = row.LeaseExpiresAtUnixMs > now && !active.Any(l => l.Id == row.LeaseId);
+            var occupied = active.Length + (legacy ? 1 : 0);
             var reason = row.Blocked ? EnrichmentWaitReason.ConfigurationMissing
                 : row.Paused && !probe ? EnrichmentWaitReason.ServicePaused
-                : row.NextAttemptAtUnixMs > now || row.LeaseExpiresAtUnixMs > now ? EnrichmentWaitReason.Throttled
+                : row.NextAttemptAtUnixMs > now || occupied >= (probe ? 1 : capacity) ? EnrichmentWaitReason.Throttled
                 : probe && !row.Paused ? EnrichmentWaitReason.ServicePaused : (EnrichmentWaitReason?)null;
             string? lease = null;
             if (reason == null)
             {
-                lease = Guid.NewGuid().ToString(); row.LeaseId = lease; row.LeaseExpiresAtUnixMs = expiresAt;
+                lease = Guid.NewGuid().ToString();
+                // Retain the legacy pointer until that old request completes or expires.
+                if (!legacy) { row.LeaseId = lease; row.LeaseExpiresAtUnixMs = expiresAt; }
+                context.EnrichmentServiceLeases.Add(new()
+                {
+                    Id = lease,
+                    ServiceId = serviceId,
+                    ConfigurationVersion = configurationVersion,
+                    ExpiresAtUnixMs = expiresAt
+                });
                 if (probe)
                 {
                     // A crashed probe remains an explicit unknown outcome. Its
@@ -157,9 +172,17 @@ public sealed class EnrichmentSchedulerRepository(VocabularyDbContext context, I
         _writer.ExecuteAdmittedTransactionAsync(async () =>
         {
             var row = await context.EnrichmentServices.SingleOrDefaultAsync(r => r.Id == admission.ServiceId);
-            if (row == null || admission.LeaseId == null || row.LeaseId != admission.LeaseId || row.ConfigurationVersion != admission.ConfigurationVersion)
+            var lease = admission.LeaseId == null ? null : await context.EnrichmentServiceLeases
+                .SingleOrDefaultAsync(l => l.Id == admission.LeaseId && l.ServiceId == admission.ServiceId && l.ConfigurationVersion == admission.ConfigurationVersion);
+            if (row == null || admission.LeaseId == null || (lease == null && row.LeaseId != admission.LeaseId) || row.ConfigurationVersion != admission.ConfigurationVersion)
             { context.ChangeTracker.Clear(); return now; }
-            row.LeaseId = null; row.LeaseExpiresAtUnixMs = null;
+            if (lease != null) context.EnrichmentServiceLeases.Remove(lease);
+            if (row.LeaseId == admission.LeaseId)
+            {
+                var remaining = await context.EnrichmentServiceLeases.Where(l => l.ServiceId == admission.ServiceId && l.Id != admission.LeaseId && l.ExpiresAtUnixMs > now)
+                    .OrderByDescending(l => l.ExpiresAtUnixMs).FirstOrDefaultAsync();
+                row.LeaseId = remaining?.Id; row.LeaseExpiresAtUnixMs = remaining?.ExpiresAtUnixMs;
+            }
             if (admission.Probe)
                 await context.EnrichmentServiceProbes.Where(p => p.Id == admission.LeaseId).ExecuteUpdateAsync(set =>
                     set.SetProperty(p => p.Result, outcome).SetProperty(p => p.RequestMade, requestMade).SetProperty(p => p.FinishedAtUnixMs, now));
@@ -192,7 +215,7 @@ public sealed class EnrichmentSchedulerRepository(VocabularyDbContext context, I
                         row.Paused = false; row.PauseSeconds = 0;
                     }
                     row.ThrottleSeconds /= 2;
-                    row.NextAttemptAtUnixMs = now + row.ThrottleSeconds * 1000L;
+                    row.NextAttemptAtUnixMs = Math.Max(row.NextAttemptAtUnixMs, now + row.ThrottleSeconds * 1000L);
                 }
             }
             // Local validation/cancellation is not a successful service probe.

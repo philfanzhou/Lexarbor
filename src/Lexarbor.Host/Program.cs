@@ -158,6 +158,12 @@ builder.Services.AddScoped<EnrichmentTaskRepository>();
 builder.Services.AddScoped<IEnrichmentTaskRepository>(p => p.GetRequiredService<EnrichmentTaskRepository>());
 builder.Services.AddScoped<IEnrichmentAdminRetryRepository>(p => p.GetRequiredService<EnrichmentTaskRepository>());
 builder.Services.AddScoped<IEnrichmentAdminRepository, EnrichmentAdminRepository>();
+builder.Services.AddScoped<IAiRequestBatchRepository, AiRequestBatchRepository>();
+builder.Services.AddScoped<EnrichmentTextBatchExecutor>();
+builder.Services.AddHttpClient(AiTextBatchClient.HttpClientName, client => client.Timeout = Timeout.InfiniteTimeSpan)
+    .RemoveAllLoggers()
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false });
+builder.Services.AddSingleton<AiTextBatchClient>();
 builder.Services.AddScoped<IEnrichmentAdminConfigurationProvider, EnrichmentAdminConfigurationProvider>();
 builder.Services.AddScoped<IEnrichmentExecutionRepository, EnrichmentExecutionRepository>();
 builder.Services.AddScoped<IEnrichmentSchedulerRepository, EnrichmentSchedulerRepository>();
@@ -218,6 +224,7 @@ builder.Services.AddHttpClient(AutomaticMeaningSubmissionReviewClient.HttpClient
     .RemoveAllLoggers()
     .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false });
 builder.Services.AddSingleton<AutomaticMeaningSubmissionReviewClient>();
+builder.Services.AddSingleton<MeaningSubmissionReviewBatchExecutor>();
 builder.Services.AddHostedService<MeaningSubmissionReviewWorker>();
 builder.Services.AddSingleton(provider => IntegrationServiceTrust.Read(provider.GetRequiredService<IConfiguration>()));
 builder.Services.AddSingleton<EnrichmentRuntimeConfiguration>();

@@ -185,6 +185,7 @@ onBeforeUnmount(() => { stop(); document.removeEventListener('visibilitychange',
           <button class="text-button" :aria-pressed="filters.step === activity.step" :disabled="mutating || !!pending" @click="focusStep(activity.step)">{{ filters.step === activity.step ? '显示全部任务' : '查看相关任务' }}</button>
         </article>
       </div>
+      <p v-if="summary.textRequests" class="muted" aria-label="文本请求统计">批量调度启用以来，全站文本请求 {{ summary.textRequests.requests }} 次，处理 {{ summary.textRequests.participations }} 项任务，已保存 {{ summary.textRequests.completed }} 项有效结果<span v-if="summary.textRequests.unknown">；{{ summary.textRequests.unknown }} 次请求正在处理或结果尚未确认</span>。包含补齐、词变和自动审核；一次请求可处理多项任务。</p>
       <div class="overview-footer"><p>已完成 {{ summary.completedTargets }} / {{ summary.applicableTargets }} 个目标 · 仍需完善 {{ summary.missingTargets }}<span v-if="summary.unqueuedTargets"> · {{ summary.unqueuedTargets }} 个等待后台扫描排队</span></p><span class="muted">同一词可能有多个口音或释义目标，任务数不等于单词数。</span></div>
       <div class="service-strip">
         <p v-for="service in summary.services" :key="service.service" :aria-label="`${service.service} 服务状态`"><span class="status-dot" :class="{ blocked: service.blocked || service.paused }" />{{ service.service === 'text' ? '文本模型' : '语音模型' }}：{{ service.blocked ? '配置或凭据受阻' : service.paused ? '暂时不可用，后台等待恢复' : service.nextAttemptAtUnixMs && service.nextAttemptAtUnixMs > Date.now() ? '限流等待，稍后自动继续' : '未暂停' }}<RouterLink v-if="service.blocked" :to="service.service === 'text' ? '/settings/text' : '/settings/speech'">检查配置</RouterLink></p>

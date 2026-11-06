@@ -482,6 +482,7 @@ public sealed partial class EnrichmentTaskRepository(VocabularyDbContext context
 
     private Task<T> WriteAsync<T>(Func<Task<T>> action, CancellationToken token)
     {
+        if (_batchWrite && UnitOfWork.OwnsWriteContext(context)) return action();
         if (UnitOfWork.IsWriteInProgress || context.Database.CurrentTransaction != null)
             throw new InvalidOperationException("Use the enrichment transaction methods inside the actual writer transaction.");
         return _unitOfWork.ExecuteAdmittedTransactionAsync(action, token);

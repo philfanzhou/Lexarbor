@@ -36,7 +36,8 @@ public sealed record EnrichmentAdminService(string Service, bool Paused, bool Bl
     int ThrottleSeconds, long? NextAttemptAtUnixMs);
 public sealed record EnrichmentAdminSummary(int ApplicableTargets, int CompletedTargets, int MissingTargets,
     int UnqueuedTargets, int PersistedTasks, IReadOnlyList<EnrichmentAdminCount> Targets,
-    IReadOnlyList<EnrichmentAdminService> Services, IReadOnlyList<EnrichmentAdminActivity>? Activities = null);
+    IReadOnlyList<EnrichmentAdminService> Services, IReadOnlyList<EnrichmentAdminActivity>? Activities = null,
+    Lexarbor.Domain.Repositories.AiBatchStatistics? TextRequests = null);
 public sealed record EnrichmentAdminActivity(string Step, int Total, int Completed, int ActionRequired,
     int Unqueued, IReadOnlyList<string> MissingRequirements);
 public enum EnrichmentRetryStatus { Started, Replayed, NotFound, Conflict }
