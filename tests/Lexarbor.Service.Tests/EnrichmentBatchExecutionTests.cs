@@ -59,6 +59,27 @@ public sealed partial class EnrichmentTargetExecutorTests
         Assert.Single(await executor.PrepareAsync([first.Id, second.Id], Ct));
         Assert.Equal(1, f.Http.TextCalls); Assert.Equal(1, (await batches.StatisticsAsync(Ct)).Participations);
     }
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task BatchPreparationHonorsExistingAudioOnlyConfigurationAndStorageGates(bool audio, bool storage)
+    {
+        await using var f = await Fixture.Create();
+        await f.Db.VocabularyMeanings.ExecuteUpdateAsync(s => s.SetProperty(m => m.PhoneticUk, "liːd"), Ct);
+        await f.Publish(new() { ["Enrichment:Tts:ApiKey"] = audio ? "synthetic-speech" : "" }); f.Operations.Enabled = storage;
+        var task = await f.Ensure(Key(EnrichmentStep.Prepare, meaning: "meaning"));
+        using var clients = new HttpFactory(f.Http);
+        var scheduler = new EnrichmentSchedulerRepository(f.Db, f.Tasks);
+        var batches = new AiRequestBatchRepository(f.Db, f.Tasks, new MeaningSubmissionAutoReviewRepository(f.Db, f.Clock), scheduler);
+        var executor = new EnrichmentTextBatchExecutor(f.Tasks, new EnrichmentExecutionRepository(f.Db, f.Tasks, f.Clock),
+            new VocabularyExpansionRepository(f.Db), new VocabularyBookRepository(f.Db), batches,
+            new AiTextBatchClient(clients, f.Clock), new(scheduler, f.Runtime, f.Clock), f.Runtime, new() { BookId = "book" }, f.Operations, f.Clock);
+        Assert.Single(await executor.PrepareAsync([task.Id], Ct));
+        Assert.Equal(0, f.Http.TextCalls); Assert.Equal(0, (await batches.StatisticsAsync(Ct)).Requests);
+        var result = await f.Executor.ExecuteAsync(task.Id, "worker", Ct);
+        Assert.Equal(storage ? EnrichmentWaitReason.ConfigurationMissing : EnrichmentWaitReason.StorageDisabled, Round(result!).WaitReason);
+    }
+
     [Fact]
     public async Task BatchResultTransactionRollsBackEveryMemberAndReplaysWithoutDoubleCounting()
     {

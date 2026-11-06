@@ -32,8 +32,9 @@ public sealed class EnrichmentTextBatchExecutor(IEnrichmentTaskRepository tasks,
             var key = original.Target;
             if (key.Step != EnrichmentStep.Expand)
             {
-                if (key.Step == EnrichmentStep.Audio && (!operation.Settings.Enabled
-                    || (await tasks.ReadInputAsync(key, token))?.OwnAssetId != null)) continue;
+                var audioOnly = key.Step == EnrichmentStep.Audio || key.MeaningId != null || !snapshot.Enrichment.FieldsEnabled;
+                if (audioOnly && (!snapshot.Enrichment.AudioEnabled || !operation.Settings.Enabled)) continue;
+                if (key.Step == EnrichmentStep.Audio && (await tasks.ReadInputAsync(key, token))?.OwnAssetId != null) continue;
                 key = key with { Step = EnrichmentStep.Prepare };
             }
             var task = await tasks.EnsureAsync(key, EnrichmentTargetExecutor.ConfigurationVersion(key, snapshot), Now,
@@ -92,6 +93,8 @@ public sealed class EnrichmentTextBatchExecutor(IEnrichmentTaskRepository tasks,
                 var members = new List<AiBatchMember>();
                 foreach (var item in chunk)
                 {
+                    if (item.Task.Rounds.Single(r => r.Number == item.Task.CurrentRound).ConfigurationVersion
+                        != EnrichmentTargetExecutor.ConfigurationVersion(item.Task.Target, runtime.Current)) continue;
                     var guard = await tasks.ClaimAsync(item.Task.Id, "enrichment-text-batch", Now, Now + 900_000, token);
                     if (guard != null) members.Add(new(item.Item.Id, guard));
                 }
