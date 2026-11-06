@@ -42,7 +42,7 @@ public sealed class EnrichmentExecutionRepository(VocabularyDbContext context, I
         var own = await context.VocabularyAudioBindings.AsNoTracking().Where(row => row.WordId == target.WordId
             && row.MeaningId == target.MeaningId && row.Locale == target.Locale).Select(row => row.AssetId).SingleOrDefaultAsync(token);
         return new(new(new(word.Id, word.Word, word.PhoneticUk, word.PhoneticUs),
-            target.MeaningId == null ? null : contexts.Single().Meaning, target.Locale, input, contexts), own);
+            target.MeaningId == null ? null : contexts.Single().Meaning, target.Locale!.Value, input, contexts), own);
     }
 
     public async Task<EnrichmentFieldCommit?> CommitFieldsAsync(EnrichmentExecutionGuard guard, EnrichmentPlan plan,
@@ -91,7 +91,7 @@ public sealed class EnrichmentExecutionRepository(VocabularyDbContext context, I
                 var advanced = await tasks.AdvanceInputInTransactionAsync(guard, now, CancellationToken.None)
                     ?? throw new LostExecutionException();
                 var current = (await ReadCoreAsync(key, CancellationToken.None))!;
-                var input = AudioSelectionService.GetInput(current.Request.Word, null, target.Locale);
+                var input = AudioSelectionService.GetInput(current.Request.Word, null, target.Locale!.Value);
                 var stored = plan with
                 {
                     Preparation = metadata with

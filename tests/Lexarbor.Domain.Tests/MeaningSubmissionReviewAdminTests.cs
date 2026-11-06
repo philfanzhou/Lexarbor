@@ -130,7 +130,7 @@ public sealed class MeaningSubmissionReviewAdminTests : IDisposable
         await migrator.MigrateAsync("20261102052837_AddAutomaticMeaningSubmissionReview", Ct);
         await db.Database.ExecuteSqlRawAsync("INSERT INTO meaning_submission(id,source,word,meaning,status,created_at_unix_ms,updated_at_unix_ms) VALUES ('s','client','Word','original',0,1,2); INSERT INTO meaning_submission_ai_review(id,attempt_id,submission_id,verdict,model,reviewed_at_unix_ms,applied) VALUES ('r','attempt','s','reject','captured-model',2,0)", Ct);
         var before = await Snapshot(db);
-        await migrator.MigrateAsync(cancellationToken: Ct);
+        await migrator.MigrateAsync("20261102063605_AddMeaningSubmissionReviewChecks", Ct);
         Assert.False(db.Database.HasPendingModelChanges()); Assert.Equal(before, await Snapshot(db));
         Assert.Empty(await db.MeaningSubmissionReviewChecks.ToListAsync(Ct));
         await Repo(db).CheckAsync("r", Ct);

@@ -1,18 +1,18 @@
 namespace Lexarbor.Domain.Models;
 
-public enum EnrichmentStep { Prepare, Fields, Audio }
+public enum EnrichmentStep { Prepare, Fields, Audio, Expand }
 public enum EnrichmentState { Pending, Running, Waiting, Succeeded, Failed, Superseded, Cancelled }
 public enum EnrichmentCallResult { Started, Succeeded, Throttled, TransientFailure, TerminalFailure }
 public enum EnrichmentWaitReason { Disabled, ConfigurationMissing, StorageDisabled, ServicePaused, Throttled, Retry, LeaseExpired }
 
 // Internal queue models. Persist only bounded plans and safe codes, never raw
 // provider responses, credentials, object locations or signed URLs.
-public sealed record EnrichmentTargetKey(string WordId, string? MeaningId, AudioLocale Locale, EnrichmentStep Step);
+public sealed record EnrichmentTargetKey(string WordId, string? MeaningId, AudioLocale? Locale, EnrichmentStep Step);
 public sealed record EnrichmentInputVersion(string Revision, string SourceRevision, string? OwnAssetId);
 public sealed record EnrichmentMeaningPartOfSpeech(string MeaningId, string PartOfSpeech);
 public sealed record EnrichmentPlan(string SpokenText, string? PronunciationHint, string? Phonetic,
     IReadOnlyList<EnrichmentMeaningPartOfSpeech>? PartsOfSpeech, string? InferredEntryKind = null,
-    EnrichmentPreparationMetadata? Preparation = null);
+    EnrichmentPreparationMetadata? Preparation = null, VocabularyExpansionPlan? Expansion = null);
 // Optional v1 JSON extension. Old content-only plans cannot authorize speech.
 public sealed record EnrichmentPreparationMetadata(AudioGenerationInput Input, EnrichmentInputVersion InputVersion,
     string ConfigurationVersion, string EntryKind, string ClassificationBasis, string? RequiredPhonetic,

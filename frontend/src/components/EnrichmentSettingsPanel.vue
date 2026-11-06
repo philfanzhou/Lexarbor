@@ -29,7 +29,7 @@ const current = () => active && generation === sessionGeneration.value
 const sources = { default: '默认配置', file: '持久化文件', environment: '环境变量', commandLine: '启动参数' }
 const groups = [
   { key: 'review', title: '服务与自动审核', description: '配置服务地址和模型后，可在人工审核时获取建议。' },
-  { key: 'text', title: '文本服务与发音准备', description: '字段补齐默认关闭，启用后自动发现新增和历史缺失。语音生成也使用此处的文本服务准备发音，可单独开启。' },
+  { key: 'text', title: '文本服务与发音准备', description: '配置文本模型后自动完善新增和历史词汇，补齐缺失字段、扩展词形与派生词，并为语音生成准备发音。' },
   { key: 'tts', title: '语音服务', description: '文本准备、语音服务和音频存储就绪后，后台才会生成音频。保存只更新本地配置。' },
   { key: 'uk', title: 'UK 英式发音', description: '自行配置适合英式发音的音色和语速，留空则该侧等待，不影响 US。' },
   { key: 'us', title: 'US 美式发音', description: '自行配置适合美式发音的音色和语速，留空则该侧等待，不影响 UK。' },
@@ -83,7 +83,6 @@ function localeStatus(locale: 'uk' | 'us') {
   const state = actual.value
   if (!state) return '未知'
   const v = state.values
-  if (!v['enrichment.audioEnabled']) return '等待：音频生成关闭'
   if (!state.configurationReady) return '等待：持久配置版本未就绪'
   if (!v['enrichment.text.endpoint'] || !v['enrichment.text.model'] || !state.hasApiKey['enrichment.text.apiKey']) return '等待：文本准备配置缺失'
   if (!v['enrichment.tts.endpoint'] || !v['enrichment.tts.model'] || !state.hasApiKey['enrichment.tts.apiKey'] || !v[`enrichment.tts.${locale}.voice`] || v[`enrichment.tts.${locale}.speed`] === null) return '等待：语音服务或该侧音色/语速缺失'
@@ -175,6 +174,8 @@ onMounted(() => { void load() })
         生成音频前，请配置 <RouterLink to="/settings/text">文本补齐</RouterLink>和
         <RouterLink to="/settings/audio-storage">音频存储</RouterLink>。
       </p>
+      <p v-if="props.section === 'text'">配置文本模型后，系统自动补齐缺失音标和词性，并扩展词形与派生词。新词加入投稿使用的补充词书，已有词直接复用。无需另外开启功能。</p>
+      <p v-if="props.section === 'speech'">文本模型、语音模型、对应口音和音频存储就绪后，系统自动生成缺失读音。</p>
       <p v-if="props.section !== 'review'"><RouterLink to="/enrichment">查看自治进度、服务等待与异常恢复</RouterLink></p>
       <p role="status" aria-live="polite" :aria-label="`${section.title}配置状态`">{{ notice || '正在读取当前配置…' }}</p>
       <p v-if="!actual">当前配置：未知</p>

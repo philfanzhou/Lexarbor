@@ -85,7 +85,7 @@ public sealed class PronunciationPreparationTests
     }
 
     [Fact]
-    public async Task AudioOnly_StillPreparesAndFiltersUnsolicitedFields_IndependentFromReview()
+    public async Task ConfiguredText_IgnoresLegacyDisableFlag_AndFillsMissingFields_IndependentFromReview()
     {
         using var fixture = new Fixture(fields: false);
         var plan = Plan(required: null, phonetic: "liːd");
@@ -94,7 +94,7 @@ public sealed class PronunciationPreparationTests
         var result = await fixture.Client.PrepareAsync(Request(phonetic: null,
             meanings: [new(new("verb", null, "guide"), ["word"])]), Ct);
         Assert.Equal(PronunciationPreparationOutcome.Ready, result.Outcome);
-        Assert.Null(result.Plan!.Content.Phonetic); Assert.Empty(result.Plan.Content.PartsOfSpeech!);
+        Assert.Equal("liːd", result.Plan!.Content.Phonetic); Assert.Single(result.Plan.Content.PartsOfSpeech!);
         Assert.Single(fixture.Handler.Bodies); Assert.Equal(Secret, fixture.Handler.Keys.Single());
         Assert.Contains("planner-model", fixture.Handler.Bodies.Single());
         Assert.DoesNotContain("review-model", fixture.Handler.Bodies.Single());
@@ -320,7 +320,7 @@ public sealed class PronunciationPreparationTests
         Assert.NotEqual(oldVersion, next.Plan!.ConfigurationVersion);
         Assert.Equal(new[] { Secret, "synthetic-next-key" }, fixture.Handler.Keys);
         Assert.Contains("planner-model", fixture.Handler.Bodies[0]); Assert.Contains("next-planner", fixture.Handler.Bodies[1]);
-        await fixture.Publish(new() { ["Enrichment:AudioEnabled"] = "false", ["Enrichment:FieldsEnabled"] = "false" });
+        await fixture.Publish(new() { ["Enrichment:Text:ApiKey"] = "" });
         Assert.Equal(PronunciationPreparationOutcome.Waiting, (await fixture.Client.PrepareAsync(Request(), Ct)).Outcome);
         Assert.Equal(2, fixture.Handler.Bodies.Count);
     }
@@ -389,7 +389,7 @@ public sealed class PronunciationPreparationTests
                 ["Enrichment:AudioEnabled"] = enabled.ToString(),
                 ["Enrichment:Text:Endpoint"] = configured ? "https://planner.example.test/v1" : "",
                 ["Enrichment:Text:Model"] = "planner-model",
-                ["Enrichment:Text:ApiKey"] = Secret,
+                ["Enrichment:Text:ApiKey"] = enabled ? Secret : "",
                 ["Enrichment:Text:TimeoutSeconds"] = timeout.ToString(),
                 ["MeaningSubmissions:Ai:Endpoint"] = "https://review.example.test/v1",
                 ["MeaningSubmissions:Ai:Model"] = "review-model",

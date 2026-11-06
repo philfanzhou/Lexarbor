@@ -372,7 +372,7 @@ public sealed partial class PronunciationSpeechTests
             case "changed-source": p = p with { Plan = p.Plan! with { InputVersion = p.Plan.InputVersion with { SourceRevision = "other" } } }; break;
             case "invalid-kind": p = p with { Plan = p.Plan! with { EntryKind = "unknown" } }; break;
             case "unexpanded-template": p = p with { Plan = p.Plan! with { Content = p.Plan.Content with { SpokenText = "give sb. sth." } } }; break;
-            case "disabled": await f.Publish(new() { ["Enrichment:AudioEnabled"] = "false" }); break;
+            case "disabled": await f.Publish(new() { ["Enrichment:Tts:ApiKey"] = "" }); break;
             case "missing-voice": await f.Publish(new() { ["Enrichment:Tts:Uk:Voice"] = "" }); break;
             case "missing-speed": await f.Publish(new() { ["Enrichment:Tts:Uk:Speed"] = "" }); break;
             case "missing-key": await f.Publish(new() { ["Enrichment:Tts:ApiKey"] = "" }); break;

@@ -863,3 +863,28 @@ key and matching audio objects consistently. Down to
 permanent conclusions, proposals, automatic retry state and catalog remain.
 Restore a matched backup to recover checks. Older images still fail the schema
 version gate; do not point one directly at the upgraded database.
+
+## Vocabulary expansion tasks
+
+`AddVocabularyExpansion` adds `Expand` to `enrichment_target`. Such targets require
+a meaning ID and null locale; other steps retain their accent requirement. A
+filtered unique `(word_id, meaning_id)` index permits one expansion task per sense.
+The SQLite rebuild preserves dependent rounds/calls/waits using transactional
+backup tables, with foreign keys enabled throughout. Data restoration, deletion
+triggers and the migration history record commit atomically; interruption rolls
+back the rebuild and permits a subsequent startup to retry. The release-upgrade
+test covers every populated application table from `v0.1.8` through this migration.
+Input revisions hash spelling, source IDs, POS, meaning, example and expansion
+policy version; unrelated audio changes and newly generated relations do not
+restart expansion. Successful empty results persist. Successful rounds survive
+model/credential rotation; relevant source edits create a new round on discovery.
+
+Validated candidates and captured model/destination are staged in the existing
+bounded round plan before publication. The source version and lease are rechecked
+inside the serialized catalog transaction. New words, supplement meanings,
+`generated` relations, provenance and task completion commit together. Existing
+words/relations are preserved. `enrichment_generated_word(word_id, task_id)` marks
+newly created words so they receive field/audio enrichment without recursive
+expansion; deleting a word cascades its marker. Task histories outlive deletions
+as before. See [expansion behavior](../api/VocabularyExpansion.md) and
+[upgrade/rollback](../development/Deployment.md#vocabulary-expansion-and-model-driven-activation-upgrade).

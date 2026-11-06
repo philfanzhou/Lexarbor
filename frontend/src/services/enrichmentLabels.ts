@@ -1,13 +1,17 @@
 import type { EnrichmentTask } from './enrichmentApi'
 
 export const stateLabels: Record<string, string> = { Pending: '待处理', Running: '处理中', Waiting: '等待', Succeeded: '已完成', Failed: '失败', Cancelled: '已取消' }
-export const stepLabels: Record<string, string> = { Prepare: '发音准备', Fields: '默认字段', Audio: '音频生成' }
+export const stepLabels: Record<string, string> = { Prepare: '发音准备', Fields: '默认字段', Audio: '音频生成', Expand: '词形与派生词扩展' }
 const reasons: Record<string, string> = {
-  Disabled: '生成或字段补齐已关闭', ConfigurationMissing: '缺少该侧配置', StorageDisabled: '音频存储关闭',
+  Disabled: '生成或字段补齐已关闭', ConfigurationMissing: '等待模型、口音或补充词书配置就绪', StorageDisabled: '音频存储关闭',
   ServicePaused: '服务暂停，等待恢复探测', Throttled: '服务限流，等待后继续；不扣失败额度',
   Retry: '等待下次自动尝试', LeaseExpired: '执行租约已过期，等待恢复'
 }
 const errors: Record<string, string> = {
+  'expansion.invalid_response': '词汇扩展结果未通过校验',
+  'expansion.outcome_unknown': '词汇扩展请求结果未知，等待恢复',
+  'expansion.destination_changed': '补充词书已变化，请重试',
+  'expansion.input_too_large': '来源词义超过模型处理上限',
   'text.phonetic_constraint_mismatch': '准备读音与词库音标不符，请核对音标后重试',
   'text.template_unexpanded': '朗读模板未完整展开，请重试发音准备',
   'text.pronunciation_control_unsupported': '准备计划无法表达所需读音，请核对语音配置后重试',

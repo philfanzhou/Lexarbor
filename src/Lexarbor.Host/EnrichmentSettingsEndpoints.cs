@@ -26,15 +26,18 @@ public static class EnrichmentSettingsEndpoints
             foreach (var field in EnrichmentConfigurationFields.All)
             {
                 var source = read.Sources[field.Key];
+                var derived = field.Name is "enrichment.fieldsEnabled" or "enrichment.audioEnabled";
                 sources[field.Name] = new JsonObject
                 {
                     ["source"] = source.Source == ConfigurationValueSource.CommandLine ? "commandLine" : source.Source.ToString().ToLowerInvariant(),
-                    ["editable"] = source.Editable,
-                    ["reason"] = source.Editable ? null : "Overridden by deployment configuration."
+                    ["editable"] = !derived && source.Editable,
+                    ["reason"] = derived ? "Derived from model configuration." : source.Editable ? null : "Overridden by deployment configuration."
                 };
                 var name = field.Secret ? field.Name[..^6] + "hasApiKey" : field.Name;
                 Set(body, name.Split('.'), field.Secret
                     ? JsonValue.Create(!string.IsNullOrWhiteSpace(current.Fields[field.Key]!.GetValue<string>()))
+                    : field.Name == "enrichment.fieldsEnabled" ? JsonValue.Create(current.Enrichment.FieldsEnabled)
+                    : field.Name == "enrichment.audioEnabled" ? JsonValue.Create(current.Enrichment.AudioEnabled)
                     : current.Fields[field.Key]?.DeepClone());
             }
             body["fields"] = sources;

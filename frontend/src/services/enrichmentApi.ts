@@ -2,7 +2,7 @@ import api from './api'
 import { ApiError } from './apiError'
 
 export const states = ['Pending', 'Running', 'Waiting', 'Succeeded', 'Failed', 'Cancelled'] as const
-export const steps = ['Prepare', 'Fields', 'Audio'] as const
+export const steps = ['Prepare', 'Fields', 'Audio', 'Expand'] as const
 export type TaskState = typeof states[number]
 export interface EnrichmentQuery {
   wordId?: string; meaningId?: string; locale?: string; state?: string; step?: string
@@ -19,7 +19,7 @@ export interface EnrichmentCleanup {
 }
 export interface EnrichmentTask {
   id: string; wordId: string; word: string | null; meaningId: string | null; meaning: string | null
-  locale: string; step: typeof steps[number]; applicable: boolean; missing: boolean; inheritsDefault: boolean
+  locale: string | null; step: typeof steps[number]; applicable: boolean; missing: boolean; inheritsDefault: boolean
   state: TaskState; waitReason: string | null; current: EnrichmentRound; cleanup: EnrichmentCleanup
 }
 export interface EnrichmentCall {
@@ -64,7 +64,7 @@ function round(value: unknown): EnrichmentRound {
 }
 function task(value: unknown): EnrichmentTask {
   const v = object(value), c = object(v.cleanup)
-  return { id: string(v.id), wordId: string(v.wordId), word: nullable(v.word, string), meaningId: nullable(v.meaningId, string), meaning: nullable(v.meaning, string), locale: choice(v.locale, ['en-GB', 'en-US']), step: choice(v.step, steps), applicable: bool(v.applicable), missing: bool(v.missing), inheritsDefault: bool(v.inheritsDefault), state: choice(v.state, states), waitReason: nullable(v.waitReason, string), current: round(v.current), cleanup: { waiting: number(c.waiting), running: number(c.running), observed: number(c.observed), attempts: number(c.attempts), nextAttemptAtUnixMs: nullable(c.nextAttemptAtUnixMs, number), errorCode: nullable(c.errorCode, string) } }
+  return { id: string(v.id), wordId: string(v.wordId), word: nullable(v.word, string), meaningId: nullable(v.meaningId, string), meaning: nullable(v.meaning, string), locale: nullable(v.locale, value => choice(value, ['en-GB', 'en-US'])), step: choice(v.step, steps), applicable: bool(v.applicable), missing: bool(v.missing), inheritsDefault: bool(v.inheritsDefault), state: choice(v.state, states), waitReason: nullable(v.waitReason, string), current: round(v.current), cleanup: { waiting: number(c.waiting), running: number(c.running), observed: number(c.observed), attempts: number(c.attempts), nextAttemptAtUnixMs: nullable(c.nextAttemptAtUnixMs, number), errorCode: nullable(c.errorCode, string) } }
 }
 function detail(value: unknown): EnrichmentDetail {
   const v = object(value)

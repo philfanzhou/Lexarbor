@@ -110,8 +110,6 @@ public sealed class EnrichmentSettings
     {
         string S(string key) => fields["Enrichment:" + key]!.GetValue<string>();
         int I(string key) => fields["Enrichment:" + key]!.GetValue<int>();
-        FieldsEnabled = fields["Enrichment:FieldsEnabled"]!.GetValue<bool>();
-        AudioEnabled = fields["Enrichment:AudioEnabled"]!.GetValue<bool>();
         Text = new(S("Text:Endpoint"), S("Text:Model"), S("Text:ApiKey"), I("Text:TimeoutSeconds"));
         Tts = new(S("Tts:Endpoint"), S("Tts:Model"), S("Tts:ApiKey"), I("Tts:TimeoutSeconds"));
         Provider = S("Tts:Provider");
@@ -122,8 +120,8 @@ public sealed class EnrichmentSettings
         MaxServicePauseSeconds = I("MaxServicePauseSeconds"); ThrottleInitialSeconds = I("ThrottleInitialSeconds");
         ThrottleMaxSeconds = I("ThrottleMaxSeconds"); DiscoveryBatchSize = I("DiscoveryBatchSize"); ScanIntervalSeconds = I("ScanIntervalSeconds");
     }
-    public bool FieldsEnabled { get; }
-    public bool AudioEnabled { get; }
+    public bool FieldsEnabled => Text.Configured;
+    public bool AudioEnabled => Text.Configured && Tts.Configured;
     public EnrichmentClientSettings Text { get; }
     public EnrichmentClientSettings Tts { get; }
     public string Provider { get; }

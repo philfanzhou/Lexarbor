@@ -99,7 +99,7 @@ public sealed class EnrichmentSettingsTests : IDisposable
         using var prepared = await Put(client, Revision(state), """{"enrichment":{"text":{"endpoint":"https://text.example.test/v1","model":"planner-fixture","apiKey":{"action":"replace","value":"synthetic-enrichment-key-marker"}}}}""");
         Assert.Equal(HttpStatusCode.OK, prepared.StatusCode);
         var current = Snapshot(factory); Assert.True(current.CanPrepare); Assert.True(current.HasTtsConfiguration("uk")); Assert.False(current.HasTtsConfiguration("us"));
-        Assert.False(current.Enrichment.FieldsEnabled); Assert.False(original.Enrichment.AudioEnabled);
+        Assert.True(current.Enrichment.FieldsEnabled); Assert.False(original.Enrichment.AudioEnabled);
         var file = JsonNode.Parse(File.ReadAllText(FilePath))!;
         Assert.Equal(42, file["Unknown"]!["keep"]!.GetValue<int>()); Assert.Equal("synthetic-existing-s3-key", file["Audio"]!["SecretKey"]!.GetValue<string>());
         if (!OperatingSystem.IsWindows()) Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(FilePath));
@@ -368,7 +368,7 @@ public sealed class EnrichmentSettingsTests : IDisposable
     {
         string? text; string? uk; string? us;
         using (var factory = new VocabularyWebApplicationFactory("Testing", true, contentRootPath: _root,
-            extraConfiguration: new Dictionary<string, string?> { ["Enrichment:AudioEnabled"] = "true" }))
+            extraConfiguration: new Dictionary<string, string?> { ["Enrichment:Text:Endpoint"] = "https://planner.example.test/v1", ["Enrichment:Text:Model"] = "fixture", ["Enrichment:Text:ApiKey"] = "synthetic-initial-key" }))
         using (var client = Admin(factory))
         {
             var current = Snapshot(factory); Assert.True(current.ConfigurationReady); Assert.True(File.Exists(FilePath));
@@ -402,7 +402,7 @@ public sealed class EnrichmentSettingsTests : IDisposable
             privateValues = persisted.AsEnumerable().Where(x => x.Key.StartsWith("EnrichmentConfigurationVersions", StringComparison.Ordinal)).ToDictionary(x => x.Key, x => x.Value);
         }
         File.Delete(FilePath);
-        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Enrichment:AudioEnabled"] = "true" })
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Enrichment:Text:Endpoint"] = "https://planner.example.test/v1", ["Enrichment:Text:Model"] = "fixture", ["Enrichment:Text:ApiKey"] = "synthetic-initial-key" })
             .AddInMemoryCollection(privateValues).Build(); using var configLifetime = configuration as IDisposable;
         var runtime = new EnrichmentRuntimeConfiguration(configuration, new(_root)); Assert.False(runtime.Current.ConfigurationReady);
         await runtime.InitializeAsync(new PersistentConfigurationCoordinator(configuration, new(_root)), Ct);

@@ -7,7 +7,7 @@ public sealed class EnrichmentTargetEntity
     public string Id { get; set; } = "";
     public string WordId { get; set; } = "";
     public string? MeaningId { get; set; }
-    public AudioLocale Locale { get; set; }
+    public AudioLocale? Locale { get; set; }
     public EnrichmentStep Step { get; set; }
     public int CurrentRound { get; set; }
     public long Epoch { get; set; }
@@ -60,4 +60,11 @@ public sealed class EnrichmentWaitEntity
     public string? ErrorCode { get; set; }
     public long RecordedAtUnixMs { get; set; }
     public long NextAttemptAtUnixMs { get; set; }
+}
+
+// Generated words receive normal field/audio enrichment but do not recursively expand.
+public sealed class EnrichmentGeneratedWordEntity
+{
+    public string WordId { get; set; } = "";
+    public string TaskId { get; set; } = "";
 }

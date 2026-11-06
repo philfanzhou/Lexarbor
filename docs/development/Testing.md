@@ -732,3 +732,27 @@ explicit booleans/scalars, local error status/code pairs, real integration-token
 401/403, configuration 503, concurrent read isolation and legacy error compatibility.
 Existing single/batch/submission tests remain the regression suite. No Study
 checkout, production database or external provider account is needed.
+
+## Model-driven vocabulary expansion
+
+`VocabularyExpansionTests` covers strict LLM output validation, existing-word and
+relation reuse, supplementary-book publication, empty-result completion, source
+and configuration changes, shared throttling, staged restart recovery, and atomic
+rollback followed by publication without another provider request. Generated words
+enter pronunciation discovery but cannot recursively expand. A hosted worker test
+checks model configuration alone starts expansion and fills the new word's IPA
+and both audio bindings without changing the source book.
+
+`VocabularyExpansionMigrationTests` checks upgrade/downgrade preservation of
+pronunciation history, expansion uniqueness and nullable locale, deletion triggers
+and SQLite foreign-key integrity. Enrichment browser tests cover the removed enable
+switches and expansion rows/details with no accent. These tests use synthetic model
+responses; they do not establish linguistic accuracy or real-provider audio quality.
+
+`ReleaseUpgradeMigrationTests` pins `v0.1.8` at migration
+`20261102063605_AddMeaningSubmissionReviewChecks`. It fills all 24 application
+tables, compares every column/row after upgrade and repeat startup, and checks
+SQLite integrity and foreign keys. Fault injection after the target rebuild and
+before EF writes the migration-history record proves rollback and successful retry.
+Historical migration files through that boundary match release commit
+`55ab685939b065eaa4b8940a7f96ceb78bdd3a5b`; fixture values are entirely synthetic.

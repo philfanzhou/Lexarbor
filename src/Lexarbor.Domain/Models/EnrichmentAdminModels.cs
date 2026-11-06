@@ -4,9 +4,9 @@ namespace Lexarbor.Domain.Models;
 public sealed record EnrichmentAdminConfiguration(bool FieldsEnabled, bool AudioEnabled, bool StorageEnabled,
     bool CanPrepare, bool CanTtsUk, bool CanTtsUs, int FailureBudget, string DefaultPreparationVersion,
     string SpecificPreparationVersion, string UkAudioVersion, string UsAudioVersion,
-    string TextServiceId, string TextServiceVersion, string TtsServiceId, string TtsServiceVersion)
+    string TextServiceId, string TextServiceVersion, string TtsServiceId, string TtsServiceVersion, string? ExpansionBookId = null)
 {
-    public string Version(EnrichmentTargetKey key) => key.Step == EnrichmentStep.Audio
+    public string Version(EnrichmentTargetKey key) => key.Step == EnrichmentStep.Expand ? TextServiceVersion + ".expand-v1" : key.Step == EnrichmentStep.Audio
         ? key.Locale == AudioLocale.EnGb ? UkAudioVersion : UsAudioVersion
         : (key.MeaningId == null ? DefaultPreparationVersion : SpecificPreparationVersion)
             + (key.Step == EnrichmentStep.Prepare && AudioEnabled ? ":speech:" + (key.Locale == AudioLocale.EnGb ? UkAudioVersion : UsAudioVersion) : "");
@@ -20,7 +20,7 @@ public sealed record EnrichmentAdminRound(int Number, string State, int RequestC
 public sealed record EnrichmentAdminCleanup(int Waiting, int Running, int Observed, int Attempts,
     long? NextAttemptAtUnixMs, string? ErrorCode);
 public sealed record EnrichmentAdminTask(string Id, string WordId, string? Word, string? MeaningId, string? Meaning,
-    string Locale, string Step, bool Applicable, bool Missing, bool InheritsDefault, string State,
+    string? Locale, string Step, bool Applicable, bool Missing, bool InheritsDefault, string State,
     string? WaitReason, EnrichmentAdminRound Current, EnrichmentAdminCleanup Cleanup);
 public sealed record EnrichmentAdminCall(string Id, int Round, string Service, string Result, string? ErrorCode,
     long StartedAtUnixMs, long? FinishedAtUnixMs);

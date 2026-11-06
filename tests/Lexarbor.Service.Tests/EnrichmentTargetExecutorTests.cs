@@ -39,13 +39,13 @@ public sealed partial class EnrichmentTargetExecutorTests
         var result = (await f.Run(Key()))!;
         Assert.Equal(EnrichmentState.Succeeded, Round(result).State);
         Assert.Equal(1, f.Http.TextCalls); Assert.Equal(1, f.Http.SpeechCalls); Assert.Equal(1, f.Store.Puts);
-        Assert.Equal(fields ? "liːd" : null, await f.Db.Vocabularies.Select(row => row.PhoneticUk).SingleAsync(Ct));
-        Assert.Equal(fields ? "v." : null, await f.Db.VocabularyMeanings.Select(row => row.PartOfSpeech).SingleAsync(Ct));
+        Assert.Equal("liːd", await f.Db.Vocabularies.Select(row => row.PhoneticUk).SingleAsync(Ct));
+        Assert.Equal("v.", await f.Db.VocabularyMeanings.Select(row => row.PartOfSpeech).SingleAsync(Ct));
         var prepare = (await f.Tasks.EnsureAsync(Key(EnrichmentStep.Prepare),
             EnrichmentTargetExecutor.ConfigurationVersion(Key(EnrichmentStep.Prepare), f.Runtime.Current), f.Clock.Now, Ct))!;
         Assert.Single(prepare.Rounds); Assert.Equal(EnrichmentState.Succeeded, Round(prepare).State);
         Assert.Equal(Round(prepare).Input, Round(prepare).Plan!.Preparation!.InputVersion);
-        Assert.Equal(fields ? "liːd" : null, Round(prepare).Plan!.Preparation!.RequiredPhonetic);
+        Assert.Equal("liːd", Round(prepare).Plan!.Preparation!.RequiredPhonetic);
         Assert.Equal("Fixture classification", Round(prepare).Plan!.Preparation!.ClassificationBasis);
         Assert.Equal(f.Runtime.Current.TextVersion, Round(prepare).Plan!.Preparation!.ConfigurationVersion);
         await using var restart = f.Open();
@@ -72,8 +72,8 @@ public sealed partial class EnrichmentTargetExecutorTests
         var result = (await f.ExecutorFor(restarted, tasks).ExecuteAsync((await f.Ensure(Key())).Id, "restart", Ct))!;
         Assert.Equal(EnrichmentState.Succeeded, Round(result).State);
         Assert.Equal(1, f.Http.TextCalls); Assert.Equal(1, f.Http.SpeechCalls);
-        Assert.Null(await restarted.Vocabularies.Select(row => row.PhoneticUk).SingleAsync(Ct));
-        Assert.Null(await restarted.VocabularyMeanings.Select(row => row.PartOfSpeech).SingleAsync(Ct));
+        Assert.Equal("liːd", await restarted.Vocabularies.Select(row => row.PhoneticUk).SingleAsync(Ct));
+        Assert.Equal("v.", await restarted.VocabularyMeanings.Select(row => row.PartOfSpeech).SingleAsync(Ct));
     }
 
     [Fact]
@@ -96,14 +96,14 @@ public sealed partial class EnrichmentTargetExecutorTests
     }
 
     [Theory]
-    [InlineData(false, true, EnrichmentWaitReason.Disabled)]
+    [InlineData(false, true, EnrichmentWaitReason.ConfigurationMissing)]
     [InlineData(true, false, EnrichmentWaitReason.StorageDisabled)]
     public async Task PersistedSpecificPreparation_WaitsForAudioAndStorage_EvenWhenFieldFillingIsEnabled(
         bool audioEnabled, bool storageEnabled, EnrichmentWaitReason expected)
     {
         await using var f = await Fixture.Create();
         await f.Db.VocabularyMeanings.ExecuteUpdateAsync(set => set.SetProperty(row => row.PhoneticUk, "liːd"), Ct);
-        await f.Publish(new() { ["Enrichment:AudioEnabled"] = audioEnabled.ToString() }); f.Operations.Enabled = storageEnabled;
+        await f.Publish(new() { ["Enrichment:Tts:ApiKey"] = audioEnabled ? "synthetic-speech" : "" }); f.Operations.Enabled = storageEnabled;
         var key = Key(EnrichmentStep.Prepare, meaning: "meaning");
         var version = EnrichmentTargetExecutor.ConfigurationVersion(key, f.Runtime.Current);
         var result = (await f.Run(key))!;
@@ -118,7 +118,7 @@ public sealed partial class EnrichmentTargetExecutorTests
     public async Task DefaultFieldPreparation_CanFillFieldsWhenAudioAndStorageAreDisabled()
     {
         await using var f = await Fixture.Create();
-        await f.Publish(new() { ["Enrichment:AudioEnabled"] = "false" }); f.Operations.Enabled = false;
+        await f.Publish(new() { ["Enrichment:Tts:ApiKey"] = "" }); f.Operations.Enabled = false;
         var result = (await f.Run(Key(EnrichmentStep.Fields)))!;
         Assert.Equal(EnrichmentState.Succeeded, Round(result).State);
         Assert.Equal("liːd", await f.Db.Vocabularies.Select(row => row.PhoneticUk).SingleAsync(Ct));
@@ -219,7 +219,7 @@ public sealed partial class EnrichmentTargetExecutorTests
         var key = Key(EnrichmentStep.Prepare); var task = await f.Ensure(key);
         var guard = (await f.Tasks.ClaimAsync(task.Id, "bounded", f.Clock.Now, f.Clock.Now + 1000, Ct))!;
         var snapshot = (await new EnrichmentExecutionRepository(f.Db, f.Tasks, f.Clock).ReadAsync(key, Ct))!;
-        var input = AudioSelectionService.GetInput(snapshot.Request.Word, null, key.Locale);
+        var input = AudioSelectionService.GetInput(snapshot.Request.Word, null, key.Locale!.Value);
         var plan = EnrichmentPreparedPlans.Store(new(new(new('x', 4096), new('中', 2048), new('p', 512), []),
             input, guard.Input, f.Runtime.Current.TextVersion!, "word", "Fixture classification", null), null);
         while (JsonSerializer.Serialize(plan).Length > 16384) plan = plan with { PronunciationHint = plan.PronunciationHint![..^1] };
@@ -243,7 +243,7 @@ public sealed partial class EnrichmentTargetExecutorTests
         if (scenario is "uncertain" or "invalid") f.Http.PlanOutcome = scenario;
         if (scenario == "capability") await f.Publish(new() { ["Enrichment:Tts:Model"] = "unknown" });
         if (scenario == "missing") await f.Publish(new() { ["Enrichment:Tts:Uk:Voice"] = "" });
-        if (scenario == "disabled") await f.Publish(new() { ["Enrichment:AudioEnabled"] = "false" });
+        if (scenario == "disabled") await f.Publish(new() { ["Enrichment:Tts:ApiKey"] = "" });
         var result = (await f.Run(Key()))!;
         Assert.Equal(0, f.Http.SpeechCalls); Assert.Equal(0, f.Store.Puts);
         Assert.Equal(0, Round(result).RequestCount);
@@ -645,9 +645,9 @@ public sealed partial class EnrichmentTargetExecutorTests
             var f = new Fixture(fields, capacity, native, shared);
             await f.Db.Database.MigrateAsync(Ct);
             f.Db.VocabularyBooks.Add(new() { Id = "book", BookName = "Fixture", Status = true });
-            f.Db.Vocabularies.Add(new() { Id = "word", Word = "lead" });
+            f.Db.Vocabularies.Add(new() { Id = "word", Word = "lead", PhoneticUk = fields ? null : "liːd", PhoneticUs = fields ? null : "liːd" });
             await f.Db.SaveChangesAsync(Ct);
-            f.Db.VocabularyMeanings.Add(new() { Id = "meaning", BookId = "book", VocabularyId = "word", Meaning = "guide" });
+            f.Db.VocabularyMeanings.Add(new() { Id = "meaning", BookId = "book", VocabularyId = "word", Meaning = "guide", PartOfSpeech = fields ? null : "v." });
             f.Db.VocabularyBookUnits.Add(new() { Id = "unit", BookId = "book", Number = 1 });
             await f.Db.SaveChangesAsync(Ct);
             f.Db.VocabularyMeaningUnits.Add(new() { UnitId = "unit", BookId = "book", MeaningId = "meaning", EntryKind = "word" });
@@ -725,7 +725,7 @@ public sealed partial class EnrichmentTargetExecutorTests
             return ValueTask.FromResult(result);
         }
     }
-    private sealed class HttpFactory(Handler handler) : IHttpClientFactory, IDisposable
+    private sealed class HttpFactory(HttpMessageHandler handler) : IHttpClientFactory, IDisposable
     { private readonly HttpClient _client = new(handler); public HttpClient CreateClient(string name) => _client; public void Dispose() => _client.Dispose(); }
     private sealed class Handler : HttpMessageHandler
     {

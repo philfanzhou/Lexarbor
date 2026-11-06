@@ -165,6 +165,13 @@ builder.Services.AddScoped<EnrichmentServiceGate>();
 builder.Services.AddSingleton<EnrichmentNotifications>();
 builder.Services.AddSingleton<IEnrichmentChangeNotifier>(provider => provider.GetRequiredService<EnrichmentNotifications>());
 builder.Services.AddScoped<EnrichmentTargetExecutor>();
+builder.Services.AddScoped<IVocabularyExpansionRepository, VocabularyExpansionRepository>();
+builder.Services.AddScoped<VocabularyExpansionService>();
+builder.Services.AddScoped<VocabularyExpansionExecutor>();
+builder.Services.AddHttpClient(VocabularyExpansionClient.HttpClientName, client => client.Timeout = Timeout.InfiniteTimeSpan)
+    .RemoveAllLoggers()
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false });
+builder.Services.AddSingleton<VocabularyExpansionClient>();
 builder.Services.AddHostedService<EnrichmentWorker>();
 builder.Services.AddScoped<IMeaningPhoneticRepository, MeaningPhoneticRepository>();
 builder.Services.AddScoped<MeaningPhoneticEditService>();

@@ -368,7 +368,7 @@ shared default IPA; exclusively `phrase` positions prohibit it. An unclassified
 position keeps the existing shared-field permission, while a meaning with any phrase
 position receives no new POS. Inference is plan data, never a new position. Only
 missing applicable default IPA/POS can be returned as writable candidates, and only
-with `fieldsEnabled`. Existing nonempty human IPA remains an enforced speech constraint;
+when the text model is configured. Existing nonempty human IPA remains an enforced speech constraint;
 a contradictory model candidate is rejected. Phrase plans return no writable IPA/POS.
 Default-reading uncertainty stops the item instead of choosing a meaning's special
 reading. Preparation expands `sb.`/`sth.` including teaching parentheses, speaks
@@ -415,7 +415,8 @@ and [error codes](https://developers.openai.com/api/docs/guides/error-codes).
 ## Single-target enrichment execution
 
 `EnrichmentTargetExecutor` executes one internal target. The hosted scheduler now
-discovers work automatically when either default-off enrichment switch is enabled.
+discovers work automatically when the text model is configured. Speech additionally
+requires its model, per-accent settings and storage. There are no field/audio enable switches.
 There are no new HTTP parameters, manual batch actions or selection steps.
 
 Preparation is a separate durable step and budget for each explicit target/accent.
@@ -448,7 +449,7 @@ applicable fields remain empty, the field step stops with `fields.candidates_mis
 instead of reporting success; the independent prepared audio can still proceed.
 Its own successful field writes advance that round's
 input and prepared envelope together, without starting an endless sequence of rounds.
-Audio-only mode still prepares, and writes neither IPA nor POS.
+Preparation with no writable fields still validates pronunciation without altering existing IPA/POS.
 
 The background path uses the same upload admission, MP3 validation, operation factory,
 storage generation and upload state machine as HTTP. Automatic audio also requires
@@ -574,7 +575,7 @@ Default or other current bindings prevent physical deletion; an unreferenced
 historical object without authority remains retained. Claimed assets cannot be
 rebound, and replaying their permanent successful upload receipt never restores
 them. Storage outages, cancellation and disabled audio leave retryable durable
-work. Enrichment switches do not cancel cleanup or spend its generation budget.
+work. Removing model configuration does not cancel cleanup or spend its generation budget.
 
 Clients keep handling missing audio and safe storage failures using the current
 contracts. An issued URL or downloaded copy cannot be immediately revoked, and
@@ -586,8 +587,8 @@ objects from a matching private remote backup. Details are in
 ## Autonomous enrichment scheduling
 
 After configuration initialization and successful database startup, the hosted worker
-uses the two independent default-off switches. With both off it performs no discovery,
-probe or supplier call. With either on, committed approvals, imports and edits send
+derives capabilities from configured models. Without a configured text model it
+performs no discovery, probe or supplier call. With text configured, committed approvals, imports and edits send
 best-effort bounded wakeups. A periodic bounded scan also discovers historical and
 new catalog data, including lost notifications and persisted specific-edit work.
 Each scan reserves independent word and meaning cursor pages with a fixed cycle
@@ -598,9 +599,9 @@ Nonempty specifics use their own missing binding, even when default playback can
 fall back successfully. Existing own bindings, including ordinary stale ones, stay.
 
 Preparation remains mandatory for catalog speech. Default field work can run with
-audio/storage disabled; specific and audio-only preparation wait for enabled audio
-and storage. Missing per-accent configuration, local upload pressure, disabled
-features and paused suppliers do not fabricate calls or consume failure budgets.
+audio/storage unavailable; specific preparation and targets with no writable fields
+wait for configured audio and storage. Missing model or per-accent configuration,
+local upload pressure and paused suppliers do not fabricate calls or consume failure budgets.
 The worker releases each target scope before waiting for the next scan; it creates
 only bounded concurrent work (default one, configurable from one to eight).
 
@@ -618,7 +619,7 @@ item budgets; TTS probes reuse a validated persisted preparation, share upload
 admission, discard audio and never publish. Semantic uncertainty, invalid audio
 and storage/publication failures do not increment supplier outage counts. A successful
 probe releases the service but never resets or reopens an exhausted item. Relevant
-content/configuration corrections can open a new round; switches, voice changes on
+content/configuration corrections can open a new round; legacy switch values, voice changes on
 the other accent, scanning and restart do not replenish this target's budget.
 
 Administrator state, history, and single failed-step retry are documented in
@@ -633,3 +634,6 @@ protocol/control-flow tests from pending real listening. Synthetic MP3s prove
 validation and publication, not the intended reading or accent. A cleared specific
 selects default audio immediately; exact physical cleanup may continue separately.
 A retained historical receipt never authorizes rebinding a detached target.
+
+Vocabulary expansion shares this scheduler and text service gate. Its independent,
+accent-free tasks and publication rules are documented in [Vocabulary expansion](VocabularyExpansion.md).

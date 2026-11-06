@@ -89,6 +89,6 @@ public sealed class EnrichmentAdminQuery
         && (MeaningId == null || MeaningId.Length is > 0 and <= 128 && !MeaningId.Any(char.IsControl))
         && Locale is null or "en-GB" or "en-US"
         && State is null or "Pending" or "Running" or "Waiting" or "Succeeded" or "Failed" or "Cancelled"
-        && Step is null or "Prepare" or "Fields" or "Audio";
+        && Step is null or "Prepare" or "Fields" or "Audio" or "Expand";
     internal EnrichmentAdminFilter Filter() => new(WordId, MeaningId, Locale, State, Step, Page ?? 1, Size ?? 25);
 }

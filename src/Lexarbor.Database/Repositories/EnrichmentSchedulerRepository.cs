@@ -77,6 +77,9 @@ public sealed class EnrichmentSchedulerRepository(VocabularyDbContext context, I
     {
         var meaning = await context.VocabularyMeanings.AsNoTracking().SingleOrDefaultAsync(m => m.Id == id);
         if (meaning == null) return;
+        if (!await context.EnrichmentGeneratedWords.AnyAsync(g => g.WordId == meaning.VocabularyId)
+            && !await context.VocabularyMeaningUnits.AnyAsync(p => p.MeaningId == id && p.EntryKind == "phrase"))
+            result.Add(new(meaning.VocabularyId, id, null, EnrichmentStep.Expand));
         foreach (var locale in new[] { AudioLocale.EnGb, AudioLocale.EnUs })
             if (!string.IsNullOrWhiteSpace(locale == AudioLocale.EnGb ? meaning.PhoneticUk : meaning.PhoneticUs)
                 && !await context.VocabularyAudioBindings.AnyAsync(b => b.WordId == meaning.VocabularyId && b.MeaningId == id && b.Locale == locale))

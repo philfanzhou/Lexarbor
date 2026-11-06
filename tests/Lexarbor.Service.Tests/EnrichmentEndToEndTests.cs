@@ -23,6 +23,40 @@ public sealed class EnrichmentEndToEndTests
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
     private const string EditRoute = "/admin/vocabulary-books/book/words/word/meanings/meaning";
 
+    [Fact]
+    public async Task ConfiguredModels_AutomaticallyExpandIntoSubmissionBook_AndFillNewWordAudio()
+    {
+        var root = VocabularyWebApplicationFactory.CreateGateSafeDirectory("expansion-e2e-" + Guid.NewGuid().ToString("N"));
+        File.WriteAllText(Path.Combine(root, "appsettings.json"), "{}");
+        using var network = new Network(false); var store = new Objects();
+        try
+        {
+            await using var host = new Host(root, network, store, expand: true);
+            await host.Seed();
+            using (var scope = host.App.Services.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+                db.VocabularyBooks.Add(new() { Id = "supplement", BookName = "Submission supplement", Status = true });
+                await db.SaveChangesAsync(Ct);
+            }
+            // No enable switches: model configuration alone starts the shared worker.
+            await host.Configure(false);
+            await Eventually(async () => await host.Bindings() == 4);
+            using var verification = host.App.Services.CreateScope();
+            var catalog = verification.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+            var generated = await catalog.Vocabularies.SingleAsync(w => w.Word == "leader", Ct);
+            Assert.Equal("supplement", (await catalog.VocabularyMeanings.SingleAsync(m => m.VocabularyId == generated.Id, Ct)).BookId);
+            Assert.Equal(1, await catalog.VocabularyMeanings.CountAsync(m => m.BookId == "book", Ct));
+            Assert.NotNull(generated.PhoneticUk); Assert.NotNull(generated.PhoneticUs);
+            Assert.True(await catalog.VocabularyRelations.AnyAsync(r => r.SourceWordId == "word" && r.TargetWordId == generated.Id && r.OriginKind == "generated", Ct));
+            Assert.False(await catalog.EnrichmentTargets.AnyAsync(t => t.WordId == generated.Id && t.Step == EnrichmentStep.Expand, Ct));
+            var status = await host.Data("/admin/enrichment/tasks?step=Expand");
+            Assert.Equal(1, status["totalCount"]!.GetValue<int>());
+            Assert.Null(status["items"]![0]!["locale"]);
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -40,8 +74,8 @@ public sealed class EnrichmentEndToEndTests
                 // No configuration/default disabled means no actual provider request.
                 await Task.Delay(100, Ct);
                 Assert.Empty(network.Requests);
-                await host.Settings(new { enrichment = new { audioEnabled = true, scanIntervalSeconds = 1 } });
-                await Eventually(async () => (await host.Data("/admin/enrichment/tasks?wordId=word")).ToJsonString().Contains("ConfigurationMissing", StringComparison.Ordinal));
+                await host.Settings(new { enrichment = new { scanIntervalSeconds = 1 } });
+                await Eventually(async () => (await host.Data("/admin/enrichment/summary?wordId=word")).ToJsonString().Contains("ConfigurationMissing", StringComparison.Ordinal));
                 Assert.Empty(network.Requests);
                 await host.Configure(native);
                 await Eventually(async () => await host.Bindings() == 2);
@@ -80,7 +114,7 @@ public sealed class EnrichmentEndToEndTests
                 await Eventually(async () => await host.CleanupObserved(specific));
                 Assert.Equal(2, store.Bytes.Count); // Default reference protected the old shared legacy object.
                 Assert.Equal(3, network.SpeechCount);
-                var summary = await host.Data("/admin/enrichment/summary?wordId=word&meaningId=meaning");
+                var summary = await host.Data("/admin/enrichment/summary?wordId=word&meaningId=meaning&step=Audio");
                 Assert.Equal(0, summary["applicableTargets"]!.GetValue<int>());
                 Assert.Equal(0, summary["missingTargets"]!.GetValue<int>());
                 var runtime = host.App.Services.GetRequiredService<EnrichmentRuntimeConfiguration>().Current;
@@ -182,11 +216,12 @@ public sealed class EnrichmentEndToEndTests
         private readonly VocabularyWebApplicationFactory _base;
         public WebApplicationFactory<Program> App { get; }
         private readonly HttpClient _client;
-        public Host(string root, Network network, Objects store)
+        public Host(string root, Network network, Objects store, bool expand = false)
         {
             _base = new("Testing", true, databasePath: Path.Combine(root, "vocabulary.db"), contentRootPath: root,
                 keyContentRoot: Path.Combine(root, "keys"), extraConfiguration: new Dictionary<string, string?>
                 {
+                    ["MeaningSubmissions:BookId"] = expand ? "supplement" : null,
                     ["Audio:Enabled"] = "true",
                     ["Audio:InternalEndpoint"] = "https://storage.example.test",
                     ["Audio:PublicEndpoint"] = "https://storage.example.test",
@@ -215,8 +250,6 @@ public sealed class EnrichmentEndToEndTests
         {
             enrichment = new
             {
-                fieldsEnabled = true,
-                audioEnabled = true,
                 scanIntervalSeconds = 1,
                 text = new { endpoint = "https://planner.example.test/v1", model = "fixture", apiKey = new { action = "replace", value = "synthetic-planner" } },
                 tts = new
@@ -315,6 +348,16 @@ public sealed class EnrichmentEndToEndTests
             if (path == "/v1/chat/completions")
             {
                 var input = JsonNode.Parse(body["messages"]![1]!["content"]!.GetValue<string>())!;
+                if (input["relationTypes"] != null)
+                    return new(HttpStatusCode.OK)
+                    {
+                        Content = JsonContent.Create(new
+                        {
+                            choices = new[] { new { finish_reason = "stop", message = new
+                    { content = JsonSerializer.Serialize(new { candidates = new[] { new { word = "leader", type = "derived_noun", partOfSpeech = "n.",
+                        meaning = "领导者", example = "She is a leader.", usageNote = "A person who guides others." } } }) } } }
+                        })
+                    };
                 var required = input["requiredPhonetic"]?.GetValue<string>();
                 var ipa = required ?? "liːd";
                 var plan = new
@@ -322,10 +365,11 @@ public sealed class EnrichmentEndToEndTests
                     certain = true,
                     entryKind = "word",
                     classificationBasis = "Fixture word position",
-                    spokenText = "lead",
+                    spokenText = input["word"]!.GetValue<string>(),
                     requiredPhonetic = required,
                     phonetic = ipa,
-                    partsOfSpeech = new[] { new { meaningId = "meaning", partOfSpeech = "v." } },
+                    partsOfSpeech = input["writable"]!["partsOfSpeech"]!.AsArray()
+                        .Select(id => new { meaningId = id!.GetValue<string>(), partOfSpeech = "v." }).ToArray(),
                     pronunciationHint = native ? ipa : "Use the required reading.",
                     pronunciationControl = native ? "ipa" : "instructions",
                     speechPhonetic = native ? ipa : null

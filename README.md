@@ -12,6 +12,7 @@ Lexarbor is a self-hosted vocabulary catalog and quiz service. It combines a .NE
 - Import words idempotently with database-backed integrity constraints.
 - Generate four-option translation questions from one vocabulary book.
 - Browse an enabled book's units and paged entries anonymously for external study tools.
+- Automatically complete missing IPA/POS and expand word forms and derivatives when a text model is configured; new words use the existing submission supplement. See [Vocabulary expansion](docs/api/VocabularyExpansion.md).
 - Accept definitions no book has from one authenticated integration client, review them (optionally with AI advice), and store approved ones in a supplementary book; see [Meaning submissions](docs/api/MeaningSubmissions.md).
 - Serve the public API and administration UI from one HTTP endpoint.
 - Protect administration routes with an external OIDC identity provider and an administrator role.

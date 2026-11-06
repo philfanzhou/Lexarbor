@@ -32,7 +32,7 @@ public sealed class MeaningSubmissionReviewMigrationTests
             var columns = "id,source,word,normalized_word,part_of_speech,normalized_part_of_speech,meaning,normalized_meaning,example,status,result_book_id,result_word_id,result_meaning_id,result_word,result_meaning,result_part_of_speech,created_at_unix_ms,updated_at_unix_ms,reviewed_at_unix_ms";
             var before = await Rows(db, $"SELECT {columns} FROM meaning_submission ORDER BY id");
             var otherBefore = await OtherTables(db);
-            await migrator.MigrateAsync(cancellationToken: Ct);
+            await migrator.MigrateAsync("20261102043902_AddMeaningSubmissionReviews", Ct);
             Assert.False(db.Database.HasPendingModelChanges());
             Assert.Equal(before, await Rows(db, $"SELECT {columns} FROM meaning_submission ORDER BY id"));
             Assert.Equal(otherBefore, await OtherTables(db));

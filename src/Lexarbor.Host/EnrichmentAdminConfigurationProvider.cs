@@ -6,7 +6,7 @@ using Lexarbor.Service;
 namespace Lexarbor.Host;
 
 public sealed class EnrichmentAdminConfigurationProvider(EnrichmentRuntimeConfiguration runtime,
-    IAudioUploadOperationFactory storage) : IEnrichmentAdminConfigurationProvider
+    IAudioUploadOperationFactory storage, MeaningSubmissionSettings? submissions = null) : IEnrichmentAdminConfigurationProvider
 {
     public async Task<EnrichmentAdminConfiguration> CaptureAsync(CancellationToken token)
     {
@@ -19,6 +19,6 @@ public sealed class EnrichmentAdminConfigurationProvider(EnrichmentRuntimeConfig
             Version(EnrichmentStep.Fields), Version(EnrichmentStep.Fields, meaning: "specific"),
             Version(EnrichmentStep.Audio), Version(EnrichmentStep.Audio, AudioLocale.EnUs),
             EnrichmentServiceGate.Identity("text", snapshot), snapshot.TextVersion ?? "configuration.missing",
-            EnrichmentServiceGate.Identity("tts", snapshot), snapshot.TtsServiceVersion ?? "configuration.missing");
+            EnrichmentServiceGate.Identity("tts", snapshot), snapshot.TtsServiceVersion ?? "configuration.missing", submissions?.BookId);
     }
 }
