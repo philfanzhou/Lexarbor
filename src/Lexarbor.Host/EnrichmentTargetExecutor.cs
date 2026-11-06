@@ -12,13 +12,14 @@ namespace Lexarbor.Host;
 public sealed class EnrichmentTargetExecutor(IEnrichmentTaskRepository tasks, IEnrichmentExecutionRepository catalog,
     IAudioUploadRepository uploads, IPronunciationPreparationClient preparation, IPronunciationSpeechClient speech,
     IAudioUploadOperationFactory operations, AudioUploadAdmission admission, EnrichmentRuntimeConfiguration runtime,
-    TimeProvider clock, EnrichmentServiceGate? services = null)
+    TimeProvider clock, EnrichmentServiceGate? services = null, VocabularyExpansionExecutor? expansion = null)
 {
     private long Now => clock.GetUtcNow().ToUnixTimeMilliseconds();
     // Stable relevant versions, independent of the HTTP settings ETag. Audio
     // depends on text and its own accent, never the other accent or review AI.
     public static string ConfigurationVersion(EnrichmentTargetKey key, EnrichmentConfigurationSnapshot snapshot)
     {
+        if (key.Step == EnrichmentStep.Expand) return (snapshot.TextVersion ?? "configuration.missing") + ".expand-v1";
         var audio = (snapshot.TextVersion ?? "configuration.missing") + "." +
             ((key.Locale == AudioLocale.EnGb ? snapshot.UkTtsVersion : snapshot.UsTtsVersion) ?? "configuration.missing");
         return key.Step == EnrichmentStep.Audio ? audio
@@ -31,6 +32,8 @@ public sealed class EnrichmentTargetExecutor(IEnrichmentTaskRepository tasks, IE
         token.ThrowIfCancellationRequested();
         var task = await tasks.GetAsync(targetId, token);
         if (task == null || task.Deleted) return task;
+        if (task.Target.Step == EnrichmentStep.Expand)
+            return expansion == null ? task : await expansion.ExecuteAsync(task, owner, token);
         // A successful permanent receipt wins before Ensure compares ownBinding.
         // Never replace its key or make a fresh TTS request on an unknown read.
         if (task.Target.Step == EnrichmentStep.Audio)
@@ -73,7 +76,7 @@ public sealed class EnrichmentTargetExecutor(IEnrichmentTaskRepository tasks, IE
         }
         var guard = await tasks.ClaimAsync(task.Id, owner, Now, Now + 900_000, token);
         if (guard == null) return await GetAsync(task.Id, token);
-        if (!enabled) return await WaitAsync(guard, EnrichmentWaitReason.Disabled, 30_000, token);
+        if (!enabled) return await WaitAsync(guard, EnrichmentWaitReason.ConfigurationMissing, 30_000, token);
         if (task.Target.Step == EnrichmentStep.Audio && guard.Input.OwnAssetId != null)
         { await tasks.CompleteAsync(guard, Now, token); return await GetAsync(task.Id, token); }
         if (task.Target.Step == EnrichmentStep.Prepare) return await PrepareAsync(task, guard, token);
@@ -251,7 +254,7 @@ public sealed class EnrichmentTargetExecutor(IEnrichmentTaskRepository tasks, IE
             return await GetAsync(task.Id, token);
         }
         var uploaded = await operation.Service.UploadAsync(new(uploadKey, task.Target.WordId, task.Target.MeaningId,
-            task.Target.Locale, guard.Input.SourceRevision, guard.Input.OwnAssetId, result.Audio, "enrichment", null), token, guard);
+            task.Target.Locale!.Value, guard.Input.SourceRevision, guard.Input.OwnAssetId, result.Audio, "enrichment", null), token, guard);
         if (uploaded.StatusCode == 200)
         {
             await tasks.RecoverPublishedAsync(task.Id, uploadKey, Now, token);

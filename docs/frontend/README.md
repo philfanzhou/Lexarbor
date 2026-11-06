@@ -178,7 +178,7 @@ A refused write keeps the entered values: 400 shows the server's reason (a dupli
 
 ## Batch import page
 
-`/submissions` (投稿审核) reads `GET /admin/meaning-submissions` by status tab (待审核, 已通过, 已驳回) in pages of 20. A missing `MeaningSubmissions:BookId` shows a warning and disables review. 审核 opens a dialog prefilled with the submitted word, part of speech, definition and example plus empty UK/US phonetics; 通过 posts the edited values to `/approve`, and 驳回 asks for confirmation before `/reject`. When the review assistant is configured, AI 审核建议 shows the advice and 采用建议 copies its part of speech, definition and phonetics into the form; nothing is approved without the administrator. The approved tab shows the stored text and marks changed definitions. `e2e/meaning-submissions.spec.ts` covers advice, approval and the unconfigured warning.
+`/submissions` (投稿审核) reads `GET /admin/meaning-submissions` by status tab (待审核, 已通过, 已驳回) in pages of 20. A missing `MeaningSubmissions:BookId` shows a warning and disables review. 审核 opens a dialog prefilled with the submitted word, part of speech, definition and example plus empty UK/US phonetics; 通过 posts the edited values to `/approve`, and 驳回 asks for confirmation before `/reject`. When the review assistant is configured, AI 审核建议 shows the advice and 采用建议 copies its part of speech, definition and phonetics into the form; adopting advice does not approve the submission; separately enabled automatic review can publish decisions. The approved tab shows the stored text and marks changed definitions. `e2e/meaning-submissions.spec.ts` covers advice, approval and the unconfigured warning.
 
 The three batch routes share one parser, preview, and submission flow. `/import/batch` defaults to mixed vocabulary; `/import/batch/words` selects word mode and `/import/batch/phrases` selects phrase mode. The on-page mode switch changes the route without discarding the raw text or workbook. Administrator sessions can open or refresh each deep link with the same mode. The existing hosted-login return allowlist is unchanged: if an unauthenticated administrator starts at a new uniform-mode deep link, signing in returns to the default book page, from which the mode's navigation entry is available; that round trip does not restore the new mode route.
 
@@ -455,10 +455,10 @@ with S3 and rate limits.
   automatic-review switch. The switch explains that AI can approve, edit, or
   reject submissions without human confirmation and may write incorrect shared
   vocabulary.
-- **文本补齐** (Text enrichment) contains the field enrichment switch and the text
-  client used for both field enrichment and pronunciation preparation.
-- **语音生成** (Speech generation) contains the audio generation switch, the
-  speech client, and separate UK and US voices and speeds. It links to Text
+- **文本补齐** (Text enrichment) contains the text client used for field enrichment,
+  pronunciation preparation and vocabulary expansion. Configuration activates
+  these capabilities automatically; there is no separate enable switch.
+- **语音生成** (Speech generation) contains the speech client, and separate UK and US voices and speeds. It links to Text
   enrichment and Audio storage so administrators can set up those dependencies.
 - **后台策略** (Background policies) contains discovery, concurrency, failure
   budget, pause, and backoff settings.
@@ -536,7 +536,7 @@ preparation may need one explicit retry following an upgrade. No model response
 or full preparation plan is exposed to the browser.
 
 The host now discovers and processes missing default fields/audio and explicit
-nonempty specific-audio targets when an enrichment switch is enabled. Normal
+nonempty specific-audio targets when the text model is configured. Normal
 approval/import/edit flows do not select a range or start a batch. Empty specific
 phonetics continue to inherit. Browser credentials and existing routes are unchanged;
 the [administrator observation API](../api/Enrichment.md) supplies safe task,
@@ -633,3 +633,12 @@ rule. No undo, rollback or batch verification is provided. Read/write requests u
 AbortSignal and session/target generations; old success and 401/403 responses cannot
 paint or clear a replaced session. External text renders as text; no history,
 explanation, credential or provider body is placed in browser storage or URLs.
+
+### Model-driven vocabulary expansion
+
+Text and speech settings no longer show field/audio enable checkboxes. Text
+configuration automatically enables missing field completion and vocabulary
+expansion; speech also requires text preparation, per-accent settings and storage.
+The progress page includes `Expand` tasks and displays their null locale as
+不限口音. New words enter the existing submission supplement and receive normal
+field/audio enrichment. Student book selection remains unchanged.

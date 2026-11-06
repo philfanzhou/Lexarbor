@@ -31,6 +31,13 @@ internal static class EnrichmentAdminQueries
             (SELECT 1 FROM vocabulary_audio_binding b WHERE b.word_id=m.vocabulary_id AND b.meaning_id=m.id AND b.locale=l.locale)
           FROM vocabulary_meaning m JOIN vocabulary w ON w.id=m.vocabulary_id CROSS JOIN locales l
           WHERE trim(coalesce(CASE l.locale WHEN 'en-GB' THEN m.phonetic_uk ELSE m.phonetic_us END,''),char(9,10,11,12,13,32,133,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288))!=''
+          UNION ALL
+          SELECT m.vocabulary_id,w.word,m.id,m.meaning,NULL,'Expand',NOT EXISTS
+            (SELECT 1 FROM enrichment_target t JOIN enrichment_round r ON r.target_id=t.id AND r.number=t.current_round
+              WHERE t.word_id=m.vocabulary_id AND t.meaning_id=m.id AND t.step='Expand' AND NOT t.deleted AND r.state='Succeeded')
+          FROM vocabulary_meaning m JOIN vocabulary w ON w.id=m.vocabulary_id
+          WHERE NOT EXISTS (SELECT 1 FROM enrichment_generated_word g WHERE g.word_id=w.id)
+            AND NOT EXISTS (SELECT 1 FROM vocabulary_meaning_unit p WHERE p.meaning_id=m.id AND p.entry_kind='phrase')
         )
         """;
     private const string RoundColumns = """
@@ -44,11 +51,11 @@ internal static class EnrichmentAdminQueries
     {
         var source = tasks ? """
             SELECT t.id AS Id,t.word_id AS WordId,w.word AS Word,t.meaning_id AS MeaningId,m.meaning AS Meaning,t.locale AS Locale,t.step AS Step,
-              NOT t.deleted AND EXISTS (SELECT 1 FROM demands d WHERE d.word_id=t.word_id AND d.meaning_id IS t.meaning_id AND d.locale=t.locale
+              NOT t.deleted AND EXISTS (SELECT 1 FROM demands d WHERE d.word_id=t.word_id AND d.meaning_id IS t.meaning_id AND d.locale IS t.locale
                 AND (d.step=t.step OR t.step='Prepare' AND d.missing)) AS Applicable,
-              NOT t.deleted AND EXISTS (SELECT 1 FROM demands d WHERE d.word_id=t.word_id AND d.meaning_id IS t.meaning_id AND d.locale=t.locale
+              NOT t.deleted AND EXISTS (SELECT 1 FROM demands d WHERE d.word_id=t.word_id AND d.meaning_id IS t.meaning_id AND d.locale IS t.locale
                 AND (d.step=t.step OR t.step='Prepare') AND d.missing) AS Missing,
-              m.id IS NOT NULL AND trim(coalesce(CASE t.locale WHEN 'en-GB' THEN m.phonetic_uk ELSE m.phonetic_us END,''),char(9,10,11,12,13,32,133,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288))='' AS InheritsDefault,
+              t.step!='Expand' AND m.id IS NOT NULL AND trim(coalesce(CASE t.locale WHEN 'en-GB' THEN m.phonetic_uk ELSE m.phonetic_us END,''),char(9,10,11,12,13,32,133,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288))='' AS InheritsDefault,
             """ + RoundColumns + "\n" + """
             FROM enrichment_target t LEFT JOIN vocabulary w ON w.id=t.word_id LEFT JOIN vocabulary_meaning m ON m.id=t.meaning_id AND m.vocabulary_id=t.word_id
             JOIN enrichment_round r ON r.target_id=t.id AND r.number=t.current_round
@@ -56,15 +63,15 @@ internal static class EnrichmentAdminQueries
             SELECT t.id AS Id,d.word_id AS WordId,d.word AS Word,d.meaning_id AS MeaningId,d.meaning AS Meaning,d.locale AS Locale,d.step AS Step,
               1 AS Applicable,d.missing AS Missing,0 AS InheritsDefault,
             """ + RoundColumns + "\n" + """
-            FROM demands d LEFT JOIN enrichment_target t ON t.word_id=d.word_id AND t.meaning_id IS d.meaning_id AND t.locale=d.locale AND t.step=d.step AND NOT t.deleted
+            FROM demands d LEFT JOIN enrichment_target t ON t.word_id=d.word_id AND t.meaning_id IS d.meaning_id AND t.locale IS d.locale AND t.step=d.step AND NOT t.deleted
             LEFT JOIN enrichment_round r ON r.target_id=t.id AND r.number=t.current_round
             """;
         var sql = DemandCte + ", source AS (" + source + """
             ), availability AS (
               SELECT s.*,
-                CASE WHEN Step='Fields' THEN @fields WHEN Step='Audio' OR MeaningId IS NOT NULL THEN @audio ELSE @fields OR @audio END AS Enabled,
-                CASE WHEN Step='Audio' THEN CASE Locale WHEN 'en-GB' THEN @uk ELSE @us END ELSE @prepare END AS Configured,
-                CASE WHEN Step='Fields' OR Step='Prepare' AND MeaningId IS NULL AND @fields THEN 1 ELSE @storage END AS StorageReady,
+                CASE WHEN Step IN ('Fields','Expand') THEN @fields WHEN Step='Audio' OR MeaningId IS NOT NULL THEN @audio ELSE @fields OR @audio END AS Enabled,
+                CASE WHEN Step='Expand' THEN @prepare AND EXISTS (SELECT 1 FROM vocabulary_book b WHERE b.id=@book AND b.status) WHEN Step='Audio' THEN CASE Locale WHEN 'en-GB' THEN @uk ELSE @us END ELSE @prepare END AS Configured,
+                CASE WHEN Step IN ('Fields','Expand') OR Step='Prepare' AND MeaningId IS NULL AND @fields THEN 1 ELSE @storage END AS StorageReady,
                 CASE WHEN Step='Audio' THEN ts.blocked ELSE txt.blocked END AS Blocked,
                 CASE WHEN Step='Audio' THEN ts.paused ELSE txt.paused END AS Paused,
                 CASE WHEN Step='Audio' THEN ts.next_attempt_at_unix_ms ELSE txt.next_attempt_at_unix_ms END AS ServiceNext
@@ -74,7 +81,7 @@ internal static class EnrichmentAdminQueries
             ), reasons AS (
               SELECT a.*, CASE
                 WHEN NOT Applicable OR NOT Missing OR RoundState='Failed' THEN NULL
-                WHEN NOT Enabled THEN 'Disabled'
+                WHEN NOT Enabled THEN 'ConfigurationMissing'
                 WHEN NOT StorageReady THEN 'StorageDisabled'
                 WHEN NOT Configured OR Blocked THEN 'ConfigurationMissing'
                 WHEN Paused THEN 'ServicePaused'
@@ -89,7 +96,7 @@ internal static class EnrichmentAdminQueries
               CASE WHEN WaitReason IN ('ServicePaused','Throttled') AND ServiceNext>coalesce(StoredNext,0) THEN ServiceNext ELSE StoredNext END AS NextAttemptAtUnixMs
             FROM reasons
             """;
-        object[] parameters = [new SqliteParameter("@budget",c.FailureBudget),new SqliteParameter("@fields",c.FieldsEnabled),
+        object[] parameters = [new SqliteParameter("@book",c.ExpansionBookId ?? ""), new SqliteParameter("@budget",c.FailureBudget),new SqliteParameter("@fields",c.FieldsEnabled),
             new SqliteParameter("@audio",c.AudioEnabled),new SqliteParameter("@uk",c.CanTtsUk),new SqliteParameter("@us",c.CanTtsUs),
             new SqliteParameter("@prepare",c.CanPrepare),new SqliteParameter("@storage",c.StorageEnabled),new SqliteParameter("@now",now),
             new SqliteParameter("@textId",c.TextServiceId),new SqliteParameter("@textVersion",c.TextServiceVersion),
@@ -105,7 +112,7 @@ internal sealed class EnrichmentAdminRow
     public string? Word { get; set; }
     public string? MeaningId { get; set; }
     public string? Meaning { get; set; }
-    public string Locale { get; set; } = "";
+    public string? Locale { get; set; }
     public string Step { get; set; } = "";
     public bool Applicable { get; set; }
     public bool Missing { get; set; }

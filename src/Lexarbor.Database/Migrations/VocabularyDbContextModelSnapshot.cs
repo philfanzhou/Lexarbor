@@ -448,6 +448,22 @@ namespace Lexarbor.Database.Migrations
                     b.ToTable("enrichment_discovery", (string)null);
                 });
 
+            modelBuilder.Entity("Lexarbor.Database.Entities.EnrichmentGeneratedWordEntity", b =>
+                {
+                    b.Property<string>("WordId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("word_id");
+
+                    b.Property<string>("TaskId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("task_id");
+
+                    b.HasKey("WordId");
+
+                    b.ToTable("enrichment_generated_word", (string)null);
+                });
+
             modelBuilder.Entity("Lexarbor.Database.Entities.EnrichmentRoundEntity", b =>
                 {
                     b.Property<string>("TargetId")
@@ -672,7 +688,6 @@ namespace Lexarbor.Database.Migrations
                         .HasColumnName("epoch");
 
                     b.Property<string>("Locale")
-                        .IsRequired()
                         .HasColumnType("TEXT")
                         .HasColumnName("locale");
 
@@ -692,6 +707,10 @@ namespace Lexarbor.Database.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("WordId", "MeaningId")
+                        .IsUnique()
+                        .HasFilter("step = 'Expand'");
+
                     b.HasIndex("WordId", "Locale", "Step")
                         .IsUnique()
                         .HasFilter("meaning_id IS NULL");
@@ -702,9 +721,9 @@ namespace Lexarbor.Database.Migrations
 
                     b.ToTable("enrichment_target", null, t =>
                         {
-                            t.HasCheckConstraint("CK_enrichment_target_locale", "locale IN ('en-GB','en-US')");
+                            t.HasCheckConstraint("CK_enrichment_target_locale", "(step = 'Expand' AND locale IS NULL) OR (step != 'Expand' AND locale IS NOT NULL AND locale IN ('en-GB','en-US'))");
 
-                            t.HasCheckConstraint("CK_enrichment_target_step", "step IN ('Prepare','Fields','Audio') AND (meaning_id IS NULL OR step != 'Fields')");
+                            t.HasCheckConstraint("CK_enrichment_target_step", "(step = 'Expand' AND meaning_id IS NOT NULL) OR (step IN ('Prepare','Fields','Audio') AND (meaning_id IS NULL OR step != 'Fields'))");
 
                             t.HasCheckConstraint("CK_enrichment_target_version", "current_round > 0 AND epoch > 0");
                         });
@@ -1610,6 +1629,15 @@ namespace Lexarbor.Database.Migrations
                     b.HasOne("Lexarbor.Database.Entities.EnrichmentRoundEntity", null)
                         .WithMany()
                         .HasForeignKey("TargetId", "Round")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Lexarbor.Database.Entities.EnrichmentGeneratedWordEntity", b =>
+                {
+                    b.HasOne("Lexarbor.Database.Entities.VocabularyEntity", null)
+                        .WithMany()
+                        .HasForeignKey("WordId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

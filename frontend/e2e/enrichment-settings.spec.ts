@@ -54,12 +54,12 @@ test('settings sections keep independent defaults, policy bounds and optional vo
   await expect(page.getByLabel('启用默认字段补齐')).toHaveCount(0)
 
   await tab(page, '文本补齐').click()
-  await expect(page.getByLabel('启用默认字段补齐', { exact: true })).not.toBeChecked()
+  await expect(page.getByLabel('启用默认字段补齐', { exact: true })).toHaveCount(0)
   await expect(page.getByLabel('启用音频生成')).toHaveCount(0)
   await expect(page.getByLabel('补齐文本超时（秒）')).toHaveAttribute('max', '300')
 
   await tab(page, '语音生成').click()
-  await expect(page.getByLabel('启用音频生成', { exact: true })).not.toBeChecked()
+  await expect(page.getByLabel('启用音频生成', { exact: true })).toHaveCount(0)
   await expect(page.getByLabel('语音提供方', { exact: true })).toHaveValue('MiniMaxNative')
   await expect(page.getByLabel('语音模型', { exact: true })).toHaveValue('speech-2.8-hd')
   for (const label of ['UK 音色', 'US 音色', 'UK 语速', 'US 语速']) await expect(page.getByLabel(label, { exact: true })).toHaveValue('')
@@ -106,7 +106,7 @@ test('text preparation and US-only speech save separately using the current revi
       } }
     } else {
       expect(route.request().headers()['if-match']).toBe(nextRevision)
-      expect(route.request().postDataJSON()).toEqual({ enrichment: { audioEnabled: true, tts: {
+      expect(route.request().postDataJSON()).toEqual({ enrichment: { tts: {
         endpoint: 'https://api.minimax.io/v1', us: { voice: 'configured-us-voice', speed: 1.1 },
         apiKey: { action: 'replace', value: 'synthetic-speech-key' }
       } } })
@@ -118,7 +118,7 @@ test('text preparation and US-only speech save separately using the current revi
     return json(route, current)
   })
   await page.goto('/#/settings/text')
-  await expect(page.getByLabel('启用默认字段补齐', { exact: true })).not.toBeChecked()
+  await expect(page.getByLabel('启用默认字段补齐', { exact: true })).toHaveCount(0)
   await page.getByLabel('补齐文本服务地址', { exact: true }).fill('https://planner.test/v1')
   await page.getByLabel('补齐文本模型', { exact: true }).fill('plan-model')
   await key(page, '补齐文本 API Key').fill('synthetic-plan-key')
@@ -126,7 +126,6 @@ test('text preparation and US-only speech save separately using the current revi
   await expect(notice(page, '文本补齐')).toContainText('已保存并发布')
 
   await tab(page, '语音生成').click()
-  await page.getByLabel('启用音频生成', { exact: true }).check()
   await page.getByLabel('语音服务地址', { exact: true }).fill('https://api.minimax.io/v1')
   await page.getByLabel('US 音色', { exact: true }).fill('configured-us-voice')
   await page.getByLabel('US 语速', { exact: true }).fill('1.1')
@@ -349,8 +348,8 @@ test('narrow keyboard-accessible panel has no credentials in storage, URL, conso
   const logs: string[] = [], requests: string[] = []
   page.on('console', message => logs.push(message.text())); page.on('request', request => requests.push(request.url()))
   await page.setViewportSize({ width: 375, height: 812 }); await page.goto('/#/settings/text')
-  await page.getByLabel('启用默认字段补齐', { exact: true }).focus(); await page.keyboard.press('Space')
-  await expect(page.getByLabel('启用默认字段补齐', { exact: true })).toBeChecked()
+  await page.getByLabel('补齐文本模型', { exact: true }).focus(); await page.keyboard.insertText('keyboard-planner')
+  await expect(page.getByLabel('补齐文本模型', { exact: true })).toHaveValue('keyboard-planner')
   for (const [title, label] of [['文本补齐', '补齐文本 API Key'], ['审核助手', '审核 API Key'], ['语音生成', '语音 API Key']] as const) {
     if (title !== '文本补齐') {
       page.once('dialog', dialog => dialog.accept())
@@ -444,7 +443,7 @@ test('automatic review risk flag saves independently and reports pause until con
   await expect(page.getByLabel('自动审核配置状态')).toContainText('配置修复后自动恢复，无需人工处理')
   expect(puts).toBe(1)
   await tab(page, '文本补齐').click()
-  await expect(page.getByLabel('启用默认字段补齐', { exact: true })).not.toBeChecked()
+  await expect(page.getByLabel('启用默认字段补齐', { exact: true })).toHaveCount(0)
 })
 
 test('draft previews use independent locale styles and credentials without saving, then save the same styles', async ({ page }) => {

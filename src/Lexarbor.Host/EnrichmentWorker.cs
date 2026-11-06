@@ -75,6 +75,7 @@ public sealed class EnrichmentWorker(IServiceScopeFactory scopes, EnrichmentRunt
         if (!settings.FieldsEnabled && !settings.AudioEnabled)
         { notifications.Drain(); notifications.DrainAudioTargets(); return 0; }
         string[] due;
+        var urgent = new List<string>();
         await using (var scope = scopes.CreateAsyncScope())
         {
             var repository = scope.ServiceProvider.GetRequiredService<IEnrichmentSchedulerRepository>();
@@ -83,8 +84,11 @@ public sealed class EnrichmentWorker(IServiceScopeFactory scopes, EnrichmentRunt
             var audioTargets = notifications.DrainAudioTargets();
             var targets = await repository.DiscoverAsync(settings.DiscoveryBatchSize, recentWords, token);
             foreach (var key in audioTargets.Concat(targets).Distinct())
-                await tasks.EnsureAsync(key, EnrichmentTargetExecutor.ConfigurationVersion(key, runtime.Current),
+            {
+                var ensured = await tasks.EnsureAsync(key, EnrichmentTargetExecutor.ConfigurationVersion(key, runtime.Current),
                     clock.GetUtcNow().ToUnixTimeMilliseconds(), token, runtime.Current.Enrichment.FailureBudget);
+                if (ensured != null && audioTargets.Contains(key)) urgent.Add(ensured.Id);
+            }
             var gate = scope.ServiceProvider.GetRequiredService<EnrichmentServiceGate>();
             var preparation = scope.ServiceProvider.GetRequiredService<IPronunciationPreparationClient>();
             var speech = scope.ServiceProvider.GetRequiredService<IPronunciationSpeechClient>();
@@ -93,6 +97,7 @@ public sealed class EnrichmentWorker(IServiceScopeFactory scopes, EnrichmentRunt
             if (storage.Settings.Enabled) await gate.ProbeAsync("tts", preparation, speech, token);
             due = (await repository.DueAsync(Math.Max(2, Math.Max(settings.DiscoveryBatchSize, settings.Concurrency)),
                 clock.GetUtcNow().ToUnixTimeMilliseconds(), token)).ToArray();
+            due = urgent.Concat(due).Distinct(StringComparer.Ordinal).ToArray();
         }
         // Only this bounded slice exists in memory. Each target gets its own
         // scoped context; no provider IO occurs inside a discovery transaction.

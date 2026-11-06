@@ -146,7 +146,7 @@ onBeforeUnmount(() => { stop(); document.removeEventListener('visibilitychange',
 
 <template>
   <section class="enrichment">
-    <PageHeader title="自治补齐进度" description="后台自动发现新增与历史缺失，无需选择词书或点击开始。字段、两侧音频、服务与旧文件清理分别记录。" />
+    <PageHeader title="自治补齐进度" description="后台自动发现新增与历史缺失，无需选择词书或点击开始。字段、词汇扩展、两侧音频、服务与旧文件清理分别记录。" />
     <p>
       <RouterLink to="/settings/text">检查文本补齐</RouterLink> ·
       <RouterLink to="/settings/speech">检查语音生成</RouterLink> ·
@@ -179,18 +179,18 @@ onBeforeUnmount(() => { stop(); document.removeEventListener('visibilitychange',
     </section>
     <h2>持久任务步骤</h2>
     <p v-if="listError" role="alert">{{ listError }}</p>
-    <p v-else-if="!items.length && !loading">没有匹配的持久任务；请同时查看当前需求、关闭或未排队状态。</p>
+    <p v-else-if="!items.length && !loading">没有匹配的持久任务；请同时查看当前需求、等待配置或未排队状态。</p>
     <div class="table-scroll">
       <table v-if="items.length" aria-label="补齐任务列表">
         <thead><tr><th>目标 / 口音 / 步骤</th><th>当前状态</th><th>实际请求 / 失败额度</th><th>下次处理</th><th>旧文件清理</th><th>操作</th></tr></thead>
         <tbody>
           <tr v-for="task in items" :key="task.id">
-            <td>{{ task.word ?? task.wordId }}<br>{{ task.meaning ?? '默认目标' }} · {{ task.locale === 'en-GB' ? 'UK' : 'US' }} · {{ stepLabels[task.step] }}</td>
+            <td>{{ task.word ?? task.wordId }}<br>{{ task.meaning ?? '默认目标' }} · {{ task.locale === null ? '不限口音' : task.locale === 'en-GB' ? 'UK' : 'US' }} · {{ stepLabels[task.step] }}</td>
             <td>{{ taskLabel(task) }}<br>{{ reasonLabel(task.waitReason) }}<br>{{ errorLabel(task.current.errorCode) }}</td>
             <td>请求 {{ task.current.requestCount }}<br>已消耗 {{ task.current.consumedFailures }} / {{ task.current.failureBudget }}（第 {{ task.current.number }} 轮）</td>
             <td>{{ time(task.current.nextAttemptAtUnixMs) }}</td>
             <td>等待 {{ task.cleanup.waiting }} · 处理中 {{ task.cleanup.running }} · 已观察清理 {{ task.cleanup.observed }}<br>{{ errorLabel(task.cleanup.errorCode) }}</td>
-            <td><button type="button" :disabled="mutating || !!pending && pending.id !== task.id" :aria-label="`查看 ${task.word ?? task.wordId} ${task.locale} ${stepLabels[task.step]} 详情`" @click="select(task)">详情</button></td>
+            <td><button type="button" :disabled="mutating || !!pending && pending.id !== task.id" :aria-label="`查看 ${task.word ?? task.wordId} ${task.locale ?? '不限口音'} ${stepLabels[task.step]} 详情`" @click="select(task)">详情</button></td>
           </tr>
         </tbody>
       </table>
@@ -200,7 +200,7 @@ onBeforeUnmount(() => { stop(); document.removeEventListener('visibilitychange',
       <h2>任务详情与历史</h2>
       <p v-if="detailError" role="alert">{{ detailError }}</p>
       <template v-if="detail">
-        <p>{{ detail.task.word ?? detail.task.wordId }} · {{ detail.task.meaning ?? '默认目标' }} · {{ detail.task.locale }} · {{ stepLabels[detail.task.step] }}</p>
+        <p>{{ detail.task.word ?? detail.task.wordId }} · {{ detail.task.meaning ?? '默认目标' }} · {{ detail.task.locale ?? '不限口音' }} · {{ stepLabels[detail.task.step] }}</p>
         <p>{{ taskLabel(detail.task) }} · {{ reasonLabel(detail.task.waitReason) }} · {{ errorLabel(detail.task.current.errorCode) }}</p>
         <p>当前第 {{ detail.task.current.number }} 轮；持久状态 {{ stateLabels[detail.task.current.state] }}。实际请求 {{ detail.task.current.requestCount }}；已消耗失败额度 {{ detail.task.current.consumedFailures }} / {{ detail.task.current.failureBudget }}；下次处理 {{ time(detail.task.current.nextAttemptAtUnixMs) }}。</p>
         <p v-if="detail.task.cleanup.waiting || detail.task.cleanup.running || detail.task.cleanup.observed">旧专用音频已停用；旧文件等待清理 {{ detail.task.cleanup.waiting }}，清理中 {{ detail.task.cleanup.running }}，已观察清理 {{ detail.task.cleanup.observed }}。清理尝试 {{ detail.task.cleanup.attempts }}，下次 {{ time(detail.task.cleanup.nextAttemptAtUnixMs) }}。{{ errorLabel(detail.task.cleanup.errorCode) }}。清理与新生成状态独立，不恢复旧绑定，也不消耗生成失败额度。</p>

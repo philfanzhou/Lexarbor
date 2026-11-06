@@ -233,14 +233,14 @@ public sealed class OpenAiCompatiblePronunciationPreparationClient(
             && Optional(m.Meaning.PartOfSpeech, 128) && PhoneticInput(m.Meaning.PhoneticUk) && PhoneticInput(m.Meaning.PhoneticUs)
             && m.PositionKinds.Count <= 100 && m.PositionKinds.All(VocabularyMeaningUnitEntryKinds.IsValid))
         && (request.TargetMeaning == null || request.Meanings.Any(m => m.Meaning == request.TargetMeaning));
-    private static bool UniqueProperties(JsonElement element) => element.ValueKind switch
+    internal static bool UniqueProperties(JsonElement element) => element.ValueKind switch
     {
         JsonValueKind.Object => element.EnumerateObject().Select(p => p.Name).Distinct(StringComparer.Ordinal).Count() == element.EnumerateObject().Count()
             && element.EnumerateObject().All(p => UniqueProperties(p.Value)),
         JsonValueKind.Array => element.EnumerateArray().All(UniqueProperties),
         _ => true
     };
-    private static bool ContainsCredential(JsonElement element, string key) => element.ValueKind switch
+    internal static bool ContainsCredential(JsonElement element, string key) => element.ValueKind switch
     {
         JsonValueKind.String => element.GetString()!.Contains(key, StringComparison.Ordinal),
         JsonValueKind.Array => element.EnumerateArray().Any(value => ContainsCredential(value, key)),
@@ -280,7 +280,7 @@ public sealed class OpenAiCompatiblePronunciationPreparationClient(
         var delay = header?.Delta ?? (header?.Date is { } date ? date - _time.GetUtcNow() : null);
         return delay is { } value && value > TimeSpan.Zero ? value : null;
     }
-    private static async Task<byte[]?> ReadBoundedAsync(HttpContent content, CancellationToken token)
+    internal static async Task<byte[]?> ReadBoundedAsync(HttpContent content, CancellationToken token)
     {
         if (content.Headers.ContentLength > MaximumBodyBytes) return null;
         await using var stream = await content.ReadAsStreamAsync(token);

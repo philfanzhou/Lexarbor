@@ -13,8 +13,8 @@ internal static class EnrichmentModelConfiguration
         var target = builder.Entity<EnrichmentTargetEntity>();
         target.ToTable("enrichment_target", table =>
         {
-            table.HasCheckConstraint("CK_enrichment_target_locale", "locale IN ('en-GB','en-US')");
-            table.HasCheckConstraint("CK_enrichment_target_step", "step IN ('Prepare','Fields','Audio') AND (meaning_id IS NULL OR step != 'Fields')");
+            table.HasCheckConstraint("CK_enrichment_target_locale", "(step = 'Expand' AND locale IS NULL) OR (step != 'Expand' AND locale IS NOT NULL AND locale IN ('en-GB','en-US'))");
+            table.HasCheckConstraint("CK_enrichment_target_step", "(step = 'Expand' AND meaning_id IS NOT NULL) OR (step IN ('Prepare','Fields','Audio') AND (meaning_id IS NULL OR step != 'Fields'))");
             table.HasCheckConstraint("CK_enrichment_target_version", "current_round > 0 AND epoch > 0");
         });
         target.HasKey(row => row.Id);
@@ -22,6 +22,11 @@ internal static class EnrichmentModelConfiguration
         target.Property(row => row.Step).HasConversion<string>();
         target.HasIndex(row => new { row.WordId, row.Locale, row.Step }).IsUnique().HasFilter("meaning_id IS NULL");
         target.HasIndex(row => new { row.WordId, row.MeaningId, row.Locale, row.Step }).IsUnique().HasFilter("meaning_id IS NOT NULL");
+        target.HasIndex(row => new { row.WordId, row.MeaningId }).IsUnique().HasFilter("step = 'Expand'");
+        var generated = builder.Entity<EnrichmentGeneratedWordEntity>();
+        generated.ToTable("enrichment_generated_word");
+        generated.HasKey(row => row.WordId);
+        generated.HasOne<VocabularyEntity>().WithMany().HasForeignKey(row => row.WordId).OnDelete(DeleteBehavior.Cascade);
         // Historical identities deliberately outlive vocabulary deletion.
         var round = builder.Entity<EnrichmentRoundEntity>();
         round.ToTable("enrichment_round", table =>
@@ -77,7 +82,7 @@ internal static class EnrichmentModelConfiguration
         probe.HasKey(row => row.Id);
         probe.HasOne<EnrichmentServiceEntity>().WithMany().HasForeignKey(row => row.ServiceId).OnDelete(DeleteBehavior.Cascade);
         probe.HasIndex(row => new { row.ServiceId, row.StartedAtUnixMs });
-        foreach (var entity in new[] { target.Metadata, round.Metadata, call.Metadata, wait.Metadata, discovery.Metadata, service.Metadata, probe.Metadata })
+        foreach (var entity in new[] { target.Metadata, round.Metadata, call.Metadata, wait.Metadata, discovery.Metadata, service.Metadata, probe.Metadata, generated.Metadata })
             foreach (var property in entity.GetProperties())
                 property.SetColumnName(Regex.Replace(property.Name, "([a-z0-9])([A-Z])", "$1_$2").ToLowerInvariant());
     }

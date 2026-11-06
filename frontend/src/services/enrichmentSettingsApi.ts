@@ -8,8 +8,6 @@ export const valueFields = [
   ['reviewAssistant.endpoint', '审核服务地址', 'review', 'text'],
   ['reviewAssistant.model', '审核模型', 'review', 'text'],
   ['reviewAssistant.timeoutSeconds', '审核超时（秒）', 'review', 'integer', 1, 300],
-  ['enrichment.fieldsEnabled', '启用默认字段补齐', 'text', 'boolean'],
-  ['enrichment.audioEnabled', '启用音频生成', 'tts', 'boolean'],
   ['enrichment.text.endpoint', '补齐文本服务地址', 'text', 'text'],
   ['enrichment.text.model', '补齐文本模型', 'text', 'text'],
   ['enrichment.text.timeoutSeconds', '补齐文本超时（秒）', 'text', 'integer', 1, 300],

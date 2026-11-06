@@ -226,8 +226,6 @@ Dictionary keys use dotted names, such as `enrichment.text.model`; each entry ha
     "apiKey": { "action": "replace", "value": "<review key>" }
   },
   "enrichment": {
-    "fieldsEnabled": false,
-    "audioEnabled": true,
     "text": {
       "endpoint": "https://planner.example.com/v1",
       "model": "planner-model",
@@ -249,14 +247,19 @@ All three client objects accept `endpoint`, `model`, credential `apiKey`, and
 `timeoutSeconds` (1–300, default 30). Review settings retain the existing
 `MeaningSubmissions:Ai` keys and enable advice when endpoint and model are set;
 clearing endpoint or model disables advice. Enrichment uses the separate
-`Enrichment` section. Both enrichment switches default to false. Audio-only mode
-still requires the text client's pronunciation preparation and never implies
-permission to write text fields. Each locale has its own voice and nullable speed;
+`Enrichment` section. A configured text endpoint, model and API key automatically
+activate missing IPA/POS completion and [vocabulary expansion](VocabularyExpansion.md).
+A configured speech endpoint, model and key additionally activate audio work,
+subject to text preparation, per-accent configuration and audio storage.
+No separate field/audio enable switch is required. The legacy `fieldsEnabled`
+and `audioEnabled` GET properties are derived, read-only capability indicators;
+old PUT/file/environment values are accepted for compatibility but have no effect.
+Remove a required model setting to stop its work. Existing content is retained. Each locale has its own voice and nullable speed;
 both default to empty. Incomplete configurations can be saved: a missing UK setup
 does not invalidate the US setup. Speed accepts 0.1–4 as a configuration bound;
 the actual provider/model adapter must enforce its narrower supported range and
 pronunciation capabilities. Saving configuration never directly calls a supplier. The hosted scheduler observes
-published switches and discovers missing targets automatically when enabled; no
+published model configuration and discovers work automatically; no
 manual range selection or start action is required. Missing configuration waits.
 
 Providers are `MiniMaxNative` (default model `speech-2.8-hd`) and
@@ -441,7 +444,7 @@ alone never resets exhausted steps.
 `reviewAssistant.autoReviewEnabled` is a boolean (default false), persisted as
 `MeaningSubmissions:Ai:AutoReviewEnabled`. It shares the existing ETag and dotted
 source/editable metadata. Environment/CLI overrides are read-only online. The
-switch is independent of both enrichment switches and does not reset enrichment
+switch is independent of model-driven enrichment and does not reset enrichment
 budgets or pauses. Existing manual advice remains controlled by endpoint/model.
 Incomplete automatic settings can be saved; the panel reports pause and explains
 that configuration repair resumes pending work automatically. Enabling authorizes

@@ -56,7 +56,7 @@ test('新增历史与部分成功、未排队关闭、429请求和额度分开�
 })
 
 for (const [reason, text] of [
-  ['Disabled', '生成或字段补齐已关闭'], ['ConfigurationMissing', '缺少该侧配置'],
+  ['Disabled', '生成或字段补齐已关闭'], ['ConfigurationMissing', '等待模型、口音或补充词书配置就绪'],
   ['StorageDisabled', '音频存储关闭'], ['ServicePaused', '服务暂停，等待恢复探测'],
   ['Retry', '等待下次自动尝试'], ['LeaseExpired', '执行租约已过期，等待恢复']
 ]) test(`等待 ${reason} 不显示完成或单条重试`, async ({ page }) => {
@@ -195,7 +195,7 @@ test('空列表与GET错误保持未知，连续失败有界，隐藏暂停并�
   let reads = 0, broken = false
   await page.route(/\/tasks(?:\?.*)?$/, route => { reads += 1; return broken ? json(route, null, 503) : json(route, paged([], 1, 25)) })
   await page.goto('/#/enrichment')
-  await expect(page.getByText('没有匹配的持久任务；请同时查看当前需求、关闭或未排队状态。')).toBeVisible()
+  await expect(page.getByText('没有匹配的持久任务；请同时查看当前需求、等待配置或未排队状态。')).toBeVisible()
   await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: true }); document.dispatchEvent(new Event('visibilitychange')) })
   await page.clock.fastForward(60000)
   expect(reads).toBe(1)
@@ -322,4 +322,18 @@ test('重试期间路由目标更换取消旧写入，迟到失败不能覆盖�
   await expect(page.locator('.session')).toContainText('enrichment-admin')
   await expect(page.getByLabel('单条重试结果')).toHaveCount(0)
   await expect(page.getByRole('button', { name: '刷新状态', exact: true })).toBeEnabled()
+})
+
+
+test('词汇扩展使用同一进度页，显示不限口音并可筛选详情', async ({ page }) => {
+  const row = task('expansion', { locale: null, step: 'Expand', state: 'Succeeded', missing: false, waitReason: null })
+  row.current = { ...row.current, state: 'Succeeded', requestCount: 1, consumedFailures: 0, waitReason: null, errorCode: null }
+  await setup(page, [row])
+  await page.goto('/#/enrichment')
+  const table = page.getByRole('table', { name: '补齐任务列表' })
+  await expect(table).toContainText('不限口音')
+  await expect(table).toContainText('词形与派生词扩展')
+  await page.getByLabel('步骤', { exact: true }).selectOption('Expand')
+  await page.getByRole('button', { name: '查看 lead 不限口音 词形与派生词扩展 详情', exact: true }).click()
+  await expect(page.getByRole('region', { name: '任务详情', exact: true })).toContainText('词形与派生词扩展')
 })

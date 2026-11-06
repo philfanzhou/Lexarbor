@@ -111,7 +111,7 @@ public sealed partial class PronunciationSpeechTests
         Assert.Equal(error, result.ErrorCode); Assert.Null(result.Plan); Assert.Single(f.Handler.Bodies);
         if (control == "instructions")
         {
-            await f.Publish(new() { ["Enrichment:AudioEnabled"] = "false", ["Enrichment:FieldsEnabled"] = "true" });
+            await f.Publish(new() { ["Enrichment:Tts:ApiKey"] = "", ["Enrichment:FieldsEnabled"] = "true" });
             Assert.Equal(PronunciationPreparationOutcome.Ready, (await client.PrepareAsync(request, Ct)).Outcome);
         }
     }

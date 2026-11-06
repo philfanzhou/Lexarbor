@@ -18,23 +18,23 @@ public sealed partial class EnrichmentTargetExecutorTests
     public async Task AdminReads_UnqueuedDisabledDemandsAndInheritedSpecifics_AreReadOnlyAndNeverCompleted()
     {
         await using var f = await Fixture.Create();
-        await f.Publish(new() { ["Enrichment:FieldsEnabled"] = "false", ["Enrichment:AudioEnabled"] = "false" });
+        await f.Publish(new() { ["Enrichment:Text:ApiKey"] = "" });
         var admin = new EnrichmentAdminRepository(f.Db); var c = await AdminConfig(f);
         var before = await Dump(f.Db);
         var summary = await admin.SummaryAsync(new(), c, f.Clock.Now, Ct);
-        Assert.Equal(4, summary.ApplicableTargets); Assert.Equal(0, summary.CompletedTargets);
-        Assert.Equal(4, summary.UnqueuedTargets); Assert.Equal(0, summary.PersistedTasks);
-        Assert.Equal(new EnrichmentAdminCount("Waiting", "Disabled", 4), Assert.Single(summary.Targets));
+        Assert.Equal(5, summary.ApplicableTargets); Assert.Equal(0, summary.CompletedTargets);
+        Assert.Equal(5, summary.UnqueuedTargets); Assert.Equal(0, summary.PersistedTasks);
+        Assert.Equal(new EnrichmentAdminCount("Waiting", "ConfigurationMissing", 5), Assert.Single(summary.Targets));
         Assert.Empty((await admin.ListAsync(new(), c, f.Clock.Now, Ct)).Items);
         Assert.Null(await admin.DetailAsync("unknown", 1, 2, c, f.Clock.Now, Ct));
         Assert.Equal(before, await Dump(f.Db)); Assert.Equal(0, f.Http.TextCalls); Assert.Equal(0, f.Http.SpeechCalls);
         await f.Db.Database.ExecuteSqlRawAsync("UPDATE vocabulary_meaning SET phonetic_us=char(9,160) WHERE id='meaning'", Ct);
-        Assert.Equal(4, (await admin.SummaryAsync(new(), c, f.Clock.Now, Ct)).ApplicableTargets);
+        Assert.Equal(5, (await admin.SummaryAsync(new(), c, f.Clock.Now, Ct)).ApplicableTargets);
         // A nonempty specific target is required even when its IPA equals the
         // default. Empty other-accent specifics never add demands.
         await f.Db.Database.ExecuteSqlRawAsync("UPDATE vocabulary_meaning SET phonetic_uk='liːd' WHERE id='meaning'", Ct);
         summary = await admin.SummaryAsync(new(), c, f.Clock.Now, Ct);
-        Assert.Equal(5, summary.ApplicableTargets); Assert.Equal(5, summary.UnqueuedTargets);
+        Assert.Equal(6, summary.ApplicableTargets); Assert.Equal(6, summary.UnqueuedTargets);
     }
 
     [Fact]
@@ -233,7 +233,7 @@ public sealed partial class EnrichmentTargetExecutorTests
         detail = (await admin.DetailAsync(specific.Id, 1, 10, c, f.Clock.Now, Ct))!;
         Assert.True(detail.Task.InheritsDefault); Assert.False(detail.Task.Applicable); Assert.False(detail.Task.Missing);
         Assert.Equal("Cancelled", detail.Task.State); Assert.Equal(2, detail.Task.Cleanup.Waiting);
-        var summary = await admin.SummaryAsync(new(MeaningId: "meaning"), c, f.Clock.Now, Ct);
+        var summary = await admin.SummaryAsync(new(MeaningId: "meaning", Step: "Audio"), c, f.Clock.Now, Ct);
         Assert.Equal(0, summary.ApplicableTargets); Assert.Equal(0, summary.CompletedTargets);
         Assert.Equal(EnrichmentRetryStatus.Conflict, (await f.Tasks.RetryAsync(specific.Id, detail.Task.Current.Number,
             Guid.NewGuid().ToString(), c, f.Clock.Now, Ct)).Status);

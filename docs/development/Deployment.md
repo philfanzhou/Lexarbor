@@ -315,8 +315,8 @@ SQLite deployment or exactly-once remote billing.
 The internal single-target executor can now prepare, conditionally fill missing
 default fields and generate/publish one explicit accent target. It is registered for
 the autonomous worker described below and internal callers. It adds no public
-route or normal-operation batch action. The existing default-off
-switches, administrator authorization and server-only credentials remain unchanged.
+route or normal-operation batch action. Administrator authorization and server-only credentials remain unchanged;
+activation now follows model configuration.
 See [the execution contract](../api/Audio.md#single-target-enrichment-execution).
 
 The executor itself adds no migration. Its bounded existing plan JSON preserves the full prepared
@@ -1470,10 +1470,11 @@ keeps `MeaningSubmissions:Ai` keys; enrichment uses its independent `Enrichment`
 section. Environment/command-line overrides remain read-only. Keys remain only in
 server configuration; responses expose presence, never values or fingerprints.
 
-Both enrichment switches default to false, provider/model to
-`MiniMaxNative`/`speech-2.8-hd`, and each locale's voice/speed to empty. A missing
+Enrichment capabilities start automatically from complete model configuration.
+The speech provider/model default to `MiniMaxNative`/`speech-2.8-hd`, and each
+locale's voice/speed to empty. Legacy field/audio switches are ignored. A missing
 section keeps old deployments bootable. Saving commits local configuration and performs no supplier probe. The hosted
-scheduler observes enabled switches and automatically discovers missing targets;
+scheduler observes model configuration and automatically discovers work;
 no manual start or range is needed. Audio-only configuration still requires
 pronunciation planning. Configure an explicitly supported provider/model and each
 required locale; an incomplete locale waits without blocking the other. OpenAI
@@ -1510,7 +1511,7 @@ for limits, safe result categories and required downstream pronunciation constra
 No new configuration keys, database tables, migrations or storage paths are introduced.
 
 The scheduler sends successful plans through the registered speech adapters only
-when the corresponding generation switch and configuration allow execution. Configure `https://api.minimax.io/v1` or `https://api.minimax.cn/v1`, or the explicitly
+when model configuration and dependencies allow execution. Configure `https://api.minimax.io/v1` or `https://api.minimax.cn/v1`, or the explicitly
 supported official OpenAI base `https://api.openai.com/v1`, plus each locale's voice
 and speed. See the [speech support matrix](../api/Audio.md#speech-adapters) before
 choosing a model: MiniMax uses complete-target IPA controls and accepts speed 0.5–2;
@@ -1612,7 +1613,7 @@ IDs, default/specific phonetics, bindings, source revisions, upload receipts and
 queue history are preserved; the migration contacts no provider or S3 service.
 There is no new setting, directory, public editor or running generator in this
 foundation. The shared edit boundary is available to the later administrator
-editor and executor/scheduler; both enrichment switches remain default-off.
+editor and executor/scheduler; activation now follows model configuration; see the vocabulary expansion upgrade below.
 
 A real specific edit immediately releases only the matching old specific binding,
 records exact cleanup authority and persists preparation/audio work in one SQLite
@@ -1644,18 +1645,17 @@ backup. Neither Down nor image rollback reconstructs deleted MP3 objects. See
 `AddEnrichmentScheduler` adds durable discovery cursors, shared service gates and
 independent probe history to `/app/data/vocabulary.db`; existing catalog/audio
 IDs, task rounds, failure/request counts and receipts are preserved. Configuration
-initialization and database startup finish before hosted work starts. Both
-`Enrichment:FieldsEnabled` and `Enrichment:AudioEnabled` remain false by default;
-legacy deployments need no new configuration and make no automatic AI/TTS calls.
-When enabled, approvals/imports/edits wake a bounded queue only after commit, and
+initialization and database startup finish before hosted work starts. A configured text model starts work automatically; speech also needs a configured
+TTS model, per-accent settings and storage. Legacy `Enrichment:FieldsEnabled` and
+`Enrichment:AudioEnabled` values no longer gate work. With models configured, approvals/imports/edits wake a bounded queue only after commit, and
 periodic bounded discovery covers lost notifications, historical work and R03
 specific regeneration. No manual scope selection or full-library start is needed.
 
 Existing administrator-only settings control concurrency (default 1, range 1–8),
 discovery batch size (20) and scan interval (30 seconds). New arrivals have priority
 with reserved historical discovery/execution capacity. Pending work is retained
-when generation is disabled; it resumes on enablement without resetting budgets.
-With only fields enabled, audio targets wait; with storage disabled, field completion
+when a model is unconfigured; it resumes after configuration is restored.
+With only the text model configured, audio targets wait; with storage disabled, field completion
 can continue independently while audio-only work and TTS probes wait.
 
 The default service policy is five consecutive transport/timeout/5xx failures before
@@ -1663,7 +1663,7 @@ pause, independent probes at 60 seconds doubling to 600 seconds, and throttling 
 8 seconds doubling to 120 seconds (longer `Retry-After` wins). These existing
 `Enrichment` settings remain configurable. UK/US share one TTS service gate;
 review AI and enrichment text are independent. A relevant service configuration
-correction releases a blocked service, while accent voice/speed and enable switches
+correction releases a blocked service, while accent voice/speed and legacy switch values
 do not reset shared outage state. An internal durable TTS service version is stored
 with the existing private version metadata; no credential or digest is exposed.
 
@@ -1844,3 +1844,45 @@ compatible Lexarbor first, then the updated Study consumer. This task performs
 no production deployment and does not claim an image tag is already deployed.
 Rolling back the application removes only the added routes; no data rollback
 or migration is needed, and the three legacy question routes remain compatible.
+
+### Vocabulary expansion and model-driven activation upgrade
+
+`AddVocabularyExpansion` rebuilds `enrichment_target` to allow accent-free `Expand`
+tasks and adds `enrichment_generated_word` provenance. Existing target IDs, rounds,
+calls, waits, catalog entries and audio receipts are preserved. The rebuild copies
+dependent task history to temporary backup tables and restores it with the original
+IDs, values and constraints. Foreign-key enforcement stays enabled. The rebuilt
+table, restored history, deletion triggers and EF migration-version record commit
+in the same transaction, so a failed upgrade can restart without a partial schema.
+
+The tested release baseline is `v0.1.8` (commit
+`55ab685939b065eaa4b8940a7f96ceb78bdd3a5b`), whose last migration is
+`20261102063605_AddMeaningSubmissionReviewChecks`. Startup applies
+`AddVocabularyRelations` followed by `AddVocabularyExpansion`; no export/import,
+manual SQL or empty replacement database is needed. Regression tests populate all
+24 release application tables and compare every persisted column and row after
+upgrade and repeated startup, including sessions, encrypted key records, audit
+logs, audio receipts, active leases and review history. They also inject failures
+after the table rebuild and immediately before recording the migration version,
+verify rollback, and retry successfully. Migration does not rewrite configuration
+files or remote audio objects. Keep the same volume, root key and storage settings.
+
+**Behavior change:** complete `Enrichment:Text` configuration now automatically
+starts field completion and word expansion, even if old `FieldsEnabled` or
+`AudioEnabled` values are false. Speech additionally requires its own complete
+configuration, accent settings and storage. No extra enable switch or manual start
+is needed. The independent submission automatic-review policy is unchanged.
+
+Expansion publishes new words only into the existing, enabled
+`MeaningSubmissions:BookId` supplement. Missing/disabled destination waits without
+calling the model and does not block other enrichment. Existing words and
+relations are reused without overwriting their content. Generated words receive
+normal IPA/POS/audio work but do not recursively expand. Students must select
+the supplement to include its new entries in their learning scope.
+
+Back up `/app/data` and the matching private audio objects before upgrading.
+An explicit Down to `20261105011010_AddVocabularyRelations` deletes expansion task
+history and generated-word provenance, retains published words/meanings/relations,
+and preserves pronunciation tasks. Re-upgrading after Down can analyze those words
+again because provenance was removed. Restore the matching backup for a complete
+rollback of published content. Do not start an older image against the new schema.

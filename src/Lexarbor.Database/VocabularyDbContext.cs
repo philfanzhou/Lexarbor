@@ -63,6 +63,7 @@ public class VocabularyDbContext : DbContext
 
     public DbSet<AudioInvalidationEntity> AudioInvalidations { get; set; } = null!;
 
+    public DbSet<EnrichmentGeneratedWordEntity> EnrichmentGeneratedWords { get; set; } = null!;
     public DbSet<EnrichmentTargetEntity> EnrichmentTargets { get; set; } = null!;
     public DbSet<EnrichmentRoundEntity> EnrichmentRounds { get; set; } = null!;
     public DbSet<EnrichmentWaitEntity> EnrichmentWaits { get; set; } = null!;

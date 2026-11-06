@@ -72,7 +72,7 @@ public sealed class EnrichmentAdminRepository(VocabularyDbContext context) : IEn
         if (filter.Step != null) query = query.Where(r => r.Step == filter.Step);
         return query;
     }
-    private IQueryable<AudioInvalidationEntity> Cleanup(EnrichmentAdminRow row) => context.AudioInvalidations.AsNoTracking()
+    private IQueryable<AudioInvalidationEntity> Cleanup(EnrichmentAdminRow row) => row.Locale == null ? context.AudioInvalidations.Where(_ => false) : context.AudioInvalidations.AsNoTracking()
         .Where(i => row.MeaningId != null && i.WordId == row.WordId && i.MeaningId == row.MeaningId && i.Locale == AudioLocales.FromCode(row.Locale));
 
     private async Task<EnrichmentAdminTask> TaskAsync(EnrichmentAdminRow row, CancellationToken token)
@@ -95,6 +95,7 @@ public sealed class EnrichmentAdminRepository(VocabularyDbContext context) : IEn
     { "audio.invalidation_referenced" => "audio.invalidation_referenced", "audio.invalidation_expired" => "audio.invalidation_expired", _ => "audio.invalidation_failed" };
     private static string? SafeError(string? code) => code == null ? null : code switch
     {
+        "expansion.invalid_response" or "expansion.destination_changed" or "expansion.outcome_unknown" or "expansion.input_too_large" => code,
         "text.phonetic_constraint_mismatch" or "text.template_unexpanded" or "text.pronunciation_control_unsupported" => code,
         "preparation.failed" or "fields.candidates_missing" or "fields.equivalent_meaning" or "fields.plan_too_large"
             or "text.outcome_unknown" or "tts.outcome_unknown" => code,

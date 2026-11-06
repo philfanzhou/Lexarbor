@@ -151,6 +151,8 @@ public sealed partial class EnrichmentTaskRepository(VocabularyDbContext context
 
     public Task<bool> SavePlanAsync(EnrichmentExecutionGuard guard, EnrichmentPlan plan, long now, CancellationToken cancellationToken)
     {
+        if (plan.Expansion is { } expansion && !VocabularyExpansionValidation.Valid(expansion))
+            throw new ArgumentException("Invalid vocabulary expansion plan.", nameof(plan));
         Bounded(plan.SpokenText, 4096); Optional(plan.PronunciationHint, 2048); Optional(plan.Phonetic, 512);
         if (plan.InferredEntryKind is not (null or "word" or "phrase")) throw new ArgumentException("Enrichment entry kind is invalid.", nameof(plan));
         if (plan.Preparation is { } preparation)
@@ -316,11 +318,20 @@ public sealed partial class EnrichmentTaskRepository(VocabularyDbContext context
     }
 
     public Task<bool> CompleteAsync(EnrichmentExecutionGuard guard, long now, CancellationToken cancellationToken) =>
-        WriteAsync(async () => await ValidAsync(guard, now) && !await HasOpenCallAsync(guard)
+        WriteAsync(() => CompleteCoreAsync(guard, now), cancellationToken);
+
+    public Task<bool> CompleteInTransactionAsync(EnrichmentExecutionGuard guard, long now, CancellationToken token)
+    {
+        RequireTransaction(token);
+        return CompleteCoreAsync(guard, now);
+    }
+
+    private async Task<bool> CompleteCoreAsync(EnrichmentExecutionGuard guard, long now) =>
+        await ValidAsync(guard, now) && !await HasOpenCallAsync(guard)
             && await Owned(guard, Now(now)).ExecuteUpdateAsync(set => set.SetProperty(row => row.State, EnrichmentState.Succeeded)
                 .SetProperty(row => row.WaitReason, (EnrichmentWaitReason?)null).SetProperty(row => row.ErrorCode, (string?)null)
                 .SetProperty(row => row.NextAttemptAtUnixMs, (long?)null).SetProperty(row => row.LeaseOwner, (string?)null)
-                .SetProperty(row => row.LeaseExpiresAtUnixMs, (long?)null).SetProperty(row => row.UpdatedAtUnixMs, Now(now))) == 1, cancellationToken);
+                .SetProperty(row => row.LeaseExpiresAtUnixMs, (long?)null).SetProperty(row => row.UpdatedAtUnixMs, Now(now))) == 1;
 
     public async Task<bool> ValidateInTransactionAsync(EnrichmentExecutionGuard guard, long now, CancellationToken cancellationToken)
     {
@@ -366,6 +377,8 @@ public sealed partial class EnrichmentTaskRepository(VocabularyDbContext context
 
     private async Task<EnrichmentInputVersion?> InputAsync(EnrichmentTargetKey key, CancellationToken token)
     {
+        if (key.Step == EnrichmentStep.Expand)
+            return (await new VocabularyExpansionRepository(context).ReadAsync(key, token))?.Version;
         var word = await context.Vocabularies.AsNoTracking().SingleOrDefaultAsync(row => row.Id == key.WordId, token);
         if (word == null) return null;
         AudioMeaningInput? meaning = null;
@@ -376,7 +389,7 @@ public sealed partial class EnrichmentTaskRepository(VocabularyDbContext context
                 || string.IsNullOrWhiteSpace(key.Locale == AudioLocale.EnGb ? row.PhoneticUk : row.PhoneticUs)) return null;
             meaning = new(row.Id, row.PartOfSpeech, row.Meaning, row.PhoneticUk, row.PhoneticUs);
         }
-        var source = AudioSelectionService.ComputeRevision(AudioSelectionService.GetInput(new(word.Id, word.Word, word.PhoneticUk, word.PhoneticUs), meaning, key.Locale));
+        var source = AudioSelectionService.ComputeRevision(AudioSelectionService.GetInput(new(word.Id, word.Word, word.PhoneticUk, word.PhoneticUs), meaning, key.Locale!.Value));
         var own = key.Step != EnrichmentStep.Audio ? null : await context.VocabularyAudioBindings.AsNoTracking().Where(row => row.WordId == key.WordId
             && row.MeaningId == key.MeaningId && row.Locale == key.Locale).Select(row => row.AssetId).SingleOrDefaultAsync(token);
         // Preparation/field plans also depend on explicit position classification
@@ -498,7 +511,10 @@ public sealed partial class EnrichmentTaskRepository(VocabularyDbContext context
     private static void ValidateOptions(EnrichmentTargetKey key, string version, int budget, string? retryKey)
     {
         Bounded(key.WordId, 128); if (key.MeaningId != null) Bounded(key.MeaningId, 128);
-        _ = key.Locale.ToCode(); if (!Enum.IsDefined(key.Step)) throw new ArgumentOutOfRangeException(nameof(key));
+        if (key.Step == EnrichmentStep.Expand)
+        { if (key.Locale != null || key.MeaningId == null) throw new ArgumentException("Expansion requires a sense and no accent."); }
+        else { if (key.Locale == null) throw new ArgumentException("Pronunciation requires an accent."); _ = key.Locale.Value.ToCode(); }
+        if (!Enum.IsDefined(key.Step)) throw new ArgumentOutOfRangeException(nameof(key));
         Bounded(version, 128); if (budget is < 1 or > 20) throw new ArgumentOutOfRangeException(nameof(budget));
         if (retryKey != null) Uuid(retryKey);
     }

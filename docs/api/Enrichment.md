@@ -20,11 +20,11 @@ All successful responses use `{ "success": true, "data": ... }`. Errors use
   identities whose current target no longer applies.
 - `GET /admin/enrichment/tasks/{id}`: current task plus independently paged
   `rounds`, `calls`, `waits`, and `cleanup` histories.
-- `GET /admin/enrichment/summary`: current applicable field/audio requirements,
+- `GET /admin/enrichment/summary`: current applicable field/audio/expansion requirements,
   separate persisted-task count, and current text/TTS service health.
 
 List and summary accept exact `wordId`, `meaningId`, `locale` (`en-GB`/`en-US`),
-`step` (`Prepare`/`Fields`/`Audio`), and projected `state` filters. State values are
+`step` (`Prepare`/`Fields`/`Audio`/`Expand`), and projected `state` filters. State values are
 `Pending`, `Running`, `Waiting`, `Succeeded`, `Failed`, and `Cancelled`. List paging
 uses `page` (default 1, maximum 1,000,000) and `size` (default 25, maximum 100).
 The stable order is word ID, meaning ID, locale, step, then target ID. Detail uses
@@ -38,6 +38,15 @@ A response captures configuration once and reads all database totals, page rows,
 current states, histories, and cleanup associations in one deferred SQLite snapshot.
 GET performs no discovery, queue creation, claim, service probe, or counter update.
 Separate requests can observe later commits; pages are not a cross-request cursor.
+
+`Expand` is one source-meaning task with `locale=null`; it is not an accent-specific
+pronunciation task. Expansion requirements exclude explicit phrase positions and
+words created by expansion. A successful empty result is complete. Source edits
+are detected by durable discovery and create a new round before regeneration.
+Use `step=Audio` when counting only a meaning's specific-audio requirements.
+Expansion shares text service health and the existing per-step retry API; missing
+or disabled `MeaningSubmissions:BookId` waits without model calls. See
+[Vocabulary expansion](VocabularyExpansion.md) for publication and provenance.
 
 Task rows contain `id`, `wordId`, `word`, `meaningId`, `meaning`, `locale`, `step`,
 `applicable`, `missing`, `inheritsDefault`, projected `state`/`waitReason`, `current`
@@ -57,8 +66,8 @@ each default audio side, and each nonempty specific phonetic's own audio side.
 Explicit phrase-only entries have no field requirements. Empty specifics inherit
 and do not add missing targets; legacy bindings do not turn inheritance into
 specific success. Same-phonetic default playback fallback does not satisfy a
-missing specific own binding. An unqueued disabled deployment remains missing
-and waiting (`Disabled`), never completed. Counts of preparation tasks and
+missing specific own binding. An unconfigured deployment remains missing
+and waiting (`ConfigurationMissing`), never completed. Counts of preparation tasks and
 requirements have different denominators and must not be added together.
 
 Wait reasons include `Disabled`, `ConfigurationMissing`, `StorageDisabled`,

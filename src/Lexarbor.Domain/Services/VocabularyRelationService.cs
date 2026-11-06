@@ -129,7 +129,7 @@ public sealed class VocabularyRelationService(IVocabularyRelationRepository repo
         });
     }
 
-    private async Task<VocabularyRelationCreation> CreateInsideAsync(VocabularyRelationInput input, string origin, string? reference)
+    internal async Task<VocabularyRelationCreation> CreateInsideAsync(VocabularyRelationInput input, string origin, string? reference)
     {
         await RequireWordsAsync(input);
         var current = await repository.FindAsync(input.SourceWordId, input.TargetWordId, input.Type, CancellationToken.None);

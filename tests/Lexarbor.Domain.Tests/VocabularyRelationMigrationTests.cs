@@ -30,7 +30,7 @@ public sealed class VocabularyRelationMigrationTests
         var words = await Rows(connection, "SELECT * FROM vocabulary ORDER BY id");
         var meanings = await Rows(connection, "SELECT * FROM vocabulary_meaning");
         var schema = await Rows(connection, "SELECT type,name,sql FROM sqlite_master WHERE tbl_name NOT IN ('vocabulary_relation','__EFMigrationsHistory') ORDER BY name");
-        await migrator.MigrateAsync(cancellationToken: Ct);
+        await migrator.MigrateAsync("20261105011010_AddVocabularyRelations", Ct);
         Assert.False(db.Database.HasPendingModelChanges());
         Assert.Empty(await db.VocabularyRelations.ToListAsync(Ct));
         Assert.Equal(words, await Rows(connection, "SELECT * FROM vocabulary ORDER BY id"));
@@ -65,7 +65,7 @@ public sealed class VocabularyRelationMigrationTests
         Assert.Equal("[]", await Rows(connection, "SELECT name FROM sqlite_master WHERE tbl_name='vocabulary_relation'"));
         Assert.Equal(words, await Rows(connection, "SELECT * FROM vocabulary ORDER BY id"));
         Assert.Equal(meanings, await Rows(connection, "SELECT * FROM vocabulary_meaning"));
-        await migrator.MigrateAsync(cancellationToken: Ct);
+        await migrator.MigrateAsync("20261105011010_AddVocabularyRelations", Ct);
         Assert.Empty(await db.VocabularyRelations.ToListAsync(Ct));
     }
 

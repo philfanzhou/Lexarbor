@@ -3,7 +3,9 @@
 Relations connect existing global `vocabulary` rows, independently of vocabulary
 books. One directed row stores `sourceWordId -> targetWordId / type`. Reading
 either endpoint returns the same relation ID; no inverse row is created.
-Relations do not add meanings, book memberships, pronunciation, or quiz options.
+Relations alone do not add meanings, book memberships, pronunciation, or quiz options.
+[Automatic expansion](VocabularyExpansion.md) can create new words and supplement
+meanings together with generated relations in one transaction.
 
 These are administrator APIs. They use the configured administrator role and the
 existing Bearer/session authentication boundary. Session-authenticated writes

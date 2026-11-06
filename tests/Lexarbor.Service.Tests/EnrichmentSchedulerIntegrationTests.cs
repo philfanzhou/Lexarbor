@@ -61,24 +61,24 @@ public sealed partial class EnrichmentTargetExecutorTests
         f.Clock.Now += 30_000;
         await worker.RunBatchAsync(Ct);
         Assert.Equal(3, f.Http.SpeechCalls); Assert.Equal(2, await f.Db.VocabularyAudioBindings.CountAsync(Ct));
-        var specific = await f.Db.EnrichmentTargets.AsNoTracking().Where(t => t.MeaningId == "meaning").ToArrayAsync(Ct);
+        var specific = await f.Db.EnrichmentTargets.AsNoTracking().Where(t => t.MeaningId == "meaning" && t.Step != EnrichmentStep.Expand).ToArrayAsync(Ct);
         foreach (var target in specific)
             Assert.DoesNotContain(await f.Db.EnrichmentRounds.AsNoTracking().Where(r => r.TargetId == target.Id && r.Number == target.CurrentRound).ToArrayAsync(Ct),
                 r => r.State is EnrichmentState.Pending or EnrichmentState.Running or EnrichmentState.Waiting);
     }
 
     [Fact]
-    public async Task DisabledAndMissingSide_ResumeSameRoundAfterRepair_WithoutAffectingSuccessfulAccent()
+    public async Task MissingModelAndAccent_ResumeAfterRepair_WithoutAffectingSuccessfulAccent()
     {
         await using var f = await Fixture.Create(fields: false, shared: true);
-        await f.Publish(new() { ["Enrichment:AudioEnabled"] = "false" });
+        await f.Publish(new() { ["Enrichment:Tts:ApiKey"] = "" });
         var uk = (await f.Run(Key()))!;
-        Assert.Equal(EnrichmentWaitReason.Disabled, Round(uk).WaitReason);
+        Assert.Equal(EnrichmentWaitReason.ConfigurationMissing, Round(uk).WaitReason);
         Assert.Equal(0, f.Http.TextCalls); Assert.Equal(0, f.Http.SpeechCalls);
-        await f.Publish(new() { ["Enrichment:AudioEnabled"] = "true", ["Enrichment:Tts:Us:Voice"] = "" });
+        await f.Publish(new() { ["Enrichment:Tts:ApiKey"] = "synthetic-speech", ["Enrichment:Tts:Us:Voice"] = "" });
         f.Clock.Now = Round(uk).NextAttemptAtUnixMs!.Value;
         uk = (await f.Run(Key()))!;
-        Assert.Equal(EnrichmentState.Succeeded, Round(uk).State); Assert.Equal(1, uk.CurrentRound);
+        Assert.Equal(EnrichmentState.Succeeded, Round(uk).State); Assert.Equal(2, uk.CurrentRound);
         var us = (await f.Run(Key(locale: AudioLocale.EnUs)))!;
         Assert.Equal(EnrichmentWaitReason.ConfigurationMissing, Round(us).WaitReason);
         Assert.Equal(0, Round(us).ConsumedFailures); Assert.Equal(0, Round(us).RequestCount);
@@ -87,7 +87,7 @@ public sealed partial class EnrichmentTargetExecutorTests
         Assert.Equal(EnrichmentState.Succeeded, Round(us).State);
         Assert.Equal(2, f.Http.SpeechCalls); Assert.Equal(2, f.Store.Puts);
         uk = (await f.Run(Key()))!;
-        Assert.Equal(1, uk.CurrentRound); Assert.Equal(1, Round(uk).RequestCount); Assert.Equal(2, f.Http.SpeechCalls);
+        Assert.Equal(2, uk.CurrentRound); Assert.Equal(1, Round(uk).RequestCount); Assert.Equal(2, f.Http.SpeechCalls);
     }
 
     [Fact]
