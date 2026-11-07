@@ -912,6 +912,14 @@ outcomes, adaptive batch size and the shared service outcome commit in one short
 transaction. Publication remains independently guarded by the existing catalog
 revision and lease. No raw provider envelope or credential is stored.
 
+A busy/locked completion transaction is retried at most twice after rollback,
+using the same validated response and member guards. No additional physical
+request is sent, and the existing completion marker prevents duplicate accounting.
+Successful requests persist a gradually increasing `next_size`, capped at the
+initial limit for their kind, so single-item fallback does not become permanent.
+These recovery changes require no schema migration or journal-mode change. See
+[deployment behavior](../development/Deployment.md#automatic-text-batching-upgrade).
+
 A crash before that transaction leaves an explicitly unconfirmed request; an
 expired target/review lease recovers through its existing retry mechanism. A
 provider may have processed such a request, so exactly-once remote execution is

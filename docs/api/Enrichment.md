@@ -191,3 +191,9 @@ requests still running or lacking a confirmed outcome. These counters do not
 represent unique words, published items, provider billing, or token savings.
 Older clients may ignore this additive field; the admin client tolerates its
 absence when connected to an older server.
+
+After a fully valid response, the next batch limit grows by one up to its initial
+limit (six for preparation/review, three for expansion). Invalid/partial responses
+and timeouts still reduce it. Local retries of a busy completion transaction reuse
+the same response and do not add provider requests or duplicate completed members.
+Unconfirmed historical requests remain included in `unknown`.

@@ -89,7 +89,7 @@ public sealed class EnrichmentTargetExecutor(IEnrichmentTaskRepository tasks, IE
         {
             if (preparedRound?.State == EnrichmentState.Failed)
                 await tasks.StopAsync(guard, "preparation.failed", Now, token);
-            else return await WaitAsync(guard, EnrichmentWaitReason.PreparationPending, 30_000, token);
+            else return await WaitAsync(guard, EnrichmentWaitReason.PreparationPending, 120_000, token);
             return await GetAsync(task.Id, token);
         }
         if (task.Target.Step == EnrichmentStep.Fields)

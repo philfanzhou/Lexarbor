@@ -21,6 +21,10 @@ public sealed class AiTextBatchClient(IHttpClientFactory clients, TimeProvider c
         "The result object for each item must obey these rules:\n";
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
+    internal static int NextSize(int current, int initial, string outcome, string? errorCode) =>
+        outcome is "Invalid" or "Partial" || errorCode == "batch.timeout" ? Math.Max(1, current / 2)
+        : outcome == "Ready" ? Math.Min(initial, current + 1) : current;
+
     internal static byte[] Body<T>(EnrichmentClientSettings settings, string instructions, IReadOnlyList<AiTextItem<T>> items) =>
         JsonSerializer.SerializeToUtf8Bytes(new
         {

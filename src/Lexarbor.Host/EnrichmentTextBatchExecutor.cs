@@ -11,7 +11,8 @@ namespace Lexarbor.Host;
 public sealed class EnrichmentTextBatchExecutor(IEnrichmentTaskRepository tasks, IEnrichmentExecutionRepository catalog,
     IVocabularyExpansionRepository expansions, IVocabularyBookRepository books, IAiRequestBatchRepository batches,
     AiTextBatchClient client, EnrichmentServiceGate gate, EnrichmentRuntimeConfiguration runtime,
-    MeaningSubmissionSettings submissions, IAudioUploadOperationFactory storage, TimeProvider clock)
+    MeaningSubmissionSettings submissions, IAudioUploadOperationFactory storage, TimeProvider clock,
+    ILogger<EnrichmentTextBatchExecutor>? logger = null)
 {
     private sealed record Work(EnrichmentTask Task, AiTextItem<AiBatchResult> Item);
     private long Now => clock.GetUtcNow().ToUnixTimeMilliseconds();
@@ -73,7 +74,8 @@ public sealed class EnrichmentTextBatchExecutor(IEnrichmentTaskRepository tasks,
         {
             var kind = group.Key.ToString();
             var instructions = group.Key == EnrichmentStep.Expand ? VocabularyExpansionClient.Instructions : OpenAiCompatiblePronunciationPreparationClient.Instructions;
-            var limit = await batches.LimitAsync(kind, snapshot.TextVersion!, group.Key == EnrichmentStep.Expand ? 3 : 6, token);
+            var initial = group.Key == EnrichmentStep.Expand ? 3 : 6;
+            var limit = await batches.LimitAsync(kind, snapshot.TextVersion!, initial, token);
             var queue = group.ToArray();
             for (var index = 0; index < queue.Length;)
             {
@@ -90,27 +92,52 @@ public sealed class EnrichmentTextBatchExecutor(IEnrichmentTaskRepository tasks,
                 if (runtime.Current.TextVersion != snapshot.TextVersion) return selected;
                 var service = await gate.EnterAsync("text", false, token);
                 if (service.LeaseId == null) return selected;
-                var members = new List<AiBatchMember>();
-                foreach (var item in chunk)
+                var completed = false;
+                AiTextResult<AiBatchResult>? response = null;
+                try
                 {
-                    if (item.Task.Rounds.Single(r => r.Number == item.Task.CurrentRound).ConfigurationVersion
-                        != EnrichmentTargetExecutor.ConfigurationVersion(item.Task.Target, runtime.Current)) continue;
-                    var guard = await tasks.ClaimAsync(item.Task.Id, "enrichment-text-batch", Now, Now + 900_000, token);
-                    if (guard != null) members.Add(new(item.Item.Id, guard));
+                    var members = new List<AiBatchMember>();
+                    foreach (var item in chunk)
+                    {
+                        if (item.Task.Rounds.Single(r => r.Number == item.Task.CurrentRound).ConfigurationVersion
+                            != EnrichmentTargetExecutor.ConfigurationVersion(item.Task.Target, runtime.Current)) continue;
+                        var guard = await tasks.ClaimAsync(item.Task.Id, "enrichment-text-batch", Now, Now + 900_000, token);
+                        if (guard != null) members.Add(new(item.Item.Id, guard));
+                    }
+                    var receipt = members.Count == 0 ? null : await batches.BeginAsync(kind, snapshot.TextVersion!, members, Now, token);
+                    if (receipt == null) continue;
+                    var ids = receipt.Members.Select(m => m.Id).ToHashSet(StringComparer.Ordinal);
+                    response = await client.SendAsync(snapshot.Enrichment.Text, instructions, chunk.Where(w => ids.Contains(w.Item.Id)).Select(w => w.Item).ToArray(), token);
+                    var valid = response.Items.Values.Count(r => r.Plan != null);
+                    var outcome = response.Outcome == "Ready" && valid != receipt.Members.Count ? "Partial" : response.Outcome;
+                    limit = AiTextBatchClient.NextSize(limit, initial, outcome, response.ErrorCode);
+                    var settings = snapshot.Enrichment;
+                    var retryAt = Now + Math.Max(1000, (long)(response.RetryAfter?.TotalMilliseconds ?? (outcome == "ServiceFailure" ? 30000 : 1000)));
+                    await batches.CompleteAsync(receipt, response.Items.Values.ToArray(), outcome, response.ErrorCode, limit, Now, retryAt,
+                        CancellationToken.None, service, new(settings.ServiceFailureThreshold, settings.ServicePauseSeconds,
+                            settings.MaxServicePauseSeconds, settings.ThrottleInitialSeconds, settings.ThrottleMaxSeconds));
+                    completed = true;
+                    if (outcome is "Throttled" or "ServiceFailure" or "Rejected") return selected;
                 }
-                var receipt = members.Count == 0 ? null : await batches.BeginAsync(kind, snapshot.TextVersion!, members, Now, token);
-                if (receipt == null) { await gate.FinishAsync(service, "Superseded", null, false, null, token); continue; }
-                var ids = receipt.Members.Select(m => m.Id).ToHashSet(StringComparer.Ordinal);
-                var response = await client.SendAsync(snapshot.Enrichment.Text, instructions, chunk.Where(w => ids.Contains(w.Item.Id)).Select(w => w.Item).ToArray(), token);
-                var valid = response.Items.Values.Count(r => r.Plan != null);
-                var outcome = response.Outcome == "Ready" && valid != receipt.Members.Count ? "Partial" : response.Outcome;
-                if (outcome is "Invalid" or "Partial" || response.ErrorCode == "batch.timeout") limit = Math.Max(1, limit / 2);
-                var settings = snapshot.Enrichment;
-                var retryAt = Now + Math.Max(1000, (long)(response.RetryAfter?.TotalMilliseconds ?? (outcome == "ServiceFailure" ? 30000 : 1000)));
-                await batches.CompleteAsync(receipt, response.Items.Values.ToArray(), outcome, response.ErrorCode, limit, Now, retryAt,
-                    CancellationToken.None, service, new(settings.ServiceFailureThreshold, settings.ServicePauseSeconds,
-                        settings.MaxServicePauseSeconds, settings.ThrottleInitialSeconds, settings.ThrottleMaxSeconds));
-                if (outcome is "Throttled" or "ServiceFailure" or "Rejected") return selected;
+                finally
+                {
+                    // Completion normally releases the service atomically. Any
+                    // earlier exception/cancellation still owns a lease to release.
+                    if (!completed)
+                    {
+                        try
+                        {
+                            await gate.FinishAsync(service, response?.Outcome ?? "Superseded", response?.ErrorCode,
+                                response != null, response?.RetryAfter, CancellationToken.None);
+                        }
+                        catch (Exception)
+                        {
+                            // Keep the original failure; expiry remains the fallback.
+                            // Never log provider payloads or connection details.
+                            logger?.LogWarning("Text batch service lease cleanup failed; the lease will expire.");
+                        }
+                    }
+                }
             }
         }
         return selected;

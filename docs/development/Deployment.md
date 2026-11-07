@@ -1901,9 +1901,30 @@ independent words per request, expansion at three source senses, and automatic
 submission review at six submissions. Existing automatic-review authorization
 still applies. Inputs and responses are bounded to 64 KiB. Incomplete or invalid
 responses and timeouts reduce subsequent batches for that task kind and model
-configuration, down to the original single-item request schema. A configuration
-change starts a fresh batch-size history. Existing request timeouts remain in
-force. Single pending items are dispatched without waiting for a full batch.
+configuration, down to the original single-item request schema. Each fully valid
+successful request increases the next limit by one, up to the initial limit for
+that kind, including after a restart. Throttling, rejection and non-timeout service
+failures do not increase it. A configuration change starts a fresh batch-size
+history. Existing request timeouts remain in force. Single pending items are
+dispatched without waiting for a full batch.
+
+Text and TTS service leases cover the configured provider timeout plus 60 seconds
+for staging and completion. Text batch completion retries a rolled-back busy or
+locked SQLite transaction at most twice, with 100/200 ms delays outside the writer
+lock. It reuses the validated response and original member guards; it never sends
+another provider request or charges the same completion twice. On cancellation or
+failure anywhere after service admission, the executor independently attempts to
+release that service lease. A received provider response still determines service
+throttling/failure state; a local persistence error is not a provider failure.
+If cleanup also fails, lease expiry remains the fallback. Unfinished calls retain
+the existing target-lease recovery path; historical unknown batches remain visible
+in statistics rather than being rewritten as successful.
+
+Fields and audio targets waiting for preparation retry after two minutes instead
+of 30 seconds. This reduces dependency-wait writes; once preparation succeeds,
+dependent work can resume on its next due attempt. The short retry for a changed
+preparation configuration remains one second. No schema migration, manual queue
+reset, journal-mode change or new setting is required for these recovery changes.
 
 Due work drains continuously between discovery sweeps. TTS retains one audio file
 per request and uses the existing `Enrichment:Concurrency` limit (1–8), subject to

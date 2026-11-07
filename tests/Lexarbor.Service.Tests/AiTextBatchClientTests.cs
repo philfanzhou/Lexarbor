@@ -57,6 +57,22 @@ public sealed class AiTextBatchClientTests
         Assert.Equal("Throttled", (await client.SendAsync(Settings, "rules", [Item("a"), Item("b")], Ct)).Outcome);
     }
 
+    [Theory]
+    [InlineData(1, 6, "Ready", null, 2)]
+    [InlineData(6, 6, "Ready", null, 6)]
+    [InlineData(3, 3, "Ready", null, 3)]
+    [InlineData(6, 6, "Partial", null, 3)]
+    [InlineData(3, 6, "Invalid", null, 1)]
+    [InlineData(1, 6, "Invalid", null, 1)]
+    [InlineData(6, 6, "ServiceFailure", "batch.timeout", 3)]
+    [InlineData(2, 6, "ServiceFailure", "batch.connection_failed", 2)]
+    [InlineData(2, 6, "Throttled", null, 2)]
+    [InlineData(2, 6, "Rejected", null, 2)]
+    public void AdaptiveSize_RecoversGradually_AndRetainsFailureBackoff(int current, int initial, string outcome, string? error, int expected)
+    {
+        Assert.Equal(expected, AiTextBatchClient.NextSize(current, initial, outcome, error));
+    }
+
     private sealed class Factory(string content) : HttpMessageHandler, IHttpClientFactory
     {
         public int Calls; public string Finish = "stop"; public string? Instructions, Prompt;

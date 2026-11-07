@@ -66,7 +66,7 @@ public sealed class MeaningSubmissionReviewBatchExecutor(IServiceScopeFactory sc
                         pending.Where(e => admitted.Contains(e.Lease.AttemptId)).Select(e => e.Item!).ToArray(), operation.Token);
                     var valid = response.Items.Values.Count(r => r.Review != null);
                     var outcome = response.Outcome == "Ready" && valid != receipt.Members.Count ? "Partial" : response.Outcome;
-                    var next = outcome is "Partial" or "Invalid" || response.ErrorCode == "batch.timeout" ? Math.Max(1, limit / 2) : limit;
+                    var next = AiTextBatchClient.NextSize(limit, 6, outcome, response.ErrorCode);
                     await batches.CompleteAsync(receipt, response.Items.Select(p => new AiBatchResult(p.Key, Review: p.Value.Review,
                         ErrorCode: p.Value.FailureCode)).ToArray(), outcome, response.ErrorCode, next, Now, null, CancellationToken.None);
                 }

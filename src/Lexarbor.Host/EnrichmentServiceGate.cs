@@ -27,7 +27,11 @@ public sealed class EnrichmentServiceGate(IEnrichmentSchedulerRepository reposit
     public Task<EnrichmentServiceAdmission> EnterAsync(string service, bool probe, CancellationToken token)
     {
         var snapshot = runtime.Current;
-        return repository.EnterServiceAsync(Identity(service, snapshot), Version(service, snapshot), probe, Now, Now + 360_000, token, service == "tts" ? Math.Clamp(snapshot.Enrichment.Concurrency, 1, 8) : 1);
+        var timeout = service == "text" ? snapshot.Enrichment.Text.TimeoutSeconds : snapshot.Enrichment.Tts.TimeoutSeconds;
+        // Leave time for admission/staging and bounded database completion retries.
+        var now = Now;
+        return repository.EnterServiceAsync(Identity(service, snapshot), Version(service, snapshot), probe, now,
+            now + (timeout + 60L) * 1000, token, service == "tts" ? Math.Clamp(snapshot.Enrichment.Concurrency, 1, 8) : 1);
     }
     public Task<long> FinishAsync(EnrichmentServiceAdmission admission, string outcome, string? error,
         bool called, TimeSpan? retryAfter, CancellationToken token, EnrichmentCallCompletion? completion = null)
