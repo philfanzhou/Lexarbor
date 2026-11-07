@@ -1983,6 +1983,17 @@ windows after deployment; batch size or request count alone does not measure
 throughput. This scheduling update adds no database migration or journal-mode
 change.
 
+The enrichment progress summary uses indexed lookups for default and
+meaning-specific targets. A null-safe join in earlier builds could make SQLite
+choose an automatic index without the word key, repeatedly scanning many
+unrelated default targets for each demand. The resulting long read snapshot
+could delay writer commits under the rollback journal until the database busy
+timeout, affecting both page searches and background task completion. The fix
+uses the existing partial unique indexes; it requires no migration, journal-mode
+change, timeout increase, or concurrency adjustment. Reports still use one
+consistent read-only snapshot. When checking performance, distinguish report
+query time, database completion time, and external AI request time.
+
 ## Preparation-pending wait reason upgrade
 
 `AddPreparationPendingWaitReason` rebuilds `enrichment_round` and `enrichment_wait`

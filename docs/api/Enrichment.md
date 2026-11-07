@@ -63,6 +63,10 @@ A response captures configuration once and reads all database totals, page rows,
 current states, histories, and cleanup associations in one deferred SQLite snapshot.
 GET performs no discovery, queue creation, claim, service probe, or counter update.
 Separate requests can observe later commits; pages are not a cross-request cursor.
+Summary demands locate persisted tasks through the existing default/specific
+target indexes, including expansion tasks with a null locale. This avoids
+repeated scans of unrelated default targets while the snapshot is open; it does
+not change filters, counts, or the treatment of deleted and unqueued targets.
 
 `Expand` is one source-meaning task with `locale=null`; it is not an accent-specific
 pronunciation task. Expansion requirements exclude explicit phrase positions and
