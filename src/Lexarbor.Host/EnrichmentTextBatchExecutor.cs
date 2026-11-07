@@ -8,6 +8,12 @@ using Lexarbor.Service;
 
 namespace Lexarbor.Host;
 
+public sealed record EnrichmentTextDispatchResult(IReadOnlyList<string> Ready, IReadOnlyList<string> Deferred,
+    long NextCheckAtUnixMs = 0, int Requests = 0, double RequestMilliseconds = 0)
+{
+    public static readonly EnrichmentTextDispatchResult Empty = new([], []);
+}
+
 /// <summary>Stages several independently validated plans; existing executors retain publication and recovery ownership.</summary>
 public sealed class EnrichmentTextBatchExecutor(IEnrichmentTaskRepository tasks, IEnrichmentExecutionRepository catalog,
     IVocabularyExpansionRepository expansions, IVocabularyBookRepository books, IAiRequestBatchRepository batches,
@@ -15,13 +21,23 @@ public sealed class EnrichmentTextBatchExecutor(IEnrichmentTaskRepository tasks,
     MeaningSubmissionSettings submissions, IAudioUploadOperationFactory storage, TimeProvider clock,
     ILogger<EnrichmentTextBatchExecutor>? logger = null)
 {
-    private sealed record Work(EnrichmentTask Task, AiTextItem<AiBatchResult> Item);
+    private sealed record Work(string SelectedId, EnrichmentTask Task, AiTextItem<AiBatchResult> Item);
     private long Now => clock.GetUtcNow().ToUnixTimeMilliseconds();
 
-    public async Task<IReadOnlyList<string>> PrepareAsync(IReadOnlyList<string> due, CancellationToken token)
+    public async Task<IReadOnlyList<string>> PrepareAsync(IReadOnlyList<string> due, CancellationToken token) =>
+        (await DispatchAsync(due, token)).Ready;
+
+    public async Task<EnrichmentTextDispatchResult> DispatchAsync(IReadOnlyList<string> due, CancellationToken token)
     {
         var snapshot = runtime.Current;
         var selected = new List<string>();
+        var pending = new HashSet<string>(StringComparer.Ordinal);
+        var requests = 0;
+        double requestMilliseconds = 0;
+        EnrichmentTextDispatchResult Finish(long? deferredUntil = null) => deferredUntil == null
+            ? new(selected, [], Requests: requests, RequestMilliseconds: requestMilliseconds)
+            : new(selected.Where(id => !pending.Contains(id)).ToArray(), pending.ToArray(), deferredUntil.Value,
+                requests, requestMilliseconds);
         var words = new HashSet<string>(StringComparer.Ordinal);
         var work = new List<Work>();
         using var operation = await storage.AcquireAsync(token);
@@ -52,7 +68,7 @@ public sealed class EnrichmentTextBatchExecutor(IEnrichmentTaskRepository tasks,
                 var input = await expansions.ReadAsync(key, token);
                 if (input == null || input.Version != round.Input) continue;
                 var item = VocabularyExpansionClient.BatchItem(call, input, snapshot.Enrichment.Text, submissions.BookId);
-                work.Add(new(task, new(call, item.Prompt, content =>
+                work.Add(new(id, task, new(call, item.Prompt, content =>
                 {
                     var parsed = item.Validate(content);
                     return new(call, parsed.Plan == null ? null : new(input.Word, null, null, null, Expansion: parsed.Plan), ErrorCode: parsed.ErrorCode);
@@ -64,13 +80,14 @@ public sealed class EnrichmentTextBatchExecutor(IEnrichmentTaskRepository tasks,
                 if (input == null || input.Request.InputVersion != round.Input) continue;
                 var item = OpenAiCompatiblePronunciationPreparationClient.BatchItem(call, input.Request, snapshot);
                 if (item == null) continue;
-                work.Add(new(task, new(call, item.Prompt, content =>
+                work.Add(new(id, task, new(call, item.Prompt, content =>
                 {
                     var parsed = item.Validate(content);
                     return new(call, parsed.Plan == null ? null : EnrichmentPreparedPlans.Store(parsed.Plan, input.OwnAssetId), ErrorCode: parsed.ErrorCode == null ? null : "text." + parsed.ErrorCode);
                 })));
             }
         }
+        pending.UnionWith(work.Select(w => w.SelectedId));
         foreach (var group in work.GroupBy(w => w.Task.Target.Step))
         {
             var kind = group.Key.ToString();
@@ -85,14 +102,16 @@ public sealed class EnrichmentTextBatchExecutor(IEnrichmentTaskRepository tasks,
                     chunk = chunk.Take(chunk.Length - 1).ToArray();
                 if (chunk.Length == 0)
                 {
-                    var oversized = await tasks.ClaimAsync(queue[index++].Task.Id, "enrichment-text-batch", Now, Now + 900_000, token);
+                    var item = queue[index++];
+                    var oversized = await tasks.ClaimAsync(item.Task.Id, "enrichment-text-batch", Now, Now + 900_000, token);
                     if (oversized != null) await tasks.StopAsync(oversized, "batch.input_too_large", Now, token);
+                    pending.Remove(item.SelectedId);
                     continue;
                 }
                 index += chunk.Length;
-                if (runtime.Current.TextVersion != snapshot.TextVersion) return selected;
+                if (runtime.Current.TextVersion != snapshot.TextVersion) return Finish();
                 var service = await gate.EnterAsync("text", false, token);
-                if (service.LeaseId == null) return selected;
+                if (service.LeaseId == null) return Finish(Math.Max(Now + 5_000, service.NextAttemptAtUnixMs));
                 var completed = false;
                 AiTextResult<AiBatchResult>? response = null;
                 try
@@ -111,6 +130,8 @@ public sealed class EnrichmentTextBatchExecutor(IEnrichmentTaskRepository tasks,
                     var requestStarted = Stopwatch.GetTimestamp();
                     response = await client.SendAsync(snapshot.Enrichment.Text, instructions, chunk.Where(w => ids.Contains(w.Item.Id)).Select(w => w.Item).ToArray(), token);
                     var requestMs = Stopwatch.GetElapsedTime(requestStarted).TotalMilliseconds;
+                    requests++;
+                    requestMilliseconds += requestMs;
                     var valid = response.Items.Values.Count(r => r.Plan != null);
                     var outcome = response.Outcome == "Ready" && valid != receipt.Members.Count ? "Partial" : response.Outcome;
                     limit = AiTextBatchClient.NextSize(limit, initial, outcome, response.ErrorCode);
@@ -121,10 +142,11 @@ public sealed class EnrichmentTextBatchExecutor(IEnrichmentTaskRepository tasks,
                         CancellationToken.None, service, new(settings.ServiceFailureThreshold, settings.ServicePauseSeconds,
                             settings.MaxServicePauseSeconds, settings.ThrottleInitialSeconds, settings.ThrottleMaxSeconds));
                     completed = true;
+                    foreach (var item in chunk) pending.Remove(item.SelectedId);
                     logger?.LogInformation("Autonomous text batch: kind {Kind}, items {Items}, validated {Validated}, outcome {Outcome}, timeout {Timeout}, requestMs {RequestMs}, commitMs {CommitMs}, nextSize {NextSize}",
                         kind, receipt.Members.Count, valid, outcome, response.ErrorCode == "batch.timeout", requestMs,
                         Stopwatch.GetElapsedTime(commitStarted).TotalMilliseconds, limit);
-                    if (outcome is "Throttled" or "ServiceFailure" or "Rejected") return selected;
+                    if (outcome is "Throttled" or "ServiceFailure" or "Rejected") return Finish(Now + 5_000);
                 }
                 finally
                 {
@@ -147,6 +169,6 @@ public sealed class EnrichmentTextBatchExecutor(IEnrichmentTaskRepository tasks,
                 }
             }
         }
-        return selected;
+        return Finish();
     }
 }

@@ -928,7 +928,7 @@ The new service leases enforce bounded TTS concurrency across workers and retain
 an in-flight scalar lease from the previous version until completion or expiry.
 
 The dispatch planner reads current rounds into separately bounded recovery, ready,
-and text lanes. SQL excludes in-flight words and blocked preparation dependencies,
+preparation and expansion lanes. SQL excludes in-flight words and blocked preparation dependencies,
 then deduplicates by word within each lane before limiting recent/historical work.
 The single hosted worker reserves words across lanes until preparation and its
 selected publication finish; every concurrent job gets a separate scoped context.
@@ -937,3 +937,18 @@ claims and service leases remain the restart/concurrent-owner boundary. The text
 service capacity follows `Enrichment:TextConcurrency` (default 1, range 1–2),
 independent of target/TTS concurrency. No schema, migration, journal mode or backup
 format changes are introduced by the new planner.
+
+A single read-only availability query counts unexpired lease rows and any legacy
+scalar lease not represented by those rows. It honors shared pause, block and
+cooldown state before staging text work. Occupied slots cause a bounded retry of
+that read, not target wait writes; atomic admission still protects concurrent
+owners. Admission races return undispatched IDs to their original text lane.
+Preparation receives priority over expansion using completed request counts and
+elapsed request time, as described in the deployment behavior above.
+
+Graceful cancellation attempts to release the executor's own service lease for
+batch, single-target, expansion and probe requests. Unconfirmed target calls
+retain their existing recovery history. Interrupted probes keep an `Unknown`
+outcome and their recorded dispatch flag without clearing shared failure state.
+Abrupt termination or failed cleanup still relies on lease expiry; legacy leases
+are not deleted simply because a new process starts.

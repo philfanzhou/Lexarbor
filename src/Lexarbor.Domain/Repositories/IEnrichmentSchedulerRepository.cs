@@ -24,6 +24,7 @@ public sealed record EnrichmentCallCompletion(EnrichmentExecutionGuard Guard, st
     string ErrorCode, long? NextAttemptAtUnixMs);
 
 public sealed record EnrichmentDispatch(string Id, string WordId, string Step, string Lane, long QueuedAtUnixMs);
+public sealed record EnrichmentServiceAvailability(int AvailableSlots, long NextCheckAtUnixMs);
 
 public interface IEnrichmentSchedulerRepository
 {
@@ -36,6 +37,8 @@ public interface IEnrichmentSchedulerRepository
         bool requestMade, long now, long? retryAfterAt, EnrichmentServicePolicy policy, CancellationToken token,
         EnrichmentCallCompletion? completion = null);
     Task<EnrichmentServiceStatus?> ServiceAsync(string serviceId, CancellationToken token);
+    Task<EnrichmentServiceAvailability> AvailabilityAsync(string serviceId, string configurationVersion,
+        int capacity, long now, CancellationToken token);
     Task<IReadOnlyList<EnrichmentServiceProbe>> ProbesAsync(string serviceId, CancellationToken token);
     Task<EnrichmentPlan?> ProbePlanAsync(AudioLocale locale, string textConfigurationVersion, CancellationToken token);
 }

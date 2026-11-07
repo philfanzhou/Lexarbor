@@ -9,8 +9,40 @@ using Lexarbor.Service;
 namespace Lexarbor.Host;
 
 public sealed class EnrichmentServiceGate(IEnrichmentSchedulerRepository repository,
-    EnrichmentRuntimeConfiguration runtime, TimeProvider clock, AudioUploadAdmission? uploadAdmission = null)
+    EnrichmentRuntimeConfiguration runtime, TimeProvider clock, AudioUploadAdmission? uploadAdmission = null,
+    ILogger<EnrichmentServiceGate>? logger = null)
 {
+    internal LeaseCleanup Observe(EnrichmentServiceAdmission? admission = null) => new(this) { Admission = admission };
+
+    // Covers single-target fallback and probes as well as ordinary batch work.
+    // An interrupted request remains unknown in target history, but no longer
+    // occupies service capacity until its lease deadline after a graceful stop.
+    internal sealed class LeaseCleanup(EnrichmentServiceGate gate) : IAsyncDisposable
+    {
+        public EnrichmentServiceAdmission? Admission { get; set; }
+        private string _outcome = "Unknown";
+        private string? _error;
+        private bool _called;
+        private TimeSpan? _retry;
+        private bool _finished;
+        public void Record(string outcome, string? error, bool called, TimeSpan? retry)
+        { _outcome = outcome; _error = error; _called = called; _retry = retry; }
+        public async Task<long> FinishAsync(EnrichmentCallCompletion? completion = null)
+        {
+            if (Admission?.LeaseId == null) return 0;
+            var next = await gate.FinishAsync(Admission, _outcome, _error, _called, _retry, CancellationToken.None, completion);
+            _finished = true;
+            return next;
+        }
+        public async ValueTask DisposeAsync()
+        {
+            if (_finished || Admission?.LeaseId == null) return;
+            try { await FinishAsync(); }
+            catch (Exception) { gate.LogCleanupFailure(); }
+        }
+    }
+
+    private void LogCleanupFailure() => logger?.LogWarning("Enrichment service lease cleanup failed; the lease will expire.");
     public static string Identity(string slot, string endpoint, string provider)
     {
         var normalized = Uri.TryCreate(endpoint.Trim(), UriKind.Absolute, out var uri)
@@ -24,6 +56,12 @@ public sealed class EnrichmentServiceGate(IEnrichmentSchedulerRepository reposit
     private static string Version(string service, EnrichmentConfigurationSnapshot snapshot) =>
         (service == "text" ? snapshot.TextVersion : snapshot.TtsServiceVersion) ?? "configuration.missing";
     private long Now => clock.GetUtcNow().ToUnixTimeMilliseconds();
+    public Task<EnrichmentServiceAvailability> AvailabilityAsync(string service, CancellationToken token)
+    {
+        var snapshot = runtime.Current;
+        return repository.AvailabilityAsync(Identity(service, snapshot), Version(service, snapshot),
+            service == "tts" ? snapshot.Enrichment.Concurrency : snapshot.Enrichment.TextConcurrency, Now, token);
+    }
     public Task<EnrichmentServiceAdmission> EnterAsync(string service, bool probe, CancellationToken token)
     {
         var snapshot = runtime.Current;
@@ -58,12 +96,14 @@ public sealed class EnrichmentServiceGate(IEnrichmentSchedulerRepository reposit
         var revision = AudioSelectionService.ComputeRevision(input);
         var version = new EnrichmentInputVersion(revision, revision, null);
         EnrichmentServiceAdmission? admission = null;
+        await using var cleanup = Observe();
         async Task<bool> Enter(CancellationToken ct)
-        { admission = await EnterAsync(service, true, ct); return admission.LeaseId != null; }
+        { admission = await EnterAsync(service, true, ct); cleanup.Admission = admission; return admission.LeaseId != null; }
         if (service == "text")
         {
             var result = await preparation.PrepareAsync(new(word, null, locale, version, []), token, (_, ct) => Enter(ct));
-            if (admission?.LeaseId != null) await FinishAsync(admission, result.Outcome.ToString(), result.ErrorCode, result.RequestMade, result.RetryAfter, token);
+            cleanup.Record(result.Outcome.ToString(), result.ErrorCode, result.RequestMade, result.RetryAfter);
+            if (admission?.LeaseId != null) await cleanup.FinishAsync();
         }
         else
         {
@@ -81,7 +121,8 @@ public sealed class EnrichmentServiceGate(IEnrichmentSchedulerRepository reposit
             using var permit = uploadAdmission == null ? null : await uploadAdmission.EnterAsync(token);
             if (uploadAdmission != null && permit == null) return;
             var result = await speech.GenerateAsync(new(PronunciationPreparationOutcome.Ready, plan), token, (_, ct) => Enter(ct));
-            if (admission?.LeaseId != null) await FinishAsync(admission, result.Outcome.ToString(), result.ErrorCode, result.RequestMade, result.RetryAfter, token);
+            cleanup.Record(result.Outcome.ToString(), result.ErrorCode, result.RequestMade, result.RetryAfter);
+            if (admission?.LeaseId != null) await cleanup.FinishAsync();
         }
     }
 }

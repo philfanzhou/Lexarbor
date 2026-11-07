@@ -1914,12 +1914,16 @@ for staging and completion. Text batch completion retries a rolled-back busy or
 locked SQLite transaction at most twice, with 100/200 ms delays outside the writer
 lock. It reuses the validated response and original member guards; it never sends
 another provider request or charges the same completion twice. On cancellation or
-failure anywhere after service admission, the executor independently attempts to
+failure anywhere after service admission, batch, single-target, expansion and
+probe executors independently attempt to
 release that service lease. A received provider response still determines service
 throttling/failure state; a local persistence error is not a provider failure.
 If cleanup also fails, lease expiry remains the fallback. Unfinished calls retain
 the existing target-lease recovery path; historical unknown batches remain visible
 in statistics rather than being rewritten as successful.
+An interrupted probe remains unknown and does not heal a paused service.
+An unexpired lease left by an older or abruptly stopped process is still respected
+until its owner completes or it expires; an upgrade does not delete that ownership.
 
 Fields and audio targets waiting for preparation retry after two minutes instead
 of 30 seconds. This reduces dependency-wait writes; once preparation succeeds,
@@ -1929,12 +1933,32 @@ reset, journal-mode change or new setting is required for these recovery changes
 
 Due work drains continuously between discovery sweeps. The planner reserves
 separate bounded queues for expired/open-call recovery, ready publication/audio,
-and text preparation. It deduplicates words before applying each lane's limit,
+text preparation and vocabulary expansion. It deduplicates words before applying each lane's limit,
 filters dependencies that cannot advance, and reserves capacity for recent and
-historical work. One word remains reserved across preparation and publication;
-each running job owns its own scoped database context. A finished text request
+historical work. One word remains reserved across preparation and publication.
+An expansion still waiting in its queue yields to preparation or ready work for
+the same word when the queues refill. Each running job owns its own scoped
+database context. A finished text request
 frees its slot immediately, so another slow request cannot hold up that slot or
 ready audio. Persisted target and service leases remain authoritative on restart.
+
+Before starting text work, one read-only capacity check accounts for active request
+leases, legacy scalar leases and shared cooldowns. Occupied capacity is checked
+again within five seconds or at the earlier lease deadline; this worker's request
+completion and runtime configuration changes trigger immediate re-evaluation.
+The atomic service gate remains the final admission check. Losing an admission
+race keeps undispatched work in its original text queue instead of sending it
+through publication or writing a per-target throttle/dependency wait.
+
+While preparation and expansion both have demand, preparation receives at least
+three completed requests before an expansion. After each expansion, the next one
+also waits for preparation request time totaling at least three times that
+expansion's elapsed request time, including timeouts. This favors draining existing
+field/audio work when expansion is slow. It is a process-local scheduling budget,
+not a strict instantaneous latency or throughput guarantee; restart begins with
+preparation priority. Expansion can run immediately when no preparation is queued
+or running, and at most one expansion request runs at a time even with two text
+slots. Automatic submission review has its own scheduler.
 
 `Enrichment:TextConcurrency` controls enrichment preparation/expansion requests
 independently (default 1, allowed 1–2). The admin setting is `textConcurrency` in

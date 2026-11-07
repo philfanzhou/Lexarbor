@@ -129,6 +129,7 @@ public sealed class EnrichmentTargetExecutor(IEnrichmentTaskRepository tasks, IE
             var called = false;
             var callFinished = false;
             EnrichmentServiceAdmission? service = null;
+            await using var cleanup = services?.Observe();
             var result = await preparation.PrepareAsync(current.Request, token, async (dispatch, ct) =>
             {
                 if (dispatch.InputVersion != guard.Input || dispatch.ConfigurationVersion != runtime.Current.TextVersion
@@ -136,17 +137,19 @@ public sealed class EnrichmentTargetExecutor(IEnrichmentTaskRepository tasks, IE
                 if (services != null)
                 {
                     service = await services.EnterAsync("text", false, ct);
+                    cleanup!.Admission = service;
                     if (service.LeaseId == null) return false;
                 }
                 called = await tasks.BeginCallAsync(guard, callId, "text", null, Now, ct);
                 return called;
             });
+            cleanup?.Record(result.Outcome.ToString(), result.ErrorCode, called && result.RequestMade, result.RetryAfter);
             if (service?.WaitReason is { } reason)
                 return await WaitAsync(guard, reason, Math.Max(1000, service.NextAttemptAtUnixMs - Now), token);
             if (service?.LeaseId != null)
             {
                 var completion = called && result.RequestMade ? Completion(guard, callId, "text", result.Outcome.ToString(), result.ErrorCode, result.RetryAfter) : null;
-                var next = await services!.FinishAsync(service, result.Outcome.ToString(), result.ErrorCode, called && result.RequestMade, result.RetryAfter, token, completion);
+                var next = await cleanup!.FinishAsync(completion);
                 callFinished = completion != null;
                 if (result.Outcome == PronunciationPreparationOutcome.Throttled) result = result with { RetryAfter = TimeSpan.FromMilliseconds(Math.Max(1000, next - Now)) };
             }
@@ -221,6 +224,7 @@ public sealed class EnrichmentTargetExecutor(IEnrichmentTaskRepository tasks, IE
         var callId = Guid.NewGuid().ToString(); var uploadKey = Guid.NewGuid().ToString(); var called = false;
         var callFinished = false;
         EnrichmentServiceAdmission? service = null;
+        await using var cleanup = services?.Observe();
         var result = await speech.GenerateAsync(new(PronunciationPreparationOutcome.Ready, prepared), token, async (dispatch, ct) =>
         {
             if (dispatch.InputVersion != guard.Input || dispatch.TextConfigurationVersion != runtime.Current.TextVersion
@@ -229,17 +233,19 @@ public sealed class EnrichmentTargetExecutor(IEnrichmentTaskRepository tasks, IE
             if (services != null)
             {
                 service = await services.EnterAsync("tts", false, ct);
+                cleanup!.Admission = service;
                 if (service.LeaseId == null) return false;
             }
             called = await tasks.BeginCallAsync(guard, callId, "tts", uploadKey, Now, ct);
             return called;
         });
+        cleanup?.Record(result.Outcome.ToString(), result.ErrorCode, called && result.RequestMade, result.RetryAfter);
         if (service?.WaitReason is { } reason)
             return await WaitAsync(guard, reason, Math.Max(1000, service.NextAttemptAtUnixMs - Now), token);
         if (service?.LeaseId != null)
         {
             var completion = called && result.RequestMade ? Completion(guard, callId, "tts", result.Outcome.ToString(), result.ErrorCode, result.RetryAfter) : null;
-            var next = await services!.FinishAsync(service, result.Outcome.ToString(), result.ErrorCode, called && result.RequestMade, result.RetryAfter, token, completion);
+            var next = await cleanup!.FinishAsync(completion);
             callFinished = completion != null;
             if (result.Outcome == PronunciationSpeechOutcome.Throttled) result = result with { RetryAfter = TimeSpan.FromMilliseconds(Math.Max(1000, next - Now)) };
         }

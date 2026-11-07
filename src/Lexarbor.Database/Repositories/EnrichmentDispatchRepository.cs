@@ -25,7 +25,8 @@ public sealed partial class EnrichmentSchedulerRepository
                 CASE
                   WHEN r.state='Running' OR EXISTS (SELECT 1 FROM enrichment_call c
                     WHERE c.target_id=t.id AND c.round=r.number AND c.result='Started') THEN 'Recovery'
-                  WHEN t.step IN ('Prepare','Expand') THEN CASE WHEN r.plan_json IS NULL THEN 'Text' ELSE 'Ready' END
+                  WHEN t.step='Expand' THEN CASE WHEN r.plan_json IS NULL THEN 'Expansion' ELSE 'Ready' END
+                  WHEN t.step='Prepare' THEN CASE WHEN r.plan_json IS NULL THEN 'Text' ELSE 'Ready' END
                   WHEN t.step='Audio' AND EXISTS (SELECT 1 FROM vocabulary_audio_binding b
                     WHERE b.word_id=t.word_id AND b.meaning_id IS t.meaning_id AND b.locale=t.locale) THEN 'Ready'
                   WHEN p.state IN ('Succeeded','Failed') THEN 'Ready'
@@ -59,7 +60,7 @@ public sealed partial class EnrichmentSchedulerRepository
         var rows = await context.Database.SqlQueryRaw<DispatchRow>(sql, new SqliteParameter("@limit", limit),
             new SqliteParameter("@now", now), new SqliteParameter("@excluded", JsonSerializer.Serialize(excludedWords))).ToArrayAsync(token);
         var result = new List<EnrichmentDispatch>();
-        foreach (var lane in new[] { "Recovery", "Ready", "Text" })
+        foreach (var lane in new[] { "Recovery", "Ready", "Text", "Expansion" })
         {
             var ordered = rows.Where(r => r.Lane == lane).OrderBy(r => r.QueuedAtUnixMs).ThenBy(r => r.Id).ToArray();
             var recent = ordered.Where(r => r.Recent).Take(limit / 2).ToArray();

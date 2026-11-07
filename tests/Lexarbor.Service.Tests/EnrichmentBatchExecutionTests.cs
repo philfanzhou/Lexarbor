@@ -174,6 +174,7 @@ public sealed partial class EnrichmentTargetExecutorTests
     {
         public int Calls;
         public Func<string, CancellationToken, Task>? BeforeSend;
+        public Action<string, bool>? ObserveKind;
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage message, CancellationToken token)
         {
             Interlocked.Increment(ref Calls);
@@ -182,6 +183,7 @@ public sealed partial class EnrichmentTargetExecutorTests
             var single = payload["items"] == null;
             var input = single ? new JsonArray(new JsonObject { ["id"] = "single", ["data"] = payload }) : payload["items"]!.AsArray();
             if (BeforeSend != null) await BeforeSend(input[0]!["data"]!["word"]!.GetValue<string>(), token);
+            ObserveKind?.Invoke(input[0]!["data"]!["word"]!.GetValue<string>(), input[0]!["data"]!["relationTypes"] != null);
             var rows = new JsonArray();
             foreach (var item in input.Reverse())
             {

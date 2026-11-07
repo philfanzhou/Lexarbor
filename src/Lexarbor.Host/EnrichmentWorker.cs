@@ -43,11 +43,14 @@ public sealed class EnrichmentNotifications : IEnrichmentChangeNotifier
 public sealed class EnrichmentWorker(IServiceScopeFactory scopes, EnrichmentRuntimeConfiguration runtime,
     EnrichmentNotifications notifications, TimeProvider clock, ILogger<EnrichmentWorker> logger) : BackgroundService
 {
-    private sealed record Running(bool Text, EnrichmentDispatch[] Items, Task<IReadOnlyList<string>> Task);
+    private sealed record Running(bool Text, EnrichmentDispatch[] Items, Task<EnrichmentTextDispatchResult> Task);
     private readonly List<Running> _running = [];
     private readonly List<EnrichmentDispatch> _queue = [];
     private bool _preferRecovery = true;
-    private bool _preferExpand;
+    private readonly EnrichmentTextSchedulingPolicy _textPolicy = new();
+    private long _textNextCheck;
+    private EnrichmentConfigurationSnapshot? _dispatchConfiguration;
+    private static bool NeedsText(EnrichmentDispatch item) => item.Lane is "Text" or "Expansion";
     private long Now => clock.GetUtcNow().ToUnixTimeMilliseconds();
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -75,7 +78,9 @@ public sealed class EnrichmentWorker(IServiceScopeFactory scopes, EnrichmentRunt
                     // A completed batch immediately frees its lane. A slow sibling
                     // never imposes a barrier on ready audio or the next text batch.
                     var wakeups = _running.Select(r => (Task)r.Task).ToList();
-                    wakeups.Add(Task.Delay(TimeSpan.FromSeconds(observed.Enrichment.ScanIntervalSeconds), clock, wait.Token));
+                    var delayMs = observed.Enrichment.ScanIntervalSeconds * 1000L;
+                    if (_textNextCheck > Now) delayMs = Math.Min(delayMs, _textNextCheck - Now);
+                    wakeups.Add(Task.Delay(TimeSpan.FromMilliseconds(Math.Max(1, delayMs)), clock, wait.Token));
                     wakeups.Add(runtime.WaitForChangeAsync(observed, wait.Token));
                     wakeups.Add(notifications.WaitAsync(wait.Token));
                     await Task.WhenAny(wakeups);
@@ -117,18 +122,34 @@ public sealed class EnrichmentWorker(IServiceScopeFactory scopes, EnrichmentRunt
 
     private async Task ReapAsync()
     {
+        var released = false;
         foreach (var work in _running.Where(w => w.Task.IsCompleted).ToArray())
         {
             _running.Remove(work);
             try
             {
-                var selected = await work.Task;
+                var result = await work.Task;
                 if (work.Text)
-                    _queue.InsertRange(0, work.Items.Where(i => selected.Contains(i.Id)).Select(i => i with { Lane = "Ready" }));
+                {
+                    var expansion = work.Items.Any(i => i.Step == "Expand");
+                    // A non-dispatchable expansion yields to preparation too;
+                    // capacity deferrals retain their turn without a busy loop.
+                    _textPolicy.Complete(expansion, expansion && result.Ready.Count > 0 ? Math.Max(1, result.Requests) : result.Requests,
+                        result.RequestMilliseconds);
+                    released |= result.Requests > 0 || work.Items.Length == 0; // A probe may have healed the service.
+                    _queue.InsertRange(0, work.Items.Where(i => result.Ready.Contains(i.Id)).Select(i => i with { Lane = "Ready" }));
+                    _queue.AddRange(work.Items.Where(i => result.Deferred.Contains(i.Id)));
+                    if (result.Deferred.Count > 0) _textNextCheck = Math.Max(_textNextCheck, result.NextCheckAtUnixMs);
+                }
             }
-            catch (OperationCanceledException) { }
-            catch (Exception) { logger.LogWarning("An enrichment dispatch could not finish; its durable lease will recover."); }
+            catch (OperationCanceledException) { released |= work.Text; }
+            catch (Exception)
+            {
+                released |= work.Text; // Exception cleanup may have released a previously occupied slot.
+                logger.LogWarning("An enrichment dispatch could not finish; its durable lease will recover.");
+            }
         }
+        if (released) _textNextCheck = 0; // Re-read shared cooldown/capacity after any owned request finishes.
     }
 
     private async Task<int> ScheduleAsync(CancellationToken token, bool discover)
@@ -158,13 +179,19 @@ public sealed class EnrichmentWorker(IServiceScopeFactory scopes, EnrichmentRunt
             _running.Add(new(true, [], ProbeAsync("text", token)));
         if (discover && storage.Settings.Enabled && _running.All(w => w.Text))
             _running.Add(new(false, [], ProbeAsync("tts", token)));
-        var held = _running.SelectMany(w => w.Items).Concat(_queue).Select(i => i.WordId).ToHashSet(StringComparer.Ordinal);
+        var runningWords = _running.SelectMany(w => w.Items).Select(i => i.WordId).ToHashSet(StringComparer.Ordinal);
+        var held = runningWords.Concat(_queue.Select(i => i.WordId)).ToHashSet(StringComparer.Ordinal);
+        // Queued expansion must not hide preparation/publication for the same
+        // word while waiting for its budget. Running work remains reserved.
+        var excluded = runningWords.Concat(_queue.Where(i => i.Lane != "Expansion").Select(i => i.WordId)).Distinct().ToArray();
         var limit = Math.Clamp(settings.DiscoveryBatchSize, 1, 1000);
-        var planned = await repository.PlanAsync(limit, Now, held.ToArray(), token);
+        var planned = await repository.PlanAsync(limit, Now, excluded, token);
         var count = 0;
         foreach (var item in urgent.Concat(planned))
         {
-            if (_queue.Count(i => i.Lane == item.Lane) >= limit || !held.Add(item.WordId)) continue;
+            if (_queue.Count(i => i.Lane == item.Lane) >= limit) continue;
+            if (!held.Add(item.WordId) && (item.Lane == "Expansion" || runningWords.Contains(item.WordId)
+                || _queue.RemoveAll(i => i.WordId == item.WordId && i.Lane == "Expansion") == 0)) continue;
             _queue.Add(item); count++;
         }
         await StartWorkAsync(token);
@@ -174,58 +201,68 @@ public sealed class EnrichmentWorker(IServiceScopeFactory scopes, EnrichmentRunt
     private async Task StartWorkAsync(CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
-        var settings = runtime.Current.Enrichment;
+        var snapshot = runtime.Current;
+        var settings = snapshot.Enrichment;
+        if (_dispatchConfiguration != snapshot) { _dispatchConfiguration = snapshot; _textNextCheck = 0; }
         if (!settings.FieldsEnabled && !settings.AudioEnabled) { _queue.Clear(); return; }
         await using var scope = scopes.CreateAsyncScope();
         var batching = scope.ServiceProvider.GetService<EnrichmentTextBatchExecutor>() != null;
         if (!batching)
-            for (var i = 0; i < _queue.Count; i++) if (_queue[i].Lane == "Text") _queue[i] = _queue[i] with { Lane = "Ready" };
+            for (var i = 0; i < _queue.Count; i++) if (NeedsText(_queue[i])) _queue[i] = _queue[i] with { Lane = "Ready" };
         while (_running.Count(w => !w.Text) < settings.Concurrency)
         {
             var preferred = _preferRecovery ? "Recovery" : "Ready";
-            var item = _queue.FirstOrDefault(i => i.Lane == preferred) ?? _queue.FirstOrDefault(i => i.Lane != "Text");
+            var item = _queue.FirstOrDefault(i => i.Lane == preferred) ?? _queue.FirstOrDefault(i => !NeedsText(i));
             if (item == null) break;
             _preferRecovery = !_preferRecovery;
             _queue.Remove(item);
             _running.Add(new(false, [item], ExecuteAsync(item, token)));
         }
-        var snapshot = runtime.Current;
-        var status = snapshot.CanPrepare ? await scope.ServiceProvider.GetRequiredService<IEnrichmentSchedulerRepository>()
-            .ServiceAsync(EnrichmentServiceGate.Identity("text", snapshot), token) : null;
-        var cooling = status != null && status.ConfigurationVersion == snapshot.TextVersion
-            && (status.Paused || status.Blocked || status.NextAttemptAtUnixMs > Now);
-        while (batching && !cooling && _running.Count(w => w.Text) < settings.TextConcurrency)
+        if (!batching || _textNextCheck > Now || !_queue.Any(NeedsText)) return;
+        var available = await scope.ServiceProvider.GetRequiredService<EnrichmentServiceGate>().AvailabilityAsync("text", token);
+        if (available.AvailableSlots == 0)
         {
-            var candidates = _queue.Where(i => i.Lane == "Text").ToArray();
-            if (candidates.Length == 0) break;
-            var first = candidates.FirstOrDefault(i => (i.Step == "Expand") == _preferExpand) ?? candidates[0];
-            _preferExpand = first.Step != "Expand";
+            _textNextCheck = available.NextCheckAtUnixMs;
+            return;
+        }
+        _textNextCheck = 0;
+        var slots = available.AvailableSlots;
+        while (slots > 0 && _running.Count(w => w.Text) < settings.TextConcurrency)
+        {
+            var preparations = _queue.Where(i => i.Lane == "Text").ToArray();
+            var expansionRunning = _running.Any(w => w.Text && w.Items.Any(i => i.Step == "Expand"));
+            var preparationPending = preparations.Length > 0 || _running.Any(w => w.Text && w.Items.Any(i => i.Step != "Expand"));
+            var expansion = _textPolicy.CanExpand(preparationPending, expansionRunning)
+                ? _queue.FirstOrDefault(i => i.Lane == "Expansion") : null;
+            var first = expansion ?? preparations.FirstOrDefault();
+            if (first == null) break;
             var kind = first.Step == "Expand" ? "Expand" : "Prepare";
             var limit = await scope.ServiceProvider.GetRequiredService<IAiRequestBatchRepository>()
-                .LimitAsync(kind, runtime.Current.TextVersion ?? "configuration.missing", kind == "Expand" ? 1 : 6, token);
-            var items = candidates.Where(i => (i.Step == "Expand") == (first.Step == "Expand")).Take(limit).ToArray();
+                .LimitAsync(kind, snapshot.TextVersion ?? "configuration.missing", kind == "Expand" ? 1 : 6, token);
+            var items = _queue.Where(i => i.Lane == first.Lane).Take(limit).ToArray();
             foreach (var item in items) _queue.Remove(item);
             _running.Add(new(true, items, PrepareAsync(items, token)));
+            slots--;
         }
     }
 
-    private async Task<IReadOnlyList<string>> PrepareAsync(EnrichmentDispatch[] items, CancellationToken token)
+    private async Task<EnrichmentTextDispatchResult> PrepareAsync(EnrichmentDispatch[] items, CancellationToken token)
     {
         await using var scope = scopes.CreateAsyncScope();
-        LogQueue("Text", items);
-        return await scope.ServiceProvider.GetRequiredService<EnrichmentTextBatchExecutor>().PrepareAsync(items.Select(i => i.Id).ToArray(), token);
+        LogQueue(items[0].Lane, items);
+        return await scope.ServiceProvider.GetRequiredService<EnrichmentTextBatchExecutor>().DispatchAsync(items.Select(i => i.Id).ToArray(), token);
     }
 
-    private async Task<IReadOnlyList<string>> ProbeAsync(string service, CancellationToken token)
+    private async Task<EnrichmentTextDispatchResult> ProbeAsync(string service, CancellationToken token)
     {
         await using var scope = scopes.CreateAsyncScope();
         await scope.ServiceProvider.GetRequiredService<EnrichmentServiceGate>().ProbeAsync(service,
             scope.ServiceProvider.GetRequiredService<IPronunciationPreparationClient>(),
             scope.ServiceProvider.GetRequiredService<IPronunciationSpeechClient>(), token);
-        return [];
+        return EnrichmentTextDispatchResult.Empty;
     }
 
-    private async Task<IReadOnlyList<string>> ExecuteAsync(EnrichmentDispatch item, CancellationToken token)
+    private async Task<EnrichmentTextDispatchResult> ExecuteAsync(EnrichmentDispatch item, CancellationToken token)
     {
         await using var scope = scopes.CreateAsyncScope();
         LogQueue(item.Lane, [item]);
@@ -234,7 +271,7 @@ public sealed class EnrichmentWorker(IServiceScopeFactory scopes, EnrichmentRunt
         var state = result?.Rounds.Single(r => r.Number == result.CurrentRound).State.ToString() ?? "Missing";
         logger.LogInformation("Autonomous target execution: step {Step}, outcome {Outcome}, elapsedMs {ElapsedMs}",
             item.Step, state, System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
-        return [];
+        return EnrichmentTextDispatchResult.Empty;
     }
 
     private void LogQueue(string lane, EnrichmentDispatch[] items) => logger.LogInformation(
