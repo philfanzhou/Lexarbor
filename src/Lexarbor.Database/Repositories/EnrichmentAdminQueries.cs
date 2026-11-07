@@ -49,6 +49,10 @@ internal static class EnrichmentAdminQueries
 
     internal static IQueryable<EnrichmentAdminRow> Rows(VocabularyDbContext context, EnrichmentAdminConfiguration c, long now, bool tasks)
     {
+        // Split default/specific lookups so SQLite can use the partial unique
+        // indexes. A null-safe multi-column join can choose an automatic index
+        // without word_id and repeatedly scan all default targets per demand,
+        // holding the report's read transaction open against writer commits.
         var source = tasks ? """
             SELECT t.id AS Id,t.word_id AS WordId,w.word AS Word,t.meaning_id AS MeaningId,m.meaning AS Meaning,t.locale AS Locale,t.step AS Step,
               NOT t.deleted AND EXISTS (SELECT 1 FROM demands d WHERE d.word_id=t.word_id AND d.meaning_id IS t.meaning_id AND d.locale IS t.locale
@@ -63,7 +67,13 @@ internal static class EnrichmentAdminQueries
             SELECT t.id AS Id,d.word_id AS WordId,d.word AS Word,d.meaning_id AS MeaningId,d.meaning AS Meaning,d.locale AS Locale,d.step AS Step,
               1 AS Applicable,d.missing AS Missing,0 AS InheritsDefault,
             """ + RoundColumns + "\n" + """
-            FROM demands d LEFT JOIN enrichment_target t ON t.word_id=d.word_id AND t.meaning_id IS d.meaning_id AND t.locale IS d.locale AND t.step=d.step AND NOT t.deleted
+            FROM demands d LEFT JOIN enrichment_target t ON t.id=CASE WHEN d.meaning_id IS NULL THEN
+              (SELECT matched.id FROM enrichment_target matched
+                WHERE matched.word_id=d.word_id AND matched.meaning_id IS NULL
+                  AND matched.locale IS d.locale AND matched.step=d.step AND NOT matched.deleted)
+              ELSE (SELECT matched.id FROM enrichment_target matched
+                WHERE matched.word_id=d.word_id AND matched.meaning_id IS NOT NULL AND matched.meaning_id=d.meaning_id
+                  AND matched.locale IS d.locale AND matched.step=d.step AND NOT matched.deleted) END
             LEFT JOIN enrichment_round r ON r.target_id=t.id AND r.number=t.current_round
             """;
         var sql = DemandCte + ", source AS (" + source + """
