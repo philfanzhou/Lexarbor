@@ -36,7 +36,7 @@ public sealed partial class EnrichmentTargetExecutorTests
         Assert.Equal(2, selected.Count); Assert.Equal(1, handler.Calls);
         var stats = await batches.StatisticsAsync(Ct);
         Assert.Equal(1, stats.Requests); Assert.Equal(2, stats.Participations); Assert.Equal(partial ? 1 : 2, stats.Completed);
-        Assert.Equal(partial ? 3 : 6, await batches.LimitAsync("Prepare", f.Runtime.Current.TextVersion!, 6, Ct));
+        Assert.Equal(partial ? 3 : 6, await batches.LimitAsync("Prepare", f.Runtime.Current.TextVersion!, 6, 6, Ct));
         await using var restarted = f.Open(); var tasks = new EnrichmentTaskRepository(restarted, f.Clock);
         await f.ExecutorFor(restarted, tasks).ExecuteAsync(first.Id, "restart", Ct);
         if (!partial) await f.ExecutorFor(restarted, tasks).ExecuteAsync(second.Id, "restart", Ct);
@@ -133,7 +133,7 @@ public sealed partial class EnrichmentTargetExecutorTests
     }
 
     [Fact]
-    public async Task ExpansionKeepsSingleItemRequestsAndPublishesToTheExistingSupplement()
+    public async Task ExpansionBatchesIndependentSourcesAndPublishesToTheExistingSupplement()
     {
         await using var f = await Fixture.Create(); await Supplement(f);
         f.Db.Vocabularies.Add(new() { Id = "second", Word = "walk" });
@@ -148,11 +148,11 @@ public sealed partial class EnrichmentTargetExecutorTests
             new VocabularyExpansionRepository(f.Db), new VocabularyBookRepository(f.Db), batches, new AiTextBatchClient(clients, f.Clock),
             new(scheduler, f.Runtime, f.Clock), f.Runtime, new() { BookId = "supplement" }, f.Operations, f.Clock);
         await executor.PrepareAsync([first.Id, second.Id], Ct);
-        Assert.Equal(2, handler.Calls); Assert.Equal(2, (await batches.StatisticsAsync(Ct)).Completed);
+        Assert.Equal(1, handler.Calls); Assert.Equal(2, (await batches.StatisticsAsync(Ct)).Completed);
         await using var reopened = f.Open();
         foreach (var task in new[] { first, second })
             Assert.Equal(EnrichmentState.Succeeded, Round((await Expansion(f, reopened, clients).ExecuteAsync(task, "restart", Ct))!).State);
-        Assert.Equal(2, handler.Calls);
+        Assert.Equal(1, handler.Calls);
         Assert.Equal(2, await reopened.VocabularyMeanings.CountAsync(m => m.BookId == "supplement", Ct));
         Assert.Equal(2, await reopened.EnrichmentGeneratedWords.CountAsync(Ct));
     }

@@ -9,12 +9,13 @@ namespace Lexarbor.Database.Repositories;
 public sealed class AiRequestBatchRepository(VocabularyDbContext db, EnrichmentTaskRepository tasks,
     IMeaningSubmissionAutoReviewRepository reviews, IEnrichmentSchedulerRepository scheduler) : IAiRequestBatchRepository
 {
-    public async Task<int> LimitAsync(string kind, string configurationVersion, int initial, CancellationToken token)
+    public async Task<int> LimitAsync(string kind, string configurationVersion, int initial, int maximum, CancellationToken token)
     {
+        if (initial < 1 || maximum < initial || maximum > 10) throw new ArgumentOutOfRangeException(nameof(initial));
         var size = await db.AiRequestBatches.AsNoTracking().Where(r => r.Kind == kind && r.ConfigurationVersion == configurationVersion
             && r.FinishedAtUnixMs != null).OrderByDescending(r => r.FinishedAtUnixMs).ThenByDescending(r => r.StartedAtUnixMs)
             .Select(r => (int?)r.NextSize).FirstOrDefaultAsync(token);
-        return Math.Clamp(size ?? initial, 1, initial);
+        return Math.Clamp(size ?? initial, 1, maximum);
     }
 
     public Task<AiBatchReceipt?> BeginAsync(string kind, string configurationVersion, IReadOnlyList<AiBatchMember> members,

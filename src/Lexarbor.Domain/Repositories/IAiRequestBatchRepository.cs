@@ -11,7 +11,7 @@ public sealed record AiBatchStatistics(int Requests, int Participations, int Com
 /// <summary>Physical requests and their individually guarded members; never raw supplier content.</summary>
 public interface IAiRequestBatchRepository
 {
-    Task<int> LimitAsync(string kind, string configurationVersion, int initial, CancellationToken token);
+    Task<int> LimitAsync(string kind, string configurationVersion, int initial, int maximum, CancellationToken token);
     Task<AiBatchReceipt?> BeginAsync(string kind, string configurationVersion, IReadOnlyList<AiBatchMember> members,
         long now, CancellationToken token);
     Task CompleteAsync(AiBatchReceipt batch, IReadOnlyList<AiBatchResult> results, string outcome, string? errorCode,

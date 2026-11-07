@@ -1898,13 +1898,16 @@ configuration, root-key and audio backup before upgrading. Older images reject a
 newer schema; restore a matching backup when rolling back the application.
 
 No batch switch or new model configuration is required. Preparation starts at six
-independent words per request, expansion stays at one source sense per request,
-and automatic submission review starts at six submissions. Existing automatic-review authorization
+independent words per request, expansion starts at two distinct source words
+(one sense per word) and can grow to three, and automatic submission review starts
+at six submissions. Preparation and review remain capped at six. Existing automatic-review authorization
 still applies. Inputs and responses are bounded to 64 KiB. Incomplete or invalid
 responses and timeouts reduce subsequent batches for that task kind and model
 configuration, down to the original single-item request schema. Each fully valid
-successful request increases the next limit by one, up to the initial limit for
-that kind, including after a restart. Throttling, rejection and non-timeout service
+successful request increases the next limit by one, up to the maximum for
+that kind, including after a restart. Persisted limits from earlier releases are
+retained: an expansion limit of one first advances to two after a valid response,
+then to three. Throttling, rejection and non-timeout service
 failures do not increase it. A configuration change starts a fresh batch-size
 history. Existing request timeouts remain in force. Single pending items are
 dispatched without waiting for a full batch.
@@ -1957,8 +1960,19 @@ expansion's elapsed request time, including timeouts. This favors draining exist
 field/audio work when expansion is slow. It is a process-local scheduling budget,
 not a strict instantaneous latency or throughput guarantee; restart begins with
 preparation priority. Expansion can run immediately when no preparation is queued
-or running, and at most one expansion request runs at a time even with two text
-slots. Automatic submission review has its own scheduler.
+or running and may fill both text slots when `TextConcurrency` is two. If
+preparation arrives while both slots are occupied, in-flight expansions finish
+normally and preparation receives the next free slot. No second expansion is
+dispatched while preparation is pending or running. Both requests still use the
+shared service admission, cooldown and per-word reservation rules. Automatic
+submission review has its own scheduler.
+
+This expansion batching update needs no migration, queue reset or new setting.
+Each member is validated and staged independently; valid saved members survive
+restart and are not requested again when another member fails. The 64 KiB bounds,
+per-source candidate limit, task failure budgets and provider timeouts remain in
+effect. Measure successfully completed source tasks and generated words over
+comparable windows; larger batches do not imply a fixed throughput increase.
 
 `Enrichment:TextConcurrency` controls enrichment preparation/expansion requests
 independently (default 1, allowed 1–2). The admin setting is `textConcurrency` in

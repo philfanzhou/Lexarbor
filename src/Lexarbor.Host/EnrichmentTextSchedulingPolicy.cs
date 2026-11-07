@@ -1,15 +1,16 @@
 namespace Lexarbor.Host;
 
 // Prioritize preparation while both kinds have demand. Expansion remains usable
-// when it is the only work, and never occupies both text slots.
+// when it is the only work, using otherwise idle text slots. In-flight requests
+// finish normally; preparation gets the next free slot when it arrives.
 internal sealed class EnrichmentTextSchedulingPolicy
 {
     private int _preparationRequests;
     private double _preparationMs;
     private double _requiredPreparationMs;
 
-    internal bool CanExpand(bool preparationPending, bool expansionRunning) => !expansionRunning
-        && (!preparationPending || _preparationRequests >= 3 && _preparationMs >= _requiredPreparationMs);
+    internal bool CanExpand(bool preparationPending, bool expansionRunning) => !preparationPending
+        || !expansionRunning && _preparationRequests >= 3 && _preparationMs >= _requiredPreparationMs;
 
     internal void Complete(bool expansion, int requests, double requestMs)
     {

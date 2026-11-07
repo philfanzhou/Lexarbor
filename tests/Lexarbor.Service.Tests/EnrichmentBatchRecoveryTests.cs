@@ -107,7 +107,7 @@ public sealed partial class EnrichmentTargetExecutorTests
         var tasks = new EnrichmentTaskRepository(reopened, f.Clock);
         var restarted = new AiRequestBatchRepository(reopened, tasks, new MeaningSubmissionAutoReviewRepository(reopened, f.Clock),
             new EnrichmentSchedulerRepository(reopened, tasks));
-        Assert.Equal(2, await restarted.LimitAsync("Prepare", f.Runtime.Current.TextVersion!, 6, Ct));
+        Assert.Equal(2, await restarted.LimitAsync("Prepare", f.Runtime.Current.TextVersion!, 6, 6, Ct));
         Assert.Equal(1, f.Http.TextCalls);
         Assert.Equal(1, (await restarted.StatisticsAsync(Ct)).Completed);
     }
