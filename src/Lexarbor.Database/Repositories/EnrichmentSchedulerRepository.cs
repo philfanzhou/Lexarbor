@@ -185,7 +185,8 @@ public sealed partial class EnrichmentSchedulerRepository(VocabularyDbContext co
             }
             if (admission.Probe)
                 await context.EnrichmentServiceProbes.Where(p => p.Id == admission.LeaseId).ExecuteUpdateAsync(set =>
-                    set.SetProperty(p => p.Result, outcome).SetProperty(p => p.RequestMade, requestMade).SetProperty(p => p.FinishedAtUnixMs, now));
+                    set.SetProperty(p => p.Result, outcome).SetProperty(p => p.RequestMade, p => outcome == "Unknown" ? p.RequestMade : requestMade)
+                        .SetProperty(p => p.FinishedAtUnixMs, now));
             if (requestMade)
             {
                 if (outcome == "Throttled")

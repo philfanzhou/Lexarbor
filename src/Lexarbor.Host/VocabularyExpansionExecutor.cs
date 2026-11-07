@@ -39,13 +39,15 @@ public sealed class VocabularyExpansionExecutor(IEnrichmentTaskRepository tasks,
         {
             var service = await gate.EnterAsync("text", false, token);
             if (service.LeaseId == null) return await Wait(service.WaitReason ?? EnrichmentWaitReason.Throttled, service.NextAttemptAtUnixMs);
+            await using var cleanup = gate.Observe(service);
             var callId = Guid.NewGuid().ToString();
             var result = await client.GenerateAsync(input!, snapshot.Enrichment.Text, bookId, token, async ct =>
                 runtime.Current.TextVersion == snapshot.TextVersion
                 && await tasks.BeginCallAsync(guard, callId, "text", null, Now, ct));
+            cleanup.Record(result.Outcome, result.ErrorCode, result.RequestMade, result.RetryAfter);
             if (!result.RequestMade)
             {
-                await gate.FinishAsync(service, result.Outcome, result.ErrorCode, false, null, token);
+                await cleanup.FinishAsync();
                 if (result.Outcome == "InvalidPlan")
                 {
                     await tasks.StopAsync(guard, result.ErrorCode!, Now, token);
@@ -59,10 +61,10 @@ public sealed class VocabularyExpansionExecutor(IEnrichmentTaskRepository tasks,
                 plan = result.Plan;
                 if (!await tasks.SavePlanAsync(guard, new(input!.Word, null, null, null, Expansion: plan), Now, token))
                 {
-                    await gate.FinishAsync(service, result.Outcome, null, true, null, token);
+                    await cleanup.FinishAsync();
                     return await tasks.GetAsync(task.Id, token);
                 }
-                await gate.FinishAsync(service, result.Outcome, null, true, null, token);
+                await cleanup.FinishAsync();
                 if (!await tasks.FinishCallAsync(guard, callId, EnrichmentCallResult.Succeeded, null, Now, null, token))
                     return await tasks.GetAsync(task.Id, token);
             }
@@ -71,8 +73,7 @@ public sealed class VocabularyExpansionExecutor(IEnrichmentTaskRepository tasks,
                 var outcome = result.Outcome == "Throttled" ? EnrichmentCallResult.Throttled
                     : result.Outcome == "ServiceFailure" ? EnrichmentCallResult.TransientFailure : EnrichmentCallResult.TerminalFailure;
                 var retry = Now + Math.Max(30_000, (long)(result.RetryAfter?.TotalMilliseconds ?? 0));
-                await gate.FinishAsync(service, result.Outcome, result.ErrorCode, true, result.RetryAfter, token,
-                    new(guard, callId, outcome, result.ErrorCode!, outcome == EnrichmentCallResult.TerminalFailure ? null : retry));
+                await cleanup.FinishAsync(new(guard, callId, outcome, result.ErrorCode!, outcome == EnrichmentCallResult.TerminalFailure ? null : retry));
                 return await tasks.GetAsync(task.Id, token);
             }
         }

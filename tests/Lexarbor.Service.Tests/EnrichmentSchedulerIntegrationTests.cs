@@ -210,7 +210,7 @@ public sealed partial class EnrichmentTargetExecutorTests
     }
 
     [Fact]
-    public async Task SharedGateCancellation_LeavesLeaseForRestart_WithoutInventingFailure()
+    public async Task SharedGateCancellation_ReleasesLease_WithoutInventingFailure()
     {
         await using var f = await Fixture.Create(fields: false, shared: true);
         using var cancel = new CancellationTokenSource();
@@ -219,7 +219,7 @@ public sealed partial class EnrichmentTargetExecutorTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => f.Executor.ExecuteAsync(task.Id, "cancel", cancel.Token));
         await using var restarted = f.Open();
         var state = (await new EnrichmentSchedulerRepository(restarted).ServiceAsync(EnrichmentServiceGate.Identity("tts", f.Runtime.Current), Ct))!;
-        Assert.NotNull(state.LeaseId); Assert.Equal(0, state.ConsecutiveFailures);
+        Assert.Null(state.LeaseId); Assert.Equal(0, state.ConsecutiveFailures);
         Assert.Equal(0, Round((await new EnrichmentTaskRepository(restarted, f.Clock).GetAsync(task.Id, Ct))!).ConsumedFailures);
     }
 }
