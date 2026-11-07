@@ -57,7 +57,8 @@ public sealed partial class EnrichmentTargetExecutorTests
         var batches = new AiRequestBatchRepository(db, tasks, new MeaningSubmissionAutoReviewRepository(db, f.Clock), scheduler);
         using var clients = new HttpFactory(f.Http);
         var executor = BatchExecutor(f, db, tasks, scheduler, batches, clients);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => executor.PrepareAsync([task.Id], Ct));
+        var error = await Assert.ThrowsAsync<DbUpdateException>(() => executor.PrepareAsync([task.Id], Ct));
+        Assert.IsType<InvalidOperationException>(error.InnerException);
         Assert.Equal(0, f.Http.TextCalls);
         Assert.Empty(await db.EnrichmentCalls.AsNoTracking().ToArrayAsync(Ct));
         Assert.Empty(await db.AiRequestBatches.AsNoTracking().ToArrayAsync(Ct));
