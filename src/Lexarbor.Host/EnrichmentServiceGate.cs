@@ -31,7 +31,7 @@ public sealed class EnrichmentServiceGate(IEnrichmentSchedulerRepository reposit
         // Leave time for admission/staging and bounded database completion retries.
         var now = Now;
         return repository.EnterServiceAsync(Identity(service, snapshot), Version(service, snapshot), probe, now,
-            now + (timeout + 60L) * 1000, token, service == "tts" ? Math.Clamp(snapshot.Enrichment.Concurrency, 1, 8) : 1);
+            now + (timeout + 60L) * 1000, token, service == "tts" ? Math.Clamp(snapshot.Enrichment.Concurrency, 1, 8) : snapshot.Enrichment.TextConcurrency);
     }
     public Task<long> FinishAsync(EnrichmentServiceAdmission admission, string outcome, string? error,
         bool called, TimeSpan? retryAfter, CancellationToken token, EnrichmentCallCompletion? completion = null)

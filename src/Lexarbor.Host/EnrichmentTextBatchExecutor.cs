@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 using Lexarbor.Domain.Services;
@@ -74,7 +75,7 @@ public sealed class EnrichmentTextBatchExecutor(IEnrichmentTaskRepository tasks,
         {
             var kind = group.Key.ToString();
             var instructions = group.Key == EnrichmentStep.Expand ? VocabularyExpansionClient.Instructions : OpenAiCompatiblePronunciationPreparationClient.Instructions;
-            var initial = group.Key == EnrichmentStep.Expand ? 3 : 6;
+            var initial = group.Key == EnrichmentStep.Expand ? 1 : 6;
             var limit = await batches.LimitAsync(kind, snapshot.TextVersion!, initial, token);
             var queue = group.ToArray();
             for (var index = 0; index < queue.Length;)
@@ -107,16 +108,22 @@ public sealed class EnrichmentTextBatchExecutor(IEnrichmentTaskRepository tasks,
                     var receipt = members.Count == 0 ? null : await batches.BeginAsync(kind, snapshot.TextVersion!, members, Now, token);
                     if (receipt == null) continue;
                     var ids = receipt.Members.Select(m => m.Id).ToHashSet(StringComparer.Ordinal);
+                    var requestStarted = Stopwatch.GetTimestamp();
                     response = await client.SendAsync(snapshot.Enrichment.Text, instructions, chunk.Where(w => ids.Contains(w.Item.Id)).Select(w => w.Item).ToArray(), token);
+                    var requestMs = Stopwatch.GetElapsedTime(requestStarted).TotalMilliseconds;
                     var valid = response.Items.Values.Count(r => r.Plan != null);
                     var outcome = response.Outcome == "Ready" && valid != receipt.Members.Count ? "Partial" : response.Outcome;
                     limit = AiTextBatchClient.NextSize(limit, initial, outcome, response.ErrorCode);
                     var settings = snapshot.Enrichment;
                     var retryAt = Now + Math.Max(1000, (long)(response.RetryAfter?.TotalMilliseconds ?? (outcome == "ServiceFailure" ? 30000 : 1000)));
+                    var commitStarted = Stopwatch.GetTimestamp();
                     await batches.CompleteAsync(receipt, response.Items.Values.ToArray(), outcome, response.ErrorCode, limit, Now, retryAt,
                         CancellationToken.None, service, new(settings.ServiceFailureThreshold, settings.ServicePauseSeconds,
                             settings.MaxServicePauseSeconds, settings.ThrottleInitialSeconds, settings.ThrottleMaxSeconds));
                     completed = true;
+                    logger?.LogInformation("Autonomous text batch: kind {Kind}, items {Items}, validated {Validated}, outcome {Outcome}, timeout {Timeout}, requestMs {RequestMs}, commitMs {CommitMs}, nextSize {NextSize}",
+                        kind, receipt.Members.Count, valid, outcome, response.ErrorCode == "batch.timeout", requestMs,
+                        Stopwatch.GetElapsedTime(commitStarted).TotalMilliseconds, limit);
                     if (outcome is "Throttled" or "ServiceFailure" or "Rejected") return selected;
                 }
                 finally

@@ -926,3 +926,14 @@ provider may have processed such a request, so exactly-once remote execution is
 not promised. A crash after staging reuses saved plans without another request.
 The new service leases enforce bounded TTS concurrency across workers and retain
 an in-flight scalar lease from the previous version until completion or expiry.
+
+The dispatch planner reads current rounds into separately bounded recovery, ready,
+and text lanes. SQL excludes in-flight words and blocked preparation dependencies,
+then deduplicates by word within each lane before limiting recent/historical work.
+The single hosted worker reserves words across lanes until preparation and its
+selected publication finish; every concurrent job gets a separate scoped context.
+These process-local reservations are not durable multi-host locks. Existing target
+claims and service leases remain the restart/concurrent-owner boundary. The text
+service capacity follows `Enrichment:TextConcurrency` (default 1, range 1–2),
+independent of target/TTS concurrency. No schema, migration, journal mode or backup
+format changes are introduced by the new planner.

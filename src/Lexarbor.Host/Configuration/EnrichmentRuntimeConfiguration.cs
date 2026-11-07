@@ -59,7 +59,7 @@ internal static class EnrichmentConfigurationFields
             Add(name + ".speed", "Enrichment:Tts:" + locale + ":Speed", EnrichmentFieldKind.Speed, null, 0.1m, 4m);
         }
         foreach (var setting in new[] {
-            ("concurrency", "Concurrency", 1, 1, 8), ("failureBudget", "FailureBudget", 5, 1, 20),
+            ("concurrency", "Concurrency", 1, 1, 8), ("textConcurrency", "TextConcurrency", 1, 1, 2), ("failureBudget", "FailureBudget", 5, 1, 20),
             ("serviceFailureThreshold", "ServiceFailureThreshold", 5, 1, 20),
             ("servicePauseSeconds", "ServicePauseSeconds", 60, 1, 600),
             ("maxServicePauseSeconds", "MaxServicePauseSeconds", 600, 1, 3600),
@@ -124,7 +124,7 @@ public sealed class EnrichmentSettings
             S("Tts:Uk:Style"), S("Tts:Uk:Emotion"), I("Tts:Uk:Pitch"), fields["Enrichment:Tts:Uk:Volume"]!.GetValue<decimal>());
         Us = new(S("Tts:Us:Voice"), fields["Enrichment:Tts:Us:Speed"]?.GetValue<decimal>(),
             S("Tts:Us:Style"), S("Tts:Us:Emotion"), I("Tts:Us:Pitch"), fields["Enrichment:Tts:Us:Volume"]!.GetValue<decimal>());
-        Concurrency = I("Concurrency"); FailureBudget = I("FailureBudget");
+        Concurrency = I("Concurrency"); TextConcurrency = I("TextConcurrency"); FailureBudget = I("FailureBudget");
         ServiceFailureThreshold = I("ServiceFailureThreshold"); ServicePauseSeconds = I("ServicePauseSeconds");
         MaxServicePauseSeconds = I("MaxServicePauseSeconds"); ThrottleInitialSeconds = I("ThrottleInitialSeconds");
         ThrottleMaxSeconds = I("ThrottleMaxSeconds"); DiscoveryBatchSize = I("DiscoveryBatchSize"); ScanIntervalSeconds = I("ScanIntervalSeconds");
@@ -137,6 +137,7 @@ public sealed class EnrichmentSettings
     public EnrichmentVoiceSettings Uk { get; }
     public EnrichmentVoiceSettings Us { get; }
     public int Concurrency { get; }
+    public int TextConcurrency { get; }
     public int FailureBudget { get; }
     public int ServiceFailureThreshold { get; }
     public int ServicePauseSeconds { get; }

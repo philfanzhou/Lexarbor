@@ -1651,8 +1651,9 @@ TTS model, per-accent settings and storage. Legacy `Enrichment:FieldsEnabled` an
 periodic bounded discovery covers lost notifications, historical work and R03
 specific regeneration. No manual scope selection or full-library start is needed.
 
-Existing administrator-only settings control concurrency (default 1, range 1–8),
-discovery batch size (20) and scan interval (30 seconds). New arrivals have priority
+Administrator-only settings control target/TTS concurrency (`Enrichment:Concurrency`,
+default 1, range 1–8), independent text concurrency (`Enrichment:TextConcurrency`,
+default 1, range 1–2), discovery batch size (20) and scan interval (30 seconds). New arrivals have priority
 with reserved historical discovery/execution capacity. Pending work is retained
 when a model is unconfigured; it resumes after configuration is restored.
 With only the text model configured, audio targets wait; with storage disabled, field completion
@@ -1897,8 +1898,8 @@ configuration, root-key and audio backup before upgrading. Older images reject a
 newer schema; restore a matching backup when rolling back the application.
 
 No batch switch or new model configuration is required. Preparation starts at six
-independent words per request, expansion at three source senses, and automatic
-submission review at six submissions. Existing automatic-review authorization
+independent words per request, expansion stays at one source sense per request,
+and automatic submission review starts at six submissions. Existing automatic-review authorization
 still applies. Inputs and responses are bounded to 64 KiB. Incomplete or invalid
 responses and timeouts reduce subsequent batches for that task kind and model
 configuration, down to the original single-item request schema. Each fully valid
@@ -1926,10 +1927,37 @@ dependent work can resume on its next due attempt. The short retry for a changed
 preparation configuration remains one second. No schema migration, manual queue
 reset, journal-mode change or new setting is required for these recovery changes.
 
-Due work drains continuously between discovery sweeps. TTS retains one audio file
-per request and uses the existing `Enrichment:Concurrency` limit (1–8), subject to
-upload admission and shared throttling. A concurrent successful request never
-shortens an already established throttle window.
+Due work drains continuously between discovery sweeps. The planner reserves
+separate bounded queues for expired/open-call recovery, ready publication/audio,
+and text preparation. It deduplicates words before applying each lane's limit,
+filters dependencies that cannot advance, and reserves capacity for recent and
+historical work. One word remains reserved across preparation and publication;
+each running job owns its own scoped database context. A finished text request
+frees its slot immediately, so another slow request cannot hold up that slot or
+ready audio. Persisted target and service leases remain authoritative on restart.
+
+`Enrichment:TextConcurrency` controls enrichment preparation/expansion requests
+independently (default 1, allowed 1–2). The admin setting is `textConcurrency` in
+the background policy section. Raising it to 2 is optional; upgrade keeps one text
+request at a time. Automatic submission review retains its independent service
+gate. TTS retains one audio file per request and uses `Enrichment:Concurrency`
+(1–8), subject to upload admission and shared throttling. A concurrent successful
+request never shortens an already established throttle window. Changing the
+concurrency policy does not invalidate prepared plans or reset failure budgets.
+
+Structured `Autonomous dispatch`, `Autonomous text batch`, and
+`Autonomous target execution` information logs record lane, item count, oldest
+selected round update age, validated member count, outcome, timeout flag, provider
+request duration, completion-transaction duration, next batch limit, and target
+execution duration. They omit words, target IDs, prompts, responses, endpoints and
+credentials. Queue age measures time since the selected round's last update, not
+end-to-end word latency. Request/commit durations are logged after a confirmed
+batch completion and include local validation/transaction retries respectively;
+uncertain completions remain visible through existing durable counters. Compare
+completed members and published audio per minute over comparable observation
+windows after deployment; batch size or request count alone does not measure
+throughput. This scheduling update adds no database migration or journal-mode
+change.
 
 ## Preparation-pending wait reason upgrade
 
