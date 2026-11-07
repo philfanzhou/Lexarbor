@@ -3,7 +3,8 @@ import type { EnrichmentTask } from './enrichmentApi'
 export const stateLabels: Record<string, string> = { Pending: '待处理', Running: '处理中', Waiting: '等待', Succeeded: '已完成', Failed: '失败', Cancelled: '已取消', Superseded: '已被新一轮替代' }
 export const stepLabels: Record<string, string> = { Prepare: '发音准备', Fields: '默认字段', Audio: '音频生成', Expand: '词形与派生词扩展' }
 const reasons: Record<string, string> = {
-  Disabled: '生成或字段补齐已关闭', ConfigurationMissing: '等待模型、口音或补充词书配置就绪', StorageDisabled: '音频存储关闭',
+  Disabled: '生成或字段补齐已关闭', ConfigurationMissing: '等待模型、口音或补充词书配置就绪', PreparationPending: '等待前置发音准备完成',
+  StorageDisabled: '音频存储关闭',
   ServicePaused: '服务暂停，等待恢复探测', Throttled: '服务限流，等待后继续；不扣失败额度',
   Retry: '等待下次自动尝试', LeaseExpired: '执行租约已过期，等待恢复'
 }
@@ -52,6 +53,9 @@ export function guidance(task: EnrichmentTask): { title: string; description: st
   if (!task.applicable) return { title: '无需处理', description: task.inheritsDefault ? '此释义已恢复使用单词的默认读音。' : '词条或生成需求已经变化，这条任务仅保留历史。' }
   if (!task.missing) return { title: '已完成，无需重试', description: task.step === 'Expand' ? '本轮扩展已处理。没有可靠的新词时也会正常完成；可在词条中查看已有关系。' : '当前需要的内容已经具备，系统不会重复生成。' }
   if (task.waitReason === 'StorageDisabled') return { title: '需要配置音频存储', description: '存储就绪后，缺失的读音会自动继续生成。', link: '/settings/audio-storage', action: '检查音频存储' }
+  if (task.waitReason === 'PreparationPending') return {
+    title: '等待前置发音准备', description: '文本模型正在准备读音和字段，完成后此步骤会自动继续；无需手动重试。'
+  }
   if (task.waitReason === 'ConfigurationMissing' || task.waitReason === 'Disabled') return {
     title: '需要检查配置', description: task.step === 'Expand' ? '文本模型和补充词书均须就绪。请检查上方对应任务卡片，补充词书须存在且启用。' : task.step === 'Audio' ? '需要文本模型、语音模型和当前口音的音色配置。配置就绪后自动继续。' : '文本模型配置就绪后自动继续，无需另开功能开关。',
     link: task.step === 'Audio' ? '/settings/speech' : '/settings/text', action: task.step === 'Audio' ? '检查语音配置' : '检查文本模型'

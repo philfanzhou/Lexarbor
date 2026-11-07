@@ -1909,3 +1909,31 @@ Due work drains continuously between discovery sweeps. TTS retains one audio fil
 per request and uses the existing `Enrichment:Concurrency` limit (1–8), subject to
 upload admission and shared throttling. A concurrent successful request never
 shortens an already established throttle window.
+
+## Preparation-pending wait reason upgrade
+
+`AddPreparationPendingWaitReason` rebuilds `enrichment_round` and `enrichment_wait`
+to allow the new automatic dependency wait reason. Existing rounds, calls, waits,
+indexes and foreign keys are preserved; dependent history is copied to temporary
+backup tables and restored in the same transaction as the migration-version
+record, so a failed upgrade can restart without a partial schema. Startup applies
+it to a `v0.1.9-rc.3` database without export/import, manual SQL or an empty
+replacement database.
+
+The new reason is written only when an applicable `Fields` or `Audio` target waits
+for its own `Prepare` target. A genuine current configuration gap still reports
+`ConfigurationMissing`, and disabled storage still reports `StorageDisabled`;
+those remain in the administrator attention filter. `PreparationPending` is
+excluded from `attentionOnly` and the task-activity `actionRequired` count, because
+the preparation worker completes it without operator action. The API also projects
+legacy `ConfigurationMissing` waits on `Fields`/`Audio` targets as
+`PreparationPending` once current configuration is ready, so an upgraded database
+does not keep showing stale dependency waits in the attention list.
+
+Back up `/app/data`, the persistent configuration and the matching root key before
+upgrading. An explicit Down converts every `PreparationPending` row back to
+`ConfigurationMissing` before restoring the old CHECK constraints, preserving all
+other columns; stop writes and preserve a backup first. An older image refuses the
+newer schema with `migration.version_too_new`; restore the matching backup when
+rolling back the application. No remote audio object, configuration file or
+public route changes.

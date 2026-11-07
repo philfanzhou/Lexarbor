@@ -37,7 +37,7 @@ internal static class EnrichmentModelConfiguration
             table.HasCheckConstraint("CK_enrichment_round_config", "length(configuration_version) BETWEEN 1 AND 128");
             table.HasCheckConstraint("CK_enrichment_round_plan", "plan_json IS NULL OR length(plan_json) <= 16384");
             table.HasCheckConstraint("CK_enrichment_round_lease", "(state = 'Running' AND lease_owner IS NOT NULL AND lease_fence > 0 AND lease_expires_at_unix_ms IS NOT NULL) OR (state != 'Running' AND lease_owner IS NULL AND lease_expires_at_unix_ms IS NULL)");
-            table.HasCheckConstraint("CK_enrichment_round_wait", "wait_reason IS NULL OR wait_reason IN ('Disabled','ConfigurationMissing','StorageDisabled','ServicePaused','Throttled','Retry','LeaseExpired')");
+            table.HasCheckConstraint("CK_enrichment_round_wait", "wait_reason IS NULL OR wait_reason IN ('Disabled','ConfigurationMissing','PreparationPending','StorageDisabled','ServicePaused','Throttled','Retry','LeaseExpired')");
             table.HasCheckConstraint("CK_enrichment_round_times", "created_at_unix_ms >= 0 AND updated_at_unix_ms >= created_at_unix_ms");
         });
         round.HasKey(row => new { row.TargetId, row.Number });
@@ -61,7 +61,7 @@ internal static class EnrichmentModelConfiguration
         var wait = builder.Entity<EnrichmentWaitEntity>();
         wait.ToTable("enrichment_wait", table =>
         {
-            table.HasCheckConstraint("CK_enrichment_wait_reason", "reason IN ('Disabled','ConfigurationMissing','StorageDisabled','ServicePaused','Throttled','Retry','LeaseExpired')");
+            table.HasCheckConstraint("CK_enrichment_wait_reason", "reason IN ('Disabled','ConfigurationMissing','PreparationPending','StorageDisabled','ServicePaused','Throttled','Retry','LeaseExpired')");
             table.HasCheckConstraint("CK_enrichment_wait_times", "recorded_at_unix_ms >= 0 AND next_attempt_at_unix_ms >= recorded_at_unix_ms");
         });
         wait.HasKey(row => row.Id);

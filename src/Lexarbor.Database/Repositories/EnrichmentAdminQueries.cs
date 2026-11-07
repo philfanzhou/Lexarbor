@@ -86,7 +86,9 @@ internal static class EnrichmentAdminQueries
                 WHEN NOT Configured OR Blocked THEN 'ConfigurationMissing'
                 WHEN Paused THEN 'ServicePaused'
                 WHEN ServiceNext>@now THEN 'Throttled'
-                WHEN RoundState='Running' THEN NULL ELSE StoredWaitReason END AS WaitReason
+                WHEN RoundState='Running' THEN NULL
+                WHEN StoredWaitReason='ConfigurationMissing' AND Step IN ('Fields','Audio') THEN 'PreparationPending'
+                ELSE StoredWaitReason END AS WaitReason
               FROM availability a
             )
             SELECT Id,WordId,Word,MeaningId,Meaning,Locale,Step,Applicable,Missing,InheritsDefault,

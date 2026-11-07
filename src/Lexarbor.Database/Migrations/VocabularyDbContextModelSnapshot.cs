@@ -646,7 +646,7 @@ namespace Lexarbor.Database.Migrations
 
                             t.HasCheckConstraint("CK_enrichment_round_times", "created_at_unix_ms >= 0 AND updated_at_unix_ms >= created_at_unix_ms");
 
-                            t.HasCheckConstraint("CK_enrichment_round_wait", "wait_reason IS NULL OR wait_reason IN ('Disabled','ConfigurationMissing','StorageDisabled','ServicePaused','Throttled','Retry','LeaseExpired')");
+                            t.HasCheckConstraint("CK_enrichment_round_wait", "wait_reason IS NULL OR wait_reason IN ('Disabled','ConfigurationMissing','PreparationPending','StorageDisabled','ServicePaused','Throttled','Retry','LeaseExpired')");
                         });
                 });
 
@@ -866,7 +866,7 @@ namespace Lexarbor.Database.Migrations
 
                     b.ToTable("enrichment_wait", null, t =>
                         {
-                            t.HasCheckConstraint("CK_enrichment_wait_reason", "reason IN ('Disabled','ConfigurationMissing','StorageDisabled','ServicePaused','Throttled','Retry','LeaseExpired')");
+                            t.HasCheckConstraint("CK_enrichment_wait_reason", "reason IN ('Disabled','ConfigurationMissing','PreparationPending','StorageDisabled','ServicePaused','Throttled','Retry','LeaseExpired')");
 
                             t.HasCheckConstraint("CK_enrichment_wait_times", "recorded_at_unix_ms >= 0 AND next_attempt_at_unix_ms >= recorded_at_unix_ms");
                         });
