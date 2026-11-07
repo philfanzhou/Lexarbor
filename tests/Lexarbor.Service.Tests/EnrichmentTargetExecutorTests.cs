@@ -112,6 +112,14 @@ public sealed partial class EnrichmentTargetExecutorTests
         Assert.Equal(EnrichmentWaitReason.PreparationPending, Round(audio).WaitReason);
         Assert.Equal(0, f.Http.TextCalls);
         Assert.Equal(0, f.Http.SpeechCalls);
+        Assert.Equal(f.Clock.Now + 120_000, Round(fields).NextAttemptAtUnixMs);
+        f.Clock.Now += 30_000;
+        var due = await new EnrichmentSchedulerRepository(f.Db, f.Tasks).DueAsync(20, f.Clock.Now, Ct);
+        Assert.DoesNotContain(audio.Id, due);
+        Assert.DoesNotContain(fields.Id, due);
+        f.Clock.Now = Round(audio).NextAttemptAtUnixMs!.Value;
+        var resumed = (await f.Executor.ExecuteAsync(audio.Id, "due-poll", Ct))!;
+        Assert.Equal(EnrichmentState.Succeeded, Round(resumed).State);
     }
 
     [Theory]

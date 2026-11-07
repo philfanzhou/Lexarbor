@@ -285,13 +285,18 @@ Additional `enrichment` fields and defaults:
 
 | Field | Default | Allowed |
 |---|---|---|
-| `concurrency` | 1 | 1–8 |
+| `concurrency` | 1 | 1–8; target execution and TTS |
+| `textConcurrency` | 1 | 1–2; enrichment preparation/expansion text requests |
 | `failureBudget` | 5 | 1–20 |
 | `serviceFailureThreshold` | 5 | 1–20 |
 | `servicePauseSeconds` / `maxServicePauseSeconds` | 60 / 600 | 1–600 / 1–3600; maximum >= initial |
 | `throttleInitialSeconds` / `throttleMaxSeconds` | 8 / 120 | 1–120 / 1–3600; maximum >= initial |
 | `discoveryBatchSize` | 20 | 1–1000 |
 | `scanIntervalSeconds` | 30 | 1–3600 |
+
+Changing `textConcurrency` does not invalidate prepared plans or change the
+independent automatic-review gate. Older clients may omit this additive field;
+the admin client shows it read-only with default 1 when an older server omits it.
 
 Omitted fields and credentials are retained. Each `apiKey` supports exactly
 keep/replace/clear as in the S3 API. Deployment overrides remain read-only, including

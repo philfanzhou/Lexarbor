@@ -191,3 +191,16 @@ requests still running or lacking a confirmed outcome. These counters do not
 represent unique words, published items, provider billing, or token savings.
 Older clients may ignore this additive field; the admin client tolerates its
 absence when connected to an older server.
+
+After a fully valid response, the next batch limit grows by one up to its initial
+limit (six for preparation/review, one for expansion). Invalid/partial responses
+and timeouts still reduce it. Local retries of a busy completion transaction reuse
+the same response and do not add provider requests or duplicate completed members.
+Unconfirmed historical requests remain included in `unknown`.
+
+Preparation/expansion requests use the independent `enrichment.textConcurrency`
+policy (default 1, integer 1–2); target execution and TTS retain
+`enrichment.concurrency` (default 1, integer 1–8). See the
+[settings contract](SystemSettings.md) and
+[dispatch and timing logs](../development/Deployment.md#automatic-text-batching-upgrade).
+These limits do not change request/member counter meanings.

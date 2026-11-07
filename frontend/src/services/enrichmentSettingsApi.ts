@@ -27,7 +27,8 @@ export const valueFields = [
   ['enrichment.tts.us.pitch', 'US 音高', 'us', 'integer', -12, 12],
   ['enrichment.tts.us.volume', 'US 音量', 'us', 'decimal', 0.1, 10],
   ['enrichment.tts.us.speed', 'US 语速', 'us', 'speed', 0.1, 4],
-  ['enrichment.concurrency', '并发上限', 'policy', 'integer', 1, 8],
+  ['enrichment.textConcurrency', '文本请求并发上限', 'policy', 'integer', 1, 2],
+  ['enrichment.concurrency', '任务执行与语音并发上限', 'policy', 'integer', 1, 8],
   ['enrichment.failureBudget', '每步骤失败额度（含首次）', 'policy', 'integer', 1, 20],
   ['enrichment.serviceFailureThreshold', '服务连续失败暂停阈值', 'policy', 'integer', 1, 20],
   ['enrichment.servicePauseSeconds', '服务暂停初始时间（秒）', 'policy', 'integer', 1, 600],
@@ -68,7 +69,9 @@ function parse(value: unknown): EnrichmentSettings {
   if (typeof revision !== 'string' || !/^"[0-9a-f]{32}"$/.test(revision) || typeof configurationReady !== 'boolean') return invalid()
   const values = {} as SettingsDraft
   for (const field of valueFields) {
-    const [name, , , kind] = field, item = get(value, name)
+    const [name, , , kind] = field
+    const raw = get(value, name)
+    const item = name === 'enrichment.textConcurrency' && raw === undefined ? 1 : raw
     const valid = kind === 'boolean' ? typeof item === 'boolean'
       : kind === 'integer' || kind === 'speed' || kind === 'decimal' ? kind === 'speed' && item === null
         || typeof item === 'number' && Number.isFinite(item) && item >= field[4]! && item <= field[5]! && (kind !== 'integer' || Number.isInteger(item))
@@ -85,7 +88,8 @@ function parse(value: unknown): EnrichmentSettings {
   const fields = {} as EnrichmentSettings['fields']
   const rawFields = get(value, 'fields') as Record<string, AudioFieldState> | undefined
   for (const [name] of [...valueFields, ...secretFields]) {
-    const field = rawFields?.[name]
+    const field = rawFields?.[name] ?? (name === 'enrichment.textConcurrency' && get(value, name) === undefined
+      ? { source: 'default' as const, editable: false, reason: '当前服务器尚不支持文本并发设置。' } : undefined)
     if (!field || !['default', 'file', 'environment', 'commandLine'].includes(field.source)
       || typeof field.editable !== 'boolean' || (field.reason !== null && typeof field.reason !== 'string')) return invalid()
     fields[name] = { source: field.source, editable: field.editable, reason: field.reason }

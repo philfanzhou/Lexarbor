@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Lexarbor.Database.Repositories;
 
-public sealed class EnrichmentSchedulerRepository(VocabularyDbContext context, IEnrichmentTaskRepository? tasks = null) : IEnrichmentSchedulerRepository
+public sealed partial class EnrichmentSchedulerRepository(VocabularyDbContext context, IEnrichmentTaskRepository? tasks = null) : IEnrichmentSchedulerRepository
 {
     private readonly UnitOfWork _writer = new(context);
 

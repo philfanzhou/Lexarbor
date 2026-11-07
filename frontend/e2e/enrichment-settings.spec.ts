@@ -12,7 +12,7 @@ function state() {
     fieldsEnabled: false, audioEnabled: false, text: client(),
     tts: { ...client(), provider: 'MiniMaxNative', model: 'speech-2.8-hd', uk: voice(), us: voice() },
     concurrency: 1, failureBudget: 5, serviceFailureThreshold: 5, servicePauseSeconds: 60, maxServicePauseSeconds: 600,
-    throttleInitialSeconds: 8, throttleMaxSeconds: 120, discoveryBatchSize: 20, scanIntervalSeconds: 30
+    textConcurrency: 1, throttleInitialSeconds: 8, throttleMaxSeconds: 120, discoveryBatchSize: 20, scanIntervalSeconds: 30
   }, fields: {} as Record<string, { source: string; editable: boolean; reason: string | null }> }
   function fields(value: object, prefix = '') {
     for (const [key, item] of Object.entries(value)) {
@@ -79,7 +79,7 @@ test('settings sections keep independent defaults, policy bounds and optional vo
 
   await tab(page, '后台策略').click()
   for (const [label, min, max] of [
-    ['并发上限', '1', '8'], ['每步骤失败额度（含首次）', '1', '20'], ['服务连续失败暂停阈值', '1', '20'],
+    ['文本请求并发上限', '1', '2'], ['任务执行与语音并发上限', '1', '8'], ['每步骤失败额度（含首次）', '1', '20'], ['服务连续失败暂停阈值', '1', '20'],
     ['服务暂停初始时间（秒）', '1', '600'], ['服务暂停最长时间（秒）', '1', '3600'], ['限流初始退避（秒）', '1', '120'],
     ['限流最长退避（秒）', '1', '3600'], ['每次发现上限', '1', '1000'], ['扫描间隔（秒）', '1', '3600']
   ] as const) {
@@ -395,9 +395,9 @@ test('new deployment lock after conflict adopts locked actual value and preserve
 test('invalid numeric input cannot dispatch; no provider or model change fills voice/speed', async ({ page }) => {
   await admin(page); let puts = 0
   await page.route(url, route => { if (route.request().method() === 'PUT') puts++; return json(route, state()) })
-  await page.goto('/#/settings/background'); await page.getByLabel('并发上限', { exact: true }).fill('9')
+  await page.goto('/#/settings/background'); await page.getByLabel('任务执行与语音并发上限', { exact: true }).fill('9')
   await save(page, '后台策略').click(); expect(puts).toBe(0)
-  expect(await page.getByLabel('并发上限', { exact: true }).evaluate(node => (node as HTMLInputElement).validity.rangeOverflow)).toBe(true)
+  expect(await page.getByLabel('任务执行与语音并发上限', { exact: true }).evaluate(node => (node as HTMLInputElement).validity.rangeOverflow)).toBe(true)
   page.once('dialog', dialog => dialog.accept())
   await tab(page, '语音生成').click()
   await page.getByLabel('语音提供方', { exact: true }).selectOption('OpenAICompatible')
@@ -601,4 +601,17 @@ test('speech previews decode in Chromium, work on narrow screens, and ignore log
   await pending!.fulfill({ contentType: 'audio/mpeg', path: '../tests/AudioStorageProbe/Fixtures/tone.mp3' }).catch(() => undefined)
   await expect(page.getByLabel('US 试听播放器')).toHaveCount(0)
   await expect(page).toHaveURL(/#\/login/)
+})
+
+test('older servers keep settings usable and text concurrency read-only', async ({ page }) => {
+  await admin(page)
+  const current = state()
+  const legacy = JSON.parse(JSON.stringify(current))
+  delete legacy.enrichment.textConcurrency
+  delete legacy.fields['enrichment.textConcurrency']
+  await page.route(url, route => json(route, legacy))
+  await page.goto('/#/settings/background')
+  await expect(page.getByLabel('文本请求并发上限', { exact: true })).toHaveValue('1')
+  await expect(page.getByLabel('文本请求并发上限', { exact: true })).toBeDisabled()
+  await expect(page.getByLabel('任务执行与语音并发上限', { exact: true })).toBeEnabled()
 })

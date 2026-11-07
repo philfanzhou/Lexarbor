@@ -1,4 +1,5 @@
 using Lexarbor.Database.Entities;
+using Lexarbor.Domain.Exceptions;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -40,9 +41,30 @@ public sealed class AiRequestBatchRepository(VocabularyDbContext db, EnrichmentT
         return new(batch.Id, accepted);
     }, token);
 
-    public Task CompleteAsync(AiBatchReceipt batch, IReadOnlyList<AiBatchResult> results, string outcome, string? errorCode,
+    public async Task CompleteAsync(AiBatchReceipt batch, IReadOnlyList<AiBatchResult> results, string outcome, string? errorCode,
         int nextSize, long now, long? retryAt, CancellationToken token,
-        EnrichmentServiceAdmission? admission = null, EnrichmentServicePolicy? policy = null) => tasks.BatchTransactionAsync(async () =>
+        EnrichmentServiceAdmission? admission = null, EnrichmentServicePolicy? policy = null)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                await CompleteOnceAsync(batch, results, outcome, errorCode, nextSize, now, retryAt, token, admission, policy);
+                return;
+            }
+            catch (StorageBusyException) when (attempt < 2)
+            {
+                // Retry the same validated response after rollback, never the HTTP
+                // request. Release the writer between attempts so other work drains.
+                db.ChangeTracker.Clear();
+                await Task.Delay(TimeSpan.FromMilliseconds(100 * (attempt + 1)), token);
+            }
+        }
+    }
+
+    private Task CompleteOnceAsync(AiBatchReceipt batch, IReadOnlyList<AiBatchResult> results, string outcome, string? errorCode,
+        int nextSize, long now, long? retryAt, CancellationToken token,
+        EnrichmentServiceAdmission? admission, EnrichmentServicePolicy? policy) => tasks.BatchTransactionAsync(async () =>
     {
         var record = await db.AiRequestBatches.AsNoTracking().SingleAsync(r => r.Id == batch.Id, token);
         if (record.FinishedAtUnixMs != null) return false;

@@ -18,6 +18,9 @@ public sealed partial class EnrichmentTargetExecutorTests
     public async Task Worker_LostNotificationDiscoversExplicitTargets_StorageWaits_ThenPublishesOnlyMissingSides()
     {
         await using var f = await Fixture.Create(fields: false, shared: true);
+        // This fixture exercises audio discovery; generated words are not expansion sources.
+        f.Db.EnrichmentGeneratedWords.Add(new() { WordId = "word", TaskId = "fixture" });
+        await f.Db.SaveChangesAsync(Ct); f.Db.ChangeTracker.Clear();
         var services = new ServiceCollection();
         services.AddScoped(_ => f.Open());
         services.AddScoped<IEnrichmentSchedulerRepository>(p => new EnrichmentSchedulerRepository(p.GetRequiredService<VocabularyDbContext>()));
@@ -33,12 +36,15 @@ public sealed partial class EnrichmentTargetExecutorTests
         var notifications = new EnrichmentNotifications();
         var worker = new EnrichmentWorker(provider.GetRequiredService<IServiceScopeFactory>(), f.Runtime, notifications,
             f.Clock, NullLogger<EnrichmentWorker>.Instance);
+        // A word is reserved across preparation and publication, so its accents
+        // advance in separate bounded sweeps instead of sharing an in-flight job.
+        async Task Sweep() { await worker.RunBatchAsync(Ct); await worker.RunBatchAsync(Ct); }
         f.Operations.Enabled = false;
-        await worker.RunBatchAsync(Ct);
+        await Sweep();
         Assert.Equal(0, f.Http.TextCalls); Assert.Equal(0, f.Http.SpeechCalls);
         Assert.Equal(2, await f.Db.EnrichmentRounds.CountAsync(r => r.WaitReason == EnrichmentWaitReason.StorageDisabled, Ct));
         f.Clock.Now += 30_000; f.Operations.Enabled = true;
-        await worker.RunBatchAsync(Ct);
+        await Sweep();
         Assert.Equal(2, f.Http.TextCalls); Assert.Equal(2, f.Http.SpeechCalls); Assert.Equal(2, f.Store.Puts);
         Assert.Equal(2, await f.Db.VocabularyAudioBindings.CountAsync(Ct));
         // This edit creates a real persistent R03 task. No notification is
@@ -50,7 +56,7 @@ public sealed partial class EnrichmentTargetExecutorTests
             [new("book", "word", "meaning", AudioLocale.EnGb, true, "liːd", before)],
             new(f.Runtime.Current.TextVersion, f.Runtime.Current.UkTtsVersion, f.Runtime.Current.UsTtsVersion), f.Clock.Now, Ct);
         f.Clock.Now += 30_000;
-        await worker.RunBatchAsync(Ct);
+        await Sweep();
         Assert.Equal(3, f.Http.SpeechCalls); Assert.Equal(3, f.Store.Puts);
         Assert.Equal(3, await f.Db.VocabularyAudioBindings.CountAsync(Ct));
         Assert.False(await f.Db.EnrichmentTargets.AnyAsync(t => t.MeaningId == "meaning" && t.Locale == AudioLocale.EnUs, Ct));
@@ -59,7 +65,7 @@ public sealed partial class EnrichmentTargetExecutorTests
             [new("book", "word", "meaning", AudioLocale.EnGb, true, null, before)],
             new(f.Runtime.Current.TextVersion, f.Runtime.Current.UkTtsVersion, f.Runtime.Current.UsTtsVersion), f.Clock.Now, Ct);
         f.Clock.Now += 30_000;
-        await worker.RunBatchAsync(Ct);
+        await Sweep();
         Assert.Equal(3, f.Http.SpeechCalls); Assert.Equal(2, await f.Db.VocabularyAudioBindings.CountAsync(Ct));
         var specific = await f.Db.EnrichmentTargets.AsNoTracking().Where(t => t.MeaningId == "meaning" && t.Step != EnrichmentStep.Expand).ToArrayAsync(Ct);
         foreach (var target in specific)

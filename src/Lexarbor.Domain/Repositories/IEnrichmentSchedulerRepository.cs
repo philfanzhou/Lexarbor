@@ -23,9 +23,12 @@ public sealed record EnrichmentServiceProbe(string Id, string ServiceId, string 
 public sealed record EnrichmentCallCompletion(EnrichmentExecutionGuard Guard, string CallId, EnrichmentCallResult Result,
     string ErrorCode, long? NextAttemptAtUnixMs);
 
+public sealed record EnrichmentDispatch(string Id, string WordId, string Step, string Lane, long QueuedAtUnixMs);
+
 public interface IEnrichmentSchedulerRepository
 {
     Task<IReadOnlyList<EnrichmentTargetKey>> DiscoverAsync(int batchSize, IReadOnlyList<string> recentWordIds, CancellationToken token);
+    Task<IReadOnlyList<EnrichmentDispatch>> PlanAsync(int limit, long now, IReadOnlyList<string> excludedWords, CancellationToken token);
     Task<IReadOnlyList<string>> DueAsync(int limit, long now, CancellationToken token);
     Task<EnrichmentServiceAdmission> EnterServiceAsync(string serviceId, string configurationVersion,
         bool probe, long now, long expiresAt, CancellationToken token, int capacity = 1);

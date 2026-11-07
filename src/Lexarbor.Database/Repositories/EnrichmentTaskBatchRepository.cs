@@ -13,6 +13,13 @@ public sealed partial class EnrichmentTaskRepository
             if (_batchWrite || !UnitOfWork.OwnsWriteContext(context)) throw new InvalidOperationException("Invalid batch writer context.");
             _batchWrite = true;
             try { return await action(); }
+            catch
+            {
+                // The transaction will roll back. Do not replay tracked entities
+                // from that failed attempt during completion retry or lease cleanup.
+                context.ChangeTracker.Clear();
+                throw;
+            }
             finally { _batchWrite = false; }
         }, token);
 

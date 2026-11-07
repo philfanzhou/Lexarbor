@@ -133,7 +133,7 @@ public sealed partial class EnrichmentTargetExecutorTests
     }
 
     [Fact]
-    public async Task BatchedExpansionStagesDifferentSourcesAndPublishesToTheExistingSupplement()
+    public async Task ExpansionKeepsSingleItemRequestsAndPublishesToTheExistingSupplement()
     {
         await using var f = await Fixture.Create(); await Supplement(f);
         f.Db.Vocabularies.Add(new() { Id = "second", Word = "walk" });
@@ -148,11 +148,11 @@ public sealed partial class EnrichmentTargetExecutorTests
             new VocabularyExpansionRepository(f.Db), new VocabularyBookRepository(f.Db), batches, new AiTextBatchClient(clients, f.Clock),
             new(scheduler, f.Runtime, f.Clock), f.Runtime, new() { BookId = "supplement" }, f.Operations, f.Clock);
         await executor.PrepareAsync([first.Id, second.Id], Ct);
-        Assert.Equal(1, handler.Calls); Assert.Equal(2, (await batches.StatisticsAsync(Ct)).Completed);
+        Assert.Equal(2, handler.Calls); Assert.Equal(2, (await batches.StatisticsAsync(Ct)).Completed);
         await using var reopened = f.Open();
         foreach (var task in new[] { first, second })
             Assert.Equal(EnrichmentState.Succeeded, Round((await Expansion(f, reopened, clients).ExecuteAsync(task, "restart", Ct))!).State);
-        Assert.Equal(1, handler.Calls);
+        Assert.Equal(2, handler.Calls);
         Assert.Equal(2, await reopened.VocabularyMeanings.CountAsync(m => m.BookId == "supplement", Ct));
         Assert.Equal(2, await reopened.EnrichmentGeneratedWords.CountAsync(Ct));
     }
@@ -173,11 +173,15 @@ public sealed partial class EnrichmentTargetExecutorTests
     private sealed class BatchHandler(bool partial) : HttpMessageHandler
     {
         public int Calls;
+        public Func<string, CancellationToken, Task>? BeforeSend;
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage message, CancellationToken token)
         {
-            Calls++;
+            Interlocked.Increment(ref Calls);
             var request = JsonNode.Parse(await message.Content!.ReadAsStringAsync(token))!;
-            var input = JsonNode.Parse(request["messages"]![1]!["content"]!.GetValue<string>())!["items"]!.AsArray();
+            var payload = JsonNode.Parse(request["messages"]![1]!["content"]!.GetValue<string>())!;
+            var single = payload["items"] == null;
+            var input = single ? new JsonArray(new JsonObject { ["id"] = "single", ["data"] = payload }) : payload["items"]!.AsArray();
+            if (BeforeSend != null) await BeforeSend(input[0]!["data"]!["word"]!.GetValue<string>(), token);
             var rows = new JsonArray();
             foreach (var item in input.Reverse())
             {
@@ -205,13 +209,13 @@ public sealed partial class EnrichmentTargetExecutorTests
                         pronunciationHint = "Use the requested reading.",
                         requiredPhonetic = (string?)null,
                         phonetic = word == "lead" ? "liːd" : "wɔːk",
-                        partsOfSpeech = new[] { new { meaningId = word == "lead" ? "meaning" : "meaning2", partOfSpeech = "v." } },
+                        partsOfSpeech = data["writable"]!["partsOfSpeech"]!.AsArray().Select(id => new { meaningId = id!.GetValue<string>(), partOfSpeech = "v." }).ToArray(),
                         pronunciationControl = "instructions",
                         speechPhonetic = (string?)null
                     })
                 });
             }
-            return new(HttpStatusCode.OK) { Content = JsonContent.Create(new { choices = new[] { new { finish_reason = "stop", message = new { content = new JsonObject { ["results"] = rows }.ToJsonString() } } } }) };
+            return new(HttpStatusCode.OK) { Content = JsonContent.Create(new { choices = new[] { new { finish_reason = "stop", message = new { content = single ? rows[0]!["result"]!.ToJsonString() : new JsonObject { ["results"] = rows }.ToJsonString() } } } }) };
         }
     }
 }

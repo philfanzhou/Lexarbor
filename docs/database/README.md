@@ -912,9 +912,28 @@ outcomes, adaptive batch size and the shared service outcome commit in one short
 transaction. Publication remains independently guarded by the existing catalog
 revision and lease. No raw provider envelope or credential is stored.
 
+A busy/locked completion transaction is retried at most twice after rollback,
+using the same validated response and member guards. No additional physical
+request is sent, and the existing completion marker prevents duplicate accounting.
+Successful requests persist a gradually increasing `next_size`, capped at the
+initial limit for their kind, so single-item fallback does not become permanent.
+These recovery changes require no schema migration or journal-mode change. See
+[deployment behavior](../development/Deployment.md#automatic-text-batching-upgrade).
+
 A crash before that transaction leaves an explicitly unconfirmed request; an
 expired target/review lease recovers through its existing retry mechanism. A
 provider may have processed such a request, so exactly-once remote execution is
 not promised. A crash after staging reuses saved plans without another request.
 The new service leases enforce bounded TTS concurrency across workers and retain
 an in-flight scalar lease from the previous version until completion or expiry.
+
+The dispatch planner reads current rounds into separately bounded recovery, ready,
+and text lanes. SQL excludes in-flight words and blocked preparation dependencies,
+then deduplicates by word within each lane before limiting recent/historical work.
+The single hosted worker reserves words across lanes until preparation and its
+selected publication finish; every concurrent job gets a separate scoped context.
+These process-local reservations are not durable multi-host locks. Existing target
+claims and service leases remain the restart/concurrent-owner boundary. The text
+service capacity follows `Enrichment:TextConcurrency` (default 1, range 1–2),
+independent of target/TTS concurrency. No schema, migration, journal mode or backup
+format changes are introduced by the new planner.
