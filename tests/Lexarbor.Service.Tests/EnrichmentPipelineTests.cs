@@ -181,8 +181,13 @@ public sealed partial class EnrichmentTargetExecutorTests
         Assert.Equal(0, handler.Calls); Assert.Equal(0, f.Http.SpeechCalls);
         await using var reopened = f.Open();
         var task = (await new EnrichmentTaskRepository(reopened, f.Clock).GetAsync(target.Id, Ct))!;
-        Assert.Equal(EnrichmentState.Waiting, Round(task).State);
+        Assert.Equal(EnrichmentState.Pending, Round(task).State);
         Assert.Equal(0, Round(task).ConsumedFailures);
+        await f.Publish(new() { ["Enrichment:Text:ApiKey"] = "synthetic-text" });
+        await worker.RunBatchAsync(Ct, discover: false);
+        task = (await new EnrichmentTaskRepository(reopened, f.Clock).GetAsync(target.Id, Ct))!;
+        Assert.Equal(EnrichmentState.Succeeded, Round(task).State);
+        Assert.Equal(1, handler.Calls); Assert.Equal(1, f.Http.SpeechCalls);
     }
 
     [Fact]
