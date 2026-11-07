@@ -48,7 +48,8 @@ public sealed partial class EnrichmentTargetExecutorTests
         var failed = await gate.EnterAsync("text", false, Ct);
         await gate.FinishAsync(failed, "ServiceFailure", "fixture", true, null, Ct);
         f.Clock.Now = (await scheduler.ServiceAsync(failed.ServiceId, Ct))!.NextAttemptAtUnixMs;
-        await f.Ensure(Key());
+        var target = await f.Ensure(Key());
+        f.Clock.Now += 100; // Keep this audio target older than discovery's other targets for the word.
         using var handler = new BatchHandler(false); using var clients = new HttpFactory(handler);
         await using var provider = PipelineProvider(f, clients);
         using var worker = new EnrichmentWorker(provider.GetRequiredService<IServiceScopeFactory>(), f.Runtime, new(), f.Clock,
@@ -56,6 +57,7 @@ public sealed partial class EnrichmentTargetExecutorTests
         await worker.RunBatchAsync(Ct);
         Assert.False((await scheduler.ServiceAsync(failed.ServiceId, Ct))!.Paused);
         Assert.True(handler.Calls >= 2); Assert.True(f.Http.SpeechCalls > 0);
+        Assert.Equal(EnrichmentState.Succeeded, Round((await f.Tasks.GetAsync(target.Id, Ct))!).State);
     }
 
     [Theory]
