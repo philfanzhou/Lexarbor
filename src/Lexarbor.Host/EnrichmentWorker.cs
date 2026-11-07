@@ -159,7 +159,7 @@ public sealed class EnrichmentWorker(IServiceScopeFactory scopes, EnrichmentRunt
         if (discover && storage.Settings.Enabled && _running.All(w => w.Text))
             _running.Add(new(false, [], ProbeAsync("tts", token)));
         var held = _running.SelectMany(w => w.Items).Concat(_queue).Select(i => i.WordId).ToHashSet(StringComparer.Ordinal);
-        var limit = Math.Clamp(settings.DiscoveryBatchSize, 2, 1000);
+        var limit = Math.Clamp(settings.DiscoveryBatchSize, 1, 1000);
         var planned = await repository.PlanAsync(limit, Now, held.ToArray(), token);
         var count = 0;
         foreach (var item in urgent.Concat(planned))
