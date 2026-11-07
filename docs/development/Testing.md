@@ -773,6 +773,11 @@ exercise physical request counts, independent results, atomic staging rollback,
 restart reuse, source separation, shared failure accounting and manual review
 competition. `EnrichmentSchedulerRepositoryTests` covers concurrent TTS capacity,
 legacy lease preservation and a successful sibling retaining a throttle window.
+`EnrichmentExpansionBatchTests` covers expansion growth from two to three sources,
+timeout/oversized-response backoff, partial-result reuse after restart, and legacy
+batch-limit preservation. Its hosted-worker check holds two expansion requests
+open, verifies distinct source reservations, and confirms newly queued preparation
+receives the next free text slot before another expansion starts.
 `ReleaseUpgradeMigrationTests` compares pre-upgrade data from `v0.1.8` and
 `v0.1.9-rc.2`, including an interrupted additive migration and repeated startup.
 The hosted enrichment tests exercise continuous draining and configuration-change

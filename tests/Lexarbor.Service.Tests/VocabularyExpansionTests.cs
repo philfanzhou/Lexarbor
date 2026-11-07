@@ -16,7 +16,7 @@ public sealed partial class EnrichmentTargetExecutorTests
     private static VocabularyExpansionCandidate Candidate(string word = "leader", string type = "derived_noun") =>
         new(word, type, "n.", "领导者", "She is a leader.", "A person who leads, in the sense of guiding.");
 
-    private static VocabularyExpansionExecutor Expansion(Fixture f, VocabularyDbContext db, HttpFactory http, string? book = "supplement")
+    private static VocabularyExpansionExecutor Expansion(Fixture f, VocabularyDbContext db, IHttpClientFactory http, string? book = "supplement")
     {
         var tasks = new EnrichmentTaskRepository(db, f.Clock);
         var repo = new VocabularyExpansionRepository(db);

@@ -21,6 +21,7 @@ public sealed class EnrichmentTextBatchExecutor(IEnrichmentTaskRepository tasks,
     MeaningSubmissionSettings submissions, IAudioUploadOperationFactory storage, TimeProvider clock,
     ILogger<EnrichmentTextBatchExecutor>? logger = null)
 {
+    internal static (int Initial, int Maximum) BatchSize(string kind) => kind == "Expand" ? (2, 3) : (6, 6);
     private sealed record Work(string SelectedId, EnrichmentTask Task, AiTextItem<AiBatchResult> Item);
     private long Now => clock.GetUtcNow().ToUnixTimeMilliseconds();
 
@@ -92,8 +93,8 @@ public sealed class EnrichmentTextBatchExecutor(IEnrichmentTaskRepository tasks,
         {
             var kind = group.Key.ToString();
             var instructions = group.Key == EnrichmentStep.Expand ? VocabularyExpansionClient.Instructions : OpenAiCompatiblePronunciationPreparationClient.Instructions;
-            var initial = group.Key == EnrichmentStep.Expand ? 1 : 6;
-            var limit = await batches.LimitAsync(kind, snapshot.TextVersion!, initial, token);
+            var size = BatchSize(kind);
+            var limit = await batches.LimitAsync(kind, snapshot.TextVersion!, size.Initial, size.Maximum, token);
             var queue = group.ToArray();
             for (var index = 0; index < queue.Length;)
             {
@@ -134,7 +135,7 @@ public sealed class EnrichmentTextBatchExecutor(IEnrichmentTaskRepository tasks,
                     requestMilliseconds += requestMs;
                     var valid = response.Items.Values.Count(r => r.Plan != null);
                     var outcome = response.Outcome == "Ready" && valid != receipt.Members.Count ? "Partial" : response.Outcome;
-                    limit = AiTextBatchClient.NextSize(limit, initial, outcome, response.ErrorCode);
+                    limit = AiTextBatchClient.NextSize(limit, size.Maximum, outcome, response.ErrorCode);
                     var settings = snapshot.Enrichment;
                     var retryAt = Now + Math.Max(1000, (long)(response.RetryAfter?.TotalMilliseconds ?? (outcome == "ServiceFailure" ? 30000 : 1000)));
                     var commitStarted = Stopwatch.GetTimestamp();

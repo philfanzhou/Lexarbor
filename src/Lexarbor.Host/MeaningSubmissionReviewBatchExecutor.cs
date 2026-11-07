@@ -24,7 +24,7 @@ public sealed class MeaningSubmissionReviewBatchExecutor(IServiceScopeFactory sc
         var batches = scope.ServiceProvider.GetRequiredService<IAiRequestBatchRepository>();
         var options = snapshot.ReviewAssistant;
         var version = snapshot.ReviewVersion ?? "review.configuration.missing";
-        var limit = await batches.LimitAsync("Review", version, 6, token);
+        var limit = await batches.LimitAsync("Review", version, 6, 6, token);
         var entries = new List<Entry>();
         var failures = new Dictionary<string, string>(StringComparer.Ordinal);
         var response = new AiTextResult<AutomaticReviewResponse>("Ready", new Dictionary<string, AutomaticReviewResponse>());

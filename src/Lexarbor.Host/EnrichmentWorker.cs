@@ -237,8 +237,9 @@ public sealed class EnrichmentWorker(IServiceScopeFactory scopes, EnrichmentRunt
             var first = expansion ?? preparations.FirstOrDefault();
             if (first == null) break;
             var kind = first.Step == "Expand" ? "Expand" : "Prepare";
+            var size = EnrichmentTextBatchExecutor.BatchSize(kind);
             var limit = await scope.ServiceProvider.GetRequiredService<IAiRequestBatchRepository>()
-                .LimitAsync(kind, snapshot.TextVersion ?? "configuration.missing", kind == "Expand" ? 1 : 6, token);
+                .LimitAsync(kind, snapshot.TextVersion ?? "configuration.missing", size.Initial, size.Maximum, token);
             var items = _queue.Where(i => i.Lane == first.Lane).Take(limit).ToArray();
             foreach (var item in items) _queue.Remove(item);
             _running.Add(new(true, items, PrepareAsync(items, token)));

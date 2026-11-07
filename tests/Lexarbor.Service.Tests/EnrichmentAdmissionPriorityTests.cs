@@ -263,7 +263,7 @@ public sealed partial class EnrichmentTargetExecutorTests
     }
 
     [Fact]
-    public void TextPolicy_PaysForSlowExpansion_WithPreparationTime_AndKeepsOnlyOneExpansionInFlight()
+    public void TextPolicy_PaysForSlowExpansion_AndAllowsExtraExpansionOnlyWithoutPreparation()
     {
         var policy = new EnrichmentTextSchedulingPolicy();
         Assert.False(policy.CanExpand(preparationPending: true, expansionRunning: false));
@@ -276,7 +276,7 @@ public sealed partial class EnrichmentTargetExecutorTests
         Assert.True(policy.CanExpand(true, false));
         policy.Complete(expansion: true, requests: 0, requestMs: 0); // Admission failure does not spend a turn.
         Assert.True(policy.CanExpand(true, false));
-        Assert.True(policy.CanExpand(false, false)); Assert.False(policy.CanExpand(false, true));
+        Assert.True(policy.CanExpand(false, false)); Assert.True(policy.CanExpand(false, true));
     }
 
     [Theory]

@@ -208,7 +208,7 @@ public sealed partial class EnrichmentTargetExecutorTests
         Assert.True((await scheduler.ServiceAsync(a.ServiceId, Ct))!.NextAttemptAtUnixMs >= f.Clock.Now + 30000);
     }
 
-    private static ServiceProvider PipelineProvider(Fixture f, IHttpClientFactory clients)
+    private static ServiceProvider PipelineProvider(Fixture f, IHttpClientFactory clients, bool publishExpansion = false)
     {
         var services = new ServiceCollection();
         services.AddScoped(_ => f.Open());
@@ -218,7 +218,8 @@ public sealed partial class EnrichmentTargetExecutorTests
         services.AddScoped<IAiRequestBatchRepository>(p => new AiRequestBatchRepository(p.GetRequiredService<VocabularyDbContext>(), p.GetRequiredService<EnrichmentTaskRepository>(),
             new MeaningSubmissionAutoReviewRepository(p.GetRequiredService<VocabularyDbContext>(), f.Clock), p.GetRequiredService<IEnrichmentSchedulerRepository>()));
         services.AddScoped(p => new EnrichmentServiceGate(p.GetRequiredService<IEnrichmentSchedulerRepository>(), f.Runtime, f.Clock));
-        services.AddScoped(p => f.ExecutorFor(p.GetRequiredService<VocabularyDbContext>(), p.GetRequiredService<EnrichmentTaskRepository>()));
+        services.AddScoped(p => f.ExecutorFor(p.GetRequiredService<VocabularyDbContext>(), p.GetRequiredService<EnrichmentTaskRepository>(),
+            expansion: publishExpansion ? Expansion(f, p.GetRequiredService<VocabularyDbContext>(), clients, "book") : null));
         services.AddScoped(p => BatchExecutor(f, p.GetRequiredService<VocabularyDbContext>(), p.GetRequiredService<EnrichmentTaskRepository>(),
             (EnrichmentSchedulerRepository)p.GetRequiredService<IEnrichmentSchedulerRepository>(), p.GetRequiredService<IAiRequestBatchRepository>(), clients));
         services.AddSingleton<IPronunciationPreparationClient>(new OpenAiCompatiblePronunciationPreparationClient(clients, f.Runtime, f.Clock));
