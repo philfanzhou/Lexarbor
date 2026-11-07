@@ -36,6 +36,42 @@ public sealed partial class EnrichmentTargetExecutorTests
     }
 
     [Fact]
+    public async Task AdminAttention_ExcludesPreparationPending_ButKeepsCurrentConfigurationGap()
+    {
+        await using var f = await Fixture.Create();
+        var uk = await f.Ensure(Key());
+        var us = await f.Ensure(Key(locale: AudioLocale.EnUs));
+        var guard = (await f.Tasks.ClaimAsync(uk.Id, "test", 1000, 9000, Ct))!;
+        await f.Tasks.WaitAsync(guard, EnrichmentWaitReason.PreparationPending, 1001, 8000, Ct);
+        guard = (await f.Tasks.ClaimAsync(us.Id, "test", 1000, 9000, Ct))!;
+        await f.Tasks.WaitAsync(guard, EnrichmentWaitReason.ConfigurationMissing, 1002, 8000, Ct);
+        await f.Publish(new() { ["Enrichment:Tts:Us:Voice"] = "" });
+        var c = (await AdminConfig(f)) with { ExpansionBookId = "book" };
+        var admin = new EnrichmentAdminRepository(f.Db);
+        var attention = await admin.ListAsync(new(AttentionOnly: true), c, 1003, Ct);
+        Assert.Equal(us.Id, Assert.Single(attention.Items).Id);
+        var summary = await admin.SummaryAsync(new(), c, 1003, Ct);
+        Assert.Equal(1, summary.Activities!.Single(a => a.Step == "Audio").ActionRequired);
+        Assert.Equal(0, summary.Activities!.Single(a => a.Step == "Fields").ActionRequired);
+    }
+
+    [Fact]
+    public async Task AdminAttention_ProjectsLegacyDependencyWaitWithoutRewritingTheRow()
+    {
+        await using var f = await Fixture.Create();
+        var uk = await f.Ensure(Key());
+        var guard = (await f.Tasks.ClaimAsync(uk.Id, "test", 1000, 9000, Ct))!;
+        await f.Tasks.WaitAsync(guard, EnrichmentWaitReason.ConfigurationMissing, 1001, 8000, Ct);
+        var c = await AdminConfig(f);
+        var admin = new EnrichmentAdminRepository(f.Db);
+        var before = await Dump(f.Db);
+        var detail = (await admin.DetailAsync(uk.Id, 1, 10, c, 1003, Ct))!;
+        Assert.Equal("PreparationPending", detail.Task.WaitReason);
+        Assert.Empty((await admin.ListAsync(new(AttentionOnly: true), c, 1003, Ct)).Items);
+        Assert.Equal(before, await Dump(f.Db));
+    }
+
+    [Fact]
     public async Task AdminActivities_ExplainMissingConfigurationEvenBeforeDiscoveryAndRespectAccent()
     {
         await using var f = await Fixture.Create();

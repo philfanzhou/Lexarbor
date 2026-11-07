@@ -889,6 +889,19 @@ expansion; deleting a word cascades its marker. Task histories outlive deletions
 as before. See [expansion behavior](../api/VocabularyExpansion.md) and
 [upgrade/rollback](../development/Deployment.md#vocabulary-expansion-and-model-driven-activation-upgrade).
 
+## Preparation-pending wait reason
+
+`AddPreparationPendingWaitReason` rebuilds `enrichment_round` and `enrichment_wait`
+to add `PreparationPending` to their CHECK constraints. It preserves every round,
+call, wait, index and foreign key; dependent call/wait rows are copied to temporary
+backup tables and restored in the same transaction that records the migration
+version, so an interrupted upgrade rolls back to the previous schema. The Down
+migration converts any `PreparationPending` row back to `ConfigurationMissing`
+before restoring the old constraints. The reason is written only when a `Fields`
+or `Audio` target is waiting for its own `Prepare` target; genuine missing
+configuration and disabled storage keep their existing reasons. See
+[the API contract](../api/Enrichment.md#read-endpoints).
+
 ## AI request batching
 
 `AiRequestBatching` adds three tables without altering existing business rows:

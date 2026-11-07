@@ -95,6 +95,25 @@ public sealed partial class EnrichmentTargetExecutorTests
         Assert.Equal(1, f.Http.SpeechCalls);
     }
 
+    [Fact]
+    public async Task DependentFieldsAndAudio_WaitForPreparation_WithPreparationPendingReason()
+    {
+        await using var f = await Fixture.Create();
+        var prepare = await f.Ensure(Key(EnrichmentStep.Prepare));
+        var guard = (await f.Tasks.ClaimAsync(prepare.Id, "queued", f.Clock.Now, f.Clock.Now + 9000, Ct))!;
+        await f.Tasks.WaitAsync(guard, EnrichmentWaitReason.Throttled, f.Clock.Now, 9000, Ct);
+
+        var fields = (await f.Run(Key(EnrichmentStep.Fields)))!;
+        Assert.Equal(EnrichmentState.Waiting, Round(fields).State);
+        Assert.Equal(EnrichmentWaitReason.PreparationPending, Round(fields).WaitReason);
+
+        var audio = (await f.Run(Key()))!;
+        Assert.Equal(EnrichmentState.Waiting, Round(audio).State);
+        Assert.Equal(EnrichmentWaitReason.PreparationPending, Round(audio).WaitReason);
+        Assert.Equal(0, f.Http.TextCalls);
+        Assert.Equal(0, f.Http.SpeechCalls);
+    }
+
     [Theory]
     [InlineData(false, true, EnrichmentWaitReason.ConfigurationMissing)]
     [InlineData(true, false, EnrichmentWaitReason.StorageDisabled)]

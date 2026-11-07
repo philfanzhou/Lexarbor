@@ -33,7 +33,7 @@ const retryable = computed(() => detail.value && detail.value.task.applicable &&
   && detail.value.task.state === 'Failed' && detail.value.task.current.state === 'Failed')
 const historyTotal = computed(() => detail.value ? Math.max(...[detail.value.rounds, detail.value.calls, detail.value.waits, detail.value.cleanup].map(p => p.totalCount)) : 0)
 function time(value: number | null) { return value === null ? '未安排' : new Date(value).toLocaleString() }
-function nextTime(task: EnrichmentTask) { return !task.missing || !task.applicable ? '无需处理' : task.state === 'Failed' ? '处理原因后可重试' : task.waitReason === 'ConfigurationMissing' || task.waitReason === 'StorageDisabled' ? '配置就绪后自动继续' : task.current.nextAttemptAtUnixMs ? time(task.current.nextAttemptAtUnixMs) : task.state === 'Running' ? '正在处理' : '后台自动安排' }
+function nextTime(task: EnrichmentTask) { return !task.missing || !task.applicable ? '无需处理' : task.state === 'Failed' ? '处理原因后可重试' : task.waitReason === 'PreparationPending' ? '前置发音准备完成后自动继续' : task.waitReason === 'ConfigurationMissing' || task.waitReason === 'StorageDisabled' ? '配置就绪后自动继续' : task.current.nextAttemptAtUnixMs ? time(task.current.nextAttemptAtUnixMs) : task.state === 'Running' ? '正在处理' : '后台自动安排' }
 function focusStep(step: string) { filters.step = filters.step === step ? '' : step; search() }
 function quick(value: string) { attentionOnly.value = value === 'attention'; filters.state = value === 'attention' ? '' : value; search() }
 function resetFilters() { Object.assign(filters, { search: '', wordId: '', meaningId: '', locale: '', state: '', step: '', sort: 'attention' }); attentionOnly.value = false; search() }

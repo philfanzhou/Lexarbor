@@ -65,6 +65,7 @@ test('新增历史与部分成功、未排队关闭、429请求和额度分开�
 
 for (const [reason, text] of [
   ['Disabled', '生成或字段补齐已关闭'], ['ConfigurationMissing', '等待模型、口音或补充词书配置就绪'],
+  ['PreparationPending', '等待前置发音准备完成'],
   ['StorageDisabled', '音频存储关闭'], ['ServicePaused', '服务暂停，等待恢复探测'],
   ['Retry', '等待下次自动尝试'], ['LeaseExpired', '执行租约已过期，等待恢复']
 ]) test(`等待 ${reason} 不显示完成或单条重试`, async ({ page }) => {

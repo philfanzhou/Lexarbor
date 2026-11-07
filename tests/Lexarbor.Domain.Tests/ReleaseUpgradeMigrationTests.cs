@@ -31,12 +31,34 @@ public sealed class ReleaseUpgradeMigrationTests
         await AssertPreserved(file, before);
         var upgraded = await file.RowsAsync("SELECT * FROM __EFMigrationsHistory ORDER BY MigrationId");
         Assert.Equal(JsonSerializer.Serialize(history), JsonSerializer.Serialize(upgraded.Take(history.Length)));
-        Assert.Equal(history.Length + 3, upgraded.Length);
+        Assert.Equal(history.Length + 4, upgraded.Length);
         await using (var restarted = file.Open()) await restarted.Database.MigrateAsync(Ct);
         await AssertPreserved(file, before);
         Assert.Equal(JsonSerializer.Serialize(upgraded), JsonSerializer.Serialize(await file.RowsAsync("SELECT * FROM __EFMigrationsHistory ORDER BY MigrationId")));
         Assert.Empty(await file.RowsAsync("SELECT * FROM enrichment_generated_word"));
         Assert.Empty(await file.RowsAsync("SELECT * FROM vocabulary_relation"));
+    }
+
+    [Fact]
+    public async Task PreparationPendingMigration_DownConvertsDependencyWaitAndPreservesHistory()
+    {
+        using var file = new AudioTestDatabase();
+        await SeedRelease(file);
+        await using (var db = file.Open()) await db.Database.MigrateAsync(Ct);
+        await using (var db = file.Open())
+            await db.Database.ExecuteSqlRawAsync("""
+                UPDATE enrichment_round SET wait_reason='PreparationPending' WHERE target_id='task' AND number=2;
+                UPDATE enrichment_wait SET reason='PreparationPending' WHERE id='wait';
+                """, Ct);
+        await using (var db = file.Open())
+            await db.GetService<IMigrator>().MigrateAsync("20261106071759_AiRequestBatching", Ct);
+        var round = (object?[])Assert.Single(await file.RowsAsync("SELECT wait_reason FROM enrichment_round WHERE target_id='task' AND number=2"))!;
+        var wait = (object?[])Assert.Single(await file.RowsAsync("SELECT reason FROM enrichment_wait WHERE id='wait'"))!;
+        Assert.Equal("ConfigurationMissing", (string)round[0]!);
+        Assert.Equal("ConfigurationMissing", (string)wait[0]!);
+        Assert.Equal(2, (await file.RowsAsync("SELECT id FROM enrichment_call ORDER BY id")).Length);
+        Assert.Empty(await file.RowsAsync("PRAGMA foreign_key_check"));
+        Assert.Equal("ok", Assert.IsType<object?[]>(Assert.Single(await file.RowsAsync("PRAGMA integrity_check")))[0]);
     }
 
     [Theory]

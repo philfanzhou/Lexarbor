@@ -3,7 +3,7 @@ namespace Lexarbor.Domain.Models;
 public enum EnrichmentStep { Prepare, Fields, Audio, Expand }
 public enum EnrichmentState { Pending, Running, Waiting, Succeeded, Failed, Superseded, Cancelled }
 public enum EnrichmentCallResult { Started, Succeeded, Throttled, TransientFailure, TerminalFailure }
-public enum EnrichmentWaitReason { Disabled, ConfigurationMissing, StorageDisabled, ServicePaused, Throttled, Retry, LeaseExpired }
+public enum EnrichmentWaitReason { Disabled, ConfigurationMissing, PreparationPending, StorageDisabled, ServicePaused, Throttled, Retry, LeaseExpired }
 
 // Internal queue models. Persist only bounded plans and safe codes, never raw
 // provider responses, credentials, object locations or signed URLs.

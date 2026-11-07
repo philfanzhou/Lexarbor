@@ -32,9 +32,10 @@ meaning (ASCII case-insensitive; trimmed, at most 200 characters, no control
 characters). `%` and `_` are literal characters. Default-field/audio tasks have
 no source meaning, so only their word is searched. `attentionOnly=true` restricts
 to applicable, still-missing targets with a failed round, missing configuration,
-or disabled storage. Normal throttling, service recovery and scheduled retries
-remain automatic and are excluded. Both filters also apply to summary demands,
-including demands not yet queued.
+or disabled storage. Normal throttling, service recovery, scheduled retries, and
+preparation-dependency waits (`PreparationPending`) remain automatic and are
+excluded. Both filters also apply to summary demands, including demands not yet
+queued.
 
 `sort` accepts `word` (default; preserves word ID ordering), `attention` (failed,
 configuration/storage waits, running, pending/other waits, then remaining states),
@@ -94,8 +95,13 @@ missing specific own binding. An unconfigured deployment remains missing
 and waiting (`ConfigurationMissing`), never completed. Counts of preparation tasks and
 requirements have different denominators and must not be added together.
 
-Wait reasons include `Disabled`, `ConfigurationMissing`, `StorageDisabled`,
-`ServicePaused`, `Throttled`, `Retry`, and `LeaseExpired`. Each service exposes only
+Wait reasons include `Disabled`, `ConfigurationMissing`, `PreparationPending`,
+`StorageDisabled`, `ServicePaused`, `Throttled`, `Retry`, and `LeaseExpired`.
+`PreparationPending` means an applicable `Fields` or `Audio` target is waiting for
+its own `Prepare` target to finish; it is an automatic dependency wait, not a
+missing configuration or a human action. A genuine current configuration or
+storage gap still reports `ConfigurationMissing` or `StorageDisabled` and remains
+in the attention filter. Each service exposes only
 `service` (`text`/`tts`), `paused`, `blocked`, `consecutiveFailures`, `throttleSeconds`,
 and `nextAttemptAtUnixMs`. Requests and consumed failure allowance are independent:
 seven throttled requests may still have zero consumed failures. A failed exhausted

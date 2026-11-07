@@ -138,7 +138,7 @@ public sealed class EnrichmentTaskRepositoryTests
         await using (var db = file.Open())
         {
             await InitAsync(db); var repo = new EnrichmentTaskRepository(db, new Clock()); id = (await EnsureAsync(repo)).Id;
-            foreach (var reason in new[] { EnrichmentWaitReason.Disabled, EnrichmentWaitReason.ConfigurationMissing, EnrichmentWaitReason.StorageDisabled, EnrichmentWaitReason.ServicePaused })
+            foreach (var reason in new[] { EnrichmentWaitReason.Disabled, EnrichmentWaitReason.ConfigurationMissing, EnrichmentWaitReason.PreparationPending, EnrichmentWaitReason.StorageDisabled, EnrichmentWaitReason.ServicePaused })
             {
                 var guard = await ClaimAsync(repo, id, now); Assert.True(await repo.WaitAsync(guard, reason, now, now + 10, Token));
                 Assert.Null(await repo.ClaimAsync(id, "early", now + 9, 1000, Token));
@@ -165,7 +165,7 @@ public sealed class EnrichmentTaskRepositoryTests
         await using var restart = file.Open(); var resumed = new EnrichmentTaskRepository(restart, new Clock());
         var exhausted = await EnsureAsync(resumed, now: now); Assert.Equal(id, exhausted.Id); Assert.Single(exhausted.Rounds);
         Assert.Equal(EnrichmentState.Failed, exhausted.Rounds[0].State); Assert.Equal(5, exhausted.Rounds[0].ConsumedFailures);
-        Assert.Equal(12, exhausted.Rounds[0].RequestCount); Assert.Equal(15, exhausted.Waits.Count);
+        Assert.Equal(12, exhausted.Rounds[0].RequestCount); Assert.Equal(16, exhausted.Waits.Count);
         Assert.Equal(7, exhausted.Waits.Count(wait => wait.Reason == EnrichmentWaitReason.Throttled));
         Assert.Null(await resumed.ClaimAsync(id, "service-recovered", now + 10000, now + 20000, Token));
         Assert.Equal(1, (await resumed.EnsureAsync(Key(), "config-1", now, Token, failureBudget: 20))!.CurrentRound);
