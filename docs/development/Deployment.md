@@ -2074,3 +2074,37 @@ drops to retain task-call/wait history and triggers. Downgrading discards the
 one-recovery receipts and growth streaks; upgrading again can therefore reauthorize
 recovery. Prefer restoring the matching pre-upgrade backup for rollback. An older
 image refuses the newer database with `migration.version_too_new`.
+
+## Preventive pronunciation and text request handling
+
+The preventive repair strategy needs no new migration or operator configuration.
+It applies to newly discovered words from their first request, and the normal
+bounded recovery scan also admits failures exhausted under the previous strategy
+once. The private `.repair-v2` receipt survives restart; deployment itself does
+not repeatedly reset attempts. Existing successful catalog/audio work is retained.
+No bulk retry, direct database edit or audio regeneration is required.
+
+For the exact `MiniMax-M3.1-Flash` model on the official `api.minimax.io` or
+`api.minimax.cn` `/v1` endpoint, enrichment requests explicitly use
+`reasoning_effort=low` and a `max_completion_tokens` budget of 4096–8192 according
+to workload size. MiniMax otherwise defaults this model to maximum reasoning;
+reasoning tokens also consume the output budget. The model-specific parameters
+are not sent to other endpoints/models or review requests. See the
+[official request reference](https://platform.minimax.io/docs/api-reference/text-openai-api).
+The existing request timeout and 64 KiB response bound still apply.
+
+Expansion initially requests at most 12 candidates with short definitions, examples
+and usage notes. After one failed attempt it requests at most six candidates without
+examples; after two it requests at most three. Counts persist in the round, so restart
+does not restore the larger request. Recovery starts with the reduced request.
+Only complete, validated responses are published; a truncated answer is never
+treated as successful or as an empty candidate list. The ordinary single-target
+path and batch path use the same limits and failure classification.
+
+Pronunciation uses normalized affixes, titles, unit abbreviations and initialisms.
+One complete supplied IPA is bound locally after validating the spoken target,
+and a new proposed IPA is checked before publishing fields. This avoids repeated
+model transcription mismatches without overwriting a catalog reading or applying
+headword IPA to an expanded teaching template. Distinct unresolved alternatives
+remain bounded failures. Synthetic tests verify the protocol and durable workflow;
+real pronunciation quality and throughput still require observation after deployment.

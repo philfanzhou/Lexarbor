@@ -4,7 +4,7 @@ namespace Lexarbor.Domain.Repositories;
 
 public sealed record AiBatchMember(string Id, EnrichmentExecutionGuard? Guard = null, MeaningSubmissionReviewLease? Review = null);
 public sealed record AiBatchResult(string Id, EnrichmentPlan? Plan = null, MeaningSubmissionAiReview? Review = null,
-    string? ErrorCode = null);
+    string? ErrorCode = null, string? FailureOutcome = null);
 public sealed record AiBatchReceipt(string Id, IReadOnlyList<AiBatchMember> Members);
 public sealed record AiBatchStatistics(int Requests, int Participations, int Completed, int Unknown);
 

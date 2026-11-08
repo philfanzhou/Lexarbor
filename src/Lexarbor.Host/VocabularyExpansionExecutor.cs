@@ -43,7 +43,8 @@ public sealed class VocabularyExpansionExecutor(IEnrichmentTaskRepository tasks,
             var callId = Guid.NewGuid().ToString();
             var result = await client.GenerateAsync(input!, snapshot.Enrichment.Text, bookId, token, async ct =>
                 runtime.Current.TextVersion == snapshot.TextVersion
-                && await tasks.BeginCallAsync(guard, callId, "text", null, Now, ct));
+                && await tasks.BeginCallAsync(guard, callId, "text", null, Now, ct),
+                Math.Max(round.ConsumedFailures, round.RecoveryId == null ? 0 : 1));
             cleanup.Record(result.Outcome, result.ErrorCode, result.RequestMade, result.RetryAfter);
             if (!result.RequestMade)
             {
@@ -70,9 +71,7 @@ public sealed class VocabularyExpansionExecutor(IEnrichmentTaskRepository tasks,
             }
             else
             {
-                var outcome = result.Outcome == "Throttled" ? EnrichmentCallResult.Throttled
-                    : result.Outcome == "ServiceFailure" || EnrichmentRecoveryPolicy.CanRetry(result.ErrorCode)
-                        ? EnrichmentCallResult.TransientFailure : EnrichmentCallResult.TerminalFailure;
+                var outcome = EnrichmentRecoveryPolicy.Failure(result.Outcome, result.ErrorCode);
                 var retry = Now + Math.Max(30_000, (long)(result.RetryAfter?.TotalMilliseconds ?? 0));
                 await cleanup.FinishAsync(new(guard, callId, outcome, result.ErrorCode!, outcome == EnrichmentCallResult.TerminalFailure ? null : retry));
                 return await tasks.GetAsync(task.Id, token);

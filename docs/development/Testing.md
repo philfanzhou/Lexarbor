@@ -788,7 +788,7 @@ wakeups. Browser tests keep request totals separate from per-task participation.
 
 `EnrichmentAutomaticRecoveryTests` verifies concurrent recovery admission,
 one durable allowance across restarts, five-failure exhaustion, new input/configuration
-scope, exclusion of billing/credential/content conflicts and provider-side speech
+scope, exclusion of billing/credential/catalog-write conflicts and provider-side speech
 rejections, prerequisite gating, dependent wakeup, preservation of successful
 results, and phrase-demand invalidation after edits. `EnrichmentExpansionBatchTests`
 pins the three-fast-success threshold, the 60-second boundary, single-member
@@ -810,3 +810,17 @@ additive metadata.
 
 The automatic recovery writer rechecks demand for one indexed word, verified with
 SQLite query plans; whole-catalog recovery selection stays outside that writer.
+
+### Preventive enrichment requests
+
+`EnrichmentPreventionTests` covers the first-request MiniMax reasoning/output budget,
+absence of those options for unrelated endpoints/models and review requests, shared
+terminal/transient failure classification, durable expansion request reduction
+across restarts, retained successful responses and one new-strategy allowance for
+exhausted historical failures. `PronunciationTextNormalizationTests` also covers
+new title/unit abbreviations, affixes and uppercase initialisms without a manual
+retry. `PronunciationNotationSpeechTests` verifies that a single existing IPA remains
+authoritative even if the model echoes a different reading, a fresh candidate is
+shared by fields and speech, and malformed or conflicting alternatives still fail.
+The tests do not authorize rewriting existing catalog IPA or claim real listening
+or live provider latency results.

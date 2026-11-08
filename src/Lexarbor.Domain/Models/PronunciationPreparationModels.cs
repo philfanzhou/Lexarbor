@@ -4,7 +4,8 @@ namespace Lexarbor.Domain.Models;
 // list means no positions. Neither spelling whitespace nor the model rewrites it.
 public sealed record PronunciationMeaningContext(AudioMeaningInput Meaning, IReadOnlyList<string?> PositionKinds);
 public sealed record PronunciationPreparationRequest(AudioWordInput Word, AudioMeaningInput? TargetMeaning,
-    AudioLocale Locale, EnrichmentInputVersion InputVersion, IReadOnlyList<PronunciationMeaningContext> Meanings);
+    AudioLocale Locale, EnrichmentInputVersion InputVersion, IReadOnlyList<PronunciationMeaningContext> Meanings,
+    int PreviousFailures = 0, string? PreviousError = null);
 
 public enum PronunciationPreparationOutcome
 {

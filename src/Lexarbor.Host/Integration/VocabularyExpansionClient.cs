@@ -27,18 +27,31 @@ public sealed class VocabularyExpansionClient(IHttpClientFactory clients, TimePr
         "usageNote is a nonempty applicability explanation max500, naming the relevant source sense and grammatical usage. " +
         "For inflections the definition must identify the base word and form. No tools, commands, URLs or credentials.";
 
+    private sealed record OutputLimits(int Candidates, int MeaningCharacters, int ExampleCharacters, int UsageNoteCharacters);
+    private static OutputLimits Limits(int failures) => failures switch
+    {
+        <= 0 => new(12, 100, 160, 120),
+        1 => new(6, 80, 0, 80),
+        _ => new(3, 60, 0, 60)
+    };
+    private static string Proposal(VocabularyExpansionInput input, int failures) => JsonSerializer.Serialize(new
+    {
+        input.Word,
+        input.PartOfSpeech,
+        input.Meaning,
+        input.Example,
+        relationTypes = VocabularyRelationTypes.All.Select(t => t.Code),
+        outputLimits = Limits(failures),
+        outputRule = "Return the most useful applicable candidates within outputLimits, never pad to the limit. " +
+            "Use short definitions and usage notes; example must be null when exampleCharacters is zero. " +
+            "A smaller limit is deliberate recovery after an unsuccessful request."
+    }, Json);
+
     public async Task<VocabularyExpansionResponse> GenerateAsync(VocabularyExpansionInput input,
         EnrichmentClientSettings settings, string bookId, CancellationToken token,
-        Func<CancellationToken, Task<bool>>? beforeDispatch = null)
+        Func<CancellationToken, Task<bool>>? beforeDispatch = null, int previousFailures = 0)
     {
-        var body = JsonSerializer.SerializeToUtf8Bytes(new
-        {
-            model = settings.Model,
-            temperature = 0,
-            response_format = new { type = "json_object" },
-            messages = new[] { new { role = "system", content = Instructions }, new { role = "user", content = JsonSerializer.Serialize(new
-            { input.Word, input.PartOfSpeech, input.Meaning, input.Example, relationTypes = VocabularyRelationTypes.All.Select(t => t.Code) }, Json) } }
-        }, Json);
+        var body = EnrichmentTextRequest.Body(settings, Instructions, Proposal(input, previousFailures), previousFailures == 0 ? 6144 : 4096);
         if (body.Length > 65536) return new("InvalidPlan", ErrorCode: "expansion.input_too_large", RequestMade: false);
         using var request = new HttpRequestMessage(HttpMethod.Post, settings.Endpoint.TrimEnd('/') + "/chat/completions");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", settings.ApiKey);
@@ -104,9 +117,8 @@ public sealed class VocabularyExpansionClient(IHttpClientFactory clients, TimePr
         { return Invalid(); }
     }
     internal static AiTextItem<VocabularyExpansionResponse> BatchItem(string id, VocabularyExpansionInput input,
-        EnrichmentClientSettings settings, string bookId) => new(id, JsonSerializer.Serialize(new
-        { input.Word, input.PartOfSpeech, input.Meaning, input.Example, relationTypes = VocabularyRelationTypes.All.Select(t => t.Code) }, Json),
-        content => ValidateContent(content, input, settings, bookId));
+        EnrichmentClientSettings settings, string bookId, int previousFailures = 0) => new(id, Proposal(input, previousFailures),
+        content => ValidateContent(content, input, settings, bookId), previousFailures == 0 ? 6144 : 4096);
 
     private static VocabularyExpansionResponse ValidateContent(string text, VocabularyExpansionInput input,
         EnrichmentClientSettings settings, string bookId)
