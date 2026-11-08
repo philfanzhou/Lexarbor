@@ -1672,12 +1672,13 @@ Keep the same fixed `/app/data` bind mount or named volume and matching private
 audio bucket across restart/image replacement. The container smoke checks exact
 retention of cursor, throttle/pause/probe state alongside specific-edit tasks and
 permanent upload receipts across two container recreations. Restart, scanning and
-provider recovery do not revive exhausted targets. Real MiniMax and supported
+provider recovery do not reset failure counters. Eligible technical failures can
+receive the single bounded recovery described below. Real MiniMax and supported
 OpenAI-compatible listening acceptance remains separate.
 
-Dictionary-notation and template fixes do not require a schema migration or bulk
-retry. After upgrading, use the existing single-step retry once for a previously
-failed preparation (or locally rejected legacy Audio plan). Related TTS corrections
+Dictionary-notation parsing itself needs no new configuration. The automatic
+recovery upgrade below can reopen eligible legacy preparation and locally rejected
+Audio plans once without a manual retry. Related TTS corrections
 refresh new preparation rounds for their own accent. Successful conditional manual
 audio unbinding wakes discovery after commit; it retains the old object and receipt.
 Preparation now checks configured speech capabilities before marking a plan ready;
@@ -1897,20 +1898,19 @@ rows and exercise interruption/restart. Keep the normal consistent database,
 configuration, root-key and audio backup before upgrading. Older images reject a
 newer schema; restore a matching backup when rolling back the application.
 
-No batch switch or new model configuration is required. Preparation starts at six
-independent words per request, expansion starts at two distinct source words
-(one sense per word) and can grow to three, and automatic submission review starts
-at six submissions. Preparation and review remain capped at six. Existing automatic-review authorization
-still applies. Inputs and responses are bounded to 64 KiB. Incomplete or invalid
-responses and timeouts reduce subsequent batches for that task kind and model
-configuration, down to the original single-item request schema. Each fully valid
-successful request increases the next limit by one, up to the maximum for
-that kind, including after a restart. Persisted limits from earlier releases are
-retained: an expansion limit of one first advances to two after a valid response,
-then to three. Throttling, rejection and non-timeout service
-failures do not increase it. A configuration change starts a fresh batch-size
-history. Existing request timeouts remain in force. Single pending items are
-dispatched without waiting for a full batch.
+No batch switch or new model configuration is required. Preparation and automatic
+submission review start at six independent items and remain capped at six.
+Expansion starts at one source word (one sense per word) and grows to at most two
+only after three consecutive full successes each taking less than 60 seconds.
+Invalid, partial, oversized responses and timeouts return expansion to one. Slow
+or unsuccessful requests reset its growth streak; a late success from a request
+started before a backoff cannot override it. A failed member stays single for the
+rest of its round. The expansion policy is durable across restart and starts at
+one for a new model configuration or the first upgrade to this policy. Preparation
+and review retain their existing incremental batch recovery. Within one word, text scheduling selects preparation and fields before dependent
+audio, so disabled audio cannot hide pending text work. Inputs and responses
+remain bounded to 64 KiB, review authorization is unchanged, and single pending
+items dispatch without waiting for a full batch.
 
 Text and TTS service leases cover the configured provider timeout plus 60 seconds
 for staging and completion. Text batch completion retries a rolled-back busy or
@@ -1967,7 +1967,7 @@ dispatched while preparation is pending or running. Both requests still use the
 shared service admission, cooldown and per-word reservation rules. Automatic
 submission review has its own scheduler.
 
-This expansion batching update needs no migration, queue reset or new setting.
+The original expansion batching update needed no migration or new setting. The recovery and conservative sizing update below adds durable metadata without a queue reset.
 Each member is validated and staged independently; valid saved members survive
 restart and are not requested again when another member fails. The 64 KiB bounds,
 per-source candidate limit, task failure budgets and provider timeouts remain in
@@ -2035,3 +2035,42 @@ other columns; stop writes and preserve a backup first. An older image refuses t
 newer schema with `migration.version_too_new`; restore the matching backup when
 rolling back the application. No remote audio object, configuration file or
 public route changes.
+
+
+## Automatic recovery and pronunciation normalization upgrade
+
+`v0.1.10-rc.2` adds `20261108025122_AddAutomaticEnrichmentRecovery`. Keep a
+consistent database/configuration/root-key/audio backup before upgrade. Startup
+adds `enrichment_recovery`, `ai_request_batch_policy` and three round metadata
+columns. Existing task states, requests, failure counts, saved plans, audio bindings
+and catalog text are retained. The migration marks completed fields as unnecessary
+only when a successful current preparation records a phrase for the same source
+revision. Previously failed members are marked for single-item requests. Migration
+itself calls no external service.
+
+After startup the existing worker admits at most five eligible source words per
+scan for one automatic recovery round per target/input/configuration, with a
+maximum of five failures. This may resume provider calls for eligible old failures;
+existing feature switches, service gates, concurrency and storage prerequisites
+continue to apply. Recovery is durable and atomic with its successor/dependent
+rounds. Crashes or repeated deployment do not create a fresh allowance. Credentials,
+billing, provider-side capability rejection and content conflicts stay manual.
+See the [observation contract](../api/Enrichment.md#bounded-automatic-recovery).
+
+Original words stay unchanged. Speech preparation normalizes letter-to-letter
+hyphens to spaces, dotted uppercase initials to separate letters, Unicode
+apostrophes to straight apostrophes, and repeated spaces. Apostrophes are retained;
+`re-sign` never becomes `resign`. Meaning-dependent abbreviations and teaching
+templates are expanded in the existing preparation request. Proposed default IPA
+is checked against the final spoken text before fields are written, and MiniMax's
+pronunciation rule uses exactly that spoken text. This prevents field publication
+from turning a previously accepted plan into a local speech rejection; it does not
+silently discard a catalog pronunciation constraint.
+
+For explicit downgrade, stop writers and use current migration tooling to return
+to `20261107002212_AddPreparationPendingWaitReason`, then deploy the older image.
+Down removes only the new recovery/sizing metadata and uses native SQLite column
+drops to retain task-call/wait history and triggers. Downgrading discards the
+one-recovery receipts and growth streaks; upgrading again can therefore reauthorize
+recovery. Prefer restoring the matching pre-upgrade backup for rollback. An older
+image refuses the newer database with `migration.version_too_new`.

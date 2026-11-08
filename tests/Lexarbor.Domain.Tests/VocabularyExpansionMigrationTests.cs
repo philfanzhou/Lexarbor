@@ -18,7 +18,7 @@ public sealed class VocabularyExpansionMigrationTests
     {
         using var file = new AudioTestDatabase(); await using var db = file.Open();
         var migrator = db.GetService<IMigrator>();
-        await migrator.MigrateAsync(Previous, Ct); await AudioTestDatabase.SeedAsync(db);
+        await db.Database.MigrateAsync(Ct); await AudioTestDatabase.SeedAsync(db);
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var tasks = new EnrichmentTaskRepository(db);
         var audio = (await tasks.EnsureAsync(new("word", null, AudioLocale.EnGb, EnrichmentStep.Audio), "old", now, Ct))!;
@@ -27,6 +27,8 @@ public sealed class VocabularyExpansionMigrationTests
         await tasks.BeginCallAsync(guard, call, "tts", null, now, Ct);
         await tasks.FinishCallAsync(guard, call, EnrichmentCallResult.TerminalFailure, "tts.fixture", now, null, Ct);
         var before = (await tasks.GetAsync(audio.Id, Ct))!;
+        await migrator.MigrateAsync(Previous, Ct);
+        var historical = await file.LegacyEnrichmentHistoryAsync();
         await migrator.MigrateAsync(cancellationToken: Ct);
         Assert.False(db.Database.HasPendingModelChanges());
         var preserved = (await tasks.GetAsync(audio.Id, Ct))!;
@@ -39,9 +41,8 @@ public sealed class VocabularyExpansionMigrationTests
         await Assert.ThrowsAsync<Microsoft.Data.Sqlite.SqliteException>(() => db.Database.ExecuteSqlRawAsync(
             "INSERT INTO enrichment_target SELECT 'duplicate',word_id,meaning_id,locale,step,current_round,epoch,deleted FROM enrichment_target WHERE step='Expand'", Ct));
         await migrator.MigrateAsync(Previous, Ct);
-        preserved = (await tasks.GetAsync(audio.Id, Ct))!;
-        Assert.Equal(before.Rounds, preserved.Rounds); Assert.Equal(before.Calls, preserved.Calls);
-        Assert.Null(await tasks.GetAsync(expansion.Id, Ct));
+        Assert.Equal(historical, await file.LegacyEnrichmentHistoryAsync());
+        Assert.Empty(await file.RowsAsync("SELECT id FROM enrichment_target WHERE step='Expand'"));
         Assert.Empty(await file.RowsAsync("PRAGMA foreign_key_check"));
         await migrator.MigrateAsync(cancellationToken: Ct);
         var requeued = (await tasks.EnsureAsync(new("word", "meaning", null, EnrichmentStep.Expand), "text", now, Ct))!;

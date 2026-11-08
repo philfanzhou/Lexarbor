@@ -7,7 +7,7 @@ import { sessionGeneration } from '@/services/authState'
 import { getApiError } from '@/services/apiError'
 import { readEnrichmentDetail, readEnrichmentSummary, readEnrichmentTasks, retryEnrichment, states, steps } from '@/services/enrichmentApi'
 import type { EnrichmentDetail, EnrichmentQuery, EnrichmentSummary, EnrichmentTask, RetryAction } from '@/services/enrichmentApi'
-import { errorLabel, reasonLabel, stateLabels, stepLabels, taskLabel, activityLabels, activityDescriptions, requirementLabels, requirementLinks, guidance, callLabels, cleanupLabels } from '@/services/enrichmentLabels'
+import { errorLabel, reasonLabel, stateLabels, stepLabels, taskLabel, taskStateLabel, activityLabels, activityDescriptions, requirementLabels, requirementLinks, guidance, callLabels, cleanupLabels } from '@/services/enrichmentLabels'
 
 const route = useRoute()
 const filters = reactive({ search: '', wordId: '', meaningId: '', locale: '', state: '', step: '', sort: 'attention' })
@@ -30,10 +30,11 @@ let readController: AbortController | null = null, writeController: AbortControl
 let timer: ReturnType<typeof setTimeout> | undefined
 const live = () => active && session === sessionGeneration.value
 const retryable = computed(() => detail.value && detail.value.task.applicable && detail.value.task.missing
+  && !detail.value.task.automaticRecoveryAvailable
   && detail.value.task.state === 'Failed' && detail.value.task.current.state === 'Failed')
 const historyTotal = computed(() => detail.value ? Math.max(...[detail.value.rounds, detail.value.calls, detail.value.waits, detail.value.cleanup].map(p => p.totalCount)) : 0)
 function time(value: number | null) { return value === null ? '未安排' : new Date(value).toLocaleString() }
-function nextTime(task: EnrichmentTask) { return !task.missing || !task.applicable ? '无需处理' : task.state === 'Failed' ? '处理原因后可重试' : task.waitReason === 'PreparationPending' ? '前置发音准备完成后自动继续' : task.waitReason === 'ConfigurationMissing' || task.waitReason === 'StorageDisabled' ? '配置就绪后自动继续' : task.current.nextAttemptAtUnixMs ? time(task.current.nextAttemptAtUnixMs) : task.state === 'Running' ? '正在处理' : '后台自动安排' }
+function nextTime(task: EnrichmentTask) { if (task.automaticRecoveryAvailable) return '后台即将自动恢复'; if (task.current.automaticRecovery && task.state === 'Failed') return '自动恢复已停止，待复核'; return !task.missing || !task.applicable ? '无需处理' : task.state === 'Failed' ? '处理原因后可重试' : task.waitReason === 'PreparationPending' ? '前置发音准备完成后自动继续' : task.waitReason === 'ConfigurationMissing' || task.waitReason === 'StorageDisabled' ? '配置就绪后自动继续' : task.current.nextAttemptAtUnixMs ? time(task.current.nextAttemptAtUnixMs) : task.state === 'Running' ? '正在处理' : '后台自动安排' }
 function focusStep(step: string) { filters.step = filters.step === step ? '' : step; search() }
 function quick(value: string) { attentionOnly.value = value === 'attention'; filters.state = value === 'attention' ? '' : value; search() }
 function resetFilters() { Object.assign(filters, { search: '', wordId: '', meaningId: '', locale: '', state: '', step: '', sort: 'attention' }); attentionOnly.value = false; search() }
@@ -222,7 +223,7 @@ onBeforeUnmount(() => { stop(); document.removeEventListener('visibilitychange',
               <thead><tr><th>单词与任务</th><th>状态与下一步</th><th>下次处理</th><th>操作</th></tr></thead><tbody>
                 <tr v-for="task in items" :key="task.id" :class="{ selected: selected === task.id }">
                   <td><strong class="word">{{ task.word ?? '词条已删除' }}</strong><p v-if="task.meaning" class="meaning">{{ task.meaning }}</p><span class="muted">{{ activityLabels[task.step] ?? stepLabels[task.step] }} · {{ task.locale === null ? '不限口音' : task.locale === 'en-GB' ? '英式 UK' : '美式 US' }}{{ task.step === 'Audio' && task.meaningId ? ' · 释义专用' : '' }}</span></td>
-                  <td><span class="badge" :class="task.state === 'Failed' ? 'attention' : task.state === 'Succeeded' ? 'success' : 'neutral'">{{ stateLabels[task.state] }}</span><p>{{ !task.applicable || !task.missing ? taskLabel(task) : task.current.errorCode && task.state === 'Failed' ? errorLabel(task.current.errorCode) : task.waitReason ? reasonLabel(task.waitReason) : taskLabel(task) }}</p><p v-if="task.cleanup.waiting || task.cleanup.running" class="muted">旧音频在后台清理，不影响本次生成结果。</p></td>
+                  <td><span class="badge" :class="task.state === 'Failed' && !task.automaticRecoveryAvailable ? 'attention' : task.state === 'Succeeded' ? 'success' : 'neutral'">{{ taskStateLabel(task) }}</span><p>{{ !task.applicable || !task.missing ? taskLabel(task) : task.automaticRecoveryAvailable || task.current.automaticRecovery ? taskLabel(task) : task.current.errorCode && task.state === 'Failed' ? errorLabel(task.current.errorCode) : task.waitReason ? reasonLabel(task.waitReason) : taskLabel(task) }}</p><p v-if="task.cleanup.waiting || task.cleanup.running" class="muted">旧音频在后台清理，不影响本次生成结果。</p></td>
                   <td class="muted">{{ nextTime(task) }}</td>
                   <td><button ref="taskButtons" :data-task-id="task.id" type="button" class="text-button" :disabled="mutating || !!pending && pending.id !== task.id" :aria-label="`查看 ${task.word ?? task.wordId} ${task.locale ?? '不限口音'} ${stepLabels[task.step]} 详情`" @click="select(task)">{{ task.state === 'Failed' ? '查看并处理' : '查看详情' }}</button></td>
                 </tr>
@@ -236,7 +237,7 @@ onBeforeUnmount(() => { stop(); document.removeEventListener('visibilitychange',
           <p v-if="detailError" class="notice error" role="alert">{{ detailError }}</p><p v-else-if="!detail" role="status">正在读取详情…</p>
           <template v-if="detail">
             <h3 class="detail-word">{{ detail.task.word ?? '词条已删除' }}</h3><p>{{ detail.task.meaning ?? '此单词的默认资料' }}</p><p class="muted">{{ stepLabels[detail.task.step] }} · {{ detail.task.locale ?? '不限口音' }}</p>
-            <div v-if="taskGuidance" class="guidance" :class="{ 'needs-action': detail.task.state === 'Failed' }"><h3>{{ taskGuidance.title }}</h3><p>{{ taskGuidance.description }}</p><RouterLink v-if="taskGuidance.link" :to="taskGuidance.link">{{ taskGuidance.action }} →</RouterLink></div>
+            <div v-if="taskGuidance" class="guidance" :class="{ 'needs-action': detail.task.state === 'Failed' && !detail.task.automaticRecoveryAvailable }"><h3>{{ taskGuidance.title }}</h3><p>{{ taskGuidance.description }}</p><RouterLink v-if="taskGuidance.link" :to="taskGuidance.link">{{ taskGuidance.action }} →</RouterLink></div>
             <p>{{ taskLabel(detail.task) }}<span v-if="detail.task.waitReason"> · {{ reasonLabel(detail.task.waitReason) }}</span></p>
             <div class="detail-actions"><button type="button" :disabled="mutating" @click="wordId = detail.task.wordId">查看词条并编辑数据</button><button v-if="retryable" class="primary" type="button" :disabled="loading || mutating || !!pending && !canReplay" @click="retry">{{ pending ? '使用原请求重试此失败步骤' : '仅重试此失败步骤' }}</button></div>
             <p v-if="pending" class="notice">正在核对单条重试结果；不会自动重复提交。先读取当前状态，再决定是否用原请求重试。</p>

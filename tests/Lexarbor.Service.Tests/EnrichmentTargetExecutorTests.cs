@@ -757,6 +757,8 @@ public sealed partial class EnrichmentTargetExecutorTests
     private sealed class Handler : HttpMessageHandler
     {
         public int TextCalls; public int SpeechCalls;
+        public string SpokenText = "lead", Phonetic = "liːd";
+        public string? SpeechText; public string? SpeechTone;
         public string SpeechOutcome = "ready", PlanOutcome = "ready", Kind = "word";
         public bool Ipa; public bool OmitPhonetic; public bool OmitPartsOfSpeech; public byte[]? AudioBytes;
         public Action? AssertOutsideTransaction; public Func<Task>? BeforeTextResponse;
@@ -775,13 +777,13 @@ public sealed partial class EnrichmentTargetExecutorTests
                     certain = PlanOutcome != "uncertain",
                     entryKind = Kind,
                     classificationBasis = "Fixture classification",
-                    spokenText = "lead",
-                    pronunciationHint = Ipa ? "liːd" : "Use the requested reading.",
+                    spokenText = SpokenText,
+                    pronunciationHint = Ipa ? Phonetic : "Use the requested reading.",
                     requiredPhonetic = required,
-                    phonetic = OmitPhonetic ? null : "liːd",
+                    phonetic = OmitPhonetic ? null : Phonetic,
                     partsOfSpeech = (new[] { new { meaningId = "meaning", partOfSpeech = "v." } }).Where(_ => !OmitPartsOfSpeech).ToArray(),
                     pronunciationControl = Ipa ? "ipa" : "instructions",
-                    speechPhonetic = Ipa ? "liːd" : null
+                    speechPhonetic = Ipa ? Phonetic : null
                 };
                 if (BeforeTextResponse != null) await BeforeTextResponse();
                 return new(HttpStatusCode.OK)
@@ -799,7 +801,12 @@ public sealed partial class EnrichmentTargetExecutorTests
             if (SpeechOutcome == "balance") return new(HttpStatusCode.TooManyRequests) { Content = JsonContent.Create(new { error = new { code = "insufficient_quota" } }) };
             if (SpeechOutcome == "service") return new(HttpStatusCode.ServiceUnavailable);
             if (message.RequestUri.AbsolutePath.EndsWith("t2a_v2", StringComparison.Ordinal))
+            {
+                var body = JsonNode.Parse(await message.Content!.ReadAsStringAsync(token))!;
+                SpeechText = body["text"]!.GetValue<string>();
+                SpeechTone = body["pronunciation_dict"]!["tone"]![0]!.GetValue<string>();
                 return new(HttpStatusCode.OK) { Content = JsonContent.Create(new { base_resp = new { status_code = 0 }, data = new { status = 2, audio = Convert.ToHexString(AudioBytes ?? Mp3) } }) };
+            }
             return new(HttpStatusCode.OK) { Content = new ByteArrayContent(AudioBytes ?? Mp3) };
         }
     }

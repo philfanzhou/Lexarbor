@@ -24,6 +24,9 @@ public sealed class EnrichmentRoundEntity
     public string? OwnAssetId { get; set; }
     public string ConfigurationVersion { get; set; } = "";
     public string? RetryKey { get; set; }
+    public string? RecoveryId { get; set; }
+    public bool ForceSingle { get; set; }
+    public bool FieldsNotRequired { get; set; }
     public int FailureBudget { get; set; }
     public int RequestCount { get; set; }
     public int ConsumedFailures { get; set; }
@@ -36,6 +39,18 @@ public sealed class EnrichmentRoundEntity
     public long? LeaseExpiresAtUnixMs { get; set; }
     public long CreatedAtUnixMs { get; set; }
     public long UpdatedAtUnixMs { get; set; }
+}
+
+// One automatic recovery allowance per unchanged target/input/configuration.
+public sealed class EnrichmentRecoveryEntity
+{
+    public string Id { get; set; } = "";
+    public string TargetId { get; set; } = "";
+    public string InputRevision { get; set; } = "";
+    public string ConfigurationVersion { get; set; } = "";
+    public int SourceRound { get; set; }
+    public string Reason { get; set; } = "";
+    public long CreatedAtUnixMs { get; set; }
 }
 
 public sealed class EnrichmentCallEntity

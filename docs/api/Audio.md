@@ -502,14 +502,16 @@ The explicit support matrix, checked against official documentation on 2026-11-0
 | Same official OpenAI endpoint | `tts-1`, `tts-1-hd` | Plain text only. Any required IPA or pronunciation hint is unsupported and stops before HTTP. Current preparation normally supplies a hint, so these models generally cannot consume its plans. |
 | Other models, providers or endpoints | None implied | Safe rejection, even when a third-party model has an identical name. Compatibility of the route does not establish pronunciation capability. |
 
-MiniMax keeps the original prepared text and uses the official dictionary replacement
+MiniMax uses the normalized prepared text and the official dictionary replacement
 syntax instead of reading pronunciation directions as text. One surrounding `/.../`
 or `[...]` IPA wrapper is removed for the native mapping. Native syntax delimiters,
 interjection tags, invalid IPA syntax, absent speech IPA and free-form instruction
-mode are rejected. When human IPA exists and preparation changes the original target
-text, the adapter cannot safely assign that human IPA to a different spoken target
-and stops. Without human IPA, a prepared template or phrase can use a complete
-spoken-target IPA. It does not infer token offsets, split IPA or add a reading.
+mode are rejected. With a catalog IPA constraint, typography normalization and
+allowlisted abbreviation expansion are accepted only while preserving the complete
+reading. Other changes to the spoken target are rejected; the adapter never assigns
+a word's IPA to an expanded teaching template. Without catalog IPA, a prepared
+template or phrase can use a complete spoken-target IPA. It does not infer token
+offsets, split IPA or add a reading.
 
 Each locale must explicitly configure both voice and speed. MiniMax accepts 0.5–2;
 OpenAI accepts 0.25–4. These are narrower than the settings API's storage bound. The
@@ -646,3 +648,18 @@ A retained historical receipt never authorizes rebinding a detached target.
 
 Vocabulary expansion shares this scheduler and text service gate. Its independent,
 accent-free tasks and publication rules are documented in [Vocabulary expansion](VocabularyExpansion.md).
+
+
+### Spoken text and catalog spelling
+
+Pronunciation preparation keeps catalog spelling separate from the speech payload.
+Letter-to-letter hyphens become spaces and dotted uppercase initials stay separate
+letters (`U.S.` → `U S`). Curly apostrophes become straight apostrophes, without
+removing them (`don't` stays `don't`); `re-sign` is never collapsed to `resign`.
+Abbreviations such as `St.` use the meaning context in the existing AI request.
+Teaching placeholders and alternatives still require complete spoken expansion.
+The complete spoken utterance and its IPA must pass the same checks before both
+field publication and speech dispatch. MiniMax's text and pronunciation-dictionary
+key use the same normalized utterance. Original headwords, definitions and manual
+phonetic constraints are not rewritten. Invalid spelling/reading combinations
+report `text.pronunciation_text_mismatch` or `text.phonetic_constraint_mismatch`.

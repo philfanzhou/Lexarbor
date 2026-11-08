@@ -1,4 +1,3 @@
-using System.Text;
 using System.Text.RegularExpressions;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Services;
@@ -11,6 +10,10 @@ internal static class SpeechProviderCapabilities
     public static string? PreparationError(PreparedPronunciation plan, EnrichmentConfigurationSnapshot snapshot)
     {
         if (!snapshot.Enrichment.AudioEnabled || !snapshot.HasTtsConfiguration(plan.Input.Locale == AudioLocale.EnGb ? "uk" : "us")) return null;
+        var settings = snapshot.Enrichment.Tts;
+        if (snapshot.Enrichment.Provider == "MiniMaxNative" && (!OfficialMiniMax(settings.Endpoint) || !MiniMax(settings.Model))
+            || snapshot.Enrichment.Provider == "OpenAICompatible" && (!OfficialOpenAi(settings.Endpoint) || !OpenAiText(settings.Model)))
+            return "capability_unsupported";
         if (snapshot.Enrichment.Provider == "MiniMaxNative" && plan.Content.SpokenText.IndexOfAny(['/', '(', ')', '<', '>', '[', ']']) >= 0)
             return "template_unexpanded";
         var voice = plan.Input.Locale == AudioLocale.EnGb ? snapshot.Enrichment.Uk : snapshot.Enrichment.Us;
@@ -42,7 +45,7 @@ internal static class SpeechProviderCapabilities
     public static string? NativeIpa(PreparedPronunciation plan)
     {
         if (plan.Control != PronunciationControl.Ipa) return null;
-        if (plan.RequiredPhonetic != null && plan.Content.SpokenText.Normalize(NormalizationForm.FormC) != plan.Input.Word.Trim().Normalize(NormalizationForm.FormC)) return null;
+        if (plan.RequiredPhonetic != null && !PronunciationText.SameSurface(plan.Input.Word, plan.Content.SpokenText)) return null;
         var ipa = plan.SpeechPhonetic;
         if (string.IsNullOrWhiteSpace(ipa)) return null;
         ipa = PronunciationPhonetics.Concrete(ipa);

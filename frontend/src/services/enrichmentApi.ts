@@ -13,6 +13,7 @@ export interface EnrichmentRound {
   number: number; state: TaskState | 'Superseded'; requestCount: number; consumedFailures: number; failureBudget: number
   waitReason: string | null; errorCode: string | null; nextAttemptAtUnixMs: number | null
   createdAtUnixMs: number; updatedAtUnixMs: number
+  automaticRecovery?: boolean; forceSingle?: boolean; fieldsNotRequired?: boolean
 }
 export interface EnrichmentCleanup {
   waiting: number; running: number; observed: number; attempts: number
@@ -22,6 +23,7 @@ export interface EnrichmentTask {
   id: string; wordId: string; word: string | null; meaningId: string | null; meaning: string | null
   locale: string | null; step: typeof steps[number]; applicable: boolean; missing: boolean; inheritsDefault: boolean
   state: TaskState; waitReason: string | null; current: EnrichmentRound; cleanup: EnrichmentCleanup
+  automaticRecoveryAvailable?: boolean
 }
 export interface EnrichmentCall {
   id: string; round: number; service: string; result: string; errorCode: string | null
@@ -63,11 +65,11 @@ function page<T>(value: unknown, parse: (v: unknown) => T): EnrichmentPage<T> {
 }
 function round(value: unknown): EnrichmentRound {
   const v = object(value)
-  return { number: number(v.number), state: choice(v.state, [...states, 'Superseded'] as const), requestCount: number(v.requestCount), consumedFailures: number(v.consumedFailures), failureBudget: number(v.failureBudget), waitReason: nullable(v.waitReason, string), errorCode: nullable(v.errorCode, string), nextAttemptAtUnixMs: nullable(v.nextAttemptAtUnixMs, number), createdAtUnixMs: number(v.createdAtUnixMs), updatedAtUnixMs: number(v.updatedAtUnixMs) }
+  return { number: number(v.number), state: choice(v.state, [...states, 'Superseded'] as const), requestCount: number(v.requestCount), consumedFailures: number(v.consumedFailures), failureBudget: number(v.failureBudget), waitReason: nullable(v.waitReason, string), errorCode: nullable(v.errorCode, string), nextAttemptAtUnixMs: nullable(v.nextAttemptAtUnixMs, number), createdAtUnixMs: number(v.createdAtUnixMs), updatedAtUnixMs: number(v.updatedAtUnixMs), automaticRecovery: v.automaticRecovery == null ? false : bool(v.automaticRecovery), forceSingle: v.forceSingle == null ? false : bool(v.forceSingle), fieldsNotRequired: v.fieldsNotRequired == null ? false : bool(v.fieldsNotRequired) }
 }
 function task(value: unknown): EnrichmentTask {
   const v = object(value), c = object(v.cleanup)
-  return { id: string(v.id), wordId: string(v.wordId), word: nullable(v.word, string), meaningId: nullable(v.meaningId, string), meaning: nullable(v.meaning, string), locale: nullable(v.locale, value => choice(value, ['en-GB', 'en-US'])), step: choice(v.step, steps), applicable: bool(v.applicable), missing: bool(v.missing), inheritsDefault: bool(v.inheritsDefault), state: choice(v.state, states), waitReason: nullable(v.waitReason, string), current: round(v.current), cleanup: { waiting: number(c.waiting), running: number(c.running), observed: number(c.observed), attempts: number(c.attempts), nextAttemptAtUnixMs: nullable(c.nextAttemptAtUnixMs, number), errorCode: nullable(c.errorCode, string) } }
+  return { id: string(v.id), wordId: string(v.wordId), word: nullable(v.word, string), meaningId: nullable(v.meaningId, string), meaning: nullable(v.meaning, string), locale: nullable(v.locale, value => choice(value, ['en-GB', 'en-US'])), step: choice(v.step, steps), applicable: bool(v.applicable), missing: bool(v.missing), inheritsDefault: bool(v.inheritsDefault), automaticRecoveryAvailable: v.automaticRecoveryAvailable == null ? false : bool(v.automaticRecoveryAvailable), state: choice(v.state, states), waitReason: nullable(v.waitReason, string), current: round(v.current), cleanup: { waiting: number(c.waiting), running: number(c.running), observed: number(c.observed), attempts: number(c.attempts), nextAttemptAtUnixMs: nullable(c.nextAttemptAtUnixMs, number), errorCode: nullable(c.errorCode, string) } }
 }
 function detail(value: unknown): EnrichmentDetail {
   const v = object(value)

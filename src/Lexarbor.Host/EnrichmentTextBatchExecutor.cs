@@ -21,7 +21,7 @@ public sealed class EnrichmentTextBatchExecutor(IEnrichmentTaskRepository tasks,
     MeaningSubmissionSettings submissions, IAudioUploadOperationFactory storage, TimeProvider clock,
     ILogger<EnrichmentTextBatchExecutor>? logger = null)
 {
-    internal static (int Initial, int Maximum) BatchSize(string kind) => kind == "Expand" ? (2, 3) : (6, 6);
+    internal static (int Initial, int Maximum) BatchSize(string kind) => kind == "Expand" ? (1, 2) : (6, 6);
     private sealed record Work(string SelectedId, EnrichmentTask Task, AiTextItem<AiBatchResult> Item);
     private long Now => clock.GetUtcNow().ToUnixTimeMilliseconds();
 
@@ -98,7 +98,8 @@ public sealed class EnrichmentTextBatchExecutor(IEnrichmentTaskRepository tasks,
             var queue = group.ToArray();
             for (var index = 0; index < queue.Length;)
             {
-                var chunk = queue.Skip(index).Take(limit).ToArray();
+                bool Single(Work item) => item.Task.Rounds.Single(r => r.Number == item.Task.CurrentRound).ForceSingle;
+                var chunk = Single(queue[index]) ? [queue[index]] : queue.Skip(index).TakeWhile(w => !Single(w)).Take(limit).ToArray();
                 while (chunk.Length > 0 && AiTextBatchClient.Body(snapshot.Enrichment.Text, instructions, chunk.Select(w => w.Item).ToArray()).Length > AiTextBatchClient.MaximumBytes)
                     chunk = chunk.Take(chunk.Length - 1).ToArray();
                 if (chunk.Length == 0)
@@ -143,6 +144,7 @@ public sealed class EnrichmentTextBatchExecutor(IEnrichmentTaskRepository tasks,
                         CancellationToken.None, service, new(settings.ServiceFailureThreshold, settings.ServicePauseSeconds,
                             settings.MaxServicePauseSeconds, settings.ThrottleInitialSeconds, settings.ThrottleMaxSeconds));
                     completed = true;
+                    if (kind == "Expand") limit = await batches.LimitAsync(kind, snapshot.TextVersion!, size.Initial, size.Maximum, token);
                     foreach (var item in chunk) pending.Remove(item.SelectedId);
                     logger?.LogInformation("Autonomous text batch: kind {Kind}, items {Items}, validated {Validated}, outcome {Outcome}, timeout {Timeout}, requestMs {RequestMs}, commitMs {CommitMs}, nextSize {NextSize}",
                         kind, receipt.Members.Count, valid, outcome, response.ErrorCode == "batch.timeout", requestMs,

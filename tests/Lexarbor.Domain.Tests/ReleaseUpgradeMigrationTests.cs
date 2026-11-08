@@ -31,7 +31,7 @@ public sealed class ReleaseUpgradeMigrationTests
         await AssertPreserved(file, before);
         var upgraded = await file.RowsAsync("SELECT * FROM __EFMigrationsHistory ORDER BY MigrationId");
         Assert.Equal(JsonSerializer.Serialize(history), JsonSerializer.Serialize(upgraded.Take(history.Length)));
-        Assert.Equal(history.Length + 4, upgraded.Length);
+        Assert.Equal(history.Length + 5, upgraded.Length);
         await using (var restarted = file.Open()) await restarted.Database.MigrateAsync(Ct);
         await AssertPreserved(file, before);
         Assert.Equal(JsonSerializer.Serialize(upgraded), JsonSerializer.Serialize(await file.RowsAsync("SELECT * FROM __EFMigrationsHistory ORDER BY MigrationId")));
@@ -111,6 +111,52 @@ public sealed class ReleaseUpgradeMigrationTests
         await AssertPreserved(file, before);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FromV0110Rc1_RecoveryMigrationBackfillsOnlyMatchingSuccessfulPhrases(bool interrupt)
+    {
+        using var file = new AudioTestDatabase();
+        await SeedRelease(file);
+        const string previous = "20261107002212_AddPreparationPendingWaitReason";
+        await using (var db = file.Open())
+        {
+            await db.GetService<IMigrator>().MigrateAsync(previous, Ct);
+            await db.Database.ExecuteSqlRawAsync("""
+                INSERT INTO enrichment_target VALUES ('phrase-fields','word',NULL,'en-GB','Fields',1,1,0),
+                    ('phrase-prepare','word',NULL,'en-GB','Prepare',1,1,0),
+                    ('stale-fields','word',NULL,'en-US','Fields',1,1,0),
+                    ('stale-prepare','word',NULL,'en-US','Prepare',1,1,0);
+                INSERT INTO enrichment_round(target_id,number,state,input_revision,source_revision,configuration_version,
+                    failure_budget,request_count,consumed_failures,plan_json,lease_fence,created_at_unix_ms,updated_at_unix_ms)
+                VALUES ('phrase-fields',1,'Succeeded',lower(hex(zeroblob(32))),lower(hex(zeroblob(32))),'version',5,0,0,NULL,0,1,2),
+                    ('phrase-prepare',1,'Succeeded',lower(hex(zeroblob(32))),lower(hex(zeroblob(32))),'version',5,1,0,json_object('Preparation',json_object('EntryKind','phrase')),1,1,2),
+                    ('stale-fields',1,'Succeeded',lower(hex(zeroblob(32))),printf('%064d',1),'version',5,0,0,NULL,0,1,2),
+                    ('stale-prepare',1,'Succeeded',lower(hex(zeroblob(32))),printf('%064d',2),'version',5,1,0,json_object('Preparation',json_object('EntryKind','phrase')),1,1,2);
+                """, Ct);
+        }
+        var before = await Snapshot(file);
+        if (interrupt)
+        {
+            var fault = new MigrationFault("CREATE TABLE \"enrichment_recovery\"");
+            await using var broken = file.Open(fault);
+            await Assert.ThrowsAsync<InvalidOperationException>(() => broken.Database.MigrateAsync(Ct));
+            Assert.True(fault.Triggered);
+            await AssertPreserved(file, before);
+            Assert.Empty(await file.RowsAsync("SELECT name FROM sqlite_master WHERE name='ai_request_batch_policy'"));
+        }
+        await using (var db = file.Open()) await db.Database.MigrateAsync(Ct);
+        await AssertPreserved(file, before);
+        Assert.Equal(new object?[] { 1L }, (object?[])Assert.Single(await file.RowsAsync("SELECT fields_not_required FROM enrichment_round WHERE target_id='phrase-fields'"))!);
+        Assert.Equal(new object?[] { 0L }, (object?[])Assert.Single(await file.RowsAsync("SELECT fields_not_required FROM enrichment_round WHERE target_id='stale-fields'"))!);
+        Assert.Equal(new object?[] { 1L, 5L, 5L }, (object?[])Assert.Single(await file.RowsAsync("SELECT force_single,consumed_failures,request_count FROM enrichment_round WHERE target_id='task' AND number=1"))!);
+        await using (var db = file.Open()) await db.Database.MigrateAsync(Ct);
+        await AssertPreserved(file, before);
+        Assert.Empty(await file.RowsAsync("SELECT * FROM enrichment_recovery"));
+        await using (var db = file.Open()) await db.GetService<IMigrator>().MigrateAsync(previous, Ct);
+        await AssertPreserved(file, before);
+    }
+
     private static async Task AssertPreserved(AudioTestDatabase file, Dictionary<string, string[]> before)
     {
         var after = await Snapshot(file);
@@ -128,7 +174,10 @@ public sealed class ReleaseUpgradeMigrationTests
         foreach (var row in await file.RowsAsync("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '__EF%' ORDER BY name"))
         {
             var name = (string)((object?[])row!)[0]!;
-            result[name] = (await file.RowsAsync("SELECT * FROM \"" + name.Replace("\"", "\"\"") + "\""))
+            var columns = (await file.RowsAsync("PRAGMA table_info(\"" + name.Replace("\"", "\"\"") + "\")"))
+                .Select(r => (string)((object?[])r!)[1]!)
+                .Where(c => name != "enrichment_round" || c is not ("fields_not_required" or "force_single" or "recovery_id"));
+            result[name] = (await file.RowsAsync("SELECT " + string.Join(",", columns.Select(c => "\"" + c.Replace("\"", "\"\"") + "\"")) + " FROM \"" + name.Replace("\"", "\"\"") + "\""))
                 .Select(r => JsonSerializer.Serialize(r)).Order(StringComparer.Ordinal).ToArray();
         }
         return result;

@@ -46,6 +46,10 @@ internal static class EnrichmentModelConfiguration
         round.Property(row => row.WaitReason).HasConversion<string>();
         round.HasIndex(row => new { row.State, row.NextAttemptAtUnixMs });
         round.HasIndex(row => new { row.TargetId, row.RetryKey }).IsUnique().HasFilter("retry_key IS NOT NULL");
+        var recovery = builder.Entity<EnrichmentRecoveryEntity>();
+        recovery.ToTable("enrichment_recovery"); recovery.HasKey(row => row.Id);
+        recovery.HasIndex(row => new { row.TargetId, row.InputRevision, row.ConfigurationVersion }).IsUnique();
+        recovery.HasOne<EnrichmentTargetEntity>().WithMany().HasForeignKey(row => row.TargetId).OnDelete(DeleteBehavior.Cascade);
         var call = builder.Entity<EnrichmentCallEntity>();
         call.ToTable("enrichment_call", table =>
         {
@@ -82,7 +86,7 @@ internal static class EnrichmentModelConfiguration
         probe.HasKey(row => row.Id);
         probe.HasOne<EnrichmentServiceEntity>().WithMany().HasForeignKey(row => row.ServiceId).OnDelete(DeleteBehavior.Cascade);
         probe.HasIndex(row => new { row.ServiceId, row.StartedAtUnixMs });
-        foreach (var entity in new[] { target.Metadata, round.Metadata, call.Metadata, wait.Metadata, discovery.Metadata, service.Metadata, probe.Metadata, generated.Metadata })
+        foreach (var entity in new[] { target.Metadata, round.Metadata, call.Metadata, wait.Metadata, discovery.Metadata, service.Metadata, probe.Metadata, generated.Metadata, recovery.Metadata })
             foreach (var property in entity.GetProperties())
                 property.SetColumnName(Regex.Replace(property.Name, "([a-z0-9])([A-Z])", "$1_$2").ToLowerInvariant());
     }

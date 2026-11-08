@@ -404,3 +404,36 @@ test('文本请求与任务参与次数分别展示，旧服务响应仍可读�
   await expect(stats).toContainText('1 次请求正在处理或结果尚未确认')
   await expect(stats).toContainText('包含补齐、词变和自动审核')
 })
+
+test('自动恢复从排队到处理再到耗尽，只有停止后才显示手动重试', async ({ page }) => {
+  const t = failed(); t.waitReason = null; t.current.waitReason = null; t.current.errorCode = 'batch.timeout'; t.automaticRecoveryAvailable = true
+  await setup(page, [t]); const region = await openDetail(page)
+  await expect(page.getByRole('table', { name: '补齐任务列表' }).locator('.badge')).toHaveText('等待自动恢复')
+  await expect(region).toContainText('后台会自动重新处理这项技术性失败')
+  await expect(region.getByRole('button', { name: /重试此失败步骤/ })).toHaveCount(0)
+  t.automaticRecoveryAvailable = false; t.state = 'Waiting'; t.waitReason = 'Retry'
+  Object.assign(t.current, { state: 'Waiting', automaticRecovery: true, forceSingle: true, consumedFailures: 2, number: 2 })
+  await page.getByRole('button', { name: '刷新状态', exact: true }).click()
+  await expect(region).toContainText('自动恢复：等待下次尝试')
+  await expect(region).toContainText('已消耗 2/5 次失败额度')
+  await expect(region).toContainText('此任务会单独请求 AI')
+  await expect(region.getByRole('button', { name: /重试此失败步骤/ })).toHaveCount(0)
+  t.state = 'Failed'; t.waitReason = null; t.current.state = 'Failed'; t.current.consumedFailures = 5
+  await page.getByRole('button', { name: '刷新状态', exact: true }).click()
+  await expect(region).toContainText('自动恢复已停止，待复核')
+  await expect(region).toContainText('不会因重启再次开启')
+  await expect(region.getByRole('button', { name: '仅重试此失败步骤', exact: true })).toBeEnabled()
+})
+
+test('已确认的短语字段不显示为未完成或需要重试', async ({ page }) => {
+  const t = task('phrase', { step: 'Fields', applicable: false, missing: false, state: 'Cancelled', waitReason: null })
+  Object.assign(t.current, { fieldsNotRequired: true, state: 'Succeeded', waitReason: null, errorCode: null })
+  await setup(page, [t]); await page.goto('/#/enrichment')
+  const table = page.getByRole('table', { name: '补齐任务列表' })
+  await expect(table.locator('.badge')).toHaveText('无需补全')
+  await page.getByRole('button', { name: '查看 lead en-GB 默认字段 详情', exact: true }).click()
+  const region = page.getByRole('region', { name: '任务详情', exact: true })
+  await expect(region).toContainText('短语无需补全')
+  await expect(region).toContainText('读音生成单独继续')
+  await expect(region.getByRole('button', { name: /重试此失败步骤/ })).toHaveCount(0)
+})

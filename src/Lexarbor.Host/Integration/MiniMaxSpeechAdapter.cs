@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Lexarbor.Domain.Models;
+using Lexarbor.Domain.Services;
 using Lexarbor.Host.Configuration;
 
 namespace Lexarbor.Host.Integration;
@@ -12,10 +13,11 @@ internal static class MiniMaxSpeechAdapter
             || plan.Content.SpokenText.IndexOfAny(['/', '(', ')', '<', '>', '[', ']']) >= 0) return null;
         var ipa = SpeechProviderCapabilities.NativeIpa(plan);
         if (ipa == null) return null;
+        var spoken = PronunciationText.Normalize(plan.Content.SpokenText);
         return JsonSerializer.SerializeToUtf8Bytes(new
         {
             model = settings.Model,
-            text = plan.Content.SpokenText,
+            text = spoken,
             stream = false,
             output_format = "hex",
             language_boost = "English",
@@ -27,7 +29,7 @@ internal static class MiniMaxSpeechAdapter
                 vol = voice.Volume,
                 emotion = voice.Emotion.Length == 0 ? null : voice.Emotion
             },
-            pronunciation_dict = new { tone = new[] { plan.Content.SpokenText + "/(" + ipa + ")" } },
+            pronunciation_dict = new { tone = new[] { spoken + "/(" + ipa + ")" } },
             audio_setting = new { format = "mp3", sample_rate = 32000, bitrate = 128000, channel = 1 }
         }, new JsonSerializerOptions { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull });
     }

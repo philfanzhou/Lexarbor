@@ -50,7 +50,9 @@ public sealed partial class EnrichmentSchedulerRepository
                 AND (r.next_attempt_at_unix_ms IS NULL OR r.next_attempt_at_unix_ms<=@now)
                 AND t.word_id NOT IN (SELECT value FROM json_each(@excluded))
             ), words AS (
-              SELECT *,row_number() OVER (PARTITION BY Lane,WordId ORDER BY QueuedAtUnixMs,Id) AS WordRank
+              SELECT *,row_number() OVER (PARTITION BY Lane,WordId ORDER BY
+                CASE WHEN Lane='Text' AND Step='Prepare' THEN 0 WHEN Lane='Text' AND Step='Fields' THEN 1 ELSE 2 END,
+                QueuedAtUnixMs,Id) AS WordRank
               FROM candidates WHERE Lane IS NOT NULL
             ), ranked AS (
               SELECT *,row_number() OVER (PARTITION BY Lane,Recent ORDER BY QueuedAtUnixMs,Id) AS Position

@@ -92,7 +92,7 @@ Summary has `applicableTargets`, `completedTargets`, `missingTargets`,
 `unqueuedTargets`, `persistedTasks`, grouped `targets` (`state`, `waitReason`,
 `count`), and `services`. Requirements include each applicable default field side,
 each default audio side, and each nonempty specific phonetic's own audio side.
-Explicit phrase-only entries have no field requirements. Empty specifics inherit
+Explicit phrase-only entries and current successful field rounds classified as phrases have no field requirements. Editing the input or classification invalidates that decision through the normal input-version checks. Empty specifics inherit
 and do not add missing targets; legacy bindings do not turn inheritance into
 specific success. Same-phonetic default playback fallback does not satisfy a
 missing specific own binding. An unconfigured deployment remains missing
@@ -178,9 +178,37 @@ without this endpoint; retry never enables generation or starts a manual batch.
 
 Retrying a legacy `Audio` failure with `tts.capability_unsupported` or
 `tts.prepared_plan_required` also refreshes its preparation in that transaction;
-network/audio-publication failures retain successful preparation. Old failed
-preparations may require one explicit retry after upgrading. The upgrade does not
-bulk-reset exhausted work or regenerate completed audio.
+network/audio-publication failures retain successful preparation. Bounded automatic
+recovery below handles eligible technical failures; manual retry remains available
+for exhausted recovery and errors requiring a content or configuration correction.
+Completed audio is not regenerated.
+
+### Bounded automatic recovery
+
+`v0.1.10-rc.2` adds one automatic recovery round per target, input revision and
+configuration version for known preparation/expansion validation failures,
+timeouts, oversized/incomplete batch results and locally rejected legacy audio
+plans. Each recovery round permits at most five failures (or the configured lower
+budget). Scanning, service recovery, restart and image replacement do not renew
+that allowance. The original rounds and calls remain available. Audio capability
+rejections that actually reached the provider, credential/billing failures and
+catalog phonetic/content conflicts are excluded. Disabled or unconfigured work
+waits for its prerequisites before automatic recovery starts.
+
+Recovery is serialized and bounded to five source words per discovery sweep.
+Recovering preparation wakes failed dependent fields/audio. A locally rejected
+legacy audio plan refreshes preparation for that target and accent; other successful
+results remain intact. Saved valid batch results are reused rather than requested
+again. Failed batch members and automatic recovery use single-item requests.
+
+Tasks add `automaticRecoveryAvailable`; current and historical rounds add
+`automaticRecovery`, `forceSingle` and `fieldsNotRequired` booleans. These expose
+behavior, not internal recovery identifiers or keys. Existing state strings remain
+unchanged: a failed historical round awaiting automatic recovery still has
+`Failed`, with `automaticRecoveryAvailable=true`. Such work and its recoverable
+dependencies are excluded from `attentionOnly` and `actionRequired`. The UI shows
+queued/running/waiting recovery and distinguishes exhausted recovery requiring
+review. Older clients can ignore the additions; the new client accepts their absence.
 
 ### Text request counters
 
@@ -197,13 +225,16 @@ Older clients may ignore this additive field; the admin client tolerates its
 absence when connected to an older server.
 
 Preparation/review batches start at six independent items and remain capped at
-six. Expansion starts at two distinct source words (one sense per word) and can
-grow to three. After a fully valid response, the next batch limit grows by one up
-to that kind's maximum. Invalid/partial responses and timeouts reduce it, down to
-one. Persisted limits survive restart and upgrades, including a previous limit of
-one; a new model configuration starts with its kind's initial size. Local retries
-of a busy completion transaction reuse
-the same response and do not add provider requests or duplicate completed members.
+six, with the existing incremental recovery after backoff. Expansion starts at
+one distinct source word (one sense per word), grows to at most two only after
+three consecutive fully valid responses each taking less than 60 seconds, and
+drops to one after an invalid/partial/oversized response or timeout. A slow response
+or other unsuccessful request breaks the growth streak. A late success from a
+request started before the latest backoff cannot undo it. This expansion policy
+and its streak survive restart; upgrading from older batching releases and a new
+model configuration start at one. A failed member stays single for its remaining
+round even when healthy work returns to two. Local completion-transaction retries
+reuse the same response without adding provider calls or duplicate completed members.
 Unconfirmed historical requests remain included in `unknown`.
 
 Preparation/expansion requests use the independent `enrichment.textConcurrency`

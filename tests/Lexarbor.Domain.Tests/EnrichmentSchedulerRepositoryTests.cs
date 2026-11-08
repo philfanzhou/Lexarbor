@@ -284,18 +284,20 @@ public sealed class EnrichmentSchedulerRepositoryTests
     {
         using var file = new AudioTestDatabase(); await using var db = file.Open();
         const string previous = "20261101194034_AddMeaningPhoneticEpochs";
-        await db.GetService<IMigrator>().MigrateAsync(previous, Ct); await AudioTestDatabase.SeedAsync(db);
+        await db.Database.MigrateAsync(Ct); await AudioTestDatabase.SeedAsync(db);
         var tasks = new EnrichmentTaskRepository(db, new FixedClock());
         var task = (await tasks.EnsureAsync(new("word", null, AudioLocale.EnGb, EnrichmentStep.Audio), "v", 1, Ct))!;
         var guard = (await tasks.ClaimAsync(task.Id, "worker", 1, 5000, Ct))!;
         await tasks.BeginCallAsync(guard, Guid.NewGuid().ToString(), "tts", Guid.NewGuid().ToString(), 1, Ct);
         await tasks.FinishCallAsync(guard, (await tasks.GetAsync(task.Id, Ct))!.Calls[0].Id, EnrichmentCallResult.Throttled, "tts.rate_limited", 1, 100, Ct);
-        var before = System.Text.Json.JsonSerializer.Serialize(await tasks.GetAsync(task.Id, Ct));
+        // Seed through the current writer, then return to the historical schema before testing its upgrade.
+        await db.GetService<IMigrator>().MigrateAsync(previous, Ct);
+        var before = await file.LegacyEnrichmentHistoryAsync();
         await db.Database.MigrateAsync(Ct);
         var repo = new EnrichmentSchedulerRepository(db); await repo.DiscoverAsync(1, [], Ct);
         await repo.EnterServiceAsync("tts", "v", false, 1, 100, Ct);
         await db.GetService<IMigrator>().MigrateAsync(previous, Ct);
-        Assert.Equal(before, System.Text.Json.JsonSerializer.Serialize(await tasks.GetAsync(task.Id, Ct)));
+        Assert.Equal(before, await file.LegacyEnrichmentHistoryAsync());
         Assert.Equal(2, await db.Vocabularies.CountAsync(Ct));
         Assert.Empty(await file.RowsAsync("SELECT name FROM sqlite_master WHERE name IN ('enrichment_discovery','enrichment_service','enrichment_service_probe')"));
         await db.Database.MigrateAsync(Ct);

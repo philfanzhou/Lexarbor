@@ -33,7 +33,7 @@ public interface IEnrichmentTaskRepository
     Task<bool> RecoverPublishedAsync(string targetId, string uploadIdempotencyKey, long now, CancellationToken cancellationToken);
     Task<bool> StopAsync(EnrichmentExecutionGuard guard, string errorCode, long now, CancellationToken cancellationToken);
     Task<bool> CompleteInTransactionAsync(EnrichmentExecutionGuard guard, long now, CancellationToken cancellationToken);
-    Task<bool> CompleteAsync(EnrichmentExecutionGuard guard, long now, CancellationToken cancellationToken);
+    Task<bool> CompleteAsync(EnrichmentExecutionGuard guard, long now, CancellationToken cancellationToken, bool fieldsNotRequired = false);
 
     // These methods MUST join the caller's actual serialized writer transaction,
     // on the same scoped context as the field/binding mutation. Standalone reads

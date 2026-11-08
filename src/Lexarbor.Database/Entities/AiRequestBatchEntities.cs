@@ -1,5 +1,14 @@
 namespace Lexarbor.Database.Entities;
 
+public sealed class AiRequestBatchPolicyEntity
+{
+    public string Kind { get; set; } = "";
+    public string ConfigurationVersion { get; set; } = "";
+    public int Size { get; set; } = 1;
+    public int FastSuccesses { get; set; }
+    public long LastFailureAtUnixMs { get; set; }
+}
+
 public sealed class AiRequestBatchEntity
 {
     public string Id { get; set; } = "";
