@@ -512,6 +512,10 @@ namespace Lexarbor.Database.Migrations
                         .IsUnique()
                         .HasFilter("upload_idempotency_key IS NOT NULL");
 
+                    b.HasIndex("Result", "FinishedAtUnixMs");
+
+                    b.HasIndex("Service", "Result", "FinishedAtUnixMs");
+
                     b.HasIndex("TargetId", "Round")
                         .IsUnique()
                         .HasFilter("result = 'Started'");
@@ -526,6 +530,23 @@ namespace Lexarbor.Database.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Lexarbor.Database.Entities.EnrichmentDestinationEntity", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("id");
+
+                    b.Property<string>("BookId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("book_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BookId");
+
+                    b.ToTable("enrichment_destination", (string)null);
+                });
+
             modelBuilder.Entity("Lexarbor.Database.Entities.EnrichmentDiscoveryEntity", b =>
                 {
                     b.Property<string>("Id")
@@ -536,6 +557,18 @@ namespace Lexarbor.Database.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT")
                         .HasColumnName("cursor");
+
+                    b.Property<bool>("InitialCompleted")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("initial_completed");
+
+                    b.Property<int>("InitialScanned")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("initial_scanned");
+
+                    b.Property<int>("InitialTotal")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("initial_total");
 
                     b.Property<string>("UpperBound")
                         .IsRequired()
@@ -1820,6 +1853,14 @@ namespace Lexarbor.Database.Migrations
                         .HasForeignKey("TargetId", "Round")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Lexarbor.Database.Entities.EnrichmentDestinationEntity", b =>
+                {
+                    b.HasOne("Lexarbor.Database.Entities.VocabularyBookEntity", null)
+                        .WithMany()
+                        .HasForeignKey("BookId")
+                        .OnDelete(DeleteBehavior.SetNull);
                 });
 
             modelBuilder.Entity("Lexarbor.Database.Entities.EnrichmentGeneratedWordEntity", b =>

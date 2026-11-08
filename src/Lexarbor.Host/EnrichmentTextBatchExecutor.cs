@@ -19,7 +19,7 @@ public sealed class EnrichmentTextBatchExecutor(IEnrichmentTaskRepository tasks,
     IVocabularyExpansionRepository expansions, IVocabularyBookRepository books, IAiRequestBatchRepository batches,
     AiTextBatchClient client, EnrichmentServiceGate gate, EnrichmentRuntimeConfiguration runtime,
     MeaningSubmissionSettings submissions, IAudioUploadOperationFactory storage, TimeProvider clock,
-    ILogger<EnrichmentTextBatchExecutor>? logger = null)
+    ILogger<EnrichmentTextBatchExecutor>? logger = null, IEnrichmentDestinationRepository? destinations = null)
 {
     internal static (int Initial, int Maximum) BatchSize(string kind) => kind == "Expand" ? (1, 2) : (6, 6);
     private sealed record Work(string SelectedId, EnrichmentTask Task, AiTextItem<AiBatchResult> Item);
@@ -31,6 +31,7 @@ public sealed class EnrichmentTextBatchExecutor(IEnrichmentTaskRepository tasks,
     public async Task<EnrichmentTextDispatchResult> DispatchAsync(IReadOnlyList<string> due, CancellationToken token)
     {
         var snapshot = runtime.Current;
+        var bookId = destinations == null ? submissions.BookId : (await destinations.ReadAsync(submissions.BookId, token)).BookId;
         var selected = new List<string>();
         var pending = new HashSet<string>(StringComparer.Ordinal);
         var requests = 0;
@@ -65,10 +66,10 @@ public sealed class EnrichmentTextBatchExecutor(IEnrichmentTaskRepository tasks,
             var call = Guid.NewGuid().ToString();
             if (key.Step == EnrichmentStep.Expand)
             {
-                if (string.IsNullOrWhiteSpace(submissions.BookId) || await books.GetByIdAsync(submissions.BookId, token) is not { Status: true }) continue;
+                if (string.IsNullOrWhiteSpace(bookId) || await books.GetByIdAsync(bookId, token) is not { Status: true }) continue;
                 var input = await expansions.ReadAsync(key, token);
                 if (input == null || input.Version != round.Input) continue;
-                var item = VocabularyExpansionClient.BatchItem(call, input, snapshot.Enrichment.Text, submissions.BookId,
+                var item = VocabularyExpansionClient.BatchItem(call, input, snapshot.Enrichment.Text, bookId,
                     Math.Max(round.ConsumedFailures, round.RecoveryId == null ? 0 : 1));
                 work.Add(new(id, task, new(call, item.Prompt, content =>
                 {

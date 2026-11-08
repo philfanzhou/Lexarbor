@@ -8,7 +8,7 @@ namespace Lexarbor.Host;
 
 public sealed class VocabularyExpansionExecutor(IEnrichmentTaskRepository tasks, IVocabularyExpansionRepository expansions,
     IVocabularyBookRepository books, VocabularyExpansionService publisher, VocabularyExpansionClient client,
-    EnrichmentServiceGate gate, EnrichmentRuntimeConfiguration runtime, MeaningSubmissionSettings submissions, TimeProvider clock)
+    EnrichmentServiceGate gate, EnrichmentRuntimeConfiguration runtime, MeaningSubmissionSettings submissions, TimeProvider clock, IEnrichmentDestinationRepository? destinations = null)
 {
     private long Now => clock.GetUtcNow().ToUnixTimeMilliseconds();
 
@@ -29,7 +29,8 @@ public sealed class VocabularyExpansionExecutor(IEnrichmentTaskRepository tasks,
                 plan != null ? null : "expansion.outcome_unknown", Now, plan != null ? null : Now + 30_000, token);
             if (plan == null) return await tasks.GetAsync(task.Id, token);
         }
-        var bookId = submissions.BookId;
+        var destination = destinations == null ? null : await destinations.ReadAsync(submissions.BookId, token);
+        var bookId = destinations == null ? submissions.BookId : destination?.BookId;
         if (!snapshot.CanPrepare || string.IsNullOrWhiteSpace(bookId)
             || await books.GetByIdAsync(bookId, token) is not { Status: true })
             return await Wait(EnrichmentWaitReason.ConfigurationMissing, Now + 30_000);
@@ -79,8 +80,16 @@ public sealed class VocabularyExpansionExecutor(IEnrichmentTaskRepository tasks,
         }
         if (plan.BookId != bookId)
         {
-            await tasks.StopAsync(guard, "expansion.destination_changed", Now, token);
-            return await tasks.GetAsync(task.Id, token);
+            // A deleted automatic destination may be replaced without buying the same
+            // candidate list again. Keep the staged receipt immutable; publication
+            // rechecks the replacement inside its transaction. Never bypass a disabled book.
+            if (destination?.Managed == true && await books.GetByIdAsync(plan.BookId, token) == null)
+                plan = plan with { BookId = bookId };
+            else
+            {
+                await tasks.StopAsync(guard, "expansion.destination_changed", Now, token);
+                return await tasks.GetAsync(task.Id, token);
+            }
         }
         await publisher.PublishAsync(task, guard, plan,
             () => runtime.Current.CanPrepare && runtime.Current.TextVersion == snapshot.TextVersion, token);

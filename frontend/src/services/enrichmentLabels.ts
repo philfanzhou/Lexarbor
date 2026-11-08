@@ -67,7 +67,7 @@ export function guidance(task: EnrichmentTask): { title: string; description: st
     title: '等待前置发音准备', description: '文本模型正在准备读音和字段，完成后此步骤会自动继续；无需手动重试。'
   }
   if (task.waitReason === 'ConfigurationMissing' || task.waitReason === 'Disabled') return {
-    title: '需要检查配置', description: task.step === 'Expand' ? '文本模型和补充词书均须就绪。请检查上方对应任务卡片，补充词书须存在且启用。' : task.step === 'Audio' ? '需要文本模型、语音模型和当前口音的音色配置。配置就绪后自动继续。' : '文本模型配置就绪后自动继续，无需另开功能开关。',
+    title: '需要检查配置', description: task.step === 'Expand' ? '文本模型就绪后，后台自动准备缺失的补充词书；已停用的词书需重新启用。请查看上方任务卡片的具体原因。' : task.step === 'Audio' ? '需要文本模型、语音模型和当前口音的音色配置。配置就绪后自动继续。' : '文本模型配置就绪后自动继续，无需另开功能开关。',
     link: task.step === 'Audio' ? '/settings/speech' : '/settings/text', action: task.step === 'Audio' ? '检查语音配置' : '检查文本模型'
   }
   if (task.state === 'Failed') {

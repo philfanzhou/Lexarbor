@@ -73,8 +73,11 @@ pronunciation task. Expansion requirements exclude explicit phrase positions and
 words created by expansion. A successful empty result is complete. Source edits
 are detected by durable discovery and create a new round before regeneration.
 Use `step=Audio` when counting only a meaning's specific-audio requirements.
-Expansion shares text service health and the existing per-step retry API; missing
-or disabled `MeaningSubmissions:BookId` waits without model calls. See
+Expansion shares text service health and the existing per-step retry API. An existing
+`MeaningSubmissions:BookId` remains the destination; a missing book is replaced
+for expansion by an automatically managed supplement. Disabled destinations pause
+expansion without model calls or per-target polling. Submission configuration is
+unchanged. See
 [Vocabulary expansion](VocabularyExpansion.md) for publication and provenance.
 
 Task rows contain `id`, `wordId`, `word`, `meaningId`, `meaning`, `locale`, `step`,
@@ -256,3 +259,18 @@ preparation is pending or running, no second expansion is dispatched. See the
 [settings contract](SystemSettings.md) and
 [dispatch and timing logs](../development/Deployment.md#automatic-text-batching-upgrade).
 These limits do not change request/member counter meanings.
+
+### Legacy database takeover status
+
+The summary adds optional `discovery`, `destination`, and `execution` objects.
+`discovery` contains `wordsScanned`, `wordsTotal`, `meaningsScanned`,
+`meaningsTotal`, and `initialCompleted` for the first historical sweep. These are
+whole-database counters, independent of list filters. The high-water marks are
+captured separately; counts can grow for arrivals inside a captured range. A
+completed scan means requirements were discovered, not that model work finished.
+`destination` contains `state` (`Ready`, `Missing`, or `Disabled`) and `managed`.
+`execution` contains whole-database `speechRequests`, `speechSucceeded`, and
+nullable `lastSucceededAtUnixMs`, counting durable provider calls. Speech success
+counts completed calls, not a listening-quality evaluation. Existing assets do
+not create new requests. Existing `textRequests` statistics retain their shared
+batch/review meaning. These GET responses never create books or advance scanning.

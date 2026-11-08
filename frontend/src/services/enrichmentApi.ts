@@ -41,6 +41,9 @@ export interface EnrichmentDetail {
   waits: EnrichmentPage<EnrichmentWait>; cleanup: EnrichmentPage<CleanupHistory>
 }
 export interface EnrichmentSummary {
+  discovery?: { wordsScanned: number; wordsTotal: number; meaningsScanned: number; meaningsTotal: number; initialCompleted: boolean } | null
+  destination?: { state: 'Ready' | 'Missing' | 'Disabled'; managed: boolean } | null
+  execution?: { speechRequests: number; speechSucceeded: number; lastSucceededAtUnixMs: number | null } | null
   textRequests: { requests: number; participations: number; completed: number; unknown: number } | null
   applicableTargets: number; completedTargets: number; missingTargets: number; unqueuedTargets: number; persistedTasks: number
   targets: { state: TaskState; waitReason: string | null; count: number }[]
@@ -88,6 +91,9 @@ export async function readEnrichmentTasks(query: EnrichmentQuery, currentPage: n
 export async function readEnrichmentSummary(query: EnrichmentQuery, signal: AbortSignal, current: () => boolean): Promise<EnrichmentSummary> {
   const v = object(await api.get<unknown>(`${url}/summary`, { ...config(signal, current), params: query }))
   return { applicableTargets: number(v.applicableTargets), completedTargets: number(v.completedTargets), missingTargets: number(v.missingTargets), unqueuedTargets: number(v.unqueuedTargets), persistedTasks: number(v.persistedTasks), targets: array(v.targets, value => { const t = object(value); return { state: choice(t.state, states), waitReason: nullable(t.waitReason, string), count: number(t.count) } }), services: array(v.services, value => { const s = object(value); return { service: choice(s.service, ['text', 'tts']), paused: bool(s.paused), blocked: bool(s.blocked), consecutiveFailures: number(s.consecutiveFailures), throttleSeconds: number(s.throttleSeconds), nextAttemptAtUnixMs: nullable(s.nextAttemptAtUnixMs, number) } }),
+    discovery: v.discovery == null ? null : (() => { const d = object(v.discovery); return { wordsScanned: number(d.wordsScanned), wordsTotal: number(d.wordsTotal), meaningsScanned: number(d.meaningsScanned), meaningsTotal: number(d.meaningsTotal), initialCompleted: bool(d.initialCompleted) } })(),
+    destination: v.destination == null ? null : (() => { const d = object(v.destination); return { state: choice(d.state, ['Ready', 'Missing', 'Disabled'] as const), managed: bool(d.managed) } })(),
+    execution: v.execution == null ? null : (() => { const e = object(v.execution); return { speechRequests: number(e.speechRequests), speechSucceeded: number(e.speechSucceeded), lastSucceededAtUnixMs: nullable(e.lastSucceededAtUnixMs, number) } })(),
     textRequests: v.textRequests == null ? null : (() => { const b = object(v.textRequests); return { requests: number(b.requests), participations: number(b.participations), completed: number(b.completed), unknown: number(b.unknown) } })(),
     activities: v.activities == null ? [] : array(v.activities, value => { const a = object(value); return { step: choice(a.step, ['Fields', 'Expand', 'Audio'] as const), total: number(a.total), completed: number(a.completed), actionRequired: number(a.actionRequired), unqueued: number(a.unqueued), missingRequirements: array(a.missingRequirements, value => choice(value, ['text', 'supplement', 'ukSpeech', 'usSpeech', 'storage'])) } }) }
 }

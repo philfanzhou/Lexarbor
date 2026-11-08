@@ -26,10 +26,13 @@ public sealed record EnrichmentCallCompletion(EnrichmentExecutionGuard Guard, st
 public sealed record EnrichmentDispatch(string Id, string WordId, string Step, string Lane, long QueuedAtUnixMs);
 public sealed record EnrichmentServiceAvailability(int AvailableSlots, long NextCheckAtUnixMs);
 
+public sealed record EnrichmentDiscoveryProgress(int WordsScanned, int WordsTotal, int MeaningsScanned, int MeaningsTotal, bool InitialCompleted);
+
 public interface IEnrichmentSchedulerRepository
 {
+    Task<EnrichmentDiscoveryProgress?> DiscoveryProgressAsync(CancellationToken token) => Task.FromResult<EnrichmentDiscoveryProgress?>(null);
     Task<IReadOnlyList<EnrichmentTargetKey>> DiscoverAsync(int batchSize, IReadOnlyList<string> recentWordIds, CancellationToken token);
-    Task<IReadOnlyList<EnrichmentDispatch>> PlanAsync(int limit, long now, IReadOnlyList<string> excludedWords, CancellationToken token);
+    Task<IReadOnlyList<EnrichmentDispatch>> PlanAsync(int limit, long now, IReadOnlyList<string> excludedWords, CancellationToken token, bool expansionReady = true);
     Task<IReadOnlyList<string>> DueAsync(int limit, long now, CancellationToken token);
     Task<EnrichmentServiceAdmission> EnterServiceAsync(string serviceId, string configurationVersion,
         bool probe, long now, long expiresAt, CancellationToken token, int capacity = 1);

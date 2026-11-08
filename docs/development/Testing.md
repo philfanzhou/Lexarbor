@@ -824,3 +824,18 @@ authoritative even if the model echoes a different reading, a fresh candidate is
 shared by fields and speech, and malformed or conflicting alternatives still fail.
 The tests do not authorize rewriting existing catalog IPA or claim real listening
 or live provider latency results.
+
+
+### Legacy database takeover
+
+`EnrichmentTakeoverTests` covers concurrent automatic supplement creation, read-only
+reporting, disabled-book preservation, deletion/replacement, old-schema upgrade,
+restartable first-scan counters, global expansion exclusion and coalesced waits.
+`EnrichmentEndToEndTests.LegacyDatabase_AutomaticallyPreparesDestination_ExpandsAndFillsAudio_AndRestartDoesNotRepeat`
+starts with the pre-expansion schema, upgrades through the real Host, and checks
+both a valid configured supplement and a restored database with a missing target.
+The hosted worker creates/reuses the destination, expands a source, fills new
+IPA/POS and audio, and restarts without additional provider requests. Network ports
+are synthetic; no production keys or provider billing are involved. Browser checks
+cover discovery progress, managed/disabled destination status and zero new speech
+requests when audio is already present.

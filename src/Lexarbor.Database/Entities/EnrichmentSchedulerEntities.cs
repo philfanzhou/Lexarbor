@@ -5,6 +5,15 @@ public sealed class EnrichmentDiscoveryEntity
     public string Id { get; set; } = "";
     public string Cursor { get; set; } = "";
     public string UpperBound { get; set; } = "";
+    public bool InitialCompleted { get; set; }
+    public int InitialScanned { get; set; }
+    public int InitialTotal { get; set; }
+}
+
+public sealed class EnrichmentDestinationEntity
+{
+    public string Id { get; set; } = "";
+    public string? BookId { get; set; }
 }
 
 public sealed class EnrichmentServiceEntity

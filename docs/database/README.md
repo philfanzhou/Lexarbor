@@ -977,3 +977,17 @@ and execution rows. Down uses native SQLite column drops rather than a parent-ta
 rebuild that could cascade into calls/waits. It removes the new metadata, so a
 later re-upgrade cannot remember already consumed automatic recovery. See the
 [upgrade and rollback procedure](../development/Deployment.md#automatic-recovery-and-pronunciation-normalization-upgrade).
+
+
+### Legacy enrichment takeover metadata
+
+`AddEnrichmentTakeover` adds `enrichment_destination` (`id`, nullable `book_id`)
+with an `ON DELETE SET NULL` book reference. The `expansion` role is unique, so
+serialized creation/recheck admits a single automatically managed supplement.
+Deletion permits replacement; disabling preserves the association and the pause.
+It also adds `initial_completed`, `initial_scanned`, and `initial_total` to
+`enrichment_discovery`, backfilled from existing cursors and high-water marks.
+Provider-call indexes on `(service,result,finished_at_unix_ms)` and
+`(result,finished_at_unix_ms)` support read-only request statistics.
+Existing business rows and task receipts are not rewritten. Migration rollback
+removes these metadata only and retains any generated book and vocabulary.
