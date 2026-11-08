@@ -51,12 +51,14 @@ public sealed class OpenAiCompatiblePronunciationPreparationClient(
         "Expand sb. to somebody and sth. to something, including parenthesized placeholders. Remove teaching parentheses from speech. " +
         "Resolve template slash alternatives semantically, speaking both natural alternatives joined by or and preserving shared context. " +
         "For example a lot of/lots of becomes a lot of or lots of; It took (sb.) some time to do sth. becomes It took somebody some time to do something. " +
-        "do not read slashes, abbreviations, instructions or commentary aloud. spokenText contains only what to speak, " +
+        "Do not read slashes, teaching placeholders, instructions or commentary aloud. spokenText contains only the speech target, " +
         "Normalize letter-to-letter hyphens to spaces and dotted uppercase initials to separated letters (well-known to well known; U.S. to U S). " +
         "Preserve apostrophes and all lexical content: never change can't to cant or re-sign to resign. " +
         "Resolve ambiguous abbreviations such as St. using the supplied meaning, never guess. " +
         "Expand standard titles and measurement abbreviations by meaning (Drs. to doctors, cms to centimetres/centimeters, " +
         "kgs to kilograms, kms to kilometres/kilometers); remove boundary hyphens marking prefixes or suffixes. " +
+        "For other abbreviations retain normalizedText as the spelling to send to speech and provide the intended complete reading in IPA. " +
+        "The pronunciation dictionary controls what is heard; an abbreviation need not be rewritten to different lexical text. " +
         "For a word with existing or proposed default IPA, spokenText must preserve its spelling after these typography rules; " +
         "do not silently expand that word into a different pronunciation target. If a semantic expansion is needed, classify it correctly and respect existing IPA. " +
         "pronunciationHint contains any proper-name/reading/accent directions. Do not add definitions or examples to spokenText. " +
