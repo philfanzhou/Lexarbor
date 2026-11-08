@@ -68,23 +68,26 @@ public sealed class EnrichmentTextBatchExecutor(IEnrichmentTaskRepository tasks,
                 if (string.IsNullOrWhiteSpace(submissions.BookId) || await books.GetByIdAsync(submissions.BookId, token) is not { Status: true }) continue;
                 var input = await expansions.ReadAsync(key, token);
                 if (input == null || input.Version != round.Input) continue;
-                var item = VocabularyExpansionClient.BatchItem(call, input, snapshot.Enrichment.Text, submissions.BookId);
+                var item = VocabularyExpansionClient.BatchItem(call, input, snapshot.Enrichment.Text, submissions.BookId,
+                    Math.Max(round.ConsumedFailures, round.RecoveryId == null ? 0 : 1));
                 work.Add(new(id, task, new(call, item.Prompt, content =>
                 {
                     var parsed = item.Validate(content);
-                    return new(call, parsed.Plan == null ? null : new(input.Word, null, null, null, Expansion: parsed.Plan), ErrorCode: parsed.ErrorCode);
-                })));
+                    return new(call, parsed.Plan == null ? null : new(input.Word, null, null, null, Expansion: parsed.Plan), ErrorCode: parsed.ErrorCode, FailureOutcome: parsed.Outcome);
+                }, item.MaximumTokens)));
             }
             else
             {
                 var input = await catalog.ReadAsync(key, token);
                 if (input == null || input.Request.InputVersion != round.Input) continue;
-                var item = OpenAiCompatiblePronunciationPreparationClient.BatchItem(call, input.Request, snapshot);
+                var item = OpenAiCompatiblePronunciationPreparationClient.BatchItem(call,
+                    input.Request with { PreviousFailures = round.ConsumedFailures, PreviousError = round.ErrorCode }, snapshot);
                 if (item == null) continue;
                 work.Add(new(id, task, new(call, item.Prompt, content =>
                 {
                     var parsed = item.Validate(content);
-                    return new(call, parsed.Plan == null ? null : EnrichmentPreparedPlans.Store(parsed.Plan, input.OwnAssetId), ErrorCode: parsed.ErrorCode == null ? null : "text." + parsed.ErrorCode);
+                    return new(call, parsed.Plan == null ? null : EnrichmentPreparedPlans.Store(parsed.Plan, input.OwnAssetId),
+                        ErrorCode: parsed.ErrorCode == null ? null : "text." + parsed.ErrorCode, FailureOutcome: parsed.Outcome.ToString());
                 })));
             }
         }

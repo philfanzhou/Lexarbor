@@ -130,7 +130,8 @@ public sealed class EnrichmentTargetExecutor(IEnrichmentTaskRepository tasks, IE
             var callFinished = false;
             EnrichmentServiceAdmission? service = null;
             await using var cleanup = services?.Observe();
-            var result = await preparation.PrepareAsync(current.Request, token, async (dispatch, ct) =>
+            var result = await preparation.PrepareAsync(current.Request with
+            { PreviousFailures = round.ConsumedFailures, PreviousError = round.ErrorCode }, token, async (dispatch, ct) =>
             {
                 if (dispatch.InputVersion != guard.Input || dispatch.ConfigurationVersion != runtime.Current.TextVersion
                     || ConfigurationVersion(task.Target, runtime.Current) != round.ConfigurationVersion) return false;
@@ -291,12 +292,11 @@ public sealed class EnrichmentTargetExecutor(IEnrichmentTaskRepository tasks, IE
         string outcome, string? error, TimeSpan? retry)
     {
         if (outcome is "Ready" or "Superseded") return null;
-        var terminal = outcome is "Rejected" or "InvalidInput" or "InvalidPlan"
-            && !(service == "text" && EnrichmentRecoveryPolicy.CanRetry(service + "." + error));
+        var result = EnrichmentRecoveryPolicy.Failure(outcome, service + "." + error);
+        var terminal = result == EnrichmentCallResult.TerminalFailure;
         var throttled = outcome == "Throttled";
         var next = Now + Math.Max(1000, (long)(retry ?? TimeSpan.FromSeconds(throttled ? runtime.Current.Enrichment.ThrottleInitialSeconds : 30)).TotalMilliseconds);
-        return new(guard, callId, throttled ? EnrichmentCallResult.Throttled
-            : terminal ? EnrichmentCallResult.TerminalFailure : EnrichmentCallResult.TransientFailure,
+        return new(guard, callId, result,
             service + "." + (error ?? "failed"), terminal ? null : next);
     }
 

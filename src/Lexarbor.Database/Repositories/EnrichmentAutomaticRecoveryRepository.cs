@@ -30,8 +30,10 @@ public sealed partial class EnrichmentTaskRepository
             {
                 var target = await Targets.SingleAsync(t => t.Id == item.Id);
                 var previous = await RoundQuery(target.Id, target.CurrentRound).AsNoTracking().SingleAsync();
-                if (target.Deleted || previous.State != EnrichmentState.Failed || previous.RecoveryId != null
+                if (target.Deleted || previous.State != EnrichmentState.Failed
                     || !RecoverableErrors.Contains(previous.ErrorCode)) return false;
+                if (previous.RecoveryId != null && await context.EnrichmentRecoveries.AnyAsync(a => a.Id == previous.RecoveryId
+                    && a.ConfigurationVersion.EndsWith(EnrichmentRecoveryPolicy.ReceiptSuffix))) return false;
                 if (await (from t in Targets
                            join r in Rounds on new { TargetId = t.Id, Number = t.CurrentRound }
                     equals new { r.TargetId, r.Number }
@@ -47,7 +49,7 @@ public sealed partial class EnrichmentTaskRepository
                     || !(key.Locale == AudioLocale.EnGb ? configuration.CanTtsUk : configuration.CanTtsUs))) return false;
                 var input = await InputAsync(key, CancellationToken.None);
                 if (input == null) return false;
-                var version = configuration.Version(key);
+                var version = configuration.Version(key) + EnrichmentRecoveryPolicy.ReceiptSuffix;
                 if (await context.EnrichmentRecoveries.AnyAsync(a => a.TargetId == target.Id && a.InputRevision == input.Revision
                     && a.ConfigurationVersion == version)) return false;
                 var recovery = new EnrichmentRecoveryEntity

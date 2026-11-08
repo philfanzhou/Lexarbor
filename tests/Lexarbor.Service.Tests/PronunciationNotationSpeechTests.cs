@@ -58,8 +58,6 @@ public sealed partial class PronunciationSpeechTests
 
     [Theory]
     [InlineData("liːd;led", "liːd", "led", null)]
-    [InlineData("liːd;led", "liːd;led", "liːd", "led")]
-    [InlineData("ˈæksədənt", "ˈæksɪdənt", "ˈæksɪdənt", null)]
     [InlineData("ˈsteɪb(ə)l", "ˈsteɪbəl", "ˈsteɪbɪl", null)]
     [InlineData("ˈsteɪb((ə))l", "ˈsteɪbəl", "ˈsteɪbəl", null)]
     public async Task ConflictingOrMalformedConstraints_HaveSpecificDiagnosticAndNoSpeech(string required, string echo, string ipa, string? candidate)
@@ -69,6 +67,40 @@ public sealed partial class PronunciationSpeechTests
         var result = await new OpenAiCompatiblePronunciationPreparationClient(f.Factory, f.Runtime).PrepareAsync(NotationRequest("lead", required, AudioLocale.EnUs), Ct);
         Assert.Equal("phonetic_constraint_mismatch", result.ErrorCode); Assert.Null(result.Plan);
         Assert.Equal(PronunciationSpeechOutcome.InvalidPlan, (await f.Client.GenerateAsync(result, Ct)).Outcome);
+        Assert.Single(f.Handler.Bodies);
+    }
+
+    [Theory]
+    [InlineData("accent", "/ˈæksənt/", "ˈæksent", "ˈæksənt")]
+    [InlineData("kgs", "ˈkɪləɡræmz", "kɪˈlɒgræmz", "ˈkɪləɡræmz")]
+    public async Task ExistingSingleReading_IsBoundLocallyWithoutOverwritingCatalogOrSpendingASecondRequest(
+        string word, string required, string invented, string expected)
+    {
+        using var f = new Fixture(true);
+        f.Handler.Respond = (request, _) => Task.FromResult(request.RequestUri!.AbsolutePath.EndsWith("/chat/completions", StringComparison.Ordinal)
+            ? IpaCompletion(word, invented, invented, invented) : Native());
+        var prepared = await new OpenAiCompatiblePronunciationPreparationClient(f.Factory, f.Runtime)
+            .PrepareAsync(NotationRequest(word, required, AudioLocale.EnGb), Ct);
+        Assert.Equal(PronunciationPreparationOutcome.Ready, prepared.Outcome);
+        Assert.Equal(required, prepared.Plan!.RequiredPhonetic);
+        Assert.Null(prepared.Plan.Content.Phonetic);
+        Assert.Equal(expected, prepared.Plan.SpeechPhonetic);
+        Assert.Equal(PronunciationSpeechOutcome.Ready, (await f.Client.GenerateAsync(prepared, Ct)).Outcome);
+        Assert.Equal(2, f.Handler.Bodies.Count);
+        Assert.Equal(word + "/(" + expected + ")", JsonNode.Parse(f.Handler.Bodies[1])!["pronunciation_dict"]!["tone"]![0]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task NewWord_UsesOneCandidateForFieldsAndSpeechDespiteRedundantModelTranscription()
+    {
+        using var f = new Fixture(true);
+        f.Handler.Respond = (_, _) => Task.FromResult(IpaCompletion("kilograms", "ˈkɪləɡræmz", "ˈkɪlɡræmz", "ˈkɪləɡræmz", kind: "word"));
+        var prepared = await new OpenAiCompatiblePronunciationPreparationClient(f.Factory, f.Runtime)
+            .PrepareAsync(NotationRequest("kgs", null, AudioLocale.EnGb), Ct);
+        Assert.Equal(PronunciationPreparationOutcome.Ready, prepared.Outcome);
+        Assert.Equal("ˈkɪləɡræmz", prepared.Plan!.Content.Phonetic);
+        Assert.Equal("ˈkɪləɡræmz", prepared.Plan.SpeechPhonetic);
+        Assert.Null(prepared.Plan.RequiredPhonetic);
         Assert.Single(f.Handler.Bodies);
     }
 

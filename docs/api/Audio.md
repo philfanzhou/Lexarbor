@@ -657,9 +657,24 @@ Letter-to-letter hyphens become spaces and dotted uppercase initials stay separa
 letters (`U.S.` → `U S`). Curly apostrophes become straight apostrophes, without
 removing them (`don't` stays `don't`); `re-sign` is never collapsed to `resign`.
 Abbreviations such as `St.` use the meaning context in the existing AI request.
+Standard titles and measurement abbreviations include plural forms (`Drs.`, `cms`,
+`kgs`, `kms`); dictionary boundary hyphens on affixes are removed from speech.
+Uppercase initialisms may be spoken as separated letters while preserving their
+case and sequence. Arbitrary punctuation deletion or lexical concatenation is not
+allowed.
 Teaching placeholders and alternatives still require complete spoken expansion.
 The complete spoken utterance and its IPA must pass the same checks before both
 field publication and speech dispatch. MiniMax's text and pronunciation-dictionary
 key use the same normalized utterance. Original headwords, definitions and manual
 phonetic constraints are not rewritten. Invalid spelling/reading combinations
 report `text.pronunciation_text_mismatch` or `text.phonetic_constraint_mismatch`.
+
+For an unchanged target with exactly one complete catalog IPA reading, the server
+binds that reading directly to the validated spoken surface instead of trusting
+the model to copy it. A newly proposed default IPA similarly supplies one common
+reading for field publication and speech. Multiple distinct dictionary alternatives
+still require an allowed selection; malformed notation, expanded templates with an
+unrelated headword IPA, uncertainty and extra pronunciation instructions are never
+silently discarded. Comparisons allow the typographical `g`/`ɡ` difference and
+syllable/whitespace separators while preserving vowels, stress and alternatives.
+Existing catalog phonetics and their source revisions remain unchanged.

@@ -89,7 +89,6 @@ public sealed partial class EnrichmentTargetExecutorTests
     [Theory]
     [InlineData("tts.credentials_rejected")]
     [InlineData("tts.balance_required")]
-    [InlineData("text.phonetic_constraint_mismatch")]
     [InlineData("fields.equivalent_meaning")]
     public async Task AutomaticRecovery_NeverReopensCredentialsBillingOrContentConflicts(string error)
     {

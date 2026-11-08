@@ -2,6 +2,7 @@ using Lexarbor.Database.Entities;
 using Lexarbor.Domain.Exceptions;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
+using Lexarbor.Domain.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace Lexarbor.Database.Repositories;
@@ -102,8 +103,9 @@ public sealed class AiRequestBatchRepository(VocabularyDbContext db, EnrichmentT
                 }
                 else
                 {
-                    var changed = await tasks.FinishCallAsync(guard, member.Id, outcome == "Throttled" ? EnrichmentCallResult.Throttled
-                        : EnrichmentCallResult.TransientFailure, result?.ErrorCode ?? errorCode ?? "batch.invalid_response",
+                    var failureCode = result?.ErrorCode ?? errorCode ?? "batch.invalid_response";
+                    var changed = await tasks.FinishCallAsync(guard, member.Id,
+                        EnrichmentRecoveryPolicy.Failure(result?.FailureOutcome ?? outcome, failureCode), failureCode,
                         now, Math.Max(now + 1000, retryAt ?? now + 1000), token);
                     state = changed ? "Failed" : "Superseded";
                 }

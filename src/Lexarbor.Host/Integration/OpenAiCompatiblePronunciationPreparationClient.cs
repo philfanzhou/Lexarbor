@@ -41,6 +41,9 @@ public sealed class OpenAiCompatiblePronunciationPreparationClient(
         "Otherwise use instructions mode and speechPhonetic=null; do not discard directions just to fit ipa mode. " +
         "Explicit entryKind wins. For mixed positions follow the supplied writable permissions. Never invent a position, meaning or specific phonetic. " +
         "Echo requiredPhonetic using its original notation or the same selected allowed reading, and obey it. " +
+        "When speech.fixedPhonetic is provided, it is the complete authoritative reading assembled by the application. " +
+        "Use it verbatim for speechPhonetic and pronunciationHint; do not substitute your preferred accent or regenerate it. " +
+        "Use the same complete reading for a newly proposed phonetic and speechPhonetic. " +
         "If speech.requiredControl is ipa, provide IPA for the entire expanded spokenText with no additional hint directions; " +
         "if those constraints cannot be expressed safely, set certain=false. Do not discard human IPA to support an expansion. " +
         "For a default target choose only a reliable headword default reading; never substitute one meaning's special reading. " +
@@ -52,6 +55,8 @@ public sealed class OpenAiCompatiblePronunciationPreparationClient(
         "Normalize letter-to-letter hyphens to spaces and dotted uppercase initials to separated letters (well-known to well known; U.S. to U S). " +
         "Preserve apostrophes and all lexical content: never change can't to cant or re-sign to resign. " +
         "Resolve ambiguous abbreviations such as St. using the supplied meaning, never guess. " +
+        "Expand standard titles and measurement abbreviations by meaning (Drs. to doctors, cms to centimetres/centimeters, " +
+        "kgs to kilograms, kms to kilometres/kilometers); remove boundary hyphens marking prefixes or suffixes. " +
         "For a word with existing or proposed default IPA, spokenText must preserve its spelling after these typography rules; " +
         "do not silently expand that word into a different pronunciation target. If a semantic expansion is needed, classify it correctly and respect existing IPA. " +
         "pronunciationHint contains any proper-name/reading/accent directions. Do not add definitions or examples to spokenText. " +
@@ -80,13 +85,7 @@ public sealed class OpenAiCompatiblePronunciationPreparationClient(
         var settings = snapshot.Enrichment.Text;
         var explicitKind = ExplicitKind(request);
         var (proposal, phoneticWritable, posWritable) = BatchProposal(request, snapshot, input, explicitKind);
-        var body = JsonSerializer.SerializeToUtf8Bytes(new
-        {
-            model = settings.Model,
-            temperature = 0,
-            response_format = new { type = "json_object" },
-            messages = new[] { new { role = "system", content = Instructions }, new { role = "user", content = proposal } }
-        }, Json);
+        var body = EnrichmentTextRequest.Body(settings, Instructions, proposal, 4096);
         if (body.Length > MaximumBodyBytes) return Result(PronunciationPreparationOutcome.InvalidInput, "request_too_large");
         using var message = new HttpRequestMessage(HttpMethod.Post, settings.Endpoint.TrimEnd('/') + "/chat/completions");
         message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", settings.ApiKey);
@@ -169,10 +168,18 @@ public sealed class OpenAiCompatiblePronunciationPreparationClient(
             locale = input.Locale.ToCode(),
             target = input.IsMeaning ? "meaning" : "default",
             requiredPhonetic = Clean(input.Phonetic),
+            normalizedText = PronunciationText.Normalize(input.Word),
+            retry = request.PreviousFailures == 0 ? null : new
+            {
+                previousFailures = request.PreviousFailures,
+                correction = EnrichmentRecoveryPolicy.Correction(request.PreviousError)
+            },
             speech = snapshot.Enrichment.AudioEnabled ? new
             {
                 provider = snapshot.Enrichment.Provider,
                 model = snapshot.Enrichment.Tts.Model,
+                fixedPhonetic = snapshot.Enrichment.Provider == "MiniMaxNative" && Clean(input.Phonetic) is { } fixedNotation
+                    ? PronunciationPhonetics.SingleReading(fixedNotation) : null,
                 requiredControl = snapshot.Enrichment.Provider == "MiniMaxNative" ? "ipa" : "instructions"
             } : null,
             entryKind = explicitKind,
@@ -202,10 +209,6 @@ public sealed class OpenAiCompatiblePronunciationPreparationClient(
             || explicitKind != null && plan.EntryKind != explicitKind)
             return Result(PronunciationPreparationOutcome.InvalidPlan, "invalid_plan", true);
         var required = Clean(input.Phonetic);
-        var echo = Clean(plan.RequiredPhonetic);
-        if (required == null ? echo != null : echo == null || !PronunciationPhonetics.ShareReading(
-            Clean(plan.Phonetic) is { } candidate ? [required, echo, candidate] : [required, echo]))
-            return Result(PronunciationPreparationOutcome.InvalidPlan, "phonetic_constraint_mismatch", true);
         if (!TemplateExpanded(request.Word.Word, plan.SpokenText))
             return Result(PronunciationPreparationOutcome.InvalidPlan, "template_unexpanded", true);
         // Ignore unsolicited field candidates. These permissions are determined
@@ -226,16 +229,36 @@ public sealed class OpenAiCompatiblePronunciationPreparationClient(
             || control == PronunciationControl.Instructions && Clean(plan.SpeechPhonetic) != null
             || control == PronunciationControl.Ipa && (speechPhonetic == null || PronunciationPhonetics.Concrete(plan.PronunciationHint) != speechPhonetic))
             return Result(PronunciationPreparationOutcome.InvalidPlan, "invalid_plan", true);
+        // The model chooses a speakable surface, but does not own an existing
+        // catalog constraint. Bind a single complete required reading locally
+        // only after proving the surface still names exactly the same target.
+        // Never apply a headword's IPA to an expanded template or discard extra
+        // instructions. Ambiguous alternatives still require a valid selection.
+        var echo = Clean(plan.RequiredPhonetic);
+        var writableCandidate = phoneticWritable && plan.EntryKind != "phrase" ? Clean(plan.Phonetic) : null;
+        if (control == PronunciationControl.Ipa && PronunciationText.SameSurface(input.Word, plan.SpokenText))
+        {
+            var notation = required ?? writableCandidate;
+            if (notation != null && PronunciationPhonetics.SingleReading(notation) is { } fixedReading)
+            {
+                speechPhonetic = fixedReading;
+                echo = required;
+            }
+        }
+        if (required == null ? echo != null : echo == null || !PronunciationPhonetics.ShareReading(
+                control == PronunciationControl.Instructions && Clean(plan.Phonetic) is { } instructedCandidate
+                    ? [required, echo, instructedCandidate] : [required, echo]))
+            return Result(PronunciationPreparationOutcome.InvalidPlan, "phonetic_constraint_mismatch", true);
         if (control == PronunciationControl.Ipa && (required != null && (!PronunciationPhonetics.Allows(required, speechPhonetic!)
                 || !PronunciationPhonetics.Allows(echo!, speechPhonetic!))
             || (required != null || phoneticWritable && plan.EntryKind != "phrase")
-                && Clean(plan.Phonetic) is { } speechCandidate && !PronunciationPhonetics.Allows(speechCandidate, speechPhonetic!)))
+                && writableCandidate is { } speechCandidate && !PronunciationPhonetics.Allows(speechCandidate, speechPhonetic!)))
             return Result(PronunciationPreparationOutcome.InvalidPlan, "phonetic_constraint_mismatch", true);
         var hint = control == PronunciationControl.Ipa ? speechPhonetic : Clean(plan.PronunciationHint);
         if (required != null && control == PronunciationControl.Instructions)
             hint = $"Required IPA ({input.Locale.ToCode()}): {required}." + (hint == null ? "" : " " + hint);
         var stored = new EnrichmentPlan(plan.SpokenText.Trim(), hint,
-            phoneticWritable && plan.EntryKind != "phrase" ? Clean(plan.Phonetic) : null, parts.ToArray(), explicitKind == null ? plan.EntryKind : null);
+            writableCandidate, parts.ToArray(), explicitKind == null ? plan.EntryKind : null);
         if (JsonSerializer.Serialize(stored).Length > 16384)
             return Result(PronunciationPreparationOutcome.InvalidPlan, "plan_too_large", true);
         var prepared = new PreparedPronunciation(stored, input, request.InputVersion, snapshot.TextVersion!, plan.EntryKind,
@@ -259,7 +282,7 @@ public sealed class OpenAiCompatiblePronunciationPreparationClient(
         var kinds = meanings.SelectMany(m => m.PositionKinds).ToArray();
         return kinds.Contains("word", StringComparer.Ordinal) ? "word" : kinds.Length > 0 && kinds.All(k => k == "phrase") ? "phrase" : null;
     }
-    private static bool ValidInput(PronunciationPreparationRequest request) => Enum.IsDefined(request.Locale)
+    private static bool ValidInput(PronunciationPreparationRequest request) => Enum.IsDefined(request.Locale) && request.PreviousFailures is >= 0 and <= 20
         && Bounded(request.Word.WordId, 128) && Bounded(request.Word.Word, 4096)
         && PhoneticInput(request.Word.PhoneticUk) && PhoneticInput(request.Word.PhoneticUs)
         && Bounded(request.InputVersion.Revision, 128) && Bounded(request.InputVersion.SourceRevision, 128)

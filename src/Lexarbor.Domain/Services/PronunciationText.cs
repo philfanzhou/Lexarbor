@@ -15,13 +15,18 @@ public static class PronunciationText
         value = Regex.Replace(value, @"(?<![\p{L}\p{N}])(?:[A-Z]\.){2,}(?![\p{L}\p{N}])",
             match => string.Join(" ", match.Value.Where(char.IsLetter)), RegexOptions.CultureInvariant);
         value = Regex.Replace(value, @"(?<=\p{L})-(?=\p{L})", " ", RegexOptions.CultureInvariant);
+        // A leading/trailing dictionary hyphen marks a bound affix, not a
+        // spoken punctuation mark. Do not join lexical tokens across hyphens.
+        value = Regex.Replace(value, @"(?<!\S)-(?=\p{L})|(?<=\p{L})-(?!\S)", "", RegexOptions.CultureInvariant);
         return Regex.Replace(value, @"\s+", " ", RegexOptions.CultureInvariant);
     }
 
     public static bool SameSurface(string original, string spoken)
     {
-        var source = Normalize(original).Split(' ');
-        var target = Normalize(spoken).Split(' ');
+        static string[] Tokens(string value) => Regex.Replace(Normalize(value), @"\b[A-Z]{2,8}\b",
+            match => string.Join(" ", match.Value.ToCharArray()), RegexOptions.CultureInvariant).Split(' ');
+        var source = Tokens(original);
+        var target = Tokens(spoken);
         if (source.Length != target.Length) return false;
         for (var i = 0; i < source.Length; i++)
         {
@@ -31,10 +36,19 @@ public static class PronunciationText
             string[] allowed = source[i] switch
             {
                 "Dr." => ["doctor"],
+                "Drs." => ["doctors"],
                 "St." => ["saint", "street"],
                 "Mr." => ["mister"],
                 "Mrs." => ["missus"],
                 "Ms." => ["miz"],
+                "cm" or "cm." => ["centimetre", "centimeter"],
+                "cms" or "cms." => ["centimetres", "centimeters"],
+                "kg" or "kg." => ["kilogram"],
+                "kgs" or "kgs." => ["kilograms"],
+                "km" or "km." => ["kilometre", "kilometer"],
+                "kms" or "kms." => ["kilometres", "kilometers"],
+                "mm" or "mm." => ["millimetre", "millimeter"],
+                "mms" or "mms." => ["millimetres", "millimeters"],
                 _ => []
             };
             if (!allowed.Contains(target[i], StringComparer.OrdinalIgnoreCase)) return false;

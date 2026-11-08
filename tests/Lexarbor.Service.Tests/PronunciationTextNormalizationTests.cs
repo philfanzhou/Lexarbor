@@ -18,6 +18,14 @@ public sealed partial class PronunciationSpeechTests
     [InlineData("St.", "Saint", "seɪnt")]
     [InlineData("St.", "Street", "striːt")]
     [InlineData("Dr.", "Doctor", "dɒktə")]
+    [InlineData("Drs.", "doctors", "ˈdɒktəz")]
+    [InlineData("cms", "centimeters", "ˈsentɪmiːtəz")]
+    [InlineData("kgs", "kilograms", "ˈkɪləɡræmz")]
+    [InlineData("kms", "kilometres", "kɪˈlɒmɪtəz")]
+    [InlineData("mm", "millimetre", "ˈmɪlɪmiːtə")]
+    [InlineData("anti-", "anti", "ˈæntaɪ")]
+    [InlineData("-ness", "ness", "nəs")]
+    [InlineData("EU-funded", "E U funded", "iː juː ˈfʌndɪd")]
     public async Task NativePunctuation_KeepsCatalogSpellingAndBindsIpaToExactlyTheSpokenText(string word, string spoken, string ipa)
     {
         foreach (var locale in new[] { AudioLocale.EnGb, AudioLocale.EnUs })
@@ -60,6 +68,9 @@ public sealed partial class PronunciationSpeechTests
     [InlineData("well-known", "well known")]
     [InlineData("re-sign", "re sign")]
     [InlineData("don’t", "don't")]
+    [InlineData("anti-", "anti")]
+    [InlineData("-ness", "ness")]
+    [InlineData("non‑", "non")]
     public void TypographyNormalization_IsDeterministicAndIdempotent(string source, string expected)
     {
         Assert.Equal(expected, PronunciationText.Normalize(source));
@@ -74,11 +85,17 @@ public sealed partial class EnrichmentTargetExecutorTests
     [InlineData("U.S.", "U S", "juː es")]
     [InlineData("re-sign", "re sign", "riː saɪn")]
     [InlineData("don't", "don't", "dəʊnt")]
+    [InlineData("Drs.", "doctors", "ˈdɒktəz")]
+    [InlineData("cms", "centimetres", "ˈsentɪmiːtəz")]
+    [InlineData("kgs", "kilograms", "ˈkɪləɡræmz")]
+    [InlineData("kms", "kilometers", "kɪˈlɑmətərz")]
+    [InlineData("anti-", "anti", "ˈæntaɪ")]
+    [InlineData("-ness", "ness", "nəs")]
     public async Task NewDefaultIpa_DoesNotInvalidateNormalizedSpeechAfterFieldsCommit(string source, string spoken, string ipa)
     {
         await using var f = await Fixture.Create(native: true);
         await f.Db.Vocabularies.ExecuteUpdateAsync(s => s.SetProperty(w => w.Word, source), Ct);
-        f.Http.Ipa = true; f.Http.SpokenText = source; f.Http.Phonetic = ipa;
+        f.Http.Ipa = true; f.Http.SpokenText = spoken; f.Http.Phonetic = ipa;
         var fields = (await f.Run(Key(EnrichmentStep.Fields)))!;
         Assert.Equal(EnrichmentState.Succeeded, Round(fields).State);
         var audio = (await f.Run(Key()))!;

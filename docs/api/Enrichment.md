@@ -185,14 +185,16 @@ Completed audio is not regenerated.
 
 ### Bounded automatic recovery
 
-`v0.1.10-rc.2` adds one automatic recovery round per target, input revision and
-configuration version for known preparation/expansion validation failures,
+`v0.1.10-rc.2` introduced automatic recovery. The allowance is scoped to the target,
+input revision, configuration version and repair strategy for known preparation/expansion validation failures,
 timeouts, oversized/incomplete batch results and locally rejected legacy audio
 plans. Each recovery round permits at most five failures (or the configured lower
 budget). Scanning, service recovery, restart and image replacement do not renew
 that allowance. The original rounds and calls remain available. Audio capability
 rejections that actually reached the provider, credential/billing failures and
-catalog phonetic/content conflicts are excluded. Disabled or unconfigured work
+catalog write conflicts are excluded. Pronunciation-plan conflicts and uncertain
+answers may receive bounded correction with the existing catalog constraints
+intact; this does not authorize overwriting an existing phonetic. Disabled or unconfigured work
 waits for its prerequisites before automatic recovery starts.
 
 Recovery is serialized and bounded to five source words per discovery sweep.
@@ -200,6 +202,14 @@ Recovering preparation wakes failed dependent fields/audio. A locally rejected
 legacy audio plan refreshes preparation for that target and accent; other successful
 results remain intact. Saved valid batch results are reused rather than requested
 again. Failed batch members and automatic recovery use single-item requests.
+
+The preventive strategy stores `.repair-v2` on the private recovery configuration
+key. An exhausted older strategy can try the materially changed request once;
+restarts and later deployment of the same strategy cannot replenish it. A dependent
+round retains its recovery identity even when field publication advances its input.
+Single-target and batch execution share the same failure classification. Retried
+preparation receives a fixed correction instruction selected from its failure code,
+never the previous raw supplier response.
 
 Tasks add `automaticRecoveryAvailable`; current and historical rounds add
 `automaticRecovery`, `forceSingle` and `fieldsNotRequired` booleans. These expose

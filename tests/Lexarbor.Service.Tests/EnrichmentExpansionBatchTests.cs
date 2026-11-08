@@ -269,13 +269,16 @@ public sealed partial class EnrichmentTargetExecutorTests
     {
         public int Calls;
         public ConcurrentQueue<int> Sizes { get; } = new();
+        public ConcurrentQueue<string> Bodies { get; } = new();
         public Func<int, string?>? Failure;
         public Func<int, bool>? OmitLast;
         public Func<IReadOnlyList<string>, CancellationToken, Task>? BeforeSend;
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
             var call = Interlocked.Increment(ref Calls);
-            var body = JsonNode.Parse(await request.Content!.ReadAsStringAsync(token))!;
+            var rawBody = await request.Content!.ReadAsStringAsync(token);
+            Bodies.Enqueue(rawBody);
+            var body = JsonNode.Parse(rawBody)!;
             var payload = JsonNode.Parse(body["messages"]![1]!["content"]!.GetValue<string>())!;
             var single = payload["items"] == null;
             var items = single ? new JsonArray(new JsonObject { ["id"] = "single", ["data"] = payload }) : payload["items"]!.AsArray();

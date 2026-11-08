@@ -8,7 +8,15 @@ public static class PronunciationPhonetics
     private const int MaximumVariants = 64;
 
     public static bool Allows(string notation, string reading) => Concrete(reading) is { } candidate
-        && Readings(notation) is { } readings && readings.Contains(candidate, StringComparer.Ordinal);
+        && Readings(notation) is { } readings && readings.Any(r => ComparisonKey(r) == ComparisonKey(candidate));
+
+    // Keep vowels, stress, optional sounds and alternative readings distinct.
+    // Only typographical g and non-phonemic syllable/word separators compare
+    // equally. This key never changes stored catalog spelling or revisions.
+    private static string ComparisonKey(string value) => string.Concat(value
+        .Where(c => !char.IsWhiteSpace(c) && c != '.').Select(c => c == 'g' ? 'ɡ' : c));
+
+    public static string? SingleReading(string notation) => Readings(notation) is { Length: 1 } readings ? readings[0] : null;
 
     public static bool ShareReading(params string[] notations)
     {
@@ -16,8 +24,8 @@ public static class PronunciationPhonetics
         foreach (var notation in notations)
         {
             if (Readings(notation) is not { } readings) return false;
-            if (common == null) common = new(readings, StringComparer.Ordinal);
-            else common.IntersectWith(readings);
+            if (common == null) common = new(readings.Select(ComparisonKey), StringComparer.Ordinal);
+            else common.IntersectWith(readings.Select(ComparisonKey));
         }
         return common is { Count: > 0 };
     }

@@ -503,6 +503,17 @@ public sealed partial class PronunciationSpeechTests
         var input = AudioSelectionService.GetInput(word, null, AudioLocale.EnGb);
         var request = new PronunciationPreparationRequest(word, null, AudioLocale.EnGb, new("input", AudioSelectionService.ComputeRevision(input), null), []);
         var prepared = await new OpenAiCompatiblePronunciationPreparationClient(f.Factory, f.Runtime).PrepareAsync(request, Ct);
+        if (scenario == "human-conflict")
+        {
+            Assert.Equal(PronunciationPreparationOutcome.Ready, prepared.Outcome);
+            Assert.Equal("liːd", prepared.Plan!.RequiredPhonetic);
+            Assert.Equal("liːd", prepared.Plan.SpeechPhonetic);
+            Assert.Null(prepared.Plan.Content.Phonetic);
+            f.Handler.Respond = (_, _) => Task.FromResult(Native());
+            Assert.Equal(PronunciationSpeechOutcome.Ready, (await f.Client.GenerateAsync(prepared, Ct)).Outcome);
+            Assert.Equal("lead/(liːd)", JsonNode.Parse(f.Handler.Bodies[1])!["pronunciation_dict"]!["tone"]![0]!.GetValue<string>());
+            return;
+        }
         Assert.Equal(PronunciationPreparationOutcome.InvalidPlan, prepared.Outcome);
         Assert.Equal(PronunciationSpeechOutcome.InvalidPlan, (await f.Client.GenerateAsync(prepared, Ct)).Outcome);
         Assert.Single(f.Handler.Bodies);

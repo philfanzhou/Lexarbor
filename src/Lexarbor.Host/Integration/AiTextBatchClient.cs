@@ -6,7 +6,7 @@ using OpenTelemetry;
 
 namespace Lexarbor.Host.Integration;
 
-internal sealed record AiTextItem<T>(string Id, string Prompt, Func<string, T> Validate);
+internal sealed record AiTextItem<T>(string Id, string Prompt, Func<string, T> Validate, int MaximumTokens = 4096);
 internal sealed record AiTextResult<T>(string Outcome, IReadOnlyDictionary<string, T> Items,
     string? ErrorCode = null, TimeSpan? RetryAfter = null);
 
@@ -26,14 +26,11 @@ public sealed class AiTextBatchClient(IHttpClientFactory clients, TimeProvider c
         : outcome == "Ready" ? Math.Min(maximum, current + 1) : current;
 
     internal static byte[] Body<T>(EnrichmentClientSettings settings, string instructions, IReadOnlyList<AiTextItem<T>> items) =>
-        JsonSerializer.SerializeToUtf8Bytes(new
-        {
-            model = settings.Model,
-            temperature = 0,
-            response_format = new { type = "json_object" },
-            messages = new[] { new { role = "system", content = items.Count == 1 ? instructions : Envelope + instructions }, new { role = "user", content = items.Count == 1 ? items[0].Prompt : JsonSerializer.Serialize(new
-            { items = items.Select(i => new { id = i.Id, data = JsonSerializer.Deserialize<JsonElement>(i.Prompt) }) }, Json) } }
-        }, Json);
+        EnrichmentTextRequest.Body(settings, items.Count == 1 ? instructions : Envelope + instructions,
+            items.Count == 1 ? items[0].Prompt : JsonSerializer.Serialize(new
+            { items = items.Select(i => new { id = i.Id, data = JsonSerializer.Deserialize<JsonElement>(i.Prompt) }) }, Json),
+            items.Sum(i => i.MaximumTokens), instructions == VocabularyExpansionClient.Instructions
+                || instructions == OpenAiCompatiblePronunciationPreparationClient.Instructions);
 
     internal async Task<AiTextResult<T>> SendAsync<T>(EnrichmentClientSettings settings, string instructions,
         IReadOnlyList<AiTextItem<T>> items, CancellationToken token)
