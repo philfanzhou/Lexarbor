@@ -8,6 +8,8 @@ internal static class AiRequestBatchModelConfiguration
 {
     internal static void Configure(ModelBuilder model)
     {
+        var policy = model.Entity<AiRequestBatchPolicyEntity>();
+        policy.ToTable("ai_request_batch_policy"); policy.HasKey(r => new { r.Kind, r.ConfigurationVersion });
         var batch = model.Entity<AiRequestBatchEntity>();
         batch.ToTable("ai_request_batch"); batch.HasKey(r => r.Id);
         batch.HasIndex(r => new { r.Kind, r.ConfigurationVersion, r.FinishedAtUnixMs });
@@ -20,7 +22,7 @@ internal static class AiRequestBatchModelConfiguration
         lease.ToTable("enrichment_service_lease"); lease.HasKey(r => r.Id);
         lease.HasIndex(r => new { r.ServiceId, r.ConfigurationVersion, r.ExpiresAtUnixMs });
         lease.HasOne<EnrichmentServiceEntity>().WithMany().HasForeignKey(r => r.ServiceId).OnDelete(DeleteBehavior.Cascade);
-        foreach (var entity in new[] { batch.Metadata, member.Metadata, lease.Metadata })
+        foreach (var entity in new[] { batch.Metadata, member.Metadata, lease.Metadata, policy.Metadata })
             foreach (var property in entity.GetProperties())
                 property.SetColumnName(Regex.Replace(property.Name, "([a-z0-9])([A-Z])", "$1_$2").ToLowerInvariant());
     }

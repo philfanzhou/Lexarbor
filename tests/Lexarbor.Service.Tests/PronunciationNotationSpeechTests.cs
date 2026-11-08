@@ -11,12 +11,12 @@ namespace Lexarbor.Service.Tests;
 public sealed partial class PronunciationSpeechTests
 {
     private static HttpResponseMessage IpaCompletion(string spoken, string? echo, string ipa, string? candidate = null,
-        string control = "ipa") => new(HttpStatusCode.OK)
+        string control = "ipa", string kind = "phrase") => new(HttpStatusCode.OK)
         {
             Content = JsonContent.Create(new
             {
                 choices = new[] { new { finish_reason = "stop", message = new
-        { content = JsonSerializer.Serialize(new { certain = true, entryKind = "phrase", classificationBasis = "Fixture classification",
+        { content = JsonSerializer.Serialize(new { certain = true, entryKind = kind, classificationBasis = "Fixture classification",
             spokenText = spoken, pronunciationHint = ipa, requiredPhonetic = echo, phonetic = candidate,
             partsOfSpeech = Array.Empty<object>(), pronunciationControl = control, speechPhonetic = control == "ipa" ? ipa : null }) } } }
             })
@@ -100,7 +100,7 @@ public sealed partial class PronunciationSpeechTests
     [InlineData("a lot of/lots of", "a lot of", null, "ipa", "template_unexpanded")]
     [InlineData("a lot of/lots of", "a lot of or a lot of", null, "ipa", "template_unexpanded")]
     [InlineData("It took (sb.) some time to do sth.", "It took (somebody) some time to do something", null, "ipa", "template_unexpanded")]
-    [InlineData("give sb. sth.", "give somebody something", "liːd", "ipa", "pronunciation_control_unsupported")]
+    [InlineData("give sb. sth.", "give somebody something", "liːd", "ipa", "pronunciation_text_mismatch")]
     public async Task UnsupportedPlans_StopDuringPreparation(string word, string spoken, string? required, string control, string error)
     {
         using var f = new Fixture(true);

@@ -111,6 +111,33 @@ namespace Lexarbor.Database.Migrations
                     b.ToTable("ai_request_batch_member", (string)null);
                 });
 
+            modelBuilder.Entity("Lexarbor.Database.Entities.AiRequestBatchPolicyEntity", b =>
+                {
+                    b.Property<string>("Kind")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("ConfigurationVersion")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("configuration_version");
+
+                    b.Property<int>("FastSuccesses")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("fast_successes");
+
+                    b.Property<long>("LastFailureAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("last_failure_at_unix_ms");
+
+                    b.Property<int>("Size")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("size");
+
+                    b.HasKey("Kind", "ConfigurationVersion");
+
+                    b.ToTable("ai_request_batch_policy", (string)null);
+                });
+
             modelBuilder.Entity("Lexarbor.Database.Entities.AudioAssetEntity", b =>
                 {
                     b.Property<string>("Id")
@@ -536,6 +563,48 @@ namespace Lexarbor.Database.Migrations
                     b.ToTable("enrichment_generated_word", (string)null);
                 });
 
+            modelBuilder.Entity("Lexarbor.Database.Entities.EnrichmentRecoveryEntity", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ConfigurationVersion")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("configuration_version");
+
+                    b.Property<long>("CreatedAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("created_at_unix_ms");
+
+                    b.Property<string>("InputRevision")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("input_revision");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("reason");
+
+                    b.Property<int>("SourceRound")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("source_round");
+
+                    b.Property<string>("TargetId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("target_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TargetId", "InputRevision", "ConfigurationVersion")
+                        .IsUnique();
+
+                    b.ToTable("enrichment_recovery", (string)null);
+                });
+
             modelBuilder.Entity("Lexarbor.Database.Entities.EnrichmentRoundEntity", b =>
                 {
                     b.Property<string>("TargetId")
@@ -567,6 +636,14 @@ namespace Lexarbor.Database.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("failure_budget");
 
+                    b.Property<bool>("FieldsNotRequired")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("fields_not_required");
+
+                    b.Property<bool>("ForceSingle")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("force_single");
+
                     b.Property<string>("InputRevision")
                         .IsRequired()
                         .HasColumnType("TEXT")
@@ -595,6 +672,10 @@ namespace Lexarbor.Database.Migrations
                     b.Property<string>("PlanJson")
                         .HasColumnType("TEXT")
                         .HasColumnName("plan_json");
+
+                    b.Property<string>("RecoveryId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("recovery_id");
 
                     b.Property<int>("RequestCount")
                         .HasColumnType("INTEGER")
@@ -1746,6 +1827,15 @@ namespace Lexarbor.Database.Migrations
                     b.HasOne("Lexarbor.Database.Entities.VocabularyEntity", null)
                         .WithMany()
                         .HasForeignKey("WordId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Lexarbor.Database.Entities.EnrichmentRecoveryEntity", b =>
+                {
+                    b.HasOne("Lexarbor.Database.Entities.EnrichmentTargetEntity", null)
+                        .WithMany()
+                        .HasForeignKey("TargetId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

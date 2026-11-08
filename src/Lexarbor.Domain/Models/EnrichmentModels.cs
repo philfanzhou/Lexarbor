@@ -23,7 +23,8 @@ public sealed record EnrichmentExecutionGuard(string TargetId, int Round, long E
 public sealed record EnrichmentRound(int Number, EnrichmentState State, EnrichmentInputVersion Input,
     string ConfigurationVersion, int FailureBudget, int RequestCount, int ConsumedFailures,
     EnrichmentPlan? Plan, EnrichmentWaitReason? WaitReason, string? ErrorCode, long? NextAttemptAtUnixMs,
-    string? LeaseOwner, long LeaseFence, long? LeaseExpiresAtUnixMs, long CreatedAtUnixMs, long UpdatedAtUnixMs);
+    string? LeaseOwner, long LeaseFence, long? LeaseExpiresAtUnixMs, long CreatedAtUnixMs, long UpdatedAtUnixMs,
+    bool ForceSingle = false, string? RecoveryId = null, bool FieldsNotRequired = false);
 public sealed record EnrichmentCall(string Id, int Round, string Service, EnrichmentCallResult Result,
     string? UploadIdempotencyKey, string? ErrorCode, long StartedAtUnixMs, long? FinishedAtUnixMs);
 public sealed record EnrichmentWait(int Round, EnrichmentWaitReason Reason, string? ErrorCode,

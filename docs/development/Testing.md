@@ -773,12 +773,40 @@ exercise physical request counts, independent results, atomic staging rollback,
 restart reuse, source separation, shared failure accounting and manual review
 competition. `EnrichmentSchedulerRepositoryTests` covers concurrent TTS capacity,
 legacy lease preservation and a successful sibling retaining a throttle window.
-`EnrichmentExpansionBatchTests` covers expansion growth from two to three sources,
-timeout/oversized-response backoff, partial-result reuse after restart, and legacy
-batch-limit preservation. Its hosted-worker check holds two expansion requests
+`EnrichmentExpansionBatchTests` covers conservative expansion growth from one to two sources,
+timeout/oversized-response backoff, partial-result reuse after restart, and durable
+single-item fallback. Its hosted-worker check holds two expansion requests
 open, verifies distinct source reservations, and confirms newly queued preparation
 receives the next free text slot before another expansion starts.
 `ReleaseUpgradeMigrationTests` compares pre-upgrade data from `v0.1.8` and
 `v0.1.9-rc.2`, including an interrupted additive migration and repeated startup.
 The hosted enrichment tests exercise continuous draining and configuration-change
 wakeups. Browser tests keep request totals separate from per-task participation.
+
+
+### Automatic recovery and speech normalization
+
+`EnrichmentAutomaticRecoveryTests` verifies concurrent recovery admission,
+one durable allowance across restarts, five-failure exhaustion, new input/configuration
+scope, exclusion of billing/credential/content conflicts and provider-side speech
+rejections, prerequisite gating, dependent wakeup, preservation of successful
+results, and phrase-demand invalidation after edits. `EnrichmentExpansionBatchTests`
+pins the three-fast-success threshold, the 60-second boundary, single-member
+fallback across restart, late-success/backoff ordering and preparation priority
+with two text slots. Same-word text deduplication selects preparation/fields before
+disabled audio so a skipped dependent task cannot hide queued text work.
+`PronunciationTextNormalizationTests` exercises hyphens,
+dotted initials, apostrophes and context-selected abbreviations for both accents,
+rejects lossy spelling changes, and generates speech after default IPA publication
+while retaining catalog spelling. Provider payloads are synthetic; real listening
+acceptance is separate.
+
+`ReleaseUpgradeMigrationTests` checks populated historical tables, phrase backfill
+source matching, retained failure budgets, interrupted migration rollback,
+repeated startup and native-column-drop downgrade without call/wait loss. Browser
+checks cover automatic recovery queued/waiting/exhausted states, manual retry only
+after recovery stops, unnecessary phrase fields and compatibility with absent
+additive metadata.
+
+The automatic recovery writer rechecks demand for one indexed word, verified with
+SQLite query plans; whole-catalog recovery selection stays outside that writer.

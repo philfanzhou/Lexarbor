@@ -84,14 +84,36 @@ public sealed partial class EnrichmentTargetExecutorTests
         Assert.Equal(before, await Dump(f.Db));
     }
 
+    [Fact]
+    public async Task AutomaticRecovery_RechecksOneIndexedWordInsideTheWriter()
+    {
+        await using var f = await Fixture.Create();
+        var task = await f.Ensure(Key(EnrichmentStep.Prepare));
+        await FailLocally(f, task, "text.invalid_plan");
+        var capture = new SummaryQueryCapture { RecoveryOnly = true };
+        await using var db = f.Open(capture);
+        Assert.Equal(1, await new EnrichmentTaskRepository(db, f.Clock).RecoverAsync(5, [], await AdminConfig(f), f.Clock.Now, Ct));
+        var (sql, parameters) = Assert.Single(capture.Commands);
+        Assert.Contains(parameters, p => p.ParameterName == "@demandWord" && Equals(p.Value, "word"));
+        await db.Database.OpenConnectionAsync(Ct);
+        await using var command = db.Database.GetDbConnection().CreateCommand();
+        command.CommandText = "EXPLAIN QUERY PLAN " + sql; command.Parameters.AddRange(parameters);
+        await using var reader = await command.ExecuteReaderAsync(Ct);
+        var plan = new List<string>();
+        while (await reader.ReadAsync(Ct)) plan.Add(reader.GetString(3));
+        Assert.Contains(plan, p => p.Contains("SEARCH w USING INDEX", StringComparison.Ordinal));
+        Assert.DoesNotContain(plan, p => p.StartsWith("SCAN w", StringComparison.Ordinal));
+    }
+
     private sealed class SummaryQueryCapture : DbCommandInterceptor
     {
+        public bool RecoveryOnly;
         public List<(string Sql, SqliteParameter[] Parameters)> Commands { get; } = [];
         public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command,
             CommandEventData eventData, InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
         {
             if (command.CommandText.Contains("WITH locales", StringComparison.Ordinal)
-                && command.CommandText.Contains("GROUP BY", StringComparison.Ordinal))
+                && (RecoveryOnly ? eventData.Context?.Database.CurrentTransaction != null : command.CommandText.Contains("GROUP BY", StringComparison.Ordinal)))
                 Commands.Add((command.CommandText, command.Parameters.Cast<DbParameter>()
                     .Select(p => new SqliteParameter(p.ParameterName, p.Value)).ToArray()));
             return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);

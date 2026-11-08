@@ -952,3 +952,22 @@ retain their existing recovery history. Interrupted probes keep an `Unknown`
 outcome and their recorded dispatch flag without clearing shared failure state.
 Abrupt termination or failed cleanup still relies on lease expiry; legacy leases
 are not deleted simply because a new process starts.
+
+
+### Automatic enrichment recovery persistence
+
+`20261108025122_AddAutomaticEnrichmentRecovery` adds a unique
+`(target_id,input_revision,configuration_version)` recovery receipt and a per-kind,
+per-configuration batch policy. Round metadata records recovery provenance,
+single-item fallback and successful phrase decisions that need no word fields.
+The upgrade preserves existing rounds/calls/budgets and marks only source-matching
+successful phrase fields as unnecessary. Recovery receipt creation and new rounds
+share a short admitted writer transaction; no model or storage network call runs
+inside it. Normal field publication preserves recovery provenance while genuine
+input/configuration changes get their own scope.
+
+Upgrade, interruption, restart and downgrade tests retain historical catalog/audio
+and execution rows. Down uses native SQLite column drops rather than a parent-table
+rebuild that could cascade into calls/waits. It removes the new metadata, so a
+later re-upgrade cannot remember already consumed automatic recovery. See the
+[upgrade and rollback procedure](../development/Deployment.md#automatic-recovery-and-pronunciation-normalization-upgrade).

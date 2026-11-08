@@ -17,6 +17,8 @@ public interface IEnrichmentAdminRepository
 }
 public interface IEnrichmentAdminRetryRepository
 {
+    Task<int> RecoverAsync(int limit, IReadOnlyList<string> excludedWords, EnrichmentAdminConfiguration configuration,
+        long now, CancellationToken token);
     // expectedRound, replay and missing/applicable checks join the SAME writer
     // as round creation and dependent preparation invalidation. No HTTP precheck.
     Task<EnrichmentRetryResult> RetryAsync(string id, int expectedRound, string retryKey,

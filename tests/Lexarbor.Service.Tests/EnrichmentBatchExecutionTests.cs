@@ -136,6 +136,7 @@ public sealed partial class EnrichmentTargetExecutorTests
     public async Task ExpansionBatchesIndependentSourcesAndPublishesToTheExistingSupplement()
     {
         await using var f = await Fixture.Create(); await Supplement(f);
+        await SetExpansionSizeTwo(f);
         f.Db.Vocabularies.Add(new() { Id = "second", Word = "walk" });
         f.Db.VocabularyMeanings.Add(new() { Id = "meaning2", BookId = "book", VocabularyId = "second", Meaning = "move", PartOfSpeech = "v." });
         await f.Db.SaveChangesAsync(Ct); f.Db.ChangeTracker.Clear();

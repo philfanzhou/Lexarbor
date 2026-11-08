@@ -172,6 +172,10 @@ public sealed class EnrichmentWorker(IServiceScopeFactory scopes, EnrichmentRunt
                 Now, token, settings.FailureBudget);
             if (ensured != null && audioTargets.Contains(key)) urgent.Add(new(ensured.Id, key.WordId, key.Step.ToString(), "Ready", Now));
         }
+        if (discover && scope.ServiceProvider.GetService<IEnrichmentAdminRetryRepository>() is { } recovery
+            && scope.ServiceProvider.GetService<IEnrichmentAdminConfigurationProvider>() is { } configuration)
+            await recovery.RecoverAsync(5, _running.SelectMany(r => r.Items).Select(i => i.WordId).Distinct().ToArray(),
+                await configuration.CaptureAsync(token), Now, token);
         using var storage = await scope.ServiceProvider.GetRequiredService<IAudioUploadOperationFactory>().AcquireAsync(token);
         // Probes use the same bounded lanes and their own contexts. A slow
         // outage probe must not stop scheduling the other healthy service.

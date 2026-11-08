@@ -71,7 +71,8 @@ public sealed class VocabularyExpansionExecutor(IEnrichmentTaskRepository tasks,
             else
             {
                 var outcome = result.Outcome == "Throttled" ? EnrichmentCallResult.Throttled
-                    : result.Outcome == "ServiceFailure" ? EnrichmentCallResult.TransientFailure : EnrichmentCallResult.TerminalFailure;
+                    : result.Outcome == "ServiceFailure" || EnrichmentRecoveryPolicy.CanRetry(result.ErrorCode)
+                        ? EnrichmentCallResult.TransientFailure : EnrichmentCallResult.TerminalFailure;
                 var retry = Now + Math.Max(30_000, (long)(result.RetryAfter?.TotalMilliseconds ?? 0));
                 await cleanup.FinishAsync(new(guard, callId, outcome, result.ErrorCode!, outcome == EnrichmentCallResult.TerminalFailure ? null : retry));
                 return await tasks.GetAsync(task.Id, token);

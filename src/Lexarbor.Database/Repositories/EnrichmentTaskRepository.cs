@@ -92,6 +92,23 @@ public sealed partial class EnrichmentTaskRepository(VocabularyDbContext context
             };
             context.EnrichmentTargets.Add(target);
         }
+        // Only a still-current recovered preparation can carry recovery identity
+        // through its own field publication into a dependent round. A real input
+        // or configuration edit gets a separate allowance; discovery alone cannot
+        // clear the identity of an unchanged failed round.
+        string? recoveryId = null;
+        if (!invalidate && retryKey == null && previous?.RecoveryId != null && previous.ConfigurationVersion == config
+            && key.Step is EnrichmentStep.Fields or EnrichmentStep.Audio)
+        {
+            var prepared = await (from t in Targets
+                                  join r in Rounds on new { TargetId = t.Id, Number = t.CurrentRound }
+                equals new { r.TargetId, r.Number }
+                                  where t.WordId == key.WordId && t.MeaningId == key.MeaningId && t.Locale == key.Locale && t.Step == EnrichmentStep.Prepare
+                                      && !t.Deleted && r.RecoveryId == previous.RecoveryId && r.State == EnrichmentState.Succeeded
+                                  select r).SingleOrDefaultAsync();
+            if (prepared != null && Version(prepared) == await InputAsync(key with { Step = EnrichmentStep.Prepare }, CancellationToken.None))
+                recoveryId = previous.RecoveryId;
+        }
         var round = new EnrichmentRoundEntity
         {
             TargetId = target.Id,
@@ -102,7 +119,9 @@ public sealed partial class EnrichmentTaskRepository(VocabularyDbContext context
             OwnAssetId = input.OwnAssetId,
             ConfigurationVersion = config,
             RetryKey = retryKey,
-            FailureBudget = budget,
+            RecoveryId = recoveryId,
+            ForceSingle = recoveryId != null,
+            FailureBudget = recoveryId != null ? Math.Min(5, budget) : budget,
             CreatedAtUnixMs = now,
             UpdatedAtUnixMs = now
         };
@@ -244,6 +263,7 @@ public sealed partial class EnrichmentTaskRepository(VocabularyDbContext context
         var consumed = round.ConsumedFailures + (result == EnrichmentCallResult.Throttled ? 0 : 1);
         var failed = result == EnrichmentCallResult.TerminalFailure || consumed >= round.FailureBudget;
         await Owned(guard, now).ExecuteUpdateAsync(set => set.SetProperty(row => row.ConsumedFailures, consumed)
+            .SetProperty(row => row.ForceSingle, row => row.ForceSingle || result != EnrichmentCallResult.Throttled)
             .SetProperty(row => row.State, failed ? EnrichmentState.Failed : EnrichmentState.Waiting)
             .SetProperty(row => row.WaitReason, failed ? null : result == EnrichmentCallResult.Throttled ? EnrichmentWaitReason.Throttled : EnrichmentWaitReason.Retry)
             .SetProperty(row => row.ErrorCode, errorCode).SetProperty(row => row.NextAttemptAtUnixMs, failed ? null : nextAttemptAt)
@@ -317,8 +337,16 @@ public sealed partial class EnrichmentTaskRepository(VocabularyDbContext context
                 .SetProperty(row => row.LeaseExpiresAtUnixMs, (long?)null).SetProperty(row => row.UpdatedAtUnixMs, Now(now))) == 1, cancellationToken);
     }
 
-    public Task<bool> CompleteAsync(EnrichmentExecutionGuard guard, long now, CancellationToken cancellationToken) =>
-        WriteAsync(() => CompleteCoreAsync(guard, now), cancellationToken);
+    public Task<bool> CompleteAsync(EnrichmentExecutionGuard guard, long now, CancellationToken cancellationToken, bool fieldsNotRequired = false) =>
+        WriteAsync(async () =>
+        {
+            if (fieldsNotRequired && !await Targets.AnyAsync(t => t.Id == guard.TargetId && t.Step == EnrichmentStep.Fields))
+                throw new ArgumentException("Only field completion may declare fields unnecessary.");
+            if (!await CompleteCoreAsync(guard, now)) return false;
+            if (fieldsNotRequired) await RoundQuery(guard.TargetId, guard.Round)
+                .ExecuteUpdateAsync(set => set.SetProperty(r => r.FieldsNotRequired, true));
+            return true;
+        }, cancellationToken);
 
     public Task<bool> CompleteInTransactionAsync(EnrichmentExecutionGuard guard, long now, CancellationToken token)
     {
@@ -444,7 +472,8 @@ public sealed partial class EnrichmentTaskRepository(VocabularyDbContext context
         return new(target.Id, Key(target), target.Epoch, target.Deleted, target.CurrentRound, rounds.Select(row => new EnrichmentRound(
             row.Number, row.State, Version(row), row.ConfigurationVersion, row.FailureBudget, row.RequestCount, row.ConsumedFailures,
             row.PlanJson == null ? null : JsonSerializer.Deserialize<EnrichmentPlan>(row.PlanJson), row.WaitReason, row.ErrorCode,
-            row.NextAttemptAtUnixMs, row.LeaseOwner, row.LeaseFence, row.LeaseExpiresAtUnixMs, row.CreatedAtUnixMs, row.UpdatedAtUnixMs)).ToArray(),
+            row.NextAttemptAtUnixMs, row.LeaseOwner, row.LeaseFence, row.LeaseExpiresAtUnixMs, row.CreatedAtUnixMs, row.UpdatedAtUnixMs,
+            row.ForceSingle, row.RecoveryId, row.FieldsNotRequired)).ToArray(),
             calls.Select(row => new EnrichmentCall(row.Id, row.Round, row.Service, row.Result, row.UploadIdempotencyKey,
                 row.ErrorCode, row.StartedAtUnixMs, row.FinishedAtUnixMs)).ToArray(),
             waits.Select(row => new EnrichmentWait(row.Round, row.Reason, row.ErrorCode, row.RecordedAtUnixMs, row.NextAttemptAtUnixMs)).ToArray());

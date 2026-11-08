@@ -103,7 +103,7 @@ public sealed class EnrichmentTargetExecutor(IEnrichmentTaskRepository tasks, IE
             if (preparedRound.Plan!.Preparation!.ConflictingMeaningIds?.Count > 0)
                 await tasks.StopAsync(guard, "fields.equivalent_meaning", Now, token);
             else if (missing) await tasks.StopAsync(guard, "fields.candidates_missing", Now, token);
-            else await tasks.CompleteAsync(guard, Now, token);
+            else await tasks.CompleteAsync(guard, Now, token, fieldsNotRequired: ready.EntryKind == "phrase");
             return await GetAsync(task.Id, token);
         }
         return await AudioAsync(task, guard, ready, token);
@@ -291,7 +291,8 @@ public sealed class EnrichmentTargetExecutor(IEnrichmentTaskRepository tasks, IE
         string outcome, string? error, TimeSpan? retry)
     {
         if (outcome is "Ready" or "Superseded") return null;
-        var terminal = outcome is "Rejected" or "InvalidInput" or "InvalidPlan";
+        var terminal = outcome is "Rejected" or "InvalidInput" or "InvalidPlan"
+            && !(service == "text" && EnrichmentRecoveryPolicy.CanRetry(service + "." + error));
         var throttled = outcome == "Throttled";
         var next = Now + Math.Max(1000, (long)(retry ?? TimeSpan.FromSeconds(throttled ? runtime.Current.Enrichment.ThrottleInitialSeconds : 30)).TotalMilliseconds);
         return new(guard, callId, throttled ? EnrichmentCallResult.Throttled

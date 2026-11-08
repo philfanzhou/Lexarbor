@@ -16,44 +16,44 @@ public sealed partial class EnrichmentTargetExecutorTests
     [Theory]
     [InlineData("oversized")]
     [InlineData("timeout")]
-    public async Task ExpansionBatch_GrowsFromTwoToThree_AndRetainsFailureBackoffAcrossRestart(string failure)
+    public async Task ExpansionBatch_GrowsOnlyAfterThreeFastSuccesses_AndPinsFailuresAcrossRestart(string failure)
     {
         await using var f = await Fixture.Create();
-        var ids = await ExpansionSources(f, 8);
+        var ids = await ExpansionSources(f, 10);
         using var handler = new ExpansionBatchHandler
         {
-            Failure = call => { f.Clock.Now += 100; return call == 2 ? failure : null; }
+            Failure = call => { f.Clock.Now += 100; return call == 4 ? failure : null; }
         };
         using var clients = new HttpFactory(handler);
         var scheduler = new EnrichmentSchedulerRepository(f.Db, f.Tasks);
         var batches = new AiRequestBatchRepository(f.Db, f.Tasks, new MeaningSubmissionAutoReviewRepository(f.Db, f.Clock), scheduler);
         await BatchExecutor(f, f.Db, f.Tasks, scheduler, batches, clients).DispatchAsync(ids[..5], Ct);
-        Assert.Equal(new[] { 2, 3 }, handler.Sizes);
-        Assert.Equal(1, await batches.LimitAsync("Expand", f.Runtime.Current.TextVersion!, 2, 3, Ct));
-        Assert.Equal(2, (await batches.StatisticsAsync(Ct)).Completed);
-        foreach (var id in ids.Take(2)) Assert.NotNull(Round((await f.Tasks.GetAsync(id, Ct))!).Plan);
-        f.Clock.Now = (await f.Tasks.GetAsync(ids[2], Ct))!.Rounds.Last().NextAttemptAtUnixMs!.Value + 1;
+        Assert.Equal(new[] { 1, 1, 1, 2 }, handler.Sizes);
+        Assert.Equal(1, await batches.LimitAsync("Expand", f.Runtime.Current.TextVersion!, 1, 2, Ct));
+        Assert.Equal(3, (await batches.StatisticsAsync(Ct)).Completed);
+        foreach (var id in ids.Take(3)) Assert.NotNull(Round((await f.Tasks.GetAsync(id, Ct))!).Plan);
+        f.Clock.Now = (await f.Tasks.GetAsync(ids[3], Ct))!.Rounds.Last().NextAttemptAtUnixMs!.Value + 1;
 
         await using var restart = f.Open();
         var tasks = new EnrichmentTaskRepository(restart, f.Clock);
         var restartedScheduler = new EnrichmentSchedulerRepository(restart, tasks);
         var restartedBatches = new AiRequestBatchRepository(restart, tasks,
             new MeaningSubmissionAutoReviewRepository(restart, f.Clock), restartedScheduler);
-        Assert.Equal(1, await restartedBatches.LimitAsync("Expand", f.Runtime.Current.TextVersion!, 2, 3, Ct));
+        Assert.Equal(1, await restartedBatches.LimitAsync("Expand", f.Runtime.Current.TextVersion!, 1, 2, Ct));
         var executor = BatchExecutor(f, restart, tasks, restartedScheduler, restartedBatches, clients);
-        await executor.DispatchAsync(ids[..5], Ct); // The two saved results must not be requested again.
+        await executor.DispatchAsync(ids[..5], Ct); // The three saved results must not be requested again.
         await executor.DispatchAsync(ids[5..], Ct);
-        Assert.Equal(new[] { 2, 3, 1, 2, 3 }, handler.Sizes);
-        Assert.Equal(3, await restartedBatches.LimitAsync("Expand", f.Runtime.Current.TextVersion!, 2, 3, Ct));
-        foreach (var id in ids.Take(2)) Assert.Single((await tasks.GetAsync(id, Ct))!.Calls);
-        foreach (var id in ids.Skip(2).Take(3)) Assert.Equal(2, (await tasks.GetAsync(id, Ct))!.Calls.Count);
+        Assert.Equal(new[] { 1, 1, 1, 2, 1, 1, 1, 2, 2 }, handler.Sizes);
+        Assert.Equal(2, await restartedBatches.LimitAsync("Expand", f.Runtime.Current.TextVersion!, 1, 2, Ct));
+        foreach (var id in ids.Take(3)) Assert.Single((await tasks.GetAsync(id, Ct))!.Calls);
+        foreach (var id in ids.Skip(3).Take(2)) Assert.Equal(2, (await tasks.GetAsync(id, Ct))!.Calls.Count);
         foreach (var id in ids)
         {
             var task = (await tasks.GetAsync(id, Ct))!;
             Assert.Equal(EnrichmentState.Succeeded,
                 Round((await Expansion(f, restart, clients, "book").ExecuteAsync(task, "publish", Ct))!).State);
         }
-        Assert.Equal(5, handler.Calls);
+        Assert.Equal(9, handler.Calls);
         Assert.Empty(await restart.EnrichmentServiceLeases.ToArrayAsync(Ct));
     }
 
@@ -62,6 +62,7 @@ public sealed partial class EnrichmentTargetExecutorTests
     {
         await using var f = await Fixture.Create();
         var ids = await ExpansionSources(f, 2);
+        await SetExpansionSizeTwo(f);
         using var handler = new ExpansionBatchHandler { OmitLast = call => call == 1 };
         using var clients = new HttpFactory(handler);
         var scheduler = new EnrichmentSchedulerRepository(f.Db, f.Tasks);
@@ -70,7 +71,7 @@ public sealed partial class EnrichmentTargetExecutorTests
         Assert.NotNull(Round((await f.Tasks.GetAsync(ids[0], Ct))!).Plan);
         Assert.Null(Round((await f.Tasks.GetAsync(ids[1], Ct))!).Plan);
         Assert.Equal(1, (await batches.StatisticsAsync(Ct)).Completed);
-        Assert.Equal(1, await batches.LimitAsync("Expand", f.Runtime.Current.TextVersion!, 2, 3, Ct));
+        Assert.Equal(1, await batches.LimitAsync("Expand", f.Runtime.Current.TextVersion!, 1, 2, Ct));
         f.Clock.Now = Round((await f.Tasks.GetAsync(ids[1], Ct))!).NextAttemptAtUnixMs!.Value + 1;
         await using var restart = f.Open();
         var tasks = new EnrichmentTaskRepository(restart, f.Clock);
@@ -81,11 +82,11 @@ public sealed partial class EnrichmentTargetExecutorTests
         Assert.Single((await tasks.GetAsync(ids[0], Ct))!.Calls);
         Assert.Equal(2, (await tasks.GetAsync(ids[1], Ct))!.Calls.Count);
         Assert.Equal(2, (await rb.StatisticsAsync(Ct)).Completed);
-        Assert.Equal(2, await rb.LimitAsync("Expand", f.Runtime.Current.TextVersion!, 2, 3, Ct));
+        Assert.Equal(1, await rb.LimitAsync("Expand", f.Runtime.Current.TextVersion!, 1, 2, Ct));
     }
 
     [Fact]
-    public async Task ExpansionBatch_LegacyLimitIsPreserved_WhileNewConfigurationStartsAtTwo()
+    public async Task ExpansionBatch_LegacyAndNewConfigurationStartConservatively()
     {
         await using var f = await Fixture.Create();
         f.Db.AiRequestBatches.Add(new()
@@ -103,8 +104,8 @@ public sealed partial class EnrichmentTargetExecutorTests
         var tasks = new EnrichmentTaskRepository(restart, f.Clock);
         var batches = new AiRequestBatchRepository(restart, tasks, new MeaningSubmissionAutoReviewRepository(restart, f.Clock),
             new EnrichmentSchedulerRepository(restart, tasks));
-        Assert.Equal(1, await batches.LimitAsync("Expand", f.Runtime.Current.TextVersion!, 2, 3, Ct));
-        Assert.Equal(2, await batches.LimitAsync("Expand", "new-configuration", 2, 3, Ct));
+        Assert.Equal(1, await batches.LimitAsync("Expand", f.Runtime.Current.TextVersion!, 1, 2, Ct));
+        Assert.Equal(1, await batches.LimitAsync("Expand", "new-configuration", 2, 3, Ct));
         Assert.Equal(6, await batches.LimitAsync("Prepare", f.Runtime.Current.TextVersion!, 6, 6, Ct));
         Assert.Equal(6, await batches.LimitAsync("Review", f.Runtime.Current.TextVersion!, 6, 6, Ct));
     }
@@ -115,6 +116,7 @@ public sealed partial class EnrichmentTargetExecutorTests
         await using var f = await Fixture.Create(fields: false, shared: true);
         await f.Publish(new() { ["Enrichment:TextConcurrency"] = "2", ["Enrichment:Tts:ApiKey"] = "" });
         await ExpansionSources(f, 8);
+        await SetExpansionSizeTwo(f);
         // A second sense of one source must not run beside that source's first sense.
         f.Db.VocabularyMeanings.Add(new() { Id = "other-sense", BookId = "book", VocabularyId = "source0", Meaning = "another sense", PartOfSpeech = "v." });
         await f.Db.SaveChangesAsync(Ct); f.Db.ChangeTracker.Clear();
@@ -173,6 +175,80 @@ public sealed partial class EnrichmentTargetExecutorTests
         }
         finally { await worker.StopAsync(Ct); }
         Assert.Empty(await f.Db.EnrichmentServiceLeases.ToArrayAsync(Ct));
+    }
+
+    [Fact]
+    public async Task TextLane_PrefersPreparationAndFieldsOverDisabledAudioForTheSameWord()
+    {
+        await using var f = await Fixture.Create();
+        await f.Publish(new() { ["Enrichment:Tts:ApiKey"] = "" });
+        var fields = await f.Ensure(Key(EnrichmentStep.Fields));
+        var audio = await f.Ensure(Key());
+        var prepare = await f.Ensure(Key(EnrichmentStep.Prepare));
+        // Even an older dependent audio target cannot hide ready text work.
+        await f.Db.EnrichmentRounds.Where(r => r.TargetId == audio.Id).ExecuteUpdateAsync(s => s
+            .SetProperty(r => r.CreatedAtUnixMs, 0).SetProperty(r => r.UpdatedAtUnixMs, 0), Ct);
+        var scheduler = new EnrichmentSchedulerRepository(f.Db, f.Tasks);
+        Assert.Equal(prepare.Id, Assert.Single((await scheduler.PlanAsync(10, f.Clock.Now, [], Ct)), i => i.Lane == "Text").Id);
+        await f.Db.EnrichmentTargets.Where(t => t.Id == prepare.Id).ExecuteUpdateAsync(s => s.SetProperty(t => t.Deleted, true), Ct);
+        Assert.Equal(fields.Id, Assert.Single((await scheduler.PlanAsync(10, f.Clock.Now, [], Ct)), i => i.Lane == "Text").Id);
+    }
+
+    [Theory]
+    [InlineData(59_999, 2)]
+    [InlineData(60_000, 1)]
+    public async Task ExpansionGrowth_RequiresThreeConsecutiveResponsesBelowOneMinute(long middleDuration, int expected)
+    {
+        await using var f = await Fixture.Create();
+        var ids = await ExpansionSources(f, 3);
+        using var handler = new ExpansionBatchHandler { Failure = call => { f.Clock.Now += call == 2 ? middleDuration : 100; return null; } };
+        using var clients = new HttpFactory(handler);
+        var scheduler = new EnrichmentSchedulerRepository(f.Db, f.Tasks);
+        var batches = new AiRequestBatchRepository(f.Db, f.Tasks, new MeaningSubmissionAutoReviewRepository(f.Db, f.Clock), scheduler);
+        await BatchExecutor(f, f.Db, f.Tasks, scheduler, batches, clients).DispatchAsync(ids, Ct);
+        Assert.Equal(new[] { 1, 1, 1 }, handler.Sizes);
+        Assert.Equal(expected, await batches.LimitAsync("Expand", f.Runtime.Current.TextVersion!, 1, 2, Ct));
+    }
+
+    [Fact]
+    public async Task ExpansionLateSuccess_CannotUndoConcurrentFailureBackoff()
+    {
+        await using var f = await Fixture.Create();
+        await f.Publish(new() { ["Enrichment:TextConcurrency"] = "2" });
+        var ids = await ExpansionSources(f, 2);
+        await SetExpansionSizeTwo(f);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var handler = new ExpansionBatchHandler
+        {
+            BeforeSend = async (words, token) =>
+            { if (words.Contains("source0")) { entered.TrySetResult(); await release.Task.WaitAsync(token); } },
+            Failure = call => { f.Clock.Now += 100; return call == 2 ? "timeout" : null; }
+        };
+        using var clients = new HttpFactory(handler);
+        await using var firstDb = f.Open(); await using var secondDb = f.Open();
+        var firstTasks = new EnrichmentTaskRepository(firstDb, f.Clock); var secondTasks = new EnrichmentTaskRepository(secondDb, f.Clock);
+        var firstScheduler = new EnrichmentSchedulerRepository(firstDb, firstTasks); var secondScheduler = new EnrichmentSchedulerRepository(secondDb, secondTasks);
+        var firstBatches = new AiRequestBatchRepository(firstDb, firstTasks, new MeaningSubmissionAutoReviewRepository(firstDb, f.Clock), firstScheduler);
+        var secondBatches = new AiRequestBatchRepository(secondDb, secondTasks, new MeaningSubmissionAutoReviewRepository(secondDb, f.Clock), secondScheduler);
+        var first = BatchExecutor(f, firstDb, firstTasks, firstScheduler, firstBatches, clients).DispatchAsync([ids[0]], Ct);
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(10), Ct);
+            await BatchExecutor(f, secondDb, secondTasks, secondScheduler, secondBatches, clients).DispatchAsync([ids[1]], Ct);
+            Assert.Equal(1, await secondBatches.LimitAsync("Expand", f.Runtime.Current.TextVersion!, 1, 2, Ct));
+        }
+        finally { release.TrySetResult(); await first; }
+        var policy = await f.Db.AiRequestBatchPolicies.AsNoTracking().SingleAsync(Ct);
+        Assert.Equal(1, policy.Size); Assert.Equal(0, policy.FastSuccesses);
+        Assert.True(Round((await f.Tasks.GetAsync(ids[1], Ct))!).ForceSingle);
+        Assert.NotNull(Round((await f.Tasks.GetAsync(ids[0], Ct))!).Plan);
+    }
+
+    private static async Task SetExpansionSizeTwo(Fixture f)
+    {
+        f.Db.AiRequestBatchPolicies.Add(new() { Kind = "Expand", ConfigurationVersion = f.Runtime.Current.TextVersion!, Size = 2, FastSuccesses = 3 });
+        await f.Db.SaveChangesAsync(Ct); f.Db.ChangeTracker.Clear();
     }
 
     private static async Task<string[]> ExpansionSources(Fixture f, int count)

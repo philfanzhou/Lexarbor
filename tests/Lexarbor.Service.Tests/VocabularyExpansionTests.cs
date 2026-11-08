@@ -190,7 +190,7 @@ public sealed partial class EnrichmentTargetExecutorTests
         await using var f = await Fixture.Create(); await Supplement(f);
         var handler = new ExpansionHandler([]) { Raw = raw }; using var http = new HttpFactory(handler);
         var result = (await Expansion(f, f.Db, http).ExecuteAsync(await f.Ensure(ExpansionKey), "worker", Ct))!;
-        Assert.Equal(EnrichmentState.Failed, Round(result).State);
+        Assert.Equal(EnrichmentState.Waiting, Round(result).State);
         Assert.Null(Round(result).Plan); Assert.Equal(1, await f.Db.Vocabularies.CountAsync(Ct));
         Assert.Empty(await f.Db.VocabularyRelations.ToListAsync(Ct));
     }

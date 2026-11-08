@@ -49,6 +49,11 @@ public sealed class OpenAiCompatiblePronunciationPreparationClient(
         "Resolve template slash alternatives semantically, speaking both natural alternatives joined by or and preserving shared context. " +
         "For example a lot of/lots of becomes a lot of or lots of; It took (sb.) some time to do sth. becomes It took somebody some time to do something. " +
         "do not read slashes, abbreviations, instructions or commentary aloud. spokenText contains only what to speak, " +
+        "Normalize letter-to-letter hyphens to spaces and dotted uppercase initials to separated letters (well-known to well known; U.S. to U S). " +
+        "Preserve apostrophes and all lexical content: never change can't to cant or re-sign to resign. " +
+        "Resolve ambiguous abbreviations such as St. using the supplied meaning, never guess. " +
+        "For a word with existing or proposed default IPA, spokenText must preserve its spelling after these typography rules; " +
+        "do not silently expand that word into a different pronunciation target. If a semantic expansion is needed, classify it correctly and respect existing IPA. " +
         "pronunciationHint contains any proper-name/reading/accent directions. Do not add definitions or examples to spokenText. " +
         "Return candidates only for the supplied writable missing fields. Phrase targets have no writable IPA/POS. " +
         "Audio-only mode still requires the same preparation and constraints, with no writable candidates.";
@@ -186,6 +191,9 @@ public sealed class OpenAiCompatiblePronunciationPreparationClient(
             return Result(PronunciationPreparationOutcome.InvalidPlan, "invalid_plan", true);
         var plan = JsonSerializer.Deserialize<WirePlan>(content, Json);
         if (plan == null) return Result(PronunciationPreparationOutcome.InvalidPlan, "invalid_plan", true);
+        if (plan.SpokenText == null) return Result(PronunciationPreparationOutcome.InvalidPlan, "invalid_plan", true);
+        if (!plan.SpokenText.Any(char.IsControl))
+            plan = plan with { SpokenText = PronunciationText.Normalize(plan.SpokenText) };
         if (!plan.Certain) return Result(PronunciationPreparationOutcome.Uncertain, "pronunciation_uncertain", true);
         if (plan.EntryKind is not ("word" or "phrase") || !Bounded(plan.ClassificationBasis, 512)
             || !Bounded(plan.SpokenText, 4096) || !Bounded(plan.PronunciationHint, 1024)
@@ -232,7 +240,15 @@ public sealed class OpenAiCompatiblePronunciationPreparationClient(
             return Result(PronunciationPreparationOutcome.InvalidPlan, "plan_too_large", true);
         var prepared = new PreparedPronunciation(stored, input, request.InputVersion, snapshot.TextVersion!, plan.EntryKind,
             plan.ClassificationBasis.Trim(), required, speechPhonetic, control.Value);
-        if (SpeechProviderCapabilities.PreparationError(prepared, snapshot) is { } error)
+        // Field publication turns the proposed default IPA into a required
+        // reading. Validate that future state before saving a usable plan.
+        var prospective = phoneticWritable && plan.EntryKind != "phrase" && Clean(plan.Phonetic) is { } proposed
+            ? prepared with { RequiredPhonetic = proposed } : prepared;
+        if (snapshot.Enrichment.AudioEnabled && snapshot.HasTtsConfiguration(input.Locale == AudioLocale.EnGb ? "uk" : "us")
+            && snapshot.Enrichment.Provider == "MiniMaxNative" && prospective.RequiredPhonetic != null
+            && !PronunciationText.SameSurface(input.Word, plan.SpokenText))
+            return Result(PronunciationPreparationOutcome.InvalidPlan, "pronunciation_text_mismatch", true);
+        if (SpeechProviderCapabilities.PreparationError(prospective, snapshot) is { } error)
             return Result(PronunciationPreparationOutcome.InvalidPlan, error, true);
         return new(PronunciationPreparationOutcome.Ready, prepared, RequestMade: true);
     }

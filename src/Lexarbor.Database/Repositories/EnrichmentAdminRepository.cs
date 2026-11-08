@@ -57,7 +57,7 @@ public sealed class EnrichmentAdminRepository(VocabularyDbContext context) : IEn
             Step = g.Key,
             Total = g.Count(),
             Completed = g.Count(r => !r.Missing),
-            ActionRequired = g.Count(r => r.Applicable && r.Missing && (r.State == "Failed"
+            ActionRequired = g.Count(r => r.Applicable && r.Missing && (r.State == "Failed" && !r.AutomaticRecoveryAvailable
                 || r.WaitReason == "ConfigurationMissing" || r.WaitReason == "StorageDisabled")),
             Unqueued = g.Count(r => r.Missing && r.Id == null)
         }).ToArrayAsync(token);
@@ -115,7 +115,7 @@ public sealed class EnrichmentAdminRepository(VocabularyDbContext context) : IEn
         return query;
     }
     private static IQueryable<EnrichmentAdminRow> Attention(IQueryable<EnrichmentAdminRow> query) => query
-        .Where(r => r.Applicable && r.Missing && (r.State == "Failed" || r.WaitReason == "ConfigurationMissing" || r.WaitReason == "StorageDisabled"));
+        .Where(r => r.Applicable && r.Missing && (r.State == "Failed" && !r.AutomaticRecoveryAvailable || r.WaitReason == "ConfigurationMissing" || r.WaitReason == "StorageDisabled"));
     private IQueryable<AudioInvalidationEntity> Cleanup(EnrichmentAdminRow row) => row.Locale == null ? context.AudioInvalidations.Where(_ => false) : context.AudioInvalidations.AsNoTracking()
         .Where(i => row.MeaningId != null && i.WordId == row.WordId && i.MeaningId == row.MeaningId && i.Locale == AudioLocales.FromCode(row.Locale));
 
@@ -130,17 +130,20 @@ public sealed class EnrichmentAdminRepository(VocabularyDbContext context) : IEn
             await cleanup.SumAsync(i => (int?)i.Attempts, token) ?? 0, latest?.NextAttemptAtUnixMs, CleanupError(latest?.ErrorCode));
         return new(row.Id!, row.WordId, row.Word, row.MeaningId, row.Meaning, row.Locale, row.Step, row.Applicable, row.Missing,
             row.InheritsDefault, row.State, row.WaitReason, new(row.Number, row.RoundState!, row.RequestCount, row.ConsumedFailures,
-                row.FailureBudget, row.WaitReason, SafeError(row.ErrorCode), row.NextAttemptAtUnixMs, row.CreatedAtUnixMs, row.UpdatedAtUnixMs), summary);
+                row.FailureBudget, row.WaitReason, SafeError(row.ErrorCode), row.NextAttemptAtUnixMs, row.CreatedAtUnixMs, row.UpdatedAtUnixMs,
+                row.RecoveryId != null, row.ForceSingle, row.FieldsNotRequired), summary, row.AutomaticRecoveryAvailable);
     }
     private static EnrichmentAdminRound Round(EnrichmentRoundEntity r) => new(r.Number, r.State.ToString(), r.RequestCount, r.ConsumedFailures,
-        r.FailureBudget, r.WaitReason?.ToString(), SafeError(r.ErrorCode), r.NextAttemptAtUnixMs, r.CreatedAtUnixMs, r.UpdatedAtUnixMs);
+        r.FailureBudget, r.WaitReason?.ToString(), SafeError(r.ErrorCode), r.NextAttemptAtUnixMs, r.CreatedAtUnixMs, r.UpdatedAtUnixMs,
+        r.RecoveryId != null, r.ForceSingle, r.FieldsNotRequired);
     // Fixed summaries, never arbitrary persisted strings (even legacy/manual data).
     private static string? CleanupError(string? code) => code == null ? null : code switch
     { "audio.invalidation_referenced" => "audio.invalidation_referenced", "audio.invalidation_expired" => "audio.invalidation_expired", _ => "audio.invalidation_failed" };
     private static string? SafeError(string? code) => code == null ? null : code switch
     {
         "expansion.invalid_response" or "expansion.destination_changed" or "expansion.outcome_unknown" or "expansion.input_too_large" => code,
-        "text.phonetic_constraint_mismatch" or "text.template_unexpanded" or "text.pronunciation_control_unsupported" => code,
+        "text.phonetic_constraint_mismatch" or "text.template_unexpanded" or "text.pronunciation_control_unsupported"
+            or "text.pronunciation_text_mismatch" or "text.invalid_plan" or "batch.timeout" or "batch.response_too_large" or "batch.invalid_response" => code,
         "preparation.failed" or "fields.candidates_missing" or "fields.equivalent_meaning" or "fields.plan_too_large"
             or "text.outcome_unknown" or "tts.outcome_unknown" => code,
         _ when code.EndsWith(".throttled", StringComparison.Ordinal) => "provider.throttled",

@@ -48,16 +48,20 @@ public sealed partial class EnrichmentTargetExecutorTests
         var failed = await gate.EnterAsync("text", false, Ct);
         await gate.FinishAsync(failed, "ServiceFailure", "fixture", true, null, Ct);
         f.Clock.Now = (await scheduler.ServiceAsync(failed.ServiceId, Ct))!.NextAttemptAtUnixMs;
-        var target = await f.Ensure(Key());
-        f.Clock.Now += 100; // Keep this audio target older than discovery's other targets for the word.
+        var target = await f.Ensure(Key(EnrichmentStep.Fields));
+        f.Clock.Now += 100; // Keep this field target older than discovery's other field side.
         using var handler = new BatchHandler(false); using var clients = new HttpFactory(handler);
         await using var provider = PipelineProvider(f, clients);
         using var worker = new EnrichmentWorker(provider.GetRequiredService<IServiceScopeFactory>(), f.Runtime, new(), f.Clock,
             NullLogger<EnrichmentWorker>.Instance);
         await worker.RunBatchAsync(Ct);
         Assert.False((await scheduler.ServiceAsync(failed.ServiceId, Ct))!.Paused);
-        Assert.True(handler.Calls >= 2); Assert.True(f.Http.SpeechCalls > 0);
+        Assert.True(handler.Calls >= 2);
         Assert.Equal(EnrichmentState.Succeeded, Round((await f.Tasks.GetAsync(target.Id, Ct))!).State);
+        // The bounded sweep selects one target per word; the next sweep can
+        // publish its dependent speech without advancing past the old pause.
+        await worker.RunBatchAsync(Ct, discover: false);
+        Assert.True(f.Http.SpeechCalls > 0);
     }
 
     [Theory]

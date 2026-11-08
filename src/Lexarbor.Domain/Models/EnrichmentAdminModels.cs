@@ -17,12 +17,12 @@ public sealed record EnrichmentAdminFilter(string? WordId = null, string? Meanin
 public sealed record EnrichmentAdminPage<T>(IReadOnlyList<T> Items, int TotalCount, int Page, int Size);
 public sealed record EnrichmentAdminRound(int Number, string State, int RequestCount, int ConsumedFailures,
     int FailureBudget, string? WaitReason, string? ErrorCode, long? NextAttemptAtUnixMs,
-    long CreatedAtUnixMs, long UpdatedAtUnixMs);
+    long CreatedAtUnixMs, long UpdatedAtUnixMs, bool AutomaticRecovery = false, bool ForceSingle = false, bool FieldsNotRequired = false);
 public sealed record EnrichmentAdminCleanup(int Waiting, int Running, int Observed, int Attempts,
     long? NextAttemptAtUnixMs, string? ErrorCode);
 public sealed record EnrichmentAdminTask(string Id, string WordId, string? Word, string? MeaningId, string? Meaning,
     string? Locale, string Step, bool Applicable, bool Missing, bool InheritsDefault, string State,
-    string? WaitReason, EnrichmentAdminRound Current, EnrichmentAdminCleanup Cleanup);
+    string? WaitReason, EnrichmentAdminRound Current, EnrichmentAdminCleanup Cleanup, bool AutomaticRecoveryAvailable = false);
 public sealed record EnrichmentAdminCall(string Id, int Round, string Service, string Result, string? ErrorCode,
     long StartedAtUnixMs, long? FinishedAtUnixMs);
 public sealed record EnrichmentAdminWait(int Round, string Reason, string? ErrorCode, long RecordedAtUnixMs, long NextAttemptAtUnixMs);

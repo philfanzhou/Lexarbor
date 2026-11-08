@@ -109,7 +109,15 @@ internal sealed class AudioTestDatabase : IDisposable
         """, Token);
 
     public async Task<string> PreEpochColumnsAsync(string table) => string.Join(",", (await RowsAsync($"PRAGMA table_info(\"{table}\")"))
-        .Select(row => (string)((object?[])row!)[1]!).Where(column => column != "meaning_phonetic_epoch" && (table != "meaning_submission" || column is not ("ai_review_verdict" or "review_comment" or "reviewer_kind"))).OrderBy(column => column, StringComparer.Ordinal).Select(column => "\"" + column + "\""));
+        .Select(row => (string)((object?[])row!)[1]!).Where(column => (table != "enrichment_round" || column is not ("fields_not_required" or "force_single" or "recovery_id")) && column != "meaning_phonetic_epoch" && (table != "meaning_submission" || column is not ("ai_review_verdict" or "review_comment" or "reviewer_kind"))).OrderBy(column => column, StringComparer.Ordinal).Select(column => "\"" + column + "\""));
+
+    public async Task<string> LegacyEnrichmentHistoryAsync()
+    {
+        var history = new List<object?>();
+        foreach (var table in new[] { "enrichment_target", "enrichment_round", "enrichment_call", "enrichment_wait" })
+            history.Add(await RowsAsync($"SELECT {await PreEpochColumnsAsync(table)} FROM {table} ORDER BY 1,2"));
+        return System.Text.Json.JsonSerializer.Serialize(history);
+    }
 
     public async Task<object?[]> RowsAsync(string sql)
     {

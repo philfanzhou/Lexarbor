@@ -90,7 +90,8 @@ public sealed partial class EnrichmentTargetExecutorTests
         var result = (await f.Run(Key()))!;
         var prepare = await f.Ensure(Key(EnrichmentStep.Prepare));
         Assert.Equal("text.pronunciation_control_unsupported", Round(prepare).ErrorCode);
-        Assert.Equal("preparation.failed", Round(result).ErrorCode);
+        Assert.Equal(EnrichmentState.Waiting, Round(result).State);
+        Assert.Equal(1, Round(prepare).ConsumedFailures);
         Assert.Equal(0, f.Http.SpeechCalls);
         var usVersion = EnrichmentTargetExecutor.ConfigurationVersion(Key(EnrichmentStep.Prepare, AudioLocale.EnUs), f.Runtime.Current);
         f.Http.Ipa = true;

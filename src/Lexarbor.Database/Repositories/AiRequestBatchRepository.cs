@@ -12,6 +12,9 @@ public sealed class AiRequestBatchRepository(VocabularyDbContext db, EnrichmentT
     public async Task<int> LimitAsync(string kind, string configurationVersion, int initial, int maximum, CancellationToken token)
     {
         if (initial < 1 || maximum < initial || maximum > 10) throw new ArgumentOutOfRangeException(nameof(initial));
+        if (kind == "Expand") return Math.Clamp(await db.AiRequestBatchPolicies.AsNoTracking()
+            .Where(p => p.Kind == kind && p.ConfigurationVersion == configurationVersion).Select(p => (int?)p.Size)
+            .SingleOrDefaultAsync(token) ?? 1, 1, Math.Min(2, maximum));
         var size = await db.AiRequestBatches.AsNoTracking().Where(r => r.Kind == kind && r.ConfigurationVersion == configurationVersion
             && r.FinishedAtUnixMs != null).OrderByDescending(r => r.FinishedAtUnixMs).ThenByDescending(r => r.StartedAtUnixMs)
             .Select(r => (int?)r.NextSize).FirstOrDefaultAsync(token);
@@ -77,6 +80,7 @@ public sealed class AiRequestBatchRepository(VocabularyDbContext db, EnrichmentT
             || results.Any(r => !registered.Any(m => m.Id == r.Id)))
             throw new ArgumentException("AI batch members do not match the persisted request.");
         var supplied = results.ToDictionary(r => r.Id, StringComparer.Ordinal);
+        var savedMembers = 0;
         foreach (var member in batch.Members)
         {
             supplied.TryGetValue(member.Id, out var result);
@@ -91,6 +95,7 @@ public sealed class AiRequestBatchRepository(VocabularyDbContext db, EnrichmentT
                 }
                 if (saved)
                 {
+                    savedMembers++;
                     await tasks.FinishCallAsync(guard, member.Id, EnrichmentCallResult.Succeeded, null, now, null, token);
                     await tasks.ReleaseBatchAsync(guard, now, token);
                     state = "Ready";
@@ -111,6 +116,27 @@ public sealed class AiRequestBatchRepository(VocabularyDbContext db, EnrichmentT
             }
             await db.AiRequestBatchMembers.Where(r => r.Id == member.Id && r.BatchId == batch.Id)
                 .ExecuteUpdateAsync(s => s.SetProperty(r => r.Outcome, state), token);
+        }
+        if (record.Kind == "Expand")
+        {
+            // The same writer records completion and the policy. A late success
+            // from before a failure cannot undo that failure's backoff.
+            var sizing = await db.AiRequestBatchPolicies.SingleOrDefaultAsync(p => p.Kind == record.Kind && p.ConfigurationVersion == record.ConfigurationVersion, token);
+            if (sizing == null)
+            {
+                sizing = new() { Kind = record.Kind, ConfigurationVersion = record.ConfigurationVersion };
+                db.AiRequestBatchPolicies.Add(sizing);
+            }
+            if (outcome is "Invalid" or "Partial" || errorCode == "batch.timeout")
+            { sizing.Size = 1; sizing.FastSuccesses = 0; sizing.LastFailureAtUnixMs = now; }
+            else if (outcome == "Ready" && savedMembers == batch.Members.Count && record.StartedAtUnixMs > sizing.LastFailureAtUnixMs)
+            {
+                sizing.FastSuccesses = now - record.StartedAtUnixMs is >= 0 and < 60_000 ? Math.Min(3, sizing.FastSuccesses + 1) : 0;
+                if (sizing.FastSuccesses >= 3) sizing.Size = 2;
+            }
+            else if (outcome != "Ready" || savedMembers != batch.Members.Count) sizing.FastSuccesses = 0;
+            nextSize = sizing.Size;
+            await db.SaveChangesAsync(token); db.ChangeTracker.Clear();
         }
         await db.AiRequestBatches.Where(r => r.Id == batch.Id).ExecuteUpdateAsync(s => s
             .SetProperty(r => r.Outcome, outcome).SetProperty(r => r.NextSize, Math.Clamp(nextSize, 1, 10))

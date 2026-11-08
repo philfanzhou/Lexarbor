@@ -64,6 +64,8 @@ public class VocabularyDbContext : DbContext
     public DbSet<AudioInvalidationEntity> AudioInvalidations { get; set; } = null!;
 
     public DbSet<AiRequestBatchEntity> AiRequestBatches { get; set; } = null!;
+    public DbSet<AiRequestBatchPolicyEntity> AiRequestBatchPolicies { get; set; } = null!;
+    public DbSet<EnrichmentRecoveryEntity> EnrichmentRecoveries { get; set; } = null!;
     public DbSet<AiRequestBatchMemberEntity> AiRequestBatchMembers { get; set; } = null!;
     public DbSet<EnrichmentServiceLeaseEntity> EnrichmentServiceLeases { get; set; } = null!;
 
