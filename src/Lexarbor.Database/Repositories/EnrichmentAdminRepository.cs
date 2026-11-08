@@ -65,8 +65,9 @@ public sealed class EnrichmentAdminRepository(VocabularyDbContext context) : IEn
         var completed = activityCounts.Sum(a => a.Completed);
         var unqueued = activityCounts.Sum(a => a.Unqueued);
         var activities = new List<EnrichmentAdminActivity>();
-        var supplementReady = configuration.ExpansionBookId != null && await context.VocabularyBooks.AsNoTracking()
-            .AnyAsync(b => b.Id == configuration.ExpansionBookId && b.Status, token);
+        var supplement = await context.VocabularyBooks.AsNoTracking().Where(b => b.Id == configuration.ExpansionBookId)
+            .Select(b => new { b.Status }).SingleOrDefaultAsync(token);
+        var supplementReady = supplement?.Status == true;
         foreach (var step in new[] { "Fields", "Expand", "Audio" })
         {
             var activity = activityCounts.SingleOrDefault(a => a.Step == step);
@@ -90,11 +91,17 @@ public sealed class EnrichmentAdminRepository(VocabularyDbContext context) : IEn
             services.Add(new(service, s?.Paused ?? false, s?.Blocked ?? false, s?.ConsecutiveFailures ?? 0,
                 s?.ThrottleSeconds ?? 0, s?.NextAttemptAtUnixMs is > 0 ? s.NextAttemptAtUnixMs : null));
         }
+        var discovery = await new EnrichmentSchedulerRepository(context).DiscoveryProgressAsync(token);
+        var execution = new EnrichmentExecutionStatistics(
+            await context.EnrichmentCalls.CountAsync(c => c.Service == "tts", token),
+            await context.EnrichmentCalls.CountAsync(c => c.Service == "tts" && c.Result == EnrichmentCallResult.Succeeded, token),
+            await context.EnrichmentCalls.Where(c => c.Result == EnrichmentCallResult.Succeeded).MaxAsync(c => c.FinishedAtUnixMs, token));
         return new EnrichmentAdminSummary(total, completed, total - completed, unqueued, persisted,
             counts.OrderBy(c => c.State, StringComparer.Ordinal).ThenBy(c => c.WaitReason, StringComparer.Ordinal).ToArray(), services, activities, new(
                 await context.AiRequestBatches.CountAsync(token), await context.AiRequestBatchMembers.CountAsync(token),
                 await context.AiRequestBatchMembers.CountAsync(r => r.Outcome == "Ready", token),
-                await context.AiRequestBatches.CountAsync(r => r.FinishedAtUnixMs == null, token)));
+                await context.AiRequestBatches.CountAsync(r => r.FinishedAtUnixMs == null, token)), discovery,
+                new(supplement == null ? "Missing" : supplementReady ? "Ready" : "Disabled", configuration.ExpansionDestinationManaged), execution);
     }, token);
 
     private static IQueryable<EnrichmentAdminRow> Filter(IQueryable<EnrichmentAdminRow> query, EnrichmentAdminFilter filter)

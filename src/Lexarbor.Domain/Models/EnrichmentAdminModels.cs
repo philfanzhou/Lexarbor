@@ -4,7 +4,7 @@ namespace Lexarbor.Domain.Models;
 public sealed record EnrichmentAdminConfiguration(bool FieldsEnabled, bool AudioEnabled, bool StorageEnabled,
     bool CanPrepare, bool CanTtsUk, bool CanTtsUs, int FailureBudget, string DefaultPreparationVersion,
     string SpecificPreparationVersion, string UkAudioVersion, string UsAudioVersion,
-    string TextServiceId, string TextServiceVersion, string TtsServiceId, string TtsServiceVersion, string? ExpansionBookId = null)
+    string TextServiceId, string TextServiceVersion, string TtsServiceId, string TtsServiceVersion, string? ExpansionBookId = null, bool ExpansionDestinationManaged = false)
 {
     public string Version(EnrichmentTargetKey key) => key.Step == EnrichmentStep.Expand ? TextServiceVersion + ".expand-v1" : key.Step == EnrichmentStep.Audio
         ? key.Locale == AudioLocale.EnGb ? UkAudioVersion : UsAudioVersion
@@ -37,7 +37,11 @@ public sealed record EnrichmentAdminService(string Service, bool Paused, bool Bl
 public sealed record EnrichmentAdminSummary(int ApplicableTargets, int CompletedTargets, int MissingTargets,
     int UnqueuedTargets, int PersistedTasks, IReadOnlyList<EnrichmentAdminCount> Targets,
     IReadOnlyList<EnrichmentAdminService> Services, IReadOnlyList<EnrichmentAdminActivity>? Activities = null,
-    Lexarbor.Domain.Repositories.AiBatchStatistics? TextRequests = null);
+    Lexarbor.Domain.Repositories.AiBatchStatistics? TextRequests = null,
+    Lexarbor.Domain.Repositories.EnrichmentDiscoveryProgress? Discovery = null,
+    EnrichmentDestinationStatus? Destination = null, EnrichmentExecutionStatistics? Execution = null);
+public sealed record EnrichmentDestinationStatus(string State, bool Managed);
+public sealed record EnrichmentExecutionStatistics(int SpeechRequests, int SpeechSucceeded, long? LastSucceededAtUnixMs);
 public sealed record EnrichmentAdminActivity(string Step, int Total, int Completed, int ActionRequired,
     int Unqueued, IReadOnlyList<string> MissingRequirements);
 public enum EnrichmentRetryStatus { Started, Replayed, NotFound, Conflict }

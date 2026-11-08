@@ -31,7 +31,7 @@ public sealed class ReleaseUpgradeMigrationTests
         await AssertPreserved(file, before);
         var upgraded = await file.RowsAsync("SELECT * FROM __EFMigrationsHistory ORDER BY MigrationId");
         Assert.Equal(JsonSerializer.Serialize(history), JsonSerializer.Serialize(upgraded.Take(history.Length)));
-        Assert.Equal(history.Length + 5, upgraded.Length);
+        Assert.Equal(history.Length + 6, upgraded.Length);
         await using (var restarted = file.Open()) await restarted.Database.MigrateAsync(Ct);
         await AssertPreserved(file, before);
         Assert.Equal(JsonSerializer.Serialize(upgraded), JsonSerializer.Serialize(await file.RowsAsync("SELECT * FROM __EFMigrationsHistory ORDER BY MigrationId")));
@@ -176,7 +176,8 @@ public sealed class ReleaseUpgradeMigrationTests
             var name = (string)((object?[])row!)[0]!;
             var columns = (await file.RowsAsync("PRAGMA table_info(\"" + name.Replace("\"", "\"\"") + "\")"))
                 .Select(r => (string)((object?[])r!)[1]!)
-                .Where(c => name != "enrichment_round" || c is not ("fields_not_required" or "force_single" or "recovery_id"));
+                .Where(c => name != "enrichment_round" || c is not ("fields_not_required" or "force_single" or "recovery_id"))
+                .Where(c => name != "enrichment_discovery" || c is not ("initial_completed" or "initial_scanned" or "initial_total"));
             result[name] = (await file.RowsAsync("SELECT " + string.Join(",", columns.Select(c => "\"" + c.Replace("\"", "\"\"") + "\"")) + " FROM \"" + name.Replace("\"", "\"\"") + "\""))
                 .Select(r => JsonSerializer.Serialize(r)).Order(StringComparer.Ordinal).ToArray();
         }

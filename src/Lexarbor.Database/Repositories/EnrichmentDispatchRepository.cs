@@ -12,7 +12,7 @@ public sealed partial class EnrichmentSchedulerRepository
     // Separate NULL/non-NULL prerequisite lookups use the existing partial unique
     // indexes; an IS-to-IS self-join would scan all targets for every due round.
     public async Task<IReadOnlyList<EnrichmentDispatch>> PlanAsync(int limit, long now,
-        IReadOnlyList<string> excludedWords, CancellationToken token)
+        IReadOnlyList<string> excludedWords, CancellationToken token, bool expansionReady = true)
     {
         if (limit is < 1 or > 1000 || excludedWords.Count > 4096) throw new ArgumentOutOfRangeException(nameof(limit));
         const string sql = """
@@ -45,7 +45,7 @@ public sealed partial class EnrichmentSchedulerRepository
                     AND meaning_id=t.meaning_id AND locale=t.locale AND step='Prepare' AND NOT deleted)
                 END END
               LEFT JOIN enrichment_round p ON p.target_id=pt.id AND p.number=pt.current_round
-              WHERE NOT t.deleted AND r.consumed_failures<r.failure_budget
+              WHERE (@expansionReady OR t.step!='Expand') AND NOT t.deleted AND r.consumed_failures<r.failure_budget
                 AND (r.state IN ('Pending','Waiting') OR r.state='Running' AND r.lease_expires_at_unix_ms<=@now)
                 AND (r.next_attempt_at_unix_ms IS NULL OR r.next_attempt_at_unix_ms<=@now)
                 AND t.word_id NOT IN (SELECT value FROM json_each(@excluded))
@@ -60,7 +60,7 @@ public sealed partial class EnrichmentSchedulerRepository
             ) SELECT Id,WordId,Step,Lane,QueuedAtUnixMs,Recent FROM ranked WHERE Position<=@limit
             """;
         var rows = await context.Database.SqlQueryRaw<DispatchRow>(sql, new SqliteParameter("@limit", limit),
-            new SqliteParameter("@now", now), new SqliteParameter("@excluded", JsonSerializer.Serialize(excludedWords))).ToArrayAsync(token);
+            new SqliteParameter("@now", now), new SqliteParameter("@expansionReady", expansionReady), new SqliteParameter("@excluded", JsonSerializer.Serialize(excludedWords))).ToArrayAsync(token);
         var result = new List<EnrichmentDispatch>();
         foreach (var lane in new[] { "Recovery", "Ready", "Text", "Expansion" })
         {

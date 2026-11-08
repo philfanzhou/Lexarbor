@@ -1875,9 +1875,10 @@ starts field completion and word expansion, even if old `FieldsEnabled` or
 configuration, accent settings and storage. No extra enable switch or manual start
 is needed. The independent submission automatic-review policy is unchanged.
 
-Expansion publishes new words only into the existing, enabled
-`MeaningSubmissions:BookId` supplement. Missing/disabled destination waits without
-calling the model and does not block other enrichment. Existing words and
+Expansion uses an existing `MeaningSubmissions:BookId` supplement when present.
+If the configured book is absent or unset, the enabled worker automatically creates
+a dedicated expansion supplement. Disabled destinations pause expansion without
+calling the model and do not block other enrichment. Existing words and
 relations are reused without overwriting their content. Generated words receive
 normal IPA/POS/audio work but do not recursively expand. Students must select
 the supplement to include its new entries in their learning scope.
@@ -2108,3 +2109,45 @@ model transcription mismatches without overwriting a catalog reading or applying
 headword IPA to an expanded teaching template. Distinct unresolved alternatives
 remain bounded failures. Synthetic tests verify the protocol and durable workflow;
 real pronunciation quality and throughput still require observation after deployment.
+
+
+### Automatic takeover of a legacy vocabulary database
+
+`AddEnrichmentTakeover` adds the `enrichment_destination` ownership record and
+three first-scan counters on `enrichment_discovery`. Existing catalog, bindings,
+rounds, calls and histories are preserved. Existing discovery cursors seed the new
+counters so an interrupted scan resumes from its current position. Startup applies
+the migration before the worker starts. No new setting or manual SQL is required.
+
+When text configuration is complete, expansion reuses an existing configured
+submission book. If that ID is absent after a database restore, or unset, the
+worker creates `AI Vocabulary Supplement` in a serialized transaction and records
+its identity independently of its display name. Restart and concurrent admission
+reuse that record; deletion allows automatic replacement. An existing disabled
+book is never automatically enabled or bypassed. Re-enable it to resume expansion.
+The submission target setting and submission/approval behavior are unchanged.
+Changing the startup-only submission target still requires a restart.
+
+A shared destination check runs at most once every 30 seconds while configuration
+is unchanged. An unavailable destination excludes expansion from scheduling;
+existing pending work stays persisted without generating per-item waiting writes.
+Repeated identical configuration/storage waits also share one history entry.
+Publication still validates the destination inside its transaction. If an automatic
+destination was deleted after a result was staged, its validated candidates can be
+published to the replacement without another model request; the original staged
+receipt remains unchanged. Disabled destinations are never bypassed.
+
+The first historical scan waits 500 ms to 5 seconds between bounded pages, backing
+off according to the preceding scheduling duration, independent
+of provider response time; pages are capped at 50 words and 50 meanings even if the
+configured discovery size is larger. Discovery uses bounded serialized transactions;
+provider calls remain outside them and keep the configured concurrency/rate limits.
+After both initial high-water marks finish, normal scan intervals apply. A restart
+continues unfinished cursors. New-arrival notification and historical lanes remain
+independent. The admin page reports first-scan progress, destination readiness,
+actual speech calls and the last successful provider call; existing audio is reused.
+
+Back up `/app/data` and matching audio objects before upgrading. Downgrading this
+migration removes only destination ownership and first-scan metadata; generated
+books and vocabulary remain. Restore a matched backup if the removed ownership
+must be recovered. Older-image schema-version refusal still applies.

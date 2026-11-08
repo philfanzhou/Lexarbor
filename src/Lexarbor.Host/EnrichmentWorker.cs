@@ -49,6 +49,10 @@ public sealed class EnrichmentWorker(IServiceScopeFactory scopes, EnrichmentRunt
     private bool _preferRecovery = true;
     private readonly EnrichmentTextSchedulingPolicy _textPolicy = new();
     private long _textNextCheck;
+    private bool _initialScanning;
+    private bool _expansionReady = true;
+    private long _destinationNextCheck;
+    private EnrichmentConfigurationSnapshot? _destinationConfiguration;
     private EnrichmentConfigurationSnapshot? _dispatchConfiguration;
     private static bool NeedsText(EnrichmentDispatch item) => item.Lane is "Text" or "Expansion";
     private long Now => clock.GetUtcNow().ToUnixTimeMilliseconds();
@@ -68,7 +72,13 @@ public sealed class EnrichmentWorker(IServiceScopeFactory scopes, EnrichmentRunt
                 {
                     var discover = scanned != observed || clock.GetUtcNow() >= nextScan;
                     if (discover) { nextScan = clock.GetUtcNow().AddSeconds(observed.Enrichment.ScanIntervalSeconds); scanned = observed; }
+                    var sweepStarted = System.Diagnostics.Stopwatch.GetTimestamp();
                     await ScheduleAsync(stop.Token, discover);
+                    if (discover && _initialScanning)
+                    {
+                        var elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(sweepStarted).TotalMilliseconds;
+                        nextScan = clock.GetUtcNow().AddMilliseconds(Math.Clamp(elapsed * 2, 500, 5000));
+                    }
                 }
                 catch (OperationCanceledException) when (stop.IsCancellationRequested) { break; }
                 catch (Exception) { logger.LogWarning("Enrichment scheduling failed; durable work will be retried."); }
@@ -79,6 +89,7 @@ public sealed class EnrichmentWorker(IServiceScopeFactory scopes, EnrichmentRunt
                     // never imposes a barrier on ready audio or the next text batch.
                     var wakeups = _running.Select(r => (Task)r.Task).ToList();
                     var delayMs = observed.Enrichment.ScanIntervalSeconds * 1000L;
+                    if (_initialScanning) delayMs = Math.Min(delayMs, Math.Max(1, (long)(nextScan - clock.GetUtcNow()).TotalMilliseconds));
                     if (_textNextCheck > Now) delayMs = Math.Min(delayMs, _textNextCheck - Now);
                     wakeups.Add(Task.Delay(TimeSpan.FromMilliseconds(Math.Max(1, delayMs)), clock, wait.Token));
                     wakeups.Add(runtime.WaitForChangeAsync(observed, wait.Token));
@@ -157,14 +168,27 @@ public sealed class EnrichmentWorker(IServiceScopeFactory scopes, EnrichmentRunt
         await ReapAsync();
         var settings = runtime.Current.Enrichment;
         if (!settings.FieldsEnabled && !settings.AudioEnabled)
-        { notifications.Drain(); notifications.DrainAudioTargets(); _queue.Clear(); return 0; }
+        { notifications.Drain(); notifications.DrainAudioTargets(); _queue.Clear(); _initialScanning = false; return 0; }
         await using var scope = scopes.CreateAsyncScope();
         var repository = scope.ServiceProvider.GetRequiredService<IEnrichmentSchedulerRepository>();
         var tasks = scope.ServiceProvider.GetRequiredService<IEnrichmentTaskRepository>();
+        if ((_destinationNextCheck <= Now || _destinationConfiguration != runtime.Current)
+            && scope.ServiceProvider.GetService<IEnrichmentDestinationRepository>() is { } destinations)
+        {
+            var configured = scope.ServiceProvider.GetService<MeaningSubmissionSettings>()?.BookId;
+            var destination = runtime.Current.CanPrepare ? await destinations.EnsureAsync(configured, Now, token)
+                : await destinations.ReadAsync(configured, token);
+            _expansionReady = runtime.Current.CanPrepare && destination.State == "Ready";
+            _destinationNextCheck = Now + 30_000;
+            _destinationConfiguration = runtime.Current;
+            if (!_expansionReady) _queue.RemoveAll(i => i.Step == "Expand");
+        }
         var recentWords = notifications.Drain();
         var audioTargets = notifications.DrainAudioTargets();
         var targets = discover || recentWords.Count > 0
-            ? await repository.DiscoverAsync(settings.DiscoveryBatchSize, recentWords, token) : [];
+            ? await repository.DiscoverAsync(Math.Min(50, settings.DiscoveryBatchSize), recentWords, token) : [];
+        if (discover && await repository.DiscoveryProgressAsync(token) is { } progress)
+            _initialScanning = !progress.InitialCompleted;
         var urgent = new List<EnrichmentDispatch>();
         foreach (var key in audioTargets.Concat(targets).Distinct())
         {
@@ -189,7 +213,7 @@ public sealed class EnrichmentWorker(IServiceScopeFactory scopes, EnrichmentRunt
         // word while waiting for its budget. Running work remains reserved.
         var excluded = runningWords.Concat(_queue.Where(i => i.Lane != "Expansion").Select(i => i.WordId)).Distinct().ToArray();
         var limit = Math.Clamp(settings.DiscoveryBatchSize, 1, 1000);
-        var planned = await repository.PlanAsync(limit, Now, excluded, token);
+        var planned = await repository.PlanAsync(limit, Now, excluded, token, _expansionReady);
         var count = 0;
         foreach (var item in urgent.Concat(planned))
         {

@@ -6,11 +6,12 @@ using Lexarbor.Service;
 namespace Lexarbor.Host;
 
 public sealed class EnrichmentAdminConfigurationProvider(EnrichmentRuntimeConfiguration runtime,
-    IAudioUploadOperationFactory storage, MeaningSubmissionSettings? submissions = null) : IEnrichmentAdminConfigurationProvider
+    IAudioUploadOperationFactory storage, MeaningSubmissionSettings? submissions = null, IEnrichmentDestinationRepository? destinations = null) : IEnrichmentAdminConfigurationProvider
 {
     public async Task<EnrichmentAdminConfiguration> CaptureAsync(CancellationToken token)
     {
         var snapshot = runtime.Current;
+        var destination = destinations == null ? null : await destinations.ReadAsync(submissions?.BookId, token);
         using var operation = await storage.AcquireAsync(token);
         string Version(EnrichmentStep step, AudioLocale locale = AudioLocale.EnGb, string? meaning = null) =>
             EnrichmentTargetExecutor.ConfigurationVersion(new("", meaning, locale, step), snapshot);
@@ -19,6 +20,6 @@ public sealed class EnrichmentAdminConfigurationProvider(EnrichmentRuntimeConfig
             Version(EnrichmentStep.Fields), Version(EnrichmentStep.Fields, meaning: "specific"),
             Version(EnrichmentStep.Audio), Version(EnrichmentStep.Audio, AudioLocale.EnUs),
             EnrichmentServiceGate.Identity("text", snapshot), snapshot.TextVersion ?? "configuration.missing",
-            EnrichmentServiceGate.Identity("tts", snapshot), snapshot.TtsServiceVersion ?? "configuration.missing", submissions?.BookId);
+            EnrichmentServiceGate.Identity("tts", snapshot), snapshot.TtsServiceVersion ?? "configuration.missing", destination?.BookId ?? submissions?.BookId, destination?.Managed ?? false);
     }
 }

@@ -16,7 +16,7 @@ public sealed partial class EnrichmentTargetExecutorTests
     private static VocabularyExpansionCandidate Candidate(string word = "leader", string type = "derived_noun") =>
         new(word, type, "n.", "领导者", "She is a leader.", "A person who leads, in the sense of guiding.");
 
-    private static VocabularyExpansionExecutor Expansion(Fixture f, VocabularyDbContext db, IHttpClientFactory http, string? book = "supplement")
+    private static VocabularyExpansionExecutor Expansion(Fixture f, VocabularyDbContext db, IHttpClientFactory http, string? book = "supplement", Lexarbor.Domain.Repositories.IEnrichmentDestinationRepository? destinations = null)
     {
         var tasks = new EnrichmentTaskRepository(db, f.Clock);
         var repo = new VocabularyExpansionRepository(db);
@@ -27,7 +27,7 @@ public sealed partial class EnrichmentTargetExecutorTests
         return new(tasks, repo, books, new(repo, words, relations, books, catalog,
             new(relations, unit, f.Clock), tasks, unit, f.Clock), new(http, f.Clock),
             new(new EnrichmentSchedulerRepository(db, tasks), f.Runtime, f.Clock), f.Runtime,
-            new() { BookId = book }, f.Clock);
+            new() { BookId = book }, f.Clock, destinations);
     }
 
     private static async Task Supplement(Fixture f)
@@ -106,6 +106,28 @@ public sealed partial class EnrichmentTargetExecutorTests
         Assert.Equal(EnrichmentState.Succeeded, Round(result).State); Assert.Equal(0, handler.Calls);
         Assert.Equal("captured-model", Round(result).Plan!.Expansion!.Model);
         Assert.True(await restart.Vocabularies.AnyAsync(w => w.Word == "leader", Ct));
+    }
+
+    [Fact]
+    public async Task Expansion_DeletedManagedDestination_ReusesStagedCandidatesWithoutAnotherRequest()
+    {
+        await using var f = await Fixture.Create();
+        var destinations = new EnrichmentDestinationRepository(f.Db);
+        var original = (await destinations.EnsureAsync("missing", f.Clock.Now, Ct)).BookId!;
+        var task = await f.Ensure(ExpansionKey);
+        var guard = (await f.Tasks.ClaimAsync(task.Id, "crashed", f.Clock.Now, f.Clock.Now + 1000, Ct))!;
+        await f.Tasks.BeginCallAsync(guard, Guid.NewGuid().ToString(), "text", null, f.Clock.Now, Ct);
+        await f.Tasks.SavePlanAsync(guard, new("lead", null, null, null,
+            Expansion: new("captured-model", original, [Candidate()])), f.Clock.Now, Ct);
+        await f.Db.VocabularyBooks.Where(b => b.Id == original).ExecuteDeleteAsync(Ct);
+        var replacement = (await destinations.EnsureAsync("missing", f.Clock.Now, Ct)).BookId!;
+        f.Clock.Now += 1001;
+        var handler = new ExpansionHandler([]); using var http = new HttpFactory(handler);
+        var result = (await Expansion(f, f.Db, http, "missing", destinations).ExecuteAsync(task, "restart", Ct))!;
+        Assert.Equal(EnrichmentState.Succeeded, Round(result).State); Assert.Equal(0, handler.Calls);
+        var generated = await f.Db.Vocabularies.SingleAsync(w => w.Word == "leader", Ct);
+        Assert.Equal(replacement, (await f.Db.VocabularyMeanings.SingleAsync(m => m.VocabularyId == generated.Id, Ct)).BookId);
+        Assert.Equal(original, Round(result).Plan!.Expansion!.BookId);
     }
 
     [Fact]

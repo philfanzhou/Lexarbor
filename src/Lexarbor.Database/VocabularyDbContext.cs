@@ -74,6 +74,7 @@ public class VocabularyDbContext : DbContext
     public DbSet<EnrichmentRoundEntity> EnrichmentRounds { get; set; } = null!;
     public DbSet<EnrichmentWaitEntity> EnrichmentWaits { get; set; } = null!;
     public DbSet<EnrichmentCallEntity> EnrichmentCalls { get; set; } = null!;
+    public DbSet<EnrichmentDestinationEntity> EnrichmentDestinations { get; set; } = null!;
     public DbSet<EnrichmentDiscoveryEntity> EnrichmentDiscovery { get; set; } = null!;
     public DbSet<EnrichmentServiceEntity> EnrichmentServices { get; set; } = null!;
     public DbSet<EnrichmentServiceProbeEntity> EnrichmentServiceProbes { get; set; } = null!;

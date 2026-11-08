@@ -61,6 +61,8 @@ internal static class EnrichmentModelConfiguration
         call.Property(row => row.Result).HasConversion<string>();
         call.HasOne<EnrichmentRoundEntity>().WithMany().HasForeignKey(row => new { row.TargetId, row.Round }).OnDelete(DeleteBehavior.Cascade);
         call.HasIndex(row => new { row.TargetId, row.Round }).IsUnique().HasFilter("result = 'Started'");
+        call.HasIndex(row => new { row.Service, row.Result, row.FinishedAtUnixMs });
+        call.HasIndex(row => new { row.Result, row.FinishedAtUnixMs });
         call.HasIndex(row => row.UploadIdempotencyKey).IsUnique().HasFilter("upload_idempotency_key IS NOT NULL");
         var wait = builder.Entity<EnrichmentWaitEntity>();
         wait.ToTable("enrichment_wait", table =>
@@ -73,6 +75,9 @@ internal static class EnrichmentModelConfiguration
         wait.HasOne<EnrichmentRoundEntity>().WithMany().HasForeignKey(row => new { row.TargetId, row.Round }).OnDelete(DeleteBehavior.Cascade);
         var discovery = builder.Entity<EnrichmentDiscoveryEntity>();
         discovery.ToTable("enrichment_discovery"); discovery.HasKey(row => row.Id);
+        var destination = builder.Entity<EnrichmentDestinationEntity>();
+        destination.ToTable("enrichment_destination"); destination.HasKey(row => row.Id);
+        destination.HasOne<VocabularyBookEntity>().WithMany().HasForeignKey(row => row.BookId).OnDelete(DeleteBehavior.SetNull);
         var service = builder.Entity<EnrichmentServiceEntity>();
         service.ToTable("enrichment_service", table =>
         {
@@ -86,7 +91,7 @@ internal static class EnrichmentModelConfiguration
         probe.HasKey(row => row.Id);
         probe.HasOne<EnrichmentServiceEntity>().WithMany().HasForeignKey(row => row.ServiceId).OnDelete(DeleteBehavior.Cascade);
         probe.HasIndex(row => new { row.ServiceId, row.StartedAtUnixMs });
-        foreach (var entity in new[] { target.Metadata, round.Metadata, call.Metadata, wait.Metadata, discovery.Metadata, service.Metadata, probe.Metadata, generated.Metadata, recovery.Metadata })
+        foreach (var entity in new[] { target.Metadata, round.Metadata, call.Metadata, wait.Metadata, discovery.Metadata, service.Metadata, probe.Metadata, generated.Metadata, recovery.Metadata, destination.Metadata })
             foreach (var property in entity.GetProperties())
                 property.SetColumnName(Regex.Replace(property.Name, "([a-z0-9])([A-Z])", "$1_$2").ToLowerInvariant());
     }

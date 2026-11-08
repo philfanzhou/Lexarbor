@@ -166,6 +166,7 @@ builder.Services.AddHttpClient(AiTextBatchClient.HttpClientName, client => clien
 builder.Services.AddSingleton<AiTextBatchClient>();
 builder.Services.AddScoped<IEnrichmentAdminConfigurationProvider, EnrichmentAdminConfigurationProvider>();
 builder.Services.AddScoped<IEnrichmentExecutionRepository, EnrichmentExecutionRepository>();
+builder.Services.AddScoped<IEnrichmentDestinationRepository, EnrichmentDestinationRepository>();
 builder.Services.AddScoped<IEnrichmentSchedulerRepository, EnrichmentSchedulerRepository>();
 builder.Services.AddScoped<EnrichmentServiceGate>();
 builder.Services.AddSingleton<EnrichmentNotifications>();

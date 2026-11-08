@@ -12,6 +12,8 @@ using Lexarbor.Host.Configuration;
 using Lexarbor.Service.Tests.TestInfrastructure;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -23,36 +25,59 @@ public sealed class EnrichmentEndToEndTests
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
     private const string EditRoute = "/admin/vocabulary-books/book/words/word/meanings/meaning";
 
-    [Fact]
-    public async Task ConfiguredModels_AutomaticallyExpandIntoSubmissionBook_AndFillNewWordAudio()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task LegacyDatabase_AutomaticallyPreparesDestination_ExpandsAndFillsAudio_AndRestartDoesNotRepeat(bool existingSupplement)
     {
         var root = VocabularyWebApplicationFactory.CreateGateSafeDirectory("expansion-e2e-" + Guid.NewGuid().ToString("N"));
         File.WriteAllText(Path.Combine(root, "appsettings.json"), "{}");
         using var network = new Network(false); var store = new Objects();
         try
         {
-            await using var host = new Host(root, network, store, expand: true);
-            await host.Seed();
-            using (var scope = host.App.Services.CreateScope())
+            // Persist real pre-expansion schema and catalog before the new Host takes over.
+            await using (var old = new VocabularyDbContext(new DbContextOptionsBuilder<VocabularyDbContext>()
+                .UseSqlite($"Data Source={Path.Combine(root, "vocabulary.db")};Pooling=False").Options))
             {
-                var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
-                db.VocabularyBooks.Add(new() { Id = "supplement", BookName = "Submission supplement", Status = true });
-                await db.SaveChangesAsync(Ct);
+                await old.GetService<IMigrator>().MigrateAsync("20261102063605_AddMeaningSubmissionReviewChecks", Ct);
+                old.VocabularyBooks.Add(new() { Id = "book", BookName = "Fixture", Status = true });
+                if (existingSupplement) old.VocabularyBooks.Add(new() { Id = "supplement", BookName = "Submission supplement", Status = true });
+                old.Vocabularies.Add(new() { Id = "word", Word = "lead" });
+                old.VocabularyMeanings.Add(new() { Id = "meaning", BookId = "book", VocabularyId = "word", Meaning = "guide" });
+                old.VocabularyBookUnits.Add(new() { Id = "unit", BookId = "book", Number = 1 });
+                old.VocabularyMeaningUnits.Add(new() { UnitId = "unit", BookId = "book", MeaningId = "meaning", EntryKind = "word" });
+                await old.SaveChangesAsync(Ct);
             }
-            // No enable switches: model configuration alone starts the shared worker.
-            await host.Configure(false);
-            await Eventually(async () => await host.Bindings() == 4);
-            using var verification = host.App.Services.CreateScope();
-            var catalog = verification.ServiceProvider.GetRequiredService<VocabularyDbContext>();
-            var generated = await catalog.Vocabularies.SingleAsync(w => w.Word == "leader", Ct);
-            Assert.Equal("supplement", (await catalog.VocabularyMeanings.SingleAsync(m => m.VocabularyId == generated.Id, Ct)).BookId);
-            Assert.Equal(1, await catalog.VocabularyMeanings.CountAsync(m => m.BookId == "book", Ct));
-            Assert.NotNull(generated.PhoneticUk); Assert.NotNull(generated.PhoneticUs);
-            Assert.True(await catalog.VocabularyRelations.AnyAsync(r => r.SourceWordId == "word" && r.TargetWordId == generated.Id && r.OriginKind == "generated", Ct));
-            Assert.False(await catalog.EnrichmentTargets.AnyAsync(t => t.WordId == generated.Id && t.Step == EnrichmentStep.Expand, Ct));
-            var status = await host.Data("/admin/enrichment/tasks?step=Expand");
-            Assert.Equal(1, status["totalCount"]!.GetValue<int>());
-            Assert.Null(status["items"]![0]!["locale"]);
+            var host = new Host(root, network, store, expand: true);
+            await using (host)
+            {
+                // No enable switches: model configuration alone starts the shared worker.
+                await host.Configure(false, scanInterval: 30, discoveryBatchSize: 1);
+                await Eventually(async () => await host.Bindings() == 4);
+                using var verification = host.App.Services.CreateScope();
+                var catalog = verification.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+                var generated = await catalog.Vocabularies.SingleAsync(w => w.Word == "leader", Ct);
+                var destination = await catalog.VocabularyMeanings.SingleAsync(m => m.VocabularyId == generated.Id, Ct);
+                if (existingSupplement) Assert.Equal("supplement", destination.BookId);
+                else Assert.Equal(destination.BookId, (await catalog.EnrichmentDestinations.SingleAsync(Ct)).BookId);
+                Assert.Equal("supplement", host.App.Services.GetRequiredService<MeaningSubmissionSettings>().BookId);
+                Assert.Equal(1, await catalog.VocabularyMeanings.CountAsync(m => m.BookId == "book", Ct));
+                Assert.NotNull(generated.PhoneticUk); Assert.NotNull(generated.PhoneticUs);
+                Assert.True(await catalog.VocabularyRelations.AnyAsync(r => r.SourceWordId == "word" && r.TargetWordId == generated.Id && r.OriginKind == "generated", Ct));
+                Assert.False(await catalog.EnrichmentTargets.AnyAsync(t => t.WordId == generated.Id && t.Step == EnrichmentStep.Expand, Ct));
+                var status = await host.Data("/admin/enrichment/tasks?step=Expand");
+                Assert.Equal(1, status["totalCount"]!.GetValue<int>());
+                Assert.Null(status["items"]![0]!["locale"]);
+                await Eventually(async () => (await host.Data("/admin/enrichment/summary"))["discovery"]!["initialCompleted"]!.GetValue<bool>());
+            }
+            var requests = network.Requests.Count;
+            await using var restarted = new Host(root, network, store, expand: true);
+            await Task.Delay(1500, Ct);
+            Assert.Equal(4, await restarted.Bindings()); Assert.Equal(requests, network.Requests.Count);
+            using var restartedScope = restarted.App.Services.CreateScope();
+            var restartedDb = restartedScope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+            Assert.Equal(2, await restartedDb.VocabularyBooks.CountAsync(Ct));
+            Assert.Equal(existingSupplement ? 0 : 1, await restartedDb.EnrichmentDestinations.CountAsync(Ct));
         }
         finally { Directory.Delete(root, true); }
     }
@@ -241,16 +266,19 @@ public sealed class EnrichmentEndToEndTests
             using var scope = App.Services.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
             db.VocabularyBooks.Add(new() { Id = "book", BookName = "Fixture", Status = true });
             db.Vocabularies.Add(new() { Id = "word", Word = "lead" });
+            // This fixture isolates pronunciation; the legacy takeover theory covers expansion.
+            db.EnrichmentGeneratedWords.Add(new() { WordId = "word", TaskId = "fixture" });
             db.VocabularyMeanings.Add(new() { Id = "meaning", BookId = "book", VocabularyId = "word", Meaning = "guide" });
             db.VocabularyBookUnits.Add(new() { Id = "unit", BookId = "book", Number = 1 });
             db.VocabularyMeaningUnits.Add(new() { UnitId = "unit", BookId = "book", MeaningId = "meaning", EntryKind = "word" });
             await db.SaveChangesAsync(Ct);
         }
-        public Task Configure(bool native, string? model = null) => Settings(new
+        public Task Configure(bool native, string? model = null, int scanInterval = 1, int discoveryBatchSize = 20) => Settings(new
         {
             enrichment = new
             {
-                scanIntervalSeconds = 1,
+                scanIntervalSeconds = scanInterval,
+                discoveryBatchSize,
                 text = new { endpoint = "https://planner.example.test/v1", model = "fixture", apiKey = new { action = "replace", value = "synthetic-planner" } },
                 tts = new
                 {

@@ -70,7 +70,7 @@ public sealed class AudioInvalidationMigrationTests
     private static async Task<string> Capture(AudioTestDatabase file)
     {
         var data = new List<object?>();
-        foreach (var row in await file.RowsAsync("SELECT name FROM sqlite_master WHERE type='table' AND name != '__EFMigrationsHistory' AND name NOT IN ('ai_request_batch_policy','enrichment_recovery','ai_request_batch','ai_request_batch_member','enrichment_service_lease','audio_invalidation','meaning_phonetic_epoch','enrichment_discovery','enrichment_service','enrichment_service_probe','meaning_submission_ai_review','meaning_submission_auto_review','meaning_submission_review_check','vocabulary_relation','enrichment_generated_word') ORDER BY name"))
+        foreach (var row in await file.RowsAsync("SELECT name FROM sqlite_master WHERE type='table' AND name != '__EFMigrationsHistory' AND name NOT IN ('ai_request_batch_policy','enrichment_recovery','enrichment_destination','ai_request_batch','ai_request_batch_member','enrichment_service_lease','audio_invalidation','meaning_phonetic_epoch','enrichment_discovery','enrichment_service','enrichment_service_probe','meaning_submission_ai_review','meaning_submission_auto_review','meaning_submission_review_check','vocabulary_relation','enrichment_generated_word') ORDER BY name"))
         {
             var table = (string)((object?[])row!)[0]!; var quoted = '"' + table.Replace("\"", "\"\"") + '"';
             var projection = await file.PreEpochColumnsAsync(table);

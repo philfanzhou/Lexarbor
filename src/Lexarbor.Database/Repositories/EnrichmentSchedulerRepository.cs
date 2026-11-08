@@ -22,10 +22,26 @@ public sealed partial class EnrichmentSchedulerRepository(VocabularyDbContext co
                 wordCursor.UpperBound = await context.Vocabularies.OrderByDescending(w => w.Id).Select(w => w.Id).FirstOrDefaultAsync() ?? "";
             if (meaningCursor.UpperBound.Length == 0)
                 meaningCursor.UpperBound = await context.VocabularyMeanings.OrderByDescending(m => m.Id).Select(m => m.Id).FirstOrDefaultAsync() ?? "";
+            if (!wordCursor.InitialCompleted && wordCursor.InitialTotal == 0)
+                wordCursor.InitialTotal = await context.Vocabularies.CountAsync(w => w.Id.CompareTo(wordCursor.UpperBound) <= 0);
+            if (!meaningCursor.InitialCompleted && meaningCursor.InitialTotal == 0)
+                meaningCursor.InitialTotal = await context.VocabularyMeanings.CountAsync(m => m.Id.CompareTo(meaningCursor.UpperBound) <= 0);
             var words = await context.Vocabularies.AsNoTracking().Where(w => w.Id.CompareTo(wordCursor.Cursor) > 0 && w.Id.CompareTo(wordCursor.UpperBound) <= 0)
                 .OrderBy(w => w.Id).Select(w => w.Id).Take(batchSize).ToArrayAsync();
             var meanings = await context.VocabularyMeanings.AsNoTracking().Where(m => m.Id.CompareTo(meaningCursor.Cursor) > 0 && m.Id.CompareTo(meaningCursor.UpperBound) <= 0)
                 .OrderBy(m => m.Id).Select(m => m.Id).Take(batchSize).ToArrayAsync();
+            if (!wordCursor.InitialCompleted)
+            {
+                wordCursor.InitialScanned += words.Length;
+                wordCursor.InitialTotal = Math.Max(wordCursor.InitialTotal, wordCursor.InitialScanned);
+                wordCursor.InitialCompleted = words.Length < batchSize;
+            }
+            if (!meaningCursor.InitialCompleted)
+            {
+                meaningCursor.InitialScanned += meanings.Length;
+                meaningCursor.InitialTotal = Math.Max(meaningCursor.InitialTotal, meaningCursor.InitialScanned);
+                meaningCursor.InitialCompleted = meanings.Length < batchSize;
+            }
             wordCursor.Cursor = words.LastOrDefault() ?? "";
             meaningCursor.Cursor = meanings.LastOrDefault() ?? "";
             if (words.Length == 0) wordCursor.UpperBound = "";
@@ -47,6 +63,14 @@ public sealed partial class EnrichmentSchedulerRepository(VocabularyDbContext co
             context.Entry(wordCursor).State = EntityState.Detached; context.Entry(meaningCursor).State = EntityState.Detached;
             return result.ToArray();
         }, token);
+    }
+
+    public async Task<EnrichmentDiscoveryProgress?> DiscoveryProgressAsync(CancellationToken token)
+    {
+        var rows = await context.EnrichmentDiscovery.AsNoTracking().Where(d => d.Id == "words" || d.Id == "meanings").ToArrayAsync(token);
+        var words = rows.SingleOrDefault(d => d.Id == "words"); var meanings = rows.SingleOrDefault(d => d.Id == "meanings");
+        return new(words?.InitialScanned ?? 0, words?.InitialTotal ?? 0, meanings?.InitialScanned ?? 0,
+            meanings?.InitialTotal ?? 0, words?.InitialCompleted == true && meanings?.InitialCompleted == true);
     }
 
     private async Task<EnrichmentDiscoveryEntity> CursorAsync(string id)

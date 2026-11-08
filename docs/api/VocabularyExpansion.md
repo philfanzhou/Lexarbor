@@ -62,3 +62,14 @@ the task rather than publishing partial content.
 The model connection remains server-only. Existing administrator authorization and
 CSRF rules protect settings and retry; no new public write or model execution API
 is introduced. See [deployment and rollback](../development/Deployment.md#vocabulary-expansion-and-model-driven-activation-upgrade).
+
+
+## Automatic destination preparation
+
+Expansion first reuses the configured submission supplement when that book exists.
+If it is absent or unset, the background worker automatically prepares a dedicated
+`AI Vocabulary Supplement`, identified by a durable ownership record, not its name.
+This does not change submission settings or redirect submission approval. Disabled
+configured or managed books remain disabled and pause expansion globally. A deleted
+managed book can be replaced automatically. Restart does not create duplicate books
+or reset successful expansion tasks. Read-only administration never creates books.

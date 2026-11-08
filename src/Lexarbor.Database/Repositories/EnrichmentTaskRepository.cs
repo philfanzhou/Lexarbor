@@ -481,6 +481,12 @@ public sealed partial class EnrichmentTaskRepository(VocabularyDbContext context
 
     private async Task AddWaitAsync(string targetId, int round, EnrichmentWaitReason reason, string? code, long now, long next)
     {
+        if (reason is EnrichmentWaitReason.ConfigurationMissing or EnrichmentWaitReason.StorageDisabled or EnrichmentWaitReason.Disabled)
+        {
+            var previous = await context.EnrichmentWaits.AsNoTracking().Where(w => w.TargetId == targetId && w.Round == round)
+                .OrderByDescending(w => w.RecordedAtUnixMs).ThenByDescending(w => w.Id).FirstOrDefaultAsync();
+            if (previous?.Reason == reason && previous.ErrorCode == code) return;
+        }
         var wait = new EnrichmentWaitEntity
         {
             Id = Guid.NewGuid().ToString(),

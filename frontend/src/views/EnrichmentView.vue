@@ -174,6 +174,9 @@ onBeforeUnmount(() => { stop(); document.removeEventListener('visibilitychange',
     <p v-if="summaryError" class="notice error" role="alert">{{ summaryError }}</p>
     <section v-if="summary" aria-label="当前需求与服务" class="overview">
       <div class="section-heading"><h2>当前词汇范围</h2><span class="muted">按单词搜索、口音及精确定位统计，不随任务状态筛选变化</span></div>
+      <p v-if="summary.discovery" class="muted" aria-label="历史扫描进度">{{ summary.discovery.initialCompleted ? '首次历史扫描已完成，后台持续检查新增和变更。' : !summary.discovery.wordsTotal && !summary.discovery.meaningsTotal ? '历史扫描尚未开始，文本配置就绪后自动进行。' : '首次接管历史数据，正在分批发现任务。' }} 已扫描单词 {{ summary.discovery.wordsScanned }} / {{ summary.discovery.wordsTotal }}，释义 {{ summary.discovery.meaningsScanned }} / {{ summary.discovery.meaningsTotal }}。扫描完成不代表 AI 已处理完毕。</p>
+      <p v-if="summary.destination" class="muted" aria-label="扩词目标词书">扩词目标词书：{{ summary.destination.state === 'Disabled' ? '已停用，扩词暂停；启用后自动继续。' : summary.destination.state === 'Missing' ? '尚未就绪，文本配置就绪后后台自动准备。' : summary.destination.managed ? '程序管理的补充词书已就绪。' : '指定词书已就绪。' }}<RouterLink to="/books">查看词书</RouterLink></p>
+      <p v-if="summary.execution" class="muted" aria-label="语音请求统计">语音模型实际请求 {{ summary.execution.speechRequests }} 次，成功 {{ summary.execution.speechSucceeded }} 次；最近一次模型请求成功：{{ time(summary.execution.lastSucceededAtUnixMs) }}。已有音频直接沿用，无需重新生成。</p>
       <div class="activities">
         <article v-for="activity in summary.activities" :key="activity.step" class="activity" :class="{ chosen: filters.step === activity.step }" :aria-label="activityLabels[activity.step]">
           <div class="section-heading"><h3>{{ activityLabels[activity.step] }}</h3><span class="badge" :class="activity.actionRequired || activity.missingRequirements.length ? 'attention' : activity.total && activity.completed === activity.total ? 'success' : 'neutral'">{{ activity.missingRequirements.length ? '配置未就绪' : activity.actionRequired ? '需要处理' : !activity.total ? '暂无目标' : activity.completed === activity.total ? '已完成' : '后台自动处理' }}</span></div>
@@ -182,7 +185,7 @@ onBeforeUnmount(() => { stop(); document.removeEventListener('visibilitychange',
           <progress v-if="activity.total" :value="activity.completed" :max="activity.total" :aria-label="`${activityLabels[activity.step]}完成进度`" />
           <p v-if="activity.total" class="muted">待完善 {{ activity.total - activity.completed }}<span v-if="activity.actionRequired"> · 需要处理 {{ activity.actionRequired }}</span><span v-if="activity.unqueued"> · 待扫描排队 {{ activity.unqueued }}</span></p>
           <p v-else class="muted">当前范围没有适用词汇。</p>
-          <ul v-if="activity.missingRequirements.length" class="requirements"><li v-for="requirement in activity.missingRequirements" :key="requirement"><RouterLink :to="requirementLinks[requirement] ?? '/settings/text'">{{ requirementLabels[requirement] }}</RouterLink><span v-if="requirement === 'supplement'">：复用投稿的补充词书，请确认已配置并启用</span></li></ul>
+          <ul v-if="activity.missingRequirements.length" class="requirements"><li v-for="requirement in activity.missingRequirements" :key="requirement"><RouterLink :to="requirementLinks[requirement] ?? '/settings/text'">{{ requirementLabels[requirement] }}</RouterLink><span v-if="requirement === 'supplement'">：后台会自动准备缺失的补充词书；已停用的词书需重新启用</span></li></ul>
           <button class="text-button" :aria-pressed="filters.step === activity.step" :disabled="mutating || !!pending" @click="focusStep(activity.step)">{{ filters.step === activity.step ? '显示全部任务' : '查看相关任务' }}</button>
         </article>
       </div>

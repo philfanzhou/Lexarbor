@@ -437,3 +437,23 @@ test('已确认的短语字段不显示为未完成或需要重试', async ({ pa
   await expect(region).toContainText('读音生成单独继续')
   await expect(region.getByRole('button', { name: /重试此失败步骤/ })).toHaveCount(0)
 })
+
+test('旧库接管显示扫描进度、自动目标词书和真实请求，停用状态明确可见', async ({ page }) => {
+  await setup(page)
+  const current = { ...summary(),
+    discovery: { wordsScanned: 620, wordsTotal: 2150, meaningsScanned: 620, meaningsTotal: 2537, initialCompleted: false },
+    destination: { state: 'Ready', managed: true },
+    execution: { speechRequests: 0, speechSucceeded: 0, lastSucceededAtUnixMs: now }
+  }
+  await page.route(/\/admin\/enrichment\/summary(?:\?.*)?$/, route => json(route, current))
+  await page.goto('/#/enrichment')
+  await expect(page.getByLabel('历史扫描进度')).toContainText('620 / 2150')
+  await expect(page.getByLabel('历史扫描进度')).toContainText('扫描完成不代表 AI 已处理完毕')
+  await expect(page.getByLabel('扩词目标词书')).toContainText('程序管理的补充词书已就绪')
+  await expect(page.getByLabel('语音请求统计')).toContainText('实际请求 0 次')
+  await expect(page.getByLabel('语音请求统计')).toContainText('已有音频直接沿用')
+  current.destination.state = 'Disabled'; current.discovery.initialCompleted = true
+  await page.getByRole('button', { name: '刷新状态', exact: true }).click()
+  await expect(page.getByLabel('扩词目标词书')).toContainText('已停用，扩词暂停')
+  await expect(page.getByLabel('历史扫描进度')).toContainText('首次历史扫描已完成')
+})

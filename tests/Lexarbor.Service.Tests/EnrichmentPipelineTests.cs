@@ -208,10 +208,36 @@ public sealed partial class EnrichmentTargetExecutorTests
         Assert.True((await scheduler.ServiceAsync(a.ServiceId, Ct))!.NextAttemptAtUnixMs >= f.Clock.Now + 30000);
     }
 
-    private static ServiceProvider PipelineProvider(Fixture f, IHttpClientFactory clients, bool publishExpansion = false)
+    [Fact]
+    public async Task Worker_DisabledDestinationDoesNotPollEachTask_AndEnableResumesAutomatically()
+    {
+        await using var f = await Fixture.Create(fields: false, shared: true);
+        f.Operations.Enabled = false;
+        await f.Db.VocabularyBooks.ExecuteUpdateAsync(s => s.SetProperty(b => b.Status, false), Ct);
+        var expansion = await f.Ensure(ExpansionKey);
+        using var handler = new BatchHandler(false); using var clients = new HttpFactory(handler);
+        await using var provider = PipelineProvider(f, clients, publishExpansion: true, manageDestination: true);
+        using var worker = new EnrichmentWorker(provider.GetRequiredService<IServiceScopeFactory>(), f.Runtime, new(), f.Clock,
+            NullLogger<EnrichmentWorker>.Instance);
+        for (var i = 0; i < 5; i++) { await worker.RunBatchAsync(Ct); f.Clock.Now += 30000; }
+        Assert.Equal(0, handler.Calls);
+        Assert.Empty(await f.Db.EnrichmentWaits.Where(w => w.TargetId == expansion.Id).ToArrayAsync(Ct));
+        Assert.Empty(await f.Db.EnrichmentCalls.Where(c => c.TargetId == expansion.Id).ToArrayAsync(Ct));
+        await f.Db.VocabularyBooks.ExecuteUpdateAsync(s => s.SetProperty(b => b.Status, true), Ct);
+        await worker.RunBatchAsync(Ct);
+        Assert.Equal(EnrichmentState.Succeeded, Round((await f.Tasks.GetAsync(expansion.Id, Ct))!).State);
+        Assert.Equal(1, handler.Calls);
+    }
+
+    private static ServiceProvider PipelineProvider(Fixture f, IHttpClientFactory clients, bool publishExpansion = false, bool manageDestination = false)
     {
         var services = new ServiceCollection();
         services.AddScoped(_ => f.Open());
+        if (manageDestination)
+        {
+            services.AddSingleton(new MeaningSubmissionSettings { BookId = "book" });
+            services.AddScoped<IEnrichmentDestinationRepository, EnrichmentDestinationRepository>();
+        }
         services.AddScoped(p => new EnrichmentTaskRepository(p.GetRequiredService<VocabularyDbContext>(), f.Clock));
         services.AddScoped<IEnrichmentTaskRepository>(p => p.GetRequiredService<EnrichmentTaskRepository>());
         services.AddScoped<IEnrichmentSchedulerRepository>(p => new EnrichmentSchedulerRepository(p.GetRequiredService<VocabularyDbContext>(), p.GetRequiredService<EnrichmentTaskRepository>()));
