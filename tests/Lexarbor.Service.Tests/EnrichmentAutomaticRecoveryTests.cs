@@ -123,6 +123,27 @@ public sealed partial class EnrichmentTargetExecutorTests
         Assert.Equal(EnrichmentState.Succeeded, Round((await f.Executor.ExecuteAsync(local.Id, "recovered", Ct))!).State);
         Assert.Equal(1, f.Http.TextCalls); Assert.Equal(1, f.Http.SpeechCalls);
         Assert.Single((await f.Tasks.GetAsync(audio.Id, Ct))!.Rounds);
+        var prepare = await f.Ensure(Key(EnrichmentStep.Prepare));
+        await FailLocally(f, prepare, "text.invalid_plan");
+        Assert.Equal(1, await f.Tasks.RecoverAsync(5, [], config, f.Clock.Now, Ct));
+        Assert.Single((await f.Tasks.GetAsync(audio.Id, Ct))!.Rounds); // recovering preparation cannot revive a provider rejection
+    }
+
+    [Fact]
+    public async Task AutomaticRecovery_LocalAudioWaitsForBlockedTextCredentialsToBeCorrected()
+    {
+        await using var f = await Fixture.Create(fields: false);
+        var audio = await f.Ensure(Key());
+        await FailLocally(f, audio, "tts.capability_unsupported");
+        var gate = new Lexarbor.Host.EnrichmentServiceGate(new EnrichmentSchedulerRepository(f.Db, f.Tasks), f.Runtime, f.Clock);
+        var admission = await gate.EnterAsync("text", false, Ct);
+        await gate.FinishAsync(admission, "Rejected", "credentials_rejected", true, null, Ct);
+        var configuration = await AdminConfig(f);
+        Assert.Equal(0, await f.Tasks.RecoverAsync(5, [], configuration, f.Clock.Now, Ct));
+        var detail = (await new EnrichmentAdminRepository(f.Db).DetailAsync(audio.Id, 1, 10, configuration, f.Clock.Now, Ct))!;
+        Assert.False(detail.Task.AutomaticRecoveryAvailable);
+        Assert.Single((await f.Tasks.GetAsync(audio.Id, Ct))!.Rounds);
+        Assert.Equal(0, f.Http.TextCalls); Assert.Equal(0, f.Http.SpeechCalls);
     }
 
     [Fact]

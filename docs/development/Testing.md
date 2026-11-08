@@ -807,3 +807,6 @@ repeated startup and native-column-drop downgrade without call/wait loss. Browse
 checks cover automatic recovery queued/waiting/exhausted states, manual retry only
 after recovery stops, unnecessary phrase fields and compatibility with absent
 additive metadata.
+
+The automatic recovery writer rechecks demand for one indexed word, verified with
+SQLite query plans; whole-catalog recovery selection stays outside that writer.

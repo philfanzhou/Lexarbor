@@ -11,7 +11,7 @@ namespace Lexarbor.Database.Repositories;
 internal static class EnrichmentAdminQueries
 {
     // Match String.IsNullOrWhiteSpace for persisted legacy whitespace too.
-    private const string DemandCte = """
+    private static string DemandCte(bool scoped) => $$"""
         WITH locales(locale) AS (VALUES ('en-GB'), ('en-US')),
         defaults AS (
           SELECT w.id AS word_id, w.word, l.locale,
@@ -20,7 +20,7 @@ internal static class EnrichmentAdminQueries
             (trim(coalesce(CASE l.locale WHEN 'en-GB' THEN w.phonetic_uk ELSE w.phonetic_us END,''),char(9,10,11,12,13,32,133,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288))='' OR
               EXISTS (SELECT 1 FROM vocabulary_meaning m WHERE m.vocabulary_id=w.id AND trim(coalesce(m.part_of_speech,''),char(9,10,11,12,13,32,133,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288))=''
                 AND NOT EXISTS (SELECT 1 FROM vocabulary_meaning_unit p WHERE p.meaning_id=m.id AND p.entry_kind='phrase'))) AS fields_missing
-          FROM vocabulary w CROSS JOIN locales l
+          FROM vocabulary w CROSS JOIN locales l {{(scoped ? "WHERE w.id=@demandWord" : "")}}
         ), demands AS (
           SELECT word_id, word, NULL AS meaning_id, NULL AS meaning, locale, 'Fields' AS step, fields_missing AS missing
           FROM defaults d WHERE fields_applicable AND NOT EXISTS (
@@ -36,6 +36,7 @@ internal static class EnrichmentAdminQueries
             (SELECT 1 FROM vocabulary_audio_binding b WHERE b.word_id=m.vocabulary_id AND b.meaning_id=m.id AND b.locale=l.locale)
           FROM vocabulary_meaning m JOIN vocabulary w ON w.id=m.vocabulary_id CROSS JOIN locales l
           WHERE trim(coalesce(CASE l.locale WHEN 'en-GB' THEN m.phonetic_uk ELSE m.phonetic_us END,''),char(9,10,11,12,13,32,133,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288))!=''
+            {{(scoped ? "AND w.id=@demandWord" : "")}}
           UNION ALL
           SELECT m.vocabulary_id,w.word,m.id,m.meaning,NULL,'Expand',NOT EXISTS
             (SELECT 1 FROM enrichment_target t JOIN enrichment_round r ON r.target_id=t.id AND r.number=t.current_round
@@ -43,6 +44,7 @@ internal static class EnrichmentAdminQueries
           FROM vocabulary_meaning m JOIN vocabulary w ON w.id=m.vocabulary_id
           WHERE NOT EXISTS (SELECT 1 FROM enrichment_generated_word g WHERE g.word_id=w.id)
             AND NOT EXISTS (SELECT 1 FROM vocabulary_meaning_unit p WHERE p.meaning_id=m.id AND p.entry_kind='phrase')
+            {{(scoped ? "AND w.id=@demandWord" : "")}}
         )
         """;
     private const string RoundColumns = """
@@ -68,7 +70,8 @@ internal static class EnrichmentAdminQueries
         coalesce(r.created_at_unix_ms,0) AS CreatedAtUnixMs, coalesce(r.updated_at_unix_ms,0) AS UpdatedAtUnixMs
         """;
 
-    internal static IQueryable<EnrichmentAdminRow> Rows(VocabularyDbContext context, EnrichmentAdminConfiguration c, long now, bool tasks)
+    internal static IQueryable<EnrichmentAdminRow> Rows(VocabularyDbContext context, EnrichmentAdminConfiguration c, long now, bool tasks,
+        string? wordId = null)
     {
         // Split default/specific lookups so SQLite can use the partial unique
         // indexes. A null-safe multi-column join can choose an automatic index
@@ -97,13 +100,14 @@ internal static class EnrichmentAdminQueries
                   AND matched.locale IS d.locale AND matched.step=d.step AND NOT matched.deleted) END
             LEFT JOIN enrichment_round r ON r.target_id=t.id AND r.number=t.current_round
             """;
-        var sql = DemandCte + ", source AS (" + source + """
+        var sql = DemandCte(wordId != null) + ", source AS (" + source + """
             ), availability AS (
               SELECT s.*,
                 CASE WHEN Step IN ('Fields','Expand') THEN @fields WHEN Step='Audio' OR MeaningId IS NOT NULL THEN @audio ELSE @fields OR @audio END AS Enabled,
                 CASE WHEN Step='Expand' THEN @prepare AND EXISTS (SELECT 1 FROM vocabulary_book b WHERE b.id=@book AND b.status) WHEN Step='Audio' THEN CASE Locale WHEN 'en-GB' THEN @uk ELSE @us END ELSE @prepare END AS Configured,
                 CASE WHEN Step IN ('Fields','Expand') OR Step='Prepare' AND MeaningId IS NULL AND @fields THEN 1 ELSE @storage END AS StorageReady,
                 CASE WHEN Step='Audio' THEN ts.blocked ELSE txt.blocked END AS Blocked,
+                coalesce(txt.blocked,0) OR Step='Audio' AND coalesce(ts.blocked,0) AS RecoveryBlocked,
                 CASE WHEN Step='Audio' THEN ts.paused ELSE txt.paused END AS Paused,
                 CASE WHEN Step='Audio' THEN ts.next_attempt_at_unix_ms ELSE txt.next_attempt_at_unix_ms END AS ServiceNext
               FROM source s
@@ -126,7 +130,7 @@ internal static class EnrichmentAdminQueries
               coalesce(Number,0) AS Number,RoundState,RequestCount,ConsumedFailures,FailureBudget,ErrorCode,CreatedAtUnixMs,UpdatedAtUnixMs,WaitReason,
               RecoveryId,ForceSingle,FieldsNotRequired,
               coalesce(AutomaticRecoveryAvailable,0) AND Applicable AND Missing AND Enabled AND Configured AND StorageReady
-                AND @prepare AND NOT coalesce(Blocked,0) AS AutomaticRecoveryAvailable,
+                AND @prepare AND NOT RecoveryBlocked AS AutomaticRecoveryAvailable,
               CASE WHEN NOT Applicable THEN 'Cancelled' WHEN NOT Missing THEN 'Succeeded' WHEN RoundState='Failed' THEN 'Failed'
                 WHEN WaitReason IS NOT NULL THEN 'Waiting' WHEN RoundState='Running' THEN 'Running' WHEN Step='Prepare' AND RoundState='Succeeded' THEN 'Succeeded' ELSE 'Pending' END AS State,
               CASE WHEN WaitReason IN ('ServicePaused','Throttled') AND ServiceNext>coalesce(StoredNext,0) THEN ServiceNext ELSE StoredNext END AS NextAttemptAtUnixMs
@@ -137,7 +141,7 @@ internal static class EnrichmentAdminQueries
             new SqliteParameter("@prepare",c.CanPrepare),new SqliteParameter("@storage",c.StorageEnabled),new SqliteParameter("@now",now),
             new SqliteParameter("@textId",c.TextServiceId),new SqliteParameter("@textVersion",c.TextServiceVersion),
             new SqliteParameter("@ttsId",c.TtsServiceId),new SqliteParameter("@ttsVersion",c.TtsServiceVersion),
-            new SqliteParameter("@recoveryErrors",JsonSerializer.Serialize(EnrichmentRecoveryPolicy.Errors))];
+            new SqliteParameter("@recoveryErrors",JsonSerializer.Serialize(EnrichmentRecoveryPolicy.Errors)),new SqliteParameter("@demandWord",wordId ?? "")];
         return context.Database.SqlQueryRaw<EnrichmentAdminRow>(sql, parameters);
     }
 }

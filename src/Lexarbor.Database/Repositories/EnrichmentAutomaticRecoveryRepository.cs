@@ -38,7 +38,9 @@ public sealed partial class EnrichmentTaskRepository
                            where t.WordId == target.WordId && r.State == EnrichmentState.Running
                     && r.LeaseExpiresAtUnixMs > now
                            select t.Id).AnyAsync()) return false;
-                var demand = await EnrichmentAdminQueries.Rows(context, configuration, now, true).SingleAsync(r => r.Id == target.Id);
+                // Recheck only this word under the writer; never build the
+                // entire catalog's demand set while blocking other writes.
+                var demand = await EnrichmentAdminQueries.Rows(context, configuration, now, true, target.WordId).SingleAsync(r => r.Id == target.Id);
                 if (!demand.AutomaticRecoveryAvailable) return false;
                 var key = Key(target);
                 if (key.Step == EnrichmentStep.Audio && (!configuration.AudioEnabled || !configuration.StorageEnabled
@@ -77,7 +79,8 @@ public sealed partial class EnrichmentTaskRepository
                         equals new { r.TargetId, r.Number }
                                             where !t.Deleted && t.WordId == key.WordId && t.MeaningId == key.MeaningId && t.Locale == key.Locale
                                                 && t.Step != EnrichmentStep.Prepare && r.State == EnrichmentState.Failed
-                                                && (r.ErrorCode == "preparation.failed" || r.ErrorCode == "tts.capability_unsupported" || r.ErrorCode == "tts.prepared_plan_required")
+                            && (r.ErrorCode == "preparation.failed" || r.RequestCount == 0
+                                && (r.ErrorCode == "tts.capability_unsupported" || r.ErrorCode == "tts.prepared_plan_required"))
                                             select t).ToArrayAsync();
                     foreach (var dependent in dependents) await Renew(Key(dependent));
                 }
