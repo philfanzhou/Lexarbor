@@ -224,7 +224,14 @@ public sealed partial class EnrichmentTargetExecutorTests
         Assert.Empty(await f.Db.EnrichmentWaits.Where(w => w.TargetId == expansion.Id).ToArrayAsync(Ct));
         Assert.Empty(await f.Db.EnrichmentCalls.Where(c => c.TargetId == expansion.Id).ToArrayAsync(Ct));
         await f.Db.VocabularyBooks.ExecuteUpdateAsync(s => s.SetProperty(b => b.Status, true), Ct);
-        await worker.RunBatchAsync(Ct);
+        // A bounded test sweep does not refill the planner after another lane
+        // completes. The hosted loop does; mirror that next refill without
+        // advancing time or waiting for another scan interval.
+        for (var refill = 0; refill < 3; refill++)
+        {
+            await worker.RunBatchAsync(Ct);
+            if (Round((await f.Tasks.GetAsync(expansion.Id, Ct))!).State == EnrichmentState.Succeeded) break;
+        }
         Assert.Equal(EnrichmentState.Succeeded, Round((await f.Tasks.GetAsync(expansion.Id, Ct))!).State);
         Assert.Equal(1, handler.Calls);
     }
