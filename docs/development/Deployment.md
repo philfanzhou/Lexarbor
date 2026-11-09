@@ -22,13 +22,7 @@ docker pull ghcr.io/philfanzhou/lexarbor:1.2.3
 
 Stable releases also update the `latest`, major, and major/minor tags. Pre-releases such as `v1.2.3-rc.1` publish only their full version tag.
 
-Pushes to `main` publish `edge`, which always points at the newest development build and never at a release:
-
-```bash
-docker pull ghcr.io/philfanzhou/lexarbor:edge
-```
-
-It passes the same CI the release images do, but it is unversioned and moves without notice, so it suits trying an unreleased change rather than running a deployment.
+Only tagged releases publish images. A push or merge to `main` runs the same CI but publishes nothing, so no moving or unversioned image name exists; [build the image](#build-the-image) locally when trying an unreleased change.
 
 Because `latest` and the major tags are repointed by later releases, ask the running container which version it actually is rather than relying on the tag it was pulled with. The version is written once at startup:
 
@@ -51,11 +45,11 @@ The signed-in administration header shows the same identity beside the `Lexarbor
 | `APP_REVISION` | `BuildRevision` | empty (reported as `unknown` in logs) |
 | `APP_CHANNEL` | `BuildChannel` | `development` |
 
-The release workflow provides the tag version (including prerelease suffixes), the checked-out commit, and `release`. Main builds keep `0.0.0-dev` but explicitly supply `edge` and their commit. Ordinary `dotnet` and Docker builds use `development` even when a local Git checkout exists. Explicit rebuilds can provide the three build arguments, or the corresponding `dotnet publish -p:Version=... -p:BuildRevision=... -p:BuildChannel=...` properties.
+The release workflow provides the tag version (including prerelease suffixes), the checked-out commit, and `release`. Ordinary `dotnet` and Docker builds use `development` even when a local Git checkout exists. Explicit rebuilds can provide the three build arguments, or the corresponding `dotnet publish -p:Version=... -p:BuildRevision=... -p:BuildChannel=...` properties.
 
 The Host reads its compiled assembly only: no runtime environment variable, persisted configuration, `.git`, Docker socket, or registry lookup is involved. Revision comes from its own metadata, never from the SDK's `+` suffix. Missing/blank versions become `unknown`; missing, duplicate, or invalid revisions become null (`unknown` in logs). Valid revisions are exactly 40 hexadecimal characters and normalize to lowercase. Missing, duplicate, or unrecognized channels fall back to `development`; the only accepted values are `release`, `edge`, and `development`. Each field falls back independently, and missing metadata does not prevent startup.
 
-Version and revision describe the application build, not the image digest. Moving `latest` and `edge` tags can change, and rebuilding one commit may produce a different image. Build inputs are declarations by the builder, not proof of authenticity or uncommitted changes; deploy trusted images. No version state is written to `/app/data`.
+Version and revision describe the application build, not the image digest. Moving `latest` and major tags can change, and rebuilding one commit may produce a different image. Build inputs are declarations by the builder, not proof of authenticity or uncommitted changes; deploy trusted images. No version state is written to `/app/data`.
 
 ## Start the container
 
