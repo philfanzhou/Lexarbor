@@ -26,6 +26,7 @@ public sealed partial class PronunciationSpeechTests
     [InlineData("anti-", "anti", "ˈæntaɪ")]
     [InlineData("-ness", "ness", "nəs")]
     [InlineData("EU-funded", "E U funded", "iː juː ˈfʌndɪd")]
+    [InlineData("I.M.Pei", "I M Pei", "ˌaɪ ɛm ˈpeɪ")]
     public async Task NativePunctuation_KeepsCatalogSpellingAndBindsIpaToExactlyTheSpokenText(string word, string spoken, string ipa)
     {
         foreach (var locale in new[] { AudioLocale.EnGb, AudioLocale.EnUs })
@@ -63,6 +64,18 @@ public sealed partial class PronunciationSpeechTests
             (await new OpenAiCompatiblePronunciationPreparationClient(f.Factory, f.Runtime).PrepareAsync(NotationRequest(word, null, AudioLocale.EnGb), Ct)).Outcome);
     }
 
+    [Fact]
+    public async Task ProposedDefaultPhonetic_AcceptsDottedInitialSplitBeforeFieldPublication()
+    {
+        using var f = new Fixture(true);
+        await f.Publish(new() { ["Enrichment:FieldsEnabled"] = "true" });
+        f.Handler.Respond = (_, _) => Task.FromResult(IpaCompletion("I M Pei", null, "ˌaɪ ɛm ˈpeɪ", "ˌaɪ ɛm ˈpeɪ", kind: "word"));
+        var result = await new OpenAiCompatiblePronunciationPreparationClient(f.Factory, f.Runtime).PrepareAsync(NotationRequest("I.M.Pei", null, AudioLocale.EnGb), Ct);
+        Assert.Equal(PronunciationPreparationOutcome.Ready, result.Outcome);
+        Assert.Equal("I M Pei", result.Plan!.Content.SpokenText);
+        Assert.Equal("ˌaɪ ɛm ˈpeɪ", result.Plan.Content.Phonetic);
+    }
+
     [Theory]
     [InlineData("U.S.", "U S")]
     [InlineData("well-known", "well known")]
@@ -71,6 +84,8 @@ public sealed partial class PronunciationSpeechTests
     [InlineData("anti-", "anti")]
     [InlineData("-ness", "ness")]
     [InlineData("non‑", "non")]
+    [InlineData("I.M.Pei", "I M Pei")]
+    [InlineData("J.R.R.Tolkien", "J R R Tolkien")]
     public void TypographyNormalization_IsDeterministicAndIdempotent(string source, string expected)
     {
         Assert.Equal(expected, PronunciationText.Normalize(source));
@@ -91,6 +106,7 @@ public sealed partial class EnrichmentTargetExecutorTests
     [InlineData("kms", "kilometers", "kɪˈlɑmətərz")]
     [InlineData("anti-", "anti", "ˈæntaɪ")]
     [InlineData("-ness", "ness", "nəs")]
+    [InlineData("I.M.Pei", "I M Pei", "ˌaɪ ɛm ˈpeɪ")]
     public async Task NewDefaultIpa_DoesNotInvalidateNormalizedSpeechAfterFieldsCommit(string source, string spoken, string ipa)
     {
         await using var f = await Fixture.Create(native: true);

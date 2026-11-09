@@ -567,8 +567,10 @@ required. The submission-review hint describes these enabled/disabled/waiting
 rules without enabling automatic AI review.
 
 Only a current failed, applicable and still-missing step offers explicit retry.
-It sends the observed `expectedRound` and one fresh UUID `retryKey` through the
-existing session/CSRF client. After an unknown response, GET reads the current
+A field step that stopped because preparation omitted a writable field candidate
+is retried once automatically with fresh preparation; only a repeated stop needs
+the administrator. An explicit retry sends the observed `expectedRound` and one
+fresh UUID `retryKey` through the existing session/CSRF client. After an unknown response, GET reads the current
 state before another action is possible. If it still shows the same failed round,
 the administrator may explicitly resend the retained request/key; the browser
 never silently creates a new retry action. Successful sides are not restarted.

@@ -1,5 +1,6 @@
 using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Models;
+using Lexarbor.Domain.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace Lexarbor.Service.Tests;
@@ -179,6 +180,86 @@ public sealed partial class EnrichmentTargetExecutorTests
         await FailLocally(f, task, "text.invalid_plan");
         Assert.Equal(1, await f.Tasks.RecoverAsync(5, [], await AdminConfig(f), f.Clock.Now, Ct));
         Assert.Equal(2, await f.Db.EnrichmentRecoveries.CountAsync(Ct));
+    }
+
+    [Fact]
+    public async Task AutomaticRecovery_FieldCandidateMissingReceivesOneFreshPreparation()
+    {
+        await using var f = await Fixture.Create();
+        f.Http.OmitPhonetic = true; f.Http.OmitPartsOfSpeech = true;
+        var fields = (await f.Run(Key(EnrichmentStep.Fields)))!;
+        Assert.Equal("fields.candidates_missing", Round(fields).ErrorCode);
+        var prepare = (await f.Ensure(Key(EnrichmentStep.Prepare)))!;
+        Assert.Equal(EnrichmentState.Succeeded, Round(prepare).State);
+        var config = await AdminConfig(f);
+        var admin = new EnrichmentAdminRepository(f.Db);
+        Assert.True((await admin.DetailAsync(fields.Id, 1, 10, config, f.Clock.Now, Ct))!.Task.AutomaticRecoveryAvailable);
+        Assert.Empty((await admin.ListAsync(new(AttentionOnly: true), config, f.Clock.Now, Ct)).Items);
+
+        Assert.Equal(1, await f.Tasks.RecoverAsync(5, [], config, f.Clock.Now, Ct));
+        fields = (await f.Tasks.GetAsync(fields.Id, Ct))!;
+        prepare = (await f.Tasks.GetAsync(prepare.Id, Ct))!;
+        Assert.Equal(2, fields.CurrentRound); Assert.NotNull(Round(fields).RecoveryId); Assert.True(Round(fields).ForceSingle);
+        Assert.Equal(2, prepare.CurrentRound); Assert.Null(Round(prepare).Plan); Assert.True(Round(prepare).ForceSingle);
+        Assert.Equal(0, await f.Tasks.RecoverAsync(5, [], config, f.Clock.Now, Ct));
+
+        f.Http.OmitPhonetic = false; f.Http.OmitPartsOfSpeech = false; f.Clock.Now += 1001;
+        fields = (await f.Executor.ExecuteAsync(fields.Id, "recovered", Ct))!;
+        Assert.Equal(EnrichmentState.Succeeded, Round(fields).State);
+        Assert.Equal("liːd", await f.Db.Vocabularies.Select(row => row.PhoneticUk).SingleAsync(Ct));
+        Assert.Equal(2, f.Http.TextCalls);
+    }
+
+    [Fact]
+    public async Task AutomaticRecovery_FieldCandidateMissingStopsAfterOneRetry()
+    {
+        await using var f = await Fixture.Create();
+        f.Http.OmitPhonetic = true; f.Http.OmitPartsOfSpeech = true;
+        var fields = (await f.Run(Key(EnrichmentStep.Fields)))!;
+        Assert.Equal("fields.candidates_missing", Round(fields).ErrorCode);
+        var config = await AdminConfig(f);
+        Assert.Equal(1, await f.Tasks.RecoverAsync(5, [], config, f.Clock.Now, Ct));
+        f.Clock.Now += 1001;
+        fields = (await f.Executor.ExecuteAsync(fields.Id, "recovered", Ct))!;
+        Assert.Equal(EnrichmentState.Failed, Round(fields).State);
+        Assert.Equal("fields.candidates_missing", Round(fields).ErrorCode);
+        Assert.Equal(2, fields.CurrentRound);
+        Assert.Equal(0, await f.Tasks.RecoverAsync(5, [], config, f.Clock.Now, Ct));
+        var admin = new EnrichmentAdminRepository(f.Db);
+        Assert.False((await admin.DetailAsync(fields.Id, 1, 10, config, f.Clock.Now, Ct))!.Task.AutomaticRecoveryAvailable);
+        Assert.Equal(fields.Id, Assert.Single((await admin.ListAsync(new(AttentionOnly: true), config, f.Clock.Now, Ct)).Items).Id);
+        Assert.Equal(2, f.Http.TextCalls);
+    }
+
+    [Fact]
+    public async Task AutomaticRecovery_NewStrategyAdmitsPreviousStrategyExhaustionOnce()
+    {
+        await using var f = await Fixture.Create();
+        var task = await f.Ensure(Key(EnrichmentStep.Prepare));
+        await FailLocally(f, task, "text.invalid_plan");
+        var old = Round(task);
+        var receipt = Guid.NewGuid().ToString();
+        f.Db.EnrichmentRecoveries.Add(new()
+        {
+            Id = receipt,
+            TargetId = task.Id,
+            InputRevision = old.Input.Revision,
+            ConfigurationVersion = old.ConfigurationVersion + ".repair-v2",
+            SourceRound = task.CurrentRound,
+            Reason = "text.invalid_plan",
+            CreatedAtUnixMs = f.Clock.Now
+        });
+        await f.Db.SaveChangesAsync(Ct); f.Db.ChangeTracker.Clear();
+        await f.Db.EnrichmentRounds.Where(r => r.TargetId == task.Id)
+            .ExecuteUpdateAsync(set => set.SetProperty(r => r.RecoveryId, receipt), Ct);
+        var config = await AdminConfig(f);
+        Assert.True((await new EnrichmentAdminRepository(f.Db)
+            .DetailAsync(task.Id, 1, 10, config, f.Clock.Now, Ct))!.Task.AutomaticRecoveryAvailable);
+        Assert.Equal(1, await f.Tasks.RecoverAsync(5, [], config, f.Clock.Now, Ct));
+        task = (await f.Tasks.GetAsync(task.Id, Ct))!;
+        Assert.Equal(2, task.CurrentRound);
+        Assert.Contains(await f.Db.EnrichmentRecoveries.AsNoTracking().ToArrayAsync(Ct),
+            row => row.TargetId == task.Id && row.ConfigurationVersion.EndsWith(EnrichmentRecoveryPolicy.ReceiptSuffix, StringComparison.Ordinal));
     }
 
     [Fact]

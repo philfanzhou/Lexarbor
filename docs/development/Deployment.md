@@ -2048,8 +2048,11 @@ scan for one automatic recovery round per target/input/configuration, with a
 maximum of five failures. This may resume provider calls for eligible old failures;
 existing feature switches, service gates, concurrency and storage prerequisites
 continue to apply. Recovery is durable and atomic with its successor/dependent
-rounds. Crashes or repeated deployment do not create a fresh allowance. Credentials,
-billing, provider-side capability rejection and content conflicts stay manual.
+rounds. Crashes or repeated deployment do not create a fresh allowance. One
+omitted writable field candidate (`fields.candidates_missing`) receives one retry
+that re-runs preparation in the same transaction; a second omission stays manual.
+Credentials, billing, provider-side capability rejection and content conflicts
+stay manual.
 See the [observation contract](../api/Enrichment.md#bounded-automatic-recovery).
 
 Original words stay unchanged. Speech preparation normalizes letter-to-letter
@@ -2075,9 +2078,12 @@ image refuses the newer database with `migration.version_too_new`.
 The preventive repair strategy needs no new migration or operator configuration.
 It applies to newly discovered words from their first request, and the normal
 bounded recovery scan also admits failures exhausted under the previous strategy
-once. The private `.repair-v2` receipt survives restart; deployment itself does
-not repeatedly reset attempts. Existing successful catalog/audio work is retained.
-No bulk retry, direct database edit or audio regeneration is required.
+once. The private `.repair-v3` receipt survives restart; deployment itself does
+not repeatedly reset attempts. The strategy also separates dotted uppercase
+initials that run directly into the next word (`I.M.Pei` → `I M Pei`) and admits
+one exhausted `fields.candidates_missing` retry. Existing successful catalog/audio
+work is retained. No bulk retry, direct database edit or audio regeneration is
+required.
 
 For the exact `MiniMax-M3.1-Flash` model on the official `api.minimax.io` or
 `api.minimax.cn` `/v1` endpoint, enrichment requests explicitly use
