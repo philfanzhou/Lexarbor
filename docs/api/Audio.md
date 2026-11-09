@@ -447,6 +447,9 @@ field-step failures with the affected IDs, without merging/deleting meanings or
 blocking independent audio. If a valid pronunciation plan omits candidates and
 applicable fields remain empty, the field step stops with `fields.candidates_missing`
 instead of reporting success; the independent prepared audio can still proceed.
+One bounded automatic retry then re-runs preparation to ask for the missing
+candidate; a repeated stop is fixed by an administrator (field edit or explicit
+single-step retry).
 Its own successful field writes advance that round's
 input and prepared envelope together, without starting an endless sequence of rounds.
 Preparation with no writable fields still validates pronunciation without altering existing IPA/POS.
@@ -660,8 +663,10 @@ Abbreviations such as `St.` use the meaning context in the existing AI request.
 Standard titles and measurement abbreviations include plural forms (`Drs.`, `cms`,
 `kgs`, `kms`); dictionary boundary hyphens on affixes are removed from speech.
 Uppercase initialisms may be spoken as separated letters while preserving their
-case and sequence. Arbitrary punctuation deletion or lexical concatenation is not
-allowed.
+case and sequence. A dotted-initial run that runs directly into the next word
+separates too (`I.M.Pei` → `I M Pei`), so a proposed default IPA and its spoken
+surface stay comparable. Arbitrary punctuation deletion or lexical concatenation
+is not allowed.
 Teaching placeholders and alternatives still require complete spoken expansion.
 The complete spoken utterance and its IPA must pass the same checks before both
 field publication and speech dispatch. MiniMax's text and pronunciation-dictionary

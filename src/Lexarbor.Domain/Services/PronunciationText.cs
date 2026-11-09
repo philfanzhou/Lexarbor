@@ -14,6 +14,11 @@ public static class PronunciationText
         // Initials remain separate letters; never turn U.S. into the word "us".
         value = Regex.Replace(value, @"(?<![\p{L}\p{N}])(?:[A-Z]\.){2,}(?![\p{L}\p{N}])",
             match => string.Join(" ", match.Value.Where(char.IsLetter)), RegexOptions.CultureInvariant);
+        // A dotted-initial run that runs straight into the next word separates
+        // too: I.M.Pei -> I M Pei, J.R.R.Tolkien -> J R R Tolkien. The boundary
+        // rule above deliberately skips that spelling so the two must not merge.
+        value = Regex.Replace(value, @"(?<![\p{L}\p{N}])((?:[A-Z]\.){2,})(?=\p{L})",
+            match => string.Join(" ", match.Groups[1].Value.Where(char.IsLetter)) + " ", RegexOptions.CultureInvariant);
         value = Regex.Replace(value, @"(?<=\p{L})-(?=\p{L})", " ", RegexOptions.CultureInvariant);
         // A leading/trailing dictionary hyphen marks a bound affix, not a
         // spoken punctuation mark. Do not join lexical tokens across hyphens.
