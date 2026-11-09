@@ -10,7 +10,7 @@ Lexarbor keeps automation under `.github/` and separates workflows by responsibi
 | `.github/workflows/dependency-review.yml` | Reject high- or critical-severity dependency vulnerabilities introduced by a pull request |
 | `.github/workflows/security.yml` | CodeQL analysis for GitHub Actions, C#, and JavaScript/TypeScript on changes and weekly |
 | `.github/workflows/registry-cleanup.yml` | Weekly deletion of container versions no tag reaches |
-| `.github/workflows/release.yml` | Publish and attest the multi-platform GHCR image, as `edge` on a default-branch push and as the version tags on a release tag, then create a GitHub Release for a tag |
+| `.github/workflows/release.yml` | Publish and attest the multi-platform GHCR image for a version tag, then create a GitHub Release for that tag |
 | `.github/dependabot.yml` | Weekly grouped updates for npm, NuGet, Docker base images, and GitHub Actions |
 | `.github/release.yml` | Categories used by GitHub's generated release notes |
 | `.github/scripts/` | Repository-owned scripts used by workflows and runnable locally |
@@ -20,7 +20,7 @@ Third-party Actions are pinned to full commit SHAs. Dependabot keeps those pins 
 
 ## Continuous integration
 
-CI runs on pull requests targeting `main`, manual dispatches, and calls from the release workflow. A push to `main` reaches it through that workflow's `verify` job rather than through a trigger of its own, so a commit is never built twice. Its jobs run in parallel:
+CI runs on pull requests targeting `main`, on every push to `main`, on manual dispatches, and as a reusable workflow called from the release workflow. A push to `main` therefore runs CI through its own trigger; the release workflow is tag-only and calls the same CI from its `verify` job before publishing, so a commit is verified once per triggering ref and never built twice for the same push. Its jobs run in parallel:
 
 - Backend: direct/transitive NuGet vulnerability audit, Release build, xUnit tests on Microsoft.Testing.Platform, TRX output, Cobertura coverage from `Microsoft.Testing.Extensions.CodeCoverage`, a GitHub job summary, and the six-row real Host publish/startup/authorized-HTTP identity matrix (`test-build-identity.py`). Results remain downloadable for 14 days.
 - Frontend: npm vulnerability audit, type checks, production build, and Playwright Chromium scenarios covering session restoration, login, catalog rendering, and catalog creation. The browser is installed without `--with-deps`, because the runner image already supplies every library Chromium links against and the flag otherwise only adds font packages this suite never renders; the same command therefore works locally. Failure traces, screenshots, videos, and the HTML report remain downloadable for 7 days.
@@ -70,41 +70,29 @@ Accepted tags are `vMAJOR.MINOR.PATCH` and optional pre-release variants such as
 3. attach OCI labels, an SBOM, maximum BuildKit provenance, and a GitHub artifact attestation;
 4. create a GitHub Release with generated notes.
 
-The tag without its `v` prefix is passed as `APP_VERSION` → MSBuild `Version` → Host `AssemblyInformationalVersion`. The prerelease suffix is preserved; the SDK's optional `+` suffix is excluded from the logged version. After checkout, `git rev-parse HEAD` supplies the complete 40-character commit as `APP_REVISION` → `BuildRevision` → same-named `AssemblyMetadata`, including the commit behind an annotated tag. `APP_CHANNEL` → `BuildChannel` → same-named metadata explicitly records `release` for tags or `edge` for main. These values are read together from the running Host assembly and exposed to authorized administrators at `GET /admin/system/version` as well as written to startup logs; see [Deployment](Deployment.md).
+The tag without its `v` prefix is passed as `APP_VERSION` → MSBuild `Version` → Host `AssemblyInformationalVersion`. The prerelease suffix is preserved; the SDK's optional `+` suffix is excluded from the logged version. After checkout, `git rev-parse HEAD` supplies the complete 40-character commit as `APP_REVISION` → `BuildRevision` → same-named `AssemblyMetadata`, including the commit behind an annotated tag. `APP_CHANNEL` → `BuildChannel` → same-named metadata explicitly records `release` for a release tag. These values are read together from the running Host assembly and exposed to authorized administrators at `GET /admin/system/version` as well as written to startup logs; see [Deployment](Deployment.md).
 
 Ordinary local .NET and Docker builds default to `0.0.0-dev`, no revision, and `development`. The fixed development placeholder is not a release version file: nothing needs to be bumped before tagging. Runtime settings cannot override this identity. Explicit local build inputs can reproduce the declared identity, so these fields do not prove image authenticity, digest, or uncommitted source contents.
 
-Steps 1 to 3 run in `publish-container` and step 4 in `publish-release`, which depends on it. A release therefore never announces a version whose image failed to publish. Each job names the refs it accepts instead of inferring them from the trigger: `publish-container` accepts a tag or the default branch, and `publish-release` accepts only a tag. A ref added to the trigger later, or a manual dispatch, therefore cannot publish an image or create a release without being named in those conditions as well.
+Steps 1 to 3 run in `publish-container` and step 4 in `publish-release`, which depends on it. A release therefore never announces a version whose image failed to publish. Each job names the ref it accepts instead of inferring it from the trigger: both `publish-container` and `publish-release` accept only a tag. A ref added to the trigger later, or a manual dispatch, therefore cannot publish an image or create a release without being named in those conditions as well.
 
 A stable `v1.2.3` publishes `1.2.3`, `1.2`, `1`, and `latest`. A pre-release publishes only its full pre-release version and is marked as a GitHub pre-release. No long-lived registry credential is required because publishing uses the publishing jobs' short-lived `GITHUB_TOKEN`.
 
 GitHub may create the container package as private on its first publication. For anonymous pulls from this public repository, open the package settings once, connect it to this repository if necessary, and change its visibility to public. Package visibility is deliberately not changed by the workflow.
 
-## The edge image
+## Tag-only publishing
 
-Every push to `main` publishes `ghcr.io/<owner>/<repository>:edge` through the same `publish-container` job a release uses, with the same dependency on a full CI pass. An edge image is therefore not a lower bar than a release image; it is the same bar without a version.
+Only a `v*.*.*` tag publishes. A push or merge to `main` runs CI and nothing else: no image is built or pushed, no package is published, and no GitHub Release is created. Building an image locally is still possible, but the repository publishes no unversioned or moving image name.
 
-```bash
-docker pull ghcr.io/philfanzhou/lexarbor:edge
-```
+The publishing jobs also test the ref themselves rather than trusting the trigger alone, so a trigger added later or a manual dispatch cannot publish without being named in those conditions as well. `publish-container` accepts only a tag, and `publish-release` carries its own `startsWith(github.ref, 'refs/tags/')` test, so a container image and a GitHub Release cannot be created from different refs.
 
-`edge` is a moving name and always points at the newest `main` build. Nothing published from `main` carries a permanent name: no per-commit tag rule is configured, and the attestation is pushed into the registry only for a release, because the referrer tag it writes is named after the image digest and would otherwise leave one permanent tag behind on every push. The attestation itself is recorded in the repository's attestation store for an edge image as well, so `gh attestation verify` covers both. Each push does leave the previous edge image and its platform manifests behind as untagged versions, which `registry-cleanup.yml` collects.
-
-Three properties keep the edge path from reaching the release tags:
-
-- `type=semver` derives its value from the ref and produces nothing on a branch, so no version tag can come from `main`.
-- `type=raw,value=latest` has no ref of its own to fail on, so it carries `startsWith(github.ref, 'refs/tags/v')` explicitly. Without that test a default-branch push would move `latest` onto a development build.
-- `validate-version` returns an empty version for any non-tag ref instead of deriving one. `${VERSION_TAG#v}` removes nothing from a branch name, so a derived value would have been the literal `main`. With the version empty the build argument is omitted entirely and the image keeps the Dockerfile's `0.0.0-dev` placeholder. The explicit `edge` channel distinguishes it from an ordinary `development` build; the revision distinguishes successive main builds.
-
-`publish-release` carries its own `startsWith(github.ref, 'refs/tags/')` test rather than relying on the publishing job above it, so a default-branch push publishes an image and creates no GitHub Release.
-
-A default-branch push runs CI once, through `verify`, so its checks appear under the release workflow rather than under CI. A pull request still runs CI directly and keeps the job names branch protection requires.
+Two properties keep the tag path from producing an unversioned or incorrectly versioned image: `validate-version` rejects anything but a semantic-version tag, and `type=raw,value=latest` carries the tag test explicitly so no non-tag ref can move `latest` onto a development build.
 
 ## Registry cleanup
 
 `registry-cleanup.yml` runs weekly and deletes container versions that no tag reaches. It can also be dispatched manually, with a dry run and a retention period as inputs.
 
-Untagged is not the same as unused. A multi-platform image is published as an index, and the platform manifests it points at carry no tags of their own, so the untagged versions sitting alongside `edge` are that image's own AMD64 manifest, ARM64 manifest, and attestation manifests. Deleting untagged versions, which is what a naive retention rule does, would delete the published image's parts and leave the tag resolving to an index whose children are gone.
+Untagged is not the same as unused. A multi-platform image is published as an index, and the platform manifests it points at carry no tags of their own, so the untagged versions sitting alongside a release tag are that image's own AMD64 manifest, ARM64 manifest, and attestation manifests. Deleting untagged versions, which is what a naive retention rule does, would delete the published image's parts and leave the tag resolving to an index whose children are gone.
 
 `prune_registry_versions.py` therefore decides by reachability instead. It starts at every version carrying an ordinary tag, follows each index into its children, and keeps a `sha256-<digest>` referrer tag only while the subject it names is still reachable, so an attestation outlives its image by exactly nothing. Whatever is left over is unreferenced.
 

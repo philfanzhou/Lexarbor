@@ -102,7 +102,7 @@ The mode is deployment state cached in `authState` (`authMethod`): it is prefetc
 
 ## Build version display
 
-Signed-in administrators see the running backend build beside the `Lexarbor` brand: `v1.2.3` for a release (a prerelease suffix is preserved, as in `v1.3.0-rc.1`), `edge · a1b2c3d` for a `main` build (`edge · 提交未知` when no commit was recorded), and 开发版本 for a development build. A pending fetch reads 版本获取中, and a failed, timed-out, or unreadable fetch — including a `version` of `unknown` — reads 版本未知; none of these block or disturb the page, and the fetch is not retried within the session.
+Signed-in administrators see the running backend build beside the `Lexarbor` brand: `v1.2.3` for a release (a prerelease suffix is preserved, as in `v1.3.0-rc.1`), `edge · a1b2c3d` for a build whose channel is `edge` (`edge · 提交未知` when no commit was recorded), and 开发版本 for a development build. A pending fetch reads 版本获取中, and a failed, timed-out, or unreadable fetch — including a `version` of `unknown` — reads 版本未知; none of these block or disturb the page, and the fetch is not retried within the session.
 
 The label is a quiet button that opens a small dialog listing the full `version`, the complete `revision` SHA (or 未知 when it is null), and the raw `channel`. It works from the keyboard and from touch — not only a hover or tooltip — closes on Escape and on an outside click, and keeps focus on the button that owns it. All values are rendered through Vue interpolation, never `v-html`.
 
