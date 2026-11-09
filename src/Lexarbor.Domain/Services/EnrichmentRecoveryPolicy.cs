@@ -10,6 +10,11 @@ public static class EnrichmentRecoveryPolicy
         "text.pronunciation_control_unsupported", "text.pronunciation_text_mismatch", "text.template_unexpanded",
         "text.phonetic_constraint_mismatch", "text.pronunciation_uncertain",
         "tts.capability_unsupported", "tts.prepared_plan_required"];
+    // A successful preparation may omit the writable field candidate. That is a
+    // step-level gap, not a supplier call failure: one bounded retry re-prepares
+    // the target, while a repeated omission stays with the administrator.
+    public static readonly string[] FieldStepErrors = ["fields.candidates_missing"];
+    public static readonly string[] Recoverable = [.. Errors, .. FieldStepErrors];
     public static bool CanRetry(string? code) => code != null && Errors.Contains(code, StringComparer.Ordinal);
 
     public static EnrichmentCallResult Failure(string outcome, string? code) => outcome == "Throttled"
@@ -21,7 +26,7 @@ public static class EnrichmentRecoveryPolicy
     // Receipts are scoped to a materially different repair strategy, not a
     // process start or release number. Earlier exhausted attempts may try this
     // strategy once; subsequent restarts never replenish it.
-    public const string ReceiptSuffix = ".repair-v2";
+    public const string ReceiptSuffix = ".repair-v3";
 
     public static string Correction(string? code) => code switch
     {

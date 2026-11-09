@@ -9,7 +9,7 @@ public sealed partial class EnrichmentTaskRepository
 {
     // Content validation still rejects bad results. These codes authorize one
     // fresh, bounded attempt sequence, not publication of the rejected content.
-    private static readonly string[] RecoverableErrors = EnrichmentRecoveryPolicy.Errors;
+    private static readonly string[] RecoverableErrors = EnrichmentRecoveryPolicy.Recoverable;
 
     public async Task<int> RecoverAsync(int limit, IReadOnlyList<string> excludedWords,
         EnrichmentAdminConfiguration configuration, long now, CancellationToken token)
@@ -17,7 +17,9 @@ public sealed partial class EnrichmentTaskRepository
         if (limit is < 1 or > 20 || excludedWords.Count > 4096) throw new ArgumentOutOfRangeException(nameof(limit));
         if (!configuration.CanPrepare) return 0;
         var candidates = await EnrichmentAdminQueries.Rows(context, configuration, now, true)
-            .Where(r => r.AutomaticRecoveryAvailable && r.Step != "Fields" && r.ErrorCode != "preparation.failed" && !excludedWords.Contains(r.WordId))
+            .Where(r => r.AutomaticRecoveryAvailable
+                && (r.Step != "Fields" || r.ErrorCode == "fields.candidates_missing")
+                && r.ErrorCode != "preparation.failed" && !excludedWords.Contains(r.WordId))
             .OrderBy(r => r.UpdatedAtUnixMs).ThenBy(r => r.Id).Take(limit * 4)
             .Select(r => new { r.Id, r.WordId }).ToArrayAsync(token);
         var recovered = 0;
@@ -47,6 +49,7 @@ public sealed partial class EnrichmentTaskRepository
                 var key = Key(target);
                 if (key.Step == EnrichmentStep.Audio && (!configuration.AudioEnabled || !configuration.StorageEnabled
                     || !(key.Locale == AudioLocale.EnGb ? configuration.CanTtsUk : configuration.CanTtsUs))) return false;
+                if (key.Step == EnrichmentStep.Fields && !configuration.FieldsEnabled) return false;
                 var input = await InputAsync(key, CancellationToken.None);
                 if (input == null) return false;
                 var version = configuration.Version(key) + EnrichmentRecoveryPolicy.ReceiptSuffix;
@@ -72,7 +75,18 @@ public sealed partial class EnrichmentTaskRepository
                         .SetProperty(r => r.NextAttemptAtUnixMs, now + 1000));
                 }
                 await Renew(key);
-                if (key.Step == EnrichmentStep.Audio)
+                if (key.Step == EnrichmentStep.Fields)
+                {
+                    // The candidate only changes when preparation is asked again, so a
+                    // field retry mirrors the admin single-step retry: invalidate the
+                    // successful preparation instead of reusing its candidate-less plan.
+                    var prepareKey = key with { Step = EnrichmentStep.Prepare };
+                    var prepare = await EnsureCoreAsync(prepareKey, configuration.Version(prepareKey), now,
+                        Math.Min(5, configuration.FailureBudget), null, true);
+                    if (prepare != null) await RoundQuery(prepare.Id, prepare.CurrentRound).ExecuteUpdateAsync(set => set
+                        .SetProperty(r => r.ForceSingle, true));
+                }
+                else if (key.Step == EnrichmentStep.Audio)
                     await Renew(key with { Step = EnrichmentStep.Prepare });
                 if (key.Step == EnrichmentStep.Prepare)
                 {

@@ -190,10 +190,13 @@ Completed audio is not regenerated.
 
 `v0.1.10-rc.2` introduced automatic recovery. The allowance is scoped to the target,
 input revision, configuration version and repair strategy for known preparation/expansion validation failures,
-timeouts, oversized/incomplete batch results and locally rejected legacy audio
-plans. Each recovery round permits at most five failures (or the configured lower
-budget). Scanning, service recovery, restart and image replacement do not renew
-that allowance. The original rounds and calls remain available. Audio capability
+timeouts, oversized/incomplete batch results, locally rejected legacy audio
+plans and field steps that stopped because preparation omitted a writable field
+candidate (`fields.candidates_missing`). A field-candidate retry invalidates and
+re-runs its preparation, because only a fresh request can supply the omitted
+candidate; a repeated stop stays with the administrator. Each recovery round
+permits at most five failures (or the configured lower budget). Scanning, service
+recovery, restart and image replacement do not renew that allowance. The original rounds and calls remain available. Audio capability
 rejections that actually reached the provider, credential/billing failures and
 catalog write conflicts are excluded. Pronunciation-plan conflicts and uncertain
 answers may receive bounded correction with the existing catalog constraints
@@ -206,7 +209,7 @@ legacy audio plan refreshes preparation for that target and accent; other succes
 results remain intact. Saved valid batch results are reused rather than requested
 again. Failed batch members and automatic recovery use single-item requests.
 
-The preventive strategy stores `.repair-v2` on the private recovery configuration
+The preventive strategy stores `.repair-v3` on the private recovery configuration
 key. An exhausted older strategy can try the materially changed request once;
 restarts and later deployment of the same strategy cannot replenish it. A dependent
 round retains its recovery identity even when field publication advances its input.

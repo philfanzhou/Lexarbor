@@ -966,11 +966,14 @@ share a short admitted writer transaction; no model or storage network call runs
 inside it. Normal field publication preserves recovery provenance while genuine
 input/configuration changes get their own scope.
 
-Recovery configuration keys also include the private `.repair-v2` strategy suffix.
+Recovery configuration keys also include the private `.repair-v3` strategy suffix.
 This requires no schema migration. A failure exhausted under the previous request
 strategy may receive one bounded successor. A receipt from the current strategy
 blocks another allowance, including after restart and after dependent field writes
-advance the input revision. Existing receipts and call history are retained.
+advance the input revision. One `fields.candidates_missing` retry reuses the same
+receipt table: it marks the failed field round and creates the fresh preparation
+round in the same writer transaction, without new columns. Existing receipts and
+call history are retained.
 
 Upgrade, interruption, restart and downgrade tests retain historical catalog/audio
 and execution rows. Down uses native SQLite column drops rather than a parent-table

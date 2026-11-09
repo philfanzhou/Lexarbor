@@ -145,7 +145,7 @@ internal static class EnrichmentAdminQueries
             new SqliteParameter("@prepare",c.CanPrepare),new SqliteParameter("@storage",c.StorageEnabled),new SqliteParameter("@now",now),
             new SqliteParameter("@textId",c.TextServiceId),new SqliteParameter("@textVersion",c.TextServiceVersion),
             new SqliteParameter("@ttsId",c.TtsServiceId),new SqliteParameter("@ttsVersion",c.TtsServiceVersion),
-            new SqliteParameter("@recoveryErrors",JsonSerializer.Serialize(EnrichmentRecoveryPolicy.Errors)),
+            new SqliteParameter("@recoveryErrors",JsonSerializer.Serialize(EnrichmentRecoveryPolicy.Recoverable)),
             new SqliteParameter("@recoveryPolicy",EnrichmentRecoveryPolicy.ReceiptSuffix),new SqliteParameter("@demandWord",wordId ?? "")];
         return context.Database.SqlQueryRaw<EnrichmentAdminRow>(sql, parameters);
     }
