@@ -575,7 +575,10 @@ state before another action is possible. If it still shows the same failed round
 the administrator may explicitly resend the retained request/key; the browser
 never silently creates a new retry action. Successful sides are not restarted.
 The key stays in page memory only while resolving the action and is dropped on
-departure/sign-out. Configuration corrections can resume work automatically.
+departure/sign-out. The browser generates it locally; when the page runs on a
+plain-HTTP origin that does not expose `crypto.randomUUID`, it falls back to
+`crypto.getRandomValues` instead of failing the action silently. Configuration
+corrections can resume work automatically.
 
 The page refreshes every ten seconds after reads finish, pauses while hidden,
 and stops automatic retries after three consecutive read failures (10/20-second
