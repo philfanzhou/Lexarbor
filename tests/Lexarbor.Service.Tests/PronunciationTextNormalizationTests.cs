@@ -27,6 +27,7 @@ public sealed partial class PronunciationSpeechTests
     [InlineData("-ness", "ness", "nəs")]
     [InlineData("EU-funded", "E U funded", "iː juː ˈfʌndɪd")]
     [InlineData("I.M.Pei", "I M Pei", "ˌaɪ ɛm ˈpeɪ")]
+    [InlineData("Drs", "doctors", "ˈdɒktəz")]
     public async Task NativePunctuation_KeepsCatalogSpellingAndBindsIpaToExactlyTheSpokenText(string word, string spoken, string ipa)
     {
         foreach (var locale in new[] { AudioLocale.EnGb, AudioLocale.EnUs })
@@ -76,6 +77,39 @@ public sealed partial class PronunciationSpeechTests
         Assert.Equal("ˌaɪ ɛm ˈpeɪ", result.Plan.Content.Phonetic);
     }
 
+    [Fact]
+    public async Task ProposedDefaultPhonetic_AcceptsTitleAbbreviationWithoutFullStop()
+    {
+        using var f = new Fixture(true);
+        await f.Publish(new() { ["Enrichment:FieldsEnabled"] = "true" });
+        f.Handler.Respond = (_, _) => Task.FromResult(IpaCompletion("doctors", null, "ˈdɒktəz", "ˈdɒktəz", kind: "word"));
+        var result = await new OpenAiCompatiblePronunciationPreparationClient(f.Factory, f.Runtime).PrepareAsync(NotationRequest("Drs", null, AudioLocale.EnGb), Ct);
+        Assert.Equal(PronunciationPreparationOutcome.Ready, result.Outcome);
+        Assert.Equal("doctors", result.Plan!.Content.SpokenText);
+        Assert.Equal("ˈdɒktəz", result.Plan.Content.Phonetic);
+    }
+
+    [Theory]
+    [InlineData("Dr", "doctor")]
+    [InlineData("Dr.", "doctor")]
+    [InlineData("Drs", "doctors")]
+    [InlineData("Drs.", "doctors")]
+    [InlineData("Mr", "mister")]
+    [InlineData("Mrs", "missus")]
+    [InlineData("Ms", "miz")]
+    [InlineData("St", "saint")]
+    [InlineData("St", "street")]
+    public void SameSurface_AcceptsKnownTitleExpansionWithOrWithoutTrailingFullStop(string word, string spoken)
+        => Assert.True(PronunciationText.SameSurface(word, spoken));
+
+    [Theory]
+    [InlineData("Drs", "doctor")]
+    [InlineData("Dr", "doctors")]
+    [InlineData("Drs", "doctorss")]
+    [InlineData("Mr", "doctor")]
+    public void SameSurface_StillRejectsUnrelatedTitleExpansion(string word, string spoken)
+        => Assert.False(PronunciationText.SameSurface(word, spoken));
+
     [Theory]
     [InlineData("U.S.", "U S")]
     [InlineData("well-known", "well known")]
@@ -107,6 +141,7 @@ public sealed partial class EnrichmentTargetExecutorTests
     [InlineData("anti-", "anti", "ˈæntaɪ")]
     [InlineData("-ness", "ness", "nəs")]
     [InlineData("I.M.Pei", "I M Pei", "ˌaɪ ɛm ˈpeɪ")]
+    [InlineData("Drs", "doctors", "ˈdɒktəz")]
     public async Task NewDefaultIpa_DoesNotInvalidateNormalizedSpeechAfterFieldsCommit(string source, string spoken, string ipa)
     {
         await using var f = await Fixture.Create(native: true);
