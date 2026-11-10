@@ -662,6 +662,8 @@ removing them (`don't` stays `don't`); `re-sign` is never collapsed to `resign`.
 Abbreviations such as `St.` use the meaning context in the existing AI request.
 Standard titles and measurement abbreviations include plural forms (`Drs.`, `cms`,
 `kgs`, `kms`); dictionary boundary hyphens on affixes are removed from speech.
+Title abbreviations are also compared without the trailing full stop (`Dr`/`Dr.`,
+`Drs`/`Drs.`), because imported catalogs may keep the catalog spelling without one.
 Uppercase initialisms may be spoken as separated letters while preserving their
 case and sequence. A dotted-initial run that runs directly into the next word
 separates too (`I.M.Pei` → `I M Pei`), so a proposed default IPA and its spoken

@@ -38,14 +38,16 @@ public static class PronunciationText
             if (source[i] == target[i]) continue;
             // The preparation model selects by meaning; existing IPA must also
             // match the complete resulting utterance before this reaches TTS.
+            // Imported catalogs may keep a title abbreviation without the
+            // trailing full stop, so both spellings must name the same reading.
             string[] allowed = source[i] switch
             {
-                "Dr." => ["doctor"],
-                "Drs." => ["doctors"],
-                "St." => ["saint", "street"],
-                "Mr." => ["mister"],
-                "Mrs." => ["missus"],
-                "Ms." => ["miz"],
+                "Dr." or "Dr" => ["doctor"],
+                "Drs." or "Drs" => ["doctors"],
+                "St." or "St" => ["saint", "street"],
+                "Mr." or "Mr" => ["mister"],
+                "Mrs." or "Mrs" => ["missus"],
+                "Ms." or "Ms" => ["miz"],
                 "cm" or "cm." => ["centimetre", "centimeter"],
                 "cms" or "cms." => ["centimetres", "centimeters"],
                 "kg" or "kg." => ["kilogram"],
