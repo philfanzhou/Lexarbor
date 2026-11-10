@@ -138,6 +138,24 @@ test('单条重试带实际轮次、UUID及CSRF，防双击并重新GET', async 
   await expect(region.getByRole('button', { name: /重试此失败步骤/ })).toHaveCount(0)
 })
 
+test('非安全上下文缺少 crypto.randomUUID 时仍能发起单条重试', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(Crypto.prototype, 'randomUUID', { configurable: true, value: undefined })
+  })
+  const t = failed(); await setup(page, [t])
+  const writes: Record<string, unknown>[] = []
+  await page.route('**/tasks/task/retry', route => {
+    writes.push(route.request().postDataJSON())
+    Object.assign(t, { state: 'Pending' }); Object.assign(t.current, { number: 2, state: 'Pending', consumedFailures: 0 })
+    return json(route, { targetId: t.id, round: 2, replayed: false })
+  })
+  const region = await openDetail(page)
+  await region.getByRole('button', { name: '仅重试此失败步骤', exact: true }).click()
+  await expect.poll(() => writes.length).toBe(1)
+  expect(writes[0].retryKey).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+  await expect(region).toContainText('当前第 2 轮')
+})
+
 for (const outcome of ['committed', 'unchanged', 'read-failed', 'conflict', 'deleted'] as const) test(`重试结果 ${outcome} 先GET且不自动新key重放`, async ({ page }) => {
   const t = failed(); await setup(page, [t])
   const writes: Record<string, unknown>[] = []; let detailReads = 0

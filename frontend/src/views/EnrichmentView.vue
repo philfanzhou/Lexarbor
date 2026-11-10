@@ -8,6 +8,7 @@ import { getApiError } from '@/services/apiError'
 import { readEnrichmentDetail, readEnrichmentSummary, readEnrichmentTasks, retryEnrichment, states, steps } from '@/services/enrichmentApi'
 import type { EnrichmentDetail, EnrichmentQuery, EnrichmentSummary, EnrichmentTask, RetryAction } from '@/services/enrichmentApi'
 import { errorLabel, reasonLabel, stateLabels, stepLabels, taskLabel, taskStateLabel, activityLabels, activityDescriptions, requirementLabels, requirementLinks, guidance, callLabels, cleanupLabels } from '@/services/enrichmentLabels'
+import { newRetryKey } from '@/services/retryKey'
 
 const route = useRoute()
 const filters = reactive({ search: '', wordId: '', meaningId: '', locale: '', state: '', step: '', sort: 'attention' })
@@ -122,7 +123,7 @@ function changePage(delta: number, history = false) {
 async function retry() {
   if (!live() || mutating.value || loading.value || !retryable.value || pending.value && !canReplay.value) return
   const task = detail.value!.task
-  const action = pending.value ?? { id: task.id, expectedRound: task.current.number, retryKey: crypto.randomUUID() }
+  const action = pending.value ?? { id: task.id, expectedRound: task.current.number, retryKey: newRetryKey() }
   pending.value = action; canReplay.value = false
   cancelRead(); writeController = new AbortController(); mutating.value = true
   const version = ++writeGeneration, current = () => live() && version === writeGeneration
