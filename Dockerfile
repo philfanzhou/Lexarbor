@@ -12,6 +12,10 @@
 FROM --platform=$BUILDPLATFORM node:20-alpine AS frontend-build
 ARG NPM_REGISTRY=https://registry.npmjs.org/
 ENV npm_config_registry=${NPM_REGISTRY}
+# package-lock.json may record tarball hosts from the mirror that generated it.
+# Rewrite any recorded registry host to the configured one so image builds do
+# not depend on a third-party mirror's availability.
+ENV npm_config_replace_registry_host=always
 WORKDIR /frontend
 COPY frontend/package*json ./
 RUN npm ci --registry=${NPM_REGISTRY}
