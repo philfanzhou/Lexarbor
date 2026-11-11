@@ -327,7 +327,7 @@ builder.Services.AddSignaCoreHostedLogin(login =>
 // The Lexarbor presentation and the pre-sign-in administrator gate are singleton services
 // wired onto the package options after configuration, so the request-scoped audit writer is
 // resolved per failing request rather than captured here.
-builder.Services.AddOptions<SignaCoreHostedLoginOptions>()
+builder.Services.AddOptions<HostedLoginOptions>()
     .PostConfigure<AdminHostedLoginResponseWriter, AdminPreSignInRoleGate>(
         (login, writer, gate) =>
         {
@@ -343,7 +343,7 @@ builder.Services.AddOptions<SignaCoreHostedLoginOptions>()
 // and the JwtBearer OIDC metadata backchannel are deliberately not mounted:
 // the former is a standalone process probing itself, the latter is
 // infrastructure metadata retrieval, neither an internal service call.
-builder.Services.AddHttpClient(SignaCoreHostedLoginDefaults.HttpClientName)
+builder.Services.AddHttpClient(HostedLoginDefaults.HttpClientName)
     .AddServiceMantleCorrelationIdPropagation();
 
 builder.Services

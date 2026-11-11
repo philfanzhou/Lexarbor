@@ -28,15 +28,15 @@ public static class AdminAuthEndpoints
         {
             if (builder is not RouteEndpointBuilder route) return;
             var path = route.RoutePattern.RawText ?? string.Empty;
-            if (IsSegment(path, Prefix + "/" + SignaCoreHostedLoginDefaults.StartPathSegment))
+            if (IsSegment(path, Prefix + "/" + HostedLoginDefaults.StartPathSegment))
             {
                 route.Metadata.Add(new EnableRateLimitingAttribute(RateLimitingExtensions.AdminLoginPolicy));
             }
-            else if (IsSegment(path, Prefix + "/" + SignaCoreHostedLoginDefaults.LogoutPathSegment))
+            else if (IsSegment(path, Prefix + "/" + HostedLoginDefaults.LogoutPathSegment))
             {
                 route.Metadata.Add(new AdminSessionLogoutMetadata());
             }
-            else if (IsSegment(path, Prefix + "/" + SignaCoreHostedLoginDefaults.SessionPathSegment))
+            else if (IsSegment(path, Prefix + "/" + HostedLoginDefaults.SessionPathSegment))
             {
                 route.Metadata.Add(new AuthorizeAttribute { Policy = ManagementAuthorizationDefaults.AdminPolicyName });
             }

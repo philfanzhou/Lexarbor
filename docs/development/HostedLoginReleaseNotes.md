@@ -348,3 +348,17 @@ deployment recommendation (see
 - `IdentityService:RequireHttpsMetadata` is unchanged: it remains this
   repository's own deployment security default for the Bearer metadata channel
   (explicit override, Development/Testing off, Production loopback exemption).
+
+## Source-level type renames (0.1.22)
+
+The upgrade to
+[`SignaCore.Client.AspNetCore` 0.1.22](https://www.nuget.org/packages/SignaCore.Client.AspNetCore)
+is compile-time only: the package renames its public types by dropping the redundant
+`SignaCore` prefix (`HostedLoginOptions`, `HostedLoginDefaults`, `IHostedLoginResponseWriter`,
+`SignInReason`, `SessionStatus`, `SessionTicket`, `IAuthorizationDecision`,
+`IPreSignInAuthorizationDecision`, `ProtocolValidationOptions`). The
+`AddSignaCoreHostedLogin`/`MapSignaCoreHostedLogin` registration extensions, the
+authentication scheme and HttpClient names, every cookie name, the validation defaults
+and the whole wire behavior are unchanged, so sessions signed in before the upgrade keep
+authenticating — and keep authenticating across a rollback to the previous image. No
+configuration, database, or Data Protection change applies.

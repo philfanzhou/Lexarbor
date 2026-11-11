@@ -21,7 +21,7 @@ public sealed class AdminSessionIdentityMiddleware(RequestDelegate next)
         if (identity?.IsAuthenticated == true
             && string.Equals(
                 identity.AuthenticationType,
-                SignaCoreHostedLoginDefaults.SessionAuthenticationScheme,
+                HostedLoginDefaults.SessionAuthenticationScheme,
                 StringComparison.Ordinal))
         {
             // The interactive session is a ServiceMantle interactive administrator; any

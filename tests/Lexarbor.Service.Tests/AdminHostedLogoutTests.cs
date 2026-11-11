@@ -632,7 +632,7 @@ public class AdminHostedLogoutTests
                         options.Authority = null; options.MetadataAddress = null!; options.ConfigurationManager = null!;
                         options.TokenValidationParameters.IssuerSigningKey = Authority.SigningKey;
                     });
-                    services.AddHttpClient(SignaCoreHostedLoginDefaults.HttpClientName)
+                    services.AddHttpClient(HostedLoginDefaults.HttpClientName)
                         .ConfigurePrimaryHttpMessageHandler(() => Authority);
                 });
             });

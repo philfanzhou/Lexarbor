@@ -366,7 +366,7 @@ public class AdminAuthenticationAuditTests
                         options.Authority = null; options.MetadataAddress = null!; options.ConfigurationManager = null!;
                         options.TokenValidationParameters.IssuerSigningKey = Authority.SigningKey;
                     });
-                    services.AddHttpClient(SignaCore.Client.AspNetCore.SignaCoreHostedLoginDefaults.HttpClientName)
+                    services.AddHttpClient(SignaCore.Client.AspNetCore.HostedLoginDefaults.HttpClientName)
                         .ConfigurePrimaryHttpMessageHandler(() => Authority);
                     if (interceptors is not null)
                         services.AddDbContext<Lexarbor.Database.VocabularyDbContext>(

@@ -762,7 +762,7 @@ public class AdminHostedLoginTests
                         options.Authority = null; options.MetadataAddress = null!; options.ConfigurationManager = null!;
                         options.TokenValidationParameters.IssuerSigningKey = Authority.SigningKey;
                     });
-                    services.AddHttpClient(SignaCoreHostedLoginDefaults.HttpClientName)
+                    services.AddHttpClient(HostedLoginDefaults.HttpClientName)
                         .ConfigurePrimaryHttpMessageHandler(() => Authority);
                     if (interceptors is not null) services.AddDbContext<VocabularyDbContext>(o => o.AddInterceptors(interceptors));
                 });

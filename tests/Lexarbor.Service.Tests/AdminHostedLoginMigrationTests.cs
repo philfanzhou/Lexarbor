@@ -116,7 +116,7 @@ public class AdminHostedLoginMigrationTests
     public void PackageOptions_KeepTheStrictProfileDefaults()
     {
         using var host = new VocabularyWebApplicationFactory();
-        var options = host.Services.GetRequiredService<IOptions<SignaCoreHostedLoginOptions>>().Value;
+        var options = host.Services.GetRequiredService<IOptions<HostedLoginOptions>>().Value;
         // The strict profile is the migration's A5 guarantee: zero clock skew, the
         // scope-echo subset check, duplicate JSON member rejection, bounded bodies and
         // future issued-at rejection — none of them relaxed by this repository.
@@ -185,7 +185,7 @@ public class AdminHostedLoginMigrationTests
                         options.Authority = null; options.MetadataAddress = null!; options.ConfigurationManager = null!;
                         options.TokenValidationParameters.IssuerSigningKey = Authority.SigningKey;
                     });
-                services.AddHttpClient(SignaCoreHostedLoginDefaults.HttpClientName)
+                services.AddHttpClient(HostedLoginDefaults.HttpClientName)
                     .ConfigurePrimaryHttpMessageHandler(() => Authority);
             }));
             Client = Host.CreateClient(new()

@@ -13,7 +13,7 @@ namespace Lexarbor.Host.Authentication;
 /// writer is resolved from the failing request's own scope, so no scoped dependency is
 /// captured by this singleton.
 /// </summary>
-public sealed class AdminHostedLoginResponseWriter : ISignaCoreHostedLoginResponseWriter
+public sealed class AdminHostedLoginResponseWriter : IHostedLoginResponseWriter
 {
     private const string LoggedOutTarget = "/#/login?reason=logged_out";
     private const string LogoutFailedTarget = "/#/login?reason=logout_failed";
@@ -28,7 +28,7 @@ public sealed class AdminHostedLoginResponseWriter : ISignaCoreHostedLoginRespon
     /// only for an already-cancelled request, which is not a completed security event) and
     /// then answers with the unchanged in-site redirect.
     /// </summary>
-    public async Task WriteSignInFailureAsync(HttpContext context, SignaCoreSignInReason reason,
+    public async Task WriteSignInFailureAsync(HttpContext context, SignInReason reason,
         CancellationToken cancellationToken)
     {
         if (context.Request.Path.StartsWithSegments("/admin/auth/callback", StringComparison.OrdinalIgnoreCase))
@@ -45,10 +45,10 @@ public sealed class AdminHostedLoginResponseWriter : ISignaCoreHostedLoginRespon
 
         switch (reason)
         {
-            case SignaCoreSignInReason.InvalidReturnUrl:
+            case SignInReason.InvalidReturnUrl:
                 await VocabularyHttpResponse.BadRequest("The login return target is invalid.").ExecuteAsync(context);
                 break;
-            case SignaCoreSignInReason.AuthorityUnreachable:
+            case SignInReason.AuthorityUnreachable:
                 await VocabularyHttpResponse.BadGateway("The authentication provider is unavailable.").ExecuteAsync(context);
                 break;
             default:
@@ -60,7 +60,7 @@ public sealed class AdminHostedLoginResponseWriter : ISignaCoreHostedLoginRespon
         }
     }
 
-    public Task WriteFailurePageAsync(HttpContext context, SignaCoreSignInReason? reason,
+    public Task WriteFailurePageAsync(HttpContext context, SignInReason? reason,
         CancellationToken cancellationToken)
     {
         // Lexarbor presents sign-in failures through the SPA's login route, never through a
@@ -69,11 +69,11 @@ public sealed class AdminHostedLoginResponseWriter : ISignaCoreHostedLoginRespon
         return Task.CompletedTask;
     }
 
-    public Task WriteSessionStatusAsync(HttpContext context, SignaCoreSessionStatus status,
+    public Task WriteSessionStatusAsync(HttpContext context, SessionStatus status,
         CancellationToken cancellationToken) =>
         WriteSessionStatusAsync(context, status, null, cancellationToken);
 
-    public Task WriteSessionStatusAsync(HttpContext context, SignaCoreSessionStatus status,
+    public Task WriteSessionStatusAsync(HttpContext context, SessionStatus status,
         ClaimsPrincipal? principal, CancellationToken cancellationToken)
     {
         // The ticket's principal is the hosted session's own; a caller that reached the
@@ -110,8 +110,8 @@ public sealed class AdminHostedLoginResponseWriter : ISignaCoreHostedLoginRespon
     public const string PostLogoutReturnTarget = LoggedOutTarget;
 
     /// <summary>
-    /// The callback reason vocabulary: <see cref="SignaCoreSignInReason.UserCanceled"/> and
-    /// <see cref="SignaCoreSignInReason.PreSignInDenied"/> are the two refusals; an
+    /// The callback reason vocabulary: <see cref="SignInReason.UserCanceled"/> and
+    /// <see cref="SignInReason.PreSignInDenied"/> are the two refusals; an
     /// unreachable authority on the callback leg is a provider outage; everything else is
     /// the generic sign-in failure — except that a malformed authorization response whose
     /// upstream <c>error</c> code names a provider outage (<c>server_error</c>,
@@ -120,12 +120,12 @@ public sealed class AdminHostedLoginResponseWriter : ISignaCoreHostedLoginRespon
     /// vocabulary. The value is both the redirect parameter and the failed-login audit
     /// row's fixed classification.
     /// </summary>
-    private static string CallbackReason(HttpContext context, SignaCoreSignInReason reason) => reason switch
+    private static string CallbackReason(HttpContext context, SignInReason reason) => reason switch
     {
-        SignaCoreSignInReason.UserCanceled => "canceled",
-        SignaCoreSignInReason.PreSignInDenied => "denied",
-        SignaCoreSignInReason.AuthorityUnreachable => "provider_unavailable",
-        SignaCoreSignInReason.InvalidResponse
+        SignInReason.UserCanceled => "canceled",
+        SignInReason.PreSignInDenied => "denied",
+        SignInReason.AuthorityUnreachable => "provider_unavailable",
+        SignInReason.InvalidResponse
             when context.Request.Query.TryGetValue("error", out var error)
             && error.Count == 1
             && error[0] is "server_error" or "temporarily_unavailable" => "provider_unavailable",
