@@ -26,7 +26,7 @@ public static class AdminAuthenticationSource
             ? IntegrationScheme
             : IsBearer(request)
             ? JwtBearerDefaultsName
-            : SignaCore.Client.AspNetCore.SignaCoreHostedLoginDefaults.SessionAuthenticationScheme;
+            : SignaCore.Client.AspNetCore.HostedLoginDefaults.SessionAuthenticationScheme;
 
     private const string JwtBearerDefaultsName =
         Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerDefaults.AuthenticationScheme;
@@ -83,7 +83,7 @@ public static class AdminSessionCookie
     public static void Clear(HttpContext context)
     {
         var login = context.RequestServices.GetRequiredService<
-            Microsoft.Extensions.Options.IOptionsMonitor<SignaCore.Client.AspNetCore.SignaCoreHostedLoginOptions>>()
+            Microsoft.Extensions.Options.IOptionsMonitor<SignaCore.Client.AspNetCore.HostedLoginOptions>>()
             .CurrentValue;
         context.Response.Cookies.Delete(login.SessionCookieName, new CookieOptions
         {

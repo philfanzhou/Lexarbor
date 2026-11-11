@@ -36,7 +36,7 @@ public class AdminHostedLoginPlainHttpTests
     public void PlainHttpRedirect_DerivesTheDePrefixedSessionCookieName()
     {
         using var f = new Fixture();
-        var options = f.Host.Services.GetRequiredService<IOptions<SignaCoreHostedLoginOptions>>().Value;
+        var options = f.Host.Services.GetRequiredService<IOptions<HostedLoginOptions>>().Value;
         Assert.Equal(Redirect, options.RedirectUri);
         // The plain-HTTP profile drops the __Host- prefix (the package's validator
         // refuses a prefixed session name against an http redirect URI); the https
@@ -171,7 +171,7 @@ public class AdminHostedLoginPlainHttpTests
                     options.Authority = null; options.MetadataAddress = null!; options.ConfigurationManager = null!;
                     options.TokenValidationParameters.IssuerSigningKey = Authority.SigningKey;
                 });
-                services.AddHttpClient(SignaCoreHostedLoginDefaults.HttpClientName)
+                services.AddHttpClient(HostedLoginDefaults.HttpClientName)
                     .ConfigurePrimaryHttpMessageHandler(() => Authority);
             }));
             Client = Host.CreateClient(new()

@@ -35,13 +35,13 @@ public sealed class AdminSessionTicketStore(
     IOptionsMonitor<AdminAuthenticationOptions> adminOptions,
     ILogger<AdminSessionTicketStore> logger) : ITicketStore
 {
-    public async Task<string?> StoreAsync(SignaCoreSessionTicket ticket, CancellationToken cancellationToken)
+    public async Task<string?> StoreAsync(SessionTicket ticket, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(ticket);
         return await ReplaceAsync(null, ticket, cancellationToken);
     }
 
-    public async Task<string?> ReplaceAsync(string? oldKey, SignaCoreSessionTicket ticket,
+    public async Task<string?> ReplaceAsync(string? oldKey, SessionTicket ticket,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(ticket);
@@ -82,7 +82,7 @@ public sealed class AdminSessionTicketStore(
         return handle;
     }
 
-    public async Task<SignaCoreSessionTicket?> RetrieveAsync(string key, CancellationToken cancellationToken)
+    public async Task<SessionTicket?> RetrieveAsync(string key, CancellationToken cancellationToken)
     {
         using var scope = scopeFactory.CreateScope();
         var store = scope.ServiceProvider.GetRequiredService<AdminSessionStore>();
@@ -129,7 +129,7 @@ public sealed class AdminSessionTicketStore(
         }
     }
 
-    private SignaCoreSessionTicket ToTicket(ValidatedAdminSession session)
+    private SessionTicket ToTicket(ValidatedAdminSession session)
     {
         // The identity carries the short OIDC claim names and the package's session scheme
         // as its authentication type, so the re-presented principal is authenticated and the
@@ -138,8 +138,8 @@ public sealed class AdminSessionTicketStore(
         if (!string.IsNullOrWhiteSpace(session.DisplayName)) claims.Add(new("name", session.DisplayName));
         claims.AddRange(session.Roles.Select(role => new Claim("role", role)));
         var principal = new ClaimsPrincipal(new ClaimsIdentity(
-            claims, SignaCoreHostedLoginDefaults.SessionAuthenticationScheme, "name", "role"));
-        return new SignaCoreSessionTicket(
+            claims, HostedLoginDefaults.SessionAuthenticationScheme, "name", "role"));
+        return new SessionTicket(
             principal,
             DateTimeOffset.UnixEpoch,
             session.AccessTokenExpiresAt,
