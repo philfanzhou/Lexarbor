@@ -1,27 +1,19 @@
 using Microsoft.Extensions.Options;
-using SignaCore.Client.AspNetCore;
 
 namespace Lexarbor.Host.Authentication;
 
 /// <summary>
-/// The pre-sign-in administrator gate (#209's original extension point): the package calls
-/// it after strictly validating and correlating both tokens but before any ticket or cookie
-/// is written, with the verified access-token principal as input. Only a subject holding
-/// the configured administrator role may establish a session; every other outcome —
-/// denial, timeout, failure — the package reports as the closed
-/// <see cref="SignInReason.PreSignInDenied"/> reason, which the response writer
-/// maps to the repository's <c>denied</c> vocabulary.
+/// The pre-sign-in administrator gate (#209's original extension point), carried over from the
+/// package's <c>PreSignInAuthorizationDecision</c> seam to the framework handler's
+/// token-validated event: only a subject whose independently verified access token carries the
+/// configured administrator role may establish a session. The SignaCore ID token is a closed
+/// set without roles, so the gate's input is deliberately the access-token principal; the
+/// session store re-verifies the same boundary again at storage time.
 /// </summary>
 public sealed class AdminPreSignInRoleGate(IOptionsMonitor<AdminAuthenticationOptions> options)
-    : IPreSignInAuthorizationDecision
 {
-    public ValueTask<AuthorizationDecisionResult> DecideAsync(
-        PreSignInAuthorizationContext context, CancellationToken cancellationToken)
+    public bool AllowsSession(System.Security.Claims.ClaimsPrincipal accessTokenPrincipal)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult(
-            VocabularyClaims.HasRole(context.AccessTokenPrincipal, options.CurrentValue.RequiredRole)
-                ? AuthorizationDecisionResult.Allowed
-                : AuthorizationDecisionResult.Denied);
+        return VocabularyClaims.HasRole(accessTokenPrincipal, options.CurrentValue.RequiredRole);
     }
 }

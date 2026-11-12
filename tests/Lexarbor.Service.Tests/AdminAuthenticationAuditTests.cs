@@ -119,12 +119,14 @@ public class AdminAuthenticationAuditTests
     }
 
     [Fact]
-    public async Task ReSignIn_RevokesTheOldKeyAndWritesTheAuditRowInTheSameTransaction()
+    public async Task ReSignIn_RenewsTheSessionRowAndWritesTheAuditRowInTheSameTransaction()
     {
-        // A2: a second hosted sign-in with the browser's previous session cookie
-        // replaces it atomically — the new session row and the succeeded audit row
-        // commit together, the old key is revoked in the same transaction, and the
-        // new handle authenticates while the old one no longer does.
+        // A2: a second hosted sign-in with the browser's previous session cookie renews the
+        // stored session atomically — the renewed row and the succeeded audit row commit
+        // together, and exactly one live session row remains. The framework cookie handler
+        // renews behind the presented key, so the session keeps its server-side handle (a
+        // declared difference from the replaced slice's key rotation): the previous cookie
+        // value names the same renewed session until it expires, never a second one.
         using var f = new Fixture();
         var old = await f.SignIn();
         var rowsBefore = await f.AuditCountAsync(Succeeded);
@@ -133,14 +135,16 @@ public class AdminAuthenticationAuditTests
         Assert.Equal("/#/books", response.Headers.Location!.OriginalString);
         var fresh = response.Headers.GetValues("Set-Cookie")
             .Single(c => c.StartsWith(AdminSessionCookie.Name + "=", StringComparison.Ordinal))
-            .Split(';')[0].Split('=')[1];
+            .Split(';')[0];
 
         Assert.Equal(1, await f.SessionCountAsync());
         Assert.Equal(rowsBefore + 1, await f.AuditCountAsync(Succeeded));
-        using var stillFresh = await f.Send("/admin/auth/session", AdminSessionCookie.Name + "=" + fresh);
+        using var stillFresh = await f.Send("/admin/auth/session", fresh);
         Assert.Equal(HttpStatusCode.OK, stillFresh.StatusCode);
-        using var revoked = await f.Send("/admin/auth/session", old);
-        Assert.Equal(HttpStatusCode.Unauthorized, revoked.StatusCode);
+        // The pre-renewal cookie value resolves to the same single renewed session: it
+        // authenticates the same subject, and no second session ever exists.
+        using var renewed = await f.Send("/admin/auth/session", old);
+        Assert.Equal(HttpStatusCode.OK, renewed.StatusCode);
     }
 
     [Fact]
@@ -246,8 +250,8 @@ public class AdminAuthenticationAuditTests
         Assert.Contains(Succeeded, text);
         Assert.Contains(Failed, text);
         foreach (var marker in new[] { Fixture.Code, Fixture.Secret, f.LastAccess, f.LastId,
-                     t.Cookie.Split('=')[1], third.Cookie.Split('=')[1], "sensitive-description-marker",
-                     "code_verifier", "?registered=1&state=" })
+                     t.Cookie.Split(';')[0], third.Cookie.Split(';')[0], "sensitive-description-marker",
+                     "code_verifier", "?state=" })
             Assert.DoesNotContain(marker, text, StringComparison.Ordinal);
     }
 
@@ -341,9 +345,6 @@ public class AdminAuthenticationAuditTests
 
         public Fixture(IInterceptor[]? interceptors = null)
         {
-            // The prepared logout stays local-only: the stub answers the provider's
-            // logout preparation endpoint with a refusal.
-            Authority.LogoutDefect = "400";
             var config = new Dictionary<string, string?>
             {
                 ["IdentityService:Authority"] = SignaCoreAuthorityStub.Issuer,
@@ -366,7 +367,7 @@ public class AdminAuthenticationAuditTests
                         options.Authority = null; options.MetadataAddress = null!; options.ConfigurationManager = null!;
                         options.TokenValidationParameters.IssuerSigningKey = Authority.SigningKey;
                     });
-                    services.AddHttpClient(SignaCore.Client.AspNetCore.HostedLoginDefaults.HttpClientName)
+                    services.AddHttpClient(AdminAuthenticationSource.OidcHttpClientName)
                         .ConfigurePrimaryHttpMessageHandler(() => Authority);
                     if (interceptors is not null)
                         services.AddDbContext<Lexarbor.Database.VocabularyDbContext>(
@@ -389,8 +390,10 @@ public class AdminAuthenticationAuditTests
             var state = parameters["state"].ToString();
             var nonce = parameters["nonce"].ToString();
             Authority.Challenges[parameters["code_challenge"].ToString()] = nonce;
-            var cookie = response.Headers.GetValues("Set-Cookie").Single();
-            return new Transaction(state, nonce, cookie.Split(';')[0]);
+            // Every carrier cookie of the handshake (the framework's correlation and nonce
+            // cookies) rides the callback request.
+            var cookie = string.Join("; ", response.Headers.GetValues("Set-Cookie").Select(value => value.Split(';')[0]));
+            return new Transaction(state, nonce, cookie);
         }
 
         public string Query(Transaction t, string? error = null) =>

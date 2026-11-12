@@ -362,3 +362,72 @@ authentication scheme and HttpClient names, every cookie name, the validation de
 and the whole wire behavior are unchanged, so sessions signed in before the upgrade keep
 authenticating — and keep authenticating across a rollback to the previous image. No
 configuration, database, or Data Protection change applies.
+
+## Generic OIDC handler migration (package removal)
+
+The `SignaCore.Client.AspNetCore` package reference is removed entirely (SignaCore ADR
+0010 opened its deprecation window), and the admin sign-in runs on the framework's own
+`Microsoft.AspNetCore.Authentication.OpenIdConnect` handler — referenced as a package in
+.NET 10, like JwtBearer. Every browser-facing contract is unchanged: the six
+`/admin/auth` routes and their fixed bodies/statuses, the `X-SignaCore-CSRF` antiforgery
+header with its `{"token"}` issuer, the `__Host-Lexarbor.AdminSession` /
+`Lexarbor.AdminSession` session cookies, the `/#/login?reason=…` landings with the
+four-value sign-in vocabulary, the session endpoint's `{username, roles}` envelope, the
+`{"success":true[,…,"logoutUrl"]}` logout envelopes, the fixed 401/403/503 shapes of the
+session boundary, and the SQLite-backed server-side session store with its audit
+companion writes — the database rows, the v1 protected payload and the handle format are
+untouched, so sessions survive the swap once the browser re-authenticates.
+
+SignaCore-side registration does not change in value: the same
+`<origin>/admin/auth/logout/return` URI registered as `PostLogout` is what the standard
+RP-initiated logout now presents as `post_logout_redirect_uri` at Discovery's
+`end_session_endpoint`. The previous server-to-server preparation call
+(`POST /oauth2/logout/requests`) is no longer made; deployments must run a SignaCore
+version that publishes `end_session_endpoint` (SignaCore 0.1.x does). An authority
+without it degrades logout to the fixed local-only envelope.
+
+Declared behavioral differences of the generic path:
+
+- The token endpoint authenticates with `client_secret_post` (form body) instead of HTTP
+  Basic; the secret still never reaches the browser, and SignaCore accepts both.
+- The authorize redirect keeps exactly its eight parameters (no `response_mode`, no
+  `x-client-SKU`/`x-client-ver` telemetry); sign-in carrier cookies are the framework's
+  `.AspNetCore.Correlation.*` / `.AspNetCore.OpenIdConnect.Nonce.*` cookies (HttpOnly,
+  Lax, callback-path-scoped, five-minute expiry) instead of the package's per-state
+  binding cookie, and the handshake window is enforced by those cookie expiries (real
+  browsers) plus a five-minute nonce timestamp instead of a server-side pending store.
+- The session cookie now carries a data-protected reference to the stored handle instead
+  of the raw handle, so browsers sign in once across the swap (the stored rows keep
+  working); the antiforgery pair stays user-neutral — the historical Lexarbor contract
+  that one fetch is reused across the login — by evaluating the framework antiforgery
+  against an anonymous principal on both legs.
+- The framework's OpenID Connect protocol validator requires a present `iat` claim in the
+  ID token (the package tolerated its absence), keeps the 30-second clock tolerance, and
+  applies standard OIDC validation semantics otherwise; the access token keeps being
+  re-verified through Lexarbor's own JwtBearer trust at the pre-sign-in gate and in the
+  session store. Scope echoes, duplicate token-response members and token-response sizes
+  are no longer client-policed.
+- A sign-in renewed over a live session keeps the presented session key (the framework
+  cookie handler renews behind it) instead of rotating to a fresh handle: the login
+  audit row still joins the replacement transaction, exactly one live session row
+  remains, and the previous cookie value names the same renewed session until it
+  expires.
+- A valid sign-out return replays to the same signed-out SPA result (its state is a
+  protected, server-independent value) instead of being one-time, and the sign-out
+  redirect carries no extra correlation cookie; a logout whose end-session URL cannot be
+  constructed keeps the local revocation and the `{"success":true}` envelope.
+- The callback and the sign-out callback are intercepted by their exact configured paths
+  (`/admin/auth/callback`, `/admin/auth/logout/return`): case-insensitive as before, but
+  a trailing-slash form now answers the admin catch-all's fixed 401 instead of the
+  protocol's redirect. In the unconfigured mode both routes keep their fixed anonymous
+  redirects through the host's own endpoints.
+- Request cancellation no longer consumes any server-side pending state: the browser may
+  still complete an interrupted handshake; the authority's one-time code remains the
+  replay boundary.
+- Discovery defects surface per framework semantics: a wrong issuer value surfaces at the
+  callback (the RFC 9207 check), while the same-origin endpoint triple of the Discovery
+  document is still verified by the host at the sign-in start and answers the fixed 502.
+
+Rollback restores the previous complete image; browsers sign in again in either
+direction (the cookie presentation changed, the stored rows did not). No SQL or
+configuration migration applies; the required configuration keys are unchanged.

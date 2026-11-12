@@ -1,151 +1,156 @@
 using System.Security.Claims;
 using Lexarbor.Service;
-using SignaCore.Client.AspNetCore;
 
 namespace Lexarbor.Host.Authentication;
 
 /// <summary>
-/// The Lexarbor presentation of the official hosted-login package's protocol outcomes: the
-/// administrator API's fixed JSON envelopes, in-site redirects and reason vocabulary. The
-/// package owns every protocol decision; this writer only shapes what the browser sees, so
-/// the external contracts keep their pre-migration form (the declared changes in
-/// <c>docs/development/HostedLoginReleaseNotes.md</c> excepted). The failed-login audit
-/// writer is resolved from the failing request's own scope, so no scoped dependency is
-/// captured by this singleton.
+/// The fixed presentation layer of the admin hosted-login slice (the framework's OpenID Connect
+/// handler defines the protocol; this writer keeps the browser-facing contract of the replaced
+/// SignaCore client integration): the administrator API's fixed JSON envelopes, the in-site
+/// redirects and the reason vocabulary. The value of <c>reason</c> is both the redirect
+/// parameter and the failed-login audit row's fixed classification.
 /// </summary>
-public sealed class AdminHostedLoginResponseWriter : IHostedLoginResponseWriter
+public static class AdminHostedLoginWriter
 {
-    private const string LoggedOutTarget = "/#/login?reason=logged_out";
-    private const string LogoutFailedTarget = "/#/login?reason=logout_failed";
+    public const string SignInFailedTarget = "/#/login?reason=sign_in_failed";
+    public const string DeniedTarget = "/#/login?reason=denied";
+    public const string CancelledTarget = "/#/login?reason=canceled";
+    public const string ProviderUnavailableTarget = "/#/login?reason=provider_unavailable";
+    public const string LoggedOutTarget = "/#/login?reason=logged_out";
+    public const string LogoutFailedTarget = "/#/login?reason=logout_failed";
 
-    public Task WriteSignInUnavailableAsync(HttpContext context, CancellationToken cancellationToken) =>
-        VocabularyHttpResponse.ServiceUnavailable("Hosted authentication is not configured.").ExecuteAsync(context);
+    /// <summary>The redirect target a completed sign-out hands the browser (the protected state
+    /// of the standard RP-initiated logout ends here).</summary>
+    public const string PostLogoutReturnTarget = LoggedOutTarget;
 
     /// <summary>
-    /// Maps the package's closed failure reasons onto the repository's word list. The start
-    /// and callback routes share this writer: a start failure keeps its fixed JSON answer,
-    /// a callback failure first records the fixed-reason failed-login audit row (skipped
-    /// only for an already-cancelled request, which is not a completed security event) and
-    /// then answers with the unchanged in-site redirect.
+    /// The callback reason vocabulary: the pre-sign-in gate's denial and the user's cancellation
+    /// are the two refusals; a transport failure of the authority's Discovery, JWKS or token
+    /// endpoints — backchannel timeouts included, which the timeout handler normalizes into
+    /// transport failures — is a provider outage, as is an upstream authorization error naming
+    /// one (<c>server_error</c>, <c>temporarily_unavailable</c>); everything else is the generic
+    /// sign-in failure. No other failure detail ever reaches the browser.
     /// </summary>
-    public async Task WriteSignInFailureAsync(HttpContext context, SignInReason reason,
-        CancellationToken cancellationToken)
+    public static string CallbackReason(Exception? failure)
     {
-        if (context.Request.Path.StartsWithSegments("/admin/auth/callback", StringComparison.OrdinalIgnoreCase))
+        if (failure is null)
         {
-            var vocabulary = CallbackReason(context, reason);
-            if (!context.RequestAborted.IsCancellationRequested)
+            return "sign_in_failed";
+        }
+
+        if (failure.Message == AdminAuthenticationSource.NotAdminFailure)
+        {
+            return "denied";
+        }
+
+        for (var exception = failure; exception is not null; exception = exception.InnerException)
+        {
+            if (exception is Microsoft.IdentityModel.Protocols.OpenIdConnect.OpenIdConnectProtocolException protocol
+                && protocol.Data["error"] is string error)
             {
-                await context.RequestServices.GetRequiredService<AdminAuthenticationAudit>()
-                    .RecordLoginFailedAsync(context, vocabulary, context.RequestAborted);
+                return error switch
+                {
+                    "access_denied" => "canceled",
+                    "server_error" or "temporarily_unavailable" => "provider_unavailable",
+                    _ => "sign_in_failed"
+                };
             }
-            Redirect(context, "/#/login?reason=" + vocabulary);
-            return;
         }
 
-        switch (reason)
-        {
-            case SignInReason.InvalidReturnUrl:
-                await VocabularyHttpResponse.BadRequest("The login return target is invalid.").ExecuteAsync(context);
-                break;
-            case SignInReason.AuthorityUnreachable:
-                await VocabularyHttpResponse.BadGateway("The authentication provider is unavailable.").ExecuteAsync(context);
-                break;
-            default:
-                // The pending-sign-in store is full: the service is up, but no new handshake
-                // can start right now. Any other reason on the start route cannot occur.
-                await VocabularyHttpResponse.ServiceUnavailable("Hosted authentication is temporarily unavailable.")
-                    .ExecuteAsync(context);
-                break;
-        }
+        return IsAuthorityUnavailable(failure) ? "provider_unavailable" : "sign_in_failed";
     }
 
-    public Task WriteFailurePageAsync(HttpContext context, SignInReason? reason,
+    /// <summary>
+    /// Whether the failure chain is a transport failure of the authority's endpoints — the
+    /// provider-unavailable classification. IdentityModel wraps Discovery and document retrieval
+    /// errors, so every link of the chain is inspected; client-side timeouts arrive here as
+    /// <see cref="HttpRequestException"/> through the backchannel timeout handler.
+    /// </summary>
+    internal static bool IsAuthorityUnavailable(Exception failure)
+    {
+        for (var exception = failure; exception is not null; exception = exception.InnerException)
+        {
+            if (exception is HttpRequestException or TimeoutException or IOException)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// The start route's three fixed JSON failures: an invalid <c>returnUrl</c> answers the
+    /// fixed 400 body, an unreachable authority the fixed 502, and the unconfigured degradation
+    /// the fixed 503. No pending sign-in is ever created for a rejected input.
+    /// </summary>
+    public static Task WriteStartFailureAsync(HttpContext context, AdminStartFailure failure,
+        CancellationToken cancellationToken) => failure switch
+        {
+            AdminStartFailure.InvalidReturnUrl => VocabularyHttpResponse
+                .BadRequest("The login return target is invalid.").ExecuteAsync(context),
+            AdminStartFailure.AuthorityUnreachable => VocabularyHttpResponse
+                .BadGateway("The authentication provider is unavailable.").ExecuteAsync(context),
+            _ => VocabularyHttpResponse
+                .ServiceUnavailable("Hosted authentication is not configured.").ExecuteAsync(context),
+        };
+
+    /// <summary>The session-status endpoint's fixed shape: the authorized administrator
+    /// identity's display name and roles — never a token, never another reason.</summary>
+    public static Task WriteSessionStatusAsync(HttpContext context, ClaimsPrincipal? presented,
         CancellationToken cancellationToken)
     {
-        // Lexarbor presents sign-in failures through the SPA's login route, never through a
-        // server-rendered failure page; the mapped page exists only for a direct visit.
-        Redirect(context, "/#/login");
-        return Task.CompletedTask;
-    }
-
-    public Task WriteSessionStatusAsync(HttpContext context, SessionStatus status,
-        CancellationToken cancellationToken) =>
-        WriteSessionStatusAsync(context, status, null, cancellationToken);
-
-    public Task WriteSessionStatusAsync(HttpContext context, SessionStatus status,
-        ClaimsPrincipal? principal, CancellationToken cancellationToken)
-    {
-        // The ticket's principal is the hosted session's own; a caller that reached the
-        // endpoint through another authorized administrator credential (a Bearer token)
-        // sees that verified identity instead, keeping the endpoint's historical answer
-        // for every administrator. An anonymous or expired request gets the fixed 401.
-        var presented = principal is { Identity.IsAuthenticated: true }
-            ? principal
-            : context.User is { Identity.IsAuthenticated: true } ? context.User : null;
-        if (presented is null)
-        {
-            return VocabularyHttpResponse.WriteFailureAsync(
-                context.Response, StatusCodes.Status401Unauthorized, "Authentication is required.");
-        }
+        // The presented principal is whichever authorized administrator credential reached the
+        // endpoint — the hosted session, or a Bearer token through the scheme selector; an
+        // anonymous or expired request never reaches this writer (the endpoint's policy answers
+        // the fixed 401 first).
         var username = VocabularyClaims.GetDisplayName(presented) ?? string.Empty;
         var roles = VocabularyClaims.GetRoles(presented);
         return VocabularyHttpResponse.Ok(new { username, roles }).ExecuteAsync(context);
     }
 
-    public Task WriteLogoutPreparedAsync(HttpContext context, string logoutUri,
-        CancellationToken cancellationToken) =>
-        VocabularyHttpResponse.Ok(new { logoutUrl = logoutUri }).ExecuteAsync(context);
-
-    public Task WriteLogoutLocalOnlyAsync(HttpContext context, CancellationToken cancellationToken) =>
-        VocabularyHttpResponse.Ok().ExecuteAsync(context);
-
-    public Task WriteLogoutReturnFailedAsync(HttpContext context, CancellationToken cancellationToken)
+    /// <summary>The antiforgery-rejected logout: the package's fixed bare
+    /// <c>{"outcome":"csrf_rejected"}</c> body; no session is touched.</summary>
+    public static async Task WriteLogoutCsrfRejectedAsync(HttpContext context)
     {
-        Redirect(context, LogoutFailedTarget);
-        return Task.CompletedTask;
+        context.Response.StatusCode = StatusCodes.Status400BadRequest;
+        context.Response.Headers.CacheControl = "no-store";
+        await context.Response.WriteAsJsonAsync(new { outcome = "csrf_rejected" }, context.RequestAborted);
     }
 
-    /// <summary>The redirect target the package's logout-return endpoint hands the browser.</summary>
-    public const string PostLogoutReturnTarget = LoggedOutTarget;
+    /// <summary>The local-only logout: the bare success envelope with no upstream echo.</summary>
+    public static Task WriteLogoutLocalOnlyAsync(HttpContext context) =>
+        VocabularyHttpResponse.Ok().ExecuteAsync(context);
+
+    /// <summary>The prepared logout: the success envelope carrying the verified end-session
+    /// URL, which the SPA follows with a top-level navigation.</summary>
+    public static Task WriteLogoutPreparedAsync(HttpContext context, string logoutUrl) =>
+        VocabularyHttpResponse.Ok(new { logoutUrl }).ExecuteAsync(context);
 
     /// <summary>
-    /// The callback reason vocabulary: <see cref="SignInReason.UserCanceled"/> and
-    /// <see cref="SignInReason.PreSignInDenied"/> are the two refusals; an
-    /// unreachable authority on the callback leg is a provider outage; everything else is
-    /// the generic sign-in failure — except that a malformed authorization response whose
-    /// upstream <c>error</c> code names a provider outage (<c>server_error</c>,
-    /// <c>temporarily_unavailable</c>) keeps the historical <c>provider_unavailable</c>
-    /// classification, so the browser and the audit row keep the full four-value
-    /// vocabulary. The value is both the redirect parameter and the failed-login audit
-    /// row's fixed classification.
+    /// The security headers the routed /admin surface gets from its endpoint markers. The
+    /// protocol handler answers the callback and the sign-out callback before routing — these
+    /// two responses carry the same baseline here.
     /// </summary>
-    private static string CallbackReason(HttpContext context, SignInReason reason) => reason switch
+    public static void ApplyCallbackSafetyHeaders(HttpResponse response)
     {
-        SignInReason.UserCanceled => "canceled",
-        SignInReason.PreSignInDenied => "denied",
-        SignInReason.AuthorityUnreachable => "provider_unavailable",
-        SignInReason.InvalidResponse
-            when context.Request.Query.TryGetValue("error", out var error)
-            && error.Count == 1
-            && error[0] is "server_error" or "temporarily_unavailable" => "provider_unavailable",
-        _ => "sign_in_failed"
-    };
-
-    private static void Redirect(HttpContext context, string target)
-    {
-        context.Response.StatusCode = StatusCodes.Status302Found;
-        context.Response.Headers.Location = target;
+        response.Headers.CacheControl = "no-store";
+        response.Headers["Referrer-Policy"] = "no-referrer";
     }
 }
 
+public enum AdminStartFailure
+{
+    InvalidReturnUrl,
+    AuthorityUnreachable,
+    NotConfigured,
+}
+
 /// <summary>
-/// The allowlist of local routes a completed hosted sign-in may land on, expressed as the
-/// official package's return-URL validator. The answer is normalized to the SPA's
-/// <c>/#/…</c> form and re-checked by the package's own local-path rule; anything outside
-/// the allowlist is rejected as the fixed <c>invalid_return_url</c> reason. A start without
-/// a <c>returnUrl</c> never consults this validator: the package lands it on its fixed
-/// application-root default.
+/// The allowlist of local routes a completed hosted sign-in may land on. The answer is
+/// normalized to the SPA's <c>/#/…</c> form; anything outside the allowlist is rejected as the
+/// fixed invalid-return-url failure. A start without a <c>returnUrl</c> never consults this
+/// validator: it lands on the fixed application-root default.
 /// </summary>
 public static class AdminLoginReturnTarget
 {

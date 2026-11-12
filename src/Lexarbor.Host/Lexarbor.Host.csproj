@@ -10,6 +10,10 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+    <!-- The admin hosted-login slice runs on the framework's own OpenID Connect handler. The
+         handler ships as this package in .NET 10 (outside the shared framework, like JwtBearer);
+         the SignaCore client package is no longer referenced. -->
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
@@ -21,7 +25,6 @@
     <PackageReference Include="ServiceMantle.Logging" />
     <PackageReference Include="ServiceMantle.Persistence.Relational" />
     <PackageReference Include="ServiceMantle.Web" />
-    <PackageReference Include="SignaCore.Client.AspNetCore" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Lexarbor.Service\Lexarbor.Service.csproj" />

@@ -42,6 +42,23 @@ public sealed class AdminSessionRepository(VocabularyDbContext context, IUnitOfW
         RevokeAndReadAsync(hash, null, cancellationToken);
 
     /// <summary>
+    /// Replaces a session row under the same handle hash in one statement (a sign-in renewed
+    /// over a live session), running <paramref name="participatingWrite"/> inside the same
+    /// serialized transaction so the companion audit row commits with the replacement or rolls
+    /// back with it. The upsert covers the rare race where the referenced row vanished between
+    /// the session read and this write.
+    /// </summary>
+    public Task ReplaceInPlaceAsync(AdminSessionEntity row, Func<Task>? participatingWrite = null,
+        CancellationToken cancellationToken = default) => SafelyAsync(() => WriteAsync(async () =>
+    {
+        if (participatingWrite is not null) await participatingWrite();
+        await context.Database.ExecuteSqlInterpolatedAsync(
+            $"INSERT INTO admin_session (handle_hash, expires_at_unix_ms, protected_payload) VALUES ({row.HandleHash}, {row.ExpiresAtUnixMs}, {row.ProtectedPayload}) ON CONFLICT(handle_hash) DO UPDATE SET expires_at_unix_ms = {row.ExpiresAtUnixMs}, protected_payload = {row.ProtectedPayload}",
+            cancellationToken);
+        return 0;
+    }, cancellationToken));
+
+    /// <summary>
     /// Revokes a session row, running <paramref name="participatingWrite"/> with the selected row
     /// inside the same serialized transaction so a companion write keyed on the revoked session
     /// (the management audit row for a logout) commits with the revocation or rolls back with it.
