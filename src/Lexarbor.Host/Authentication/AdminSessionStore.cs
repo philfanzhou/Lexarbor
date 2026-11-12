@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Lexarbor.Database.Entities;
@@ -35,6 +35,48 @@ public sealed class AdminSessionStore(AdminSessionRepository repository,
     public Task<string> ReplaceAsync(string? oldHandle, ValidatedAdminSession session,
         CancellationToken cancellationToken = default) =>
         ReplaceAsync(oldHandle, session, null, cancellationToken);
+
+    /// <summary>
+    /// Replaces the session under the same handle (a sign-in renewed over a live session: the
+    /// framework cookie handler keeps the presented key), optionally running
+    /// <paramref name="participatingWrite"/> inside the same serialized transaction. The
+    /// previous payload is revoked by the overwrite; the handle itself does not rotate.
+    /// </summary>
+    public async Task<string> ReplaceInPlaceAsync(string handle, ValidatedAdminSession session,
+        Func<Task>? participatingWrite = null, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var hash = Hash(handle)
+            ?? throw new ArgumentException("The handle must be the canonical 43-character form.", nameof(handle));
+        if (!IsValid(session) || session.AccessTokenExpiresAt.ToUnixTimeMilliseconds() <= Now())
+            throw new ArgumentException("A structurally valid, unexpired, independently verified administrator session is required.", nameof(session));
+        var expiry = session.AccessTokenExpiresAt.ToUnixTimeMilliseconds();
+        var payload = new ProtectedSession
+        {
+            Version = 1,
+            HandleHash = hash,
+            ExpiresAtUnixMs = expiry,
+            Session = new ValidatedAdminSession
+            {
+                AccessToken = session.AccessToken,
+                IdToken = session.IdToken,
+                Issuer = session.Issuer,
+                Subject = session.Subject,
+                DisplayName = session.DisplayName,
+                Roles = session.Roles.ToArray(),
+                AccessTokenExpiresAt = DateTimeOffset.FromUnixTimeMilliseconds(expiry)
+            }
+        };
+        var row = new AdminSessionEntity
+        {
+            HandleHash = hash,
+            ExpiresAtUnixMs = expiry,
+            ProtectedPayload = _protector.Protect(JsonSerializer.Serialize(payload))
+        };
+        // No retry: if commit has begun and its response is lost, the outcome is unknown.
+        await repository.ReplaceInPlaceAsync(row, participatingWrite, cancellationToken);
+        return handle;
+    }
 
     /// <summary>
     /// Replaces the session, optionally running <paramref name="participatingWrite"/> inside the

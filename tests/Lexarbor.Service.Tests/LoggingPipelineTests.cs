@@ -112,7 +112,7 @@ public class LoggingPipelineTests
         }
 
         using var request = new HttpRequestMessage(HttpMethod.Get, "/admin/auth/session");
-        request.Headers.Add("Cookie", $"{AdminSessionCookie.Name}={handle}");
+        request.Headers.Add("Cookie", AdminSessionTestCookie.For(host.Services, handle));
         using var response = await client.SendAsync(request, Ct);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);

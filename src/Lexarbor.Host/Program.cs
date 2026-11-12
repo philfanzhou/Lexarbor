@@ -32,7 +32,6 @@ using ServiceMantle.Persistence.Relational.DataProtection;
 using ServiceMantle.Persistence.Relational.Stores;
 using ServiceMantle.Web;
 using ServiceMantle.Web.Management;
-using SignaCore.Client.AspNetCore;
 using KestrelBadHttpRequestException = Microsoft.AspNetCore.Server.Kestrel.Core.BadHttpRequestException;
 
 // Before anything is built. The container HEALTHCHECK runs this same assembly,
@@ -273,77 +272,26 @@ builder.Services.AddOptions<AdminAuthenticationOptions>()
     .ValidateOnStart();
 
 builder.Services.AddScoped<AdminAccessTokenValidator>();
-// The hosted-login protocol settings, read from the historical keys and re-bound onto the
-// official client package: the container environment contract is unchanged.
+// The hosted-login protocol settings, read from the historical keys by the registration
+// below: the container environment contract is unchanged.
 builder.Services.Configure<OidcCodeOptions>(builder.Configuration.GetSection(OidcCodeOptions.SectionName));
 builder.Services.AddSingleton<IHttpContextAccessor, HttpContextAccessor>();
-// Registered ahead of the package so its TryAdd registration defers to the SQLite-backed
-// store: the ticket rows, the audit companion writes and the v1 protected payload are
-// Lexarbor's own persistence boundary. The self registration keeps one instance behind
-// both the package's ITicketStore seam and this assembly's own lookups.
-builder.Services.AddSingleton<AdminSessionTicketStore>();
-builder.Services.AddSingleton<ITicketStore>(serviceProvider =>
-    serviceProvider.GetRequiredService<AdminSessionTicketStore>());
-builder.Services.AddSingleton<AdminHostedLoginResponseWriter>();
-builder.Services.AddSingleton<AdminPreSignInRoleGate>();
-builder.Services.AddSignaCoreHostedLogin(login =>
-{
-    var identity = builder.Configuration.GetSection(IdentityServiceOptions.SectionName).Get<IdentityServiceOptions>()
-        ?? new IdentityServiceOptions();
-    var code = builder.Configuration.GetSection(OidcCodeOptions.SectionName).Get<OidcCodeOptions>()
-        ?? new OidcCodeOptions();
-    // A deployment that has not configured the hosted login (all three client settings
-    // blank) keeps the historical placeholder authority out of the protocol options, so
-    // the optional-login degradation answers /admin/auth/start with its fixed 503 the
-    // way the retired implementation did; any configured client setting makes the
-    // authority a required, validated option — half-configuration fails startup.
-    var loginConfigured = !string.IsNullOrWhiteSpace(code.ClientId)
-        || !string.IsNullOrWhiteSpace(code.ClientSecret)
-        || !string.IsNullOrWhiteSpace(code.RedirectUri);
-    login.Authority = loginConfigured ? identity.Authority : null;
-    login.ClientId = code.ClientId;
-    login.ClientSecret = code.ClientSecret;
-    login.RedirectUri = code.RedirectUri;
-    login.Scope = code.Scope;
-    login.PostLogoutRedirectUri = string.IsNullOrWhiteSpace(code.PostLogoutRedirectUri)
-        ? null
-        : code.PostLogoutRedirectUri;
-    // The session cookie name follows the redirect URI's scheme, the same rule the
-    // official client applies to its whole cookie profile (0.1.16): an https redirect
-    // keeps the retired implementation's byte-for-byte name — existing handles and the
-    // protected payload format survive the upgrade and a rollback either way — while
-    // an http redirect drops the __Host- prefix a plain-HTTP deployment cannot satisfy
-    // (the prefix demands Secure), which the package's validator would otherwise
-    // refuse at startup.
-    login.SessionCookieName = AdminSessionCookie.ForRedirectUri(code.RedirectUri);
-    // Hosted login stays optional at startup: an unconfigured deployment keeps serving its
-    // public API, /admin/auth/start answers its historical 503, and a configured but illegal
-    // value still fails startup — the package's missing-versus-illegal split.
-    login.AllowUnconfiguredStartup = true;
-    login.ReturnUrlValidator = AdminLoginReturnTarget.Normalize;
-    login.SessionEndpointRequireAuthorization = true;
-    login.PostLogoutReturnPath = AdminHostedLoginResponseWriter.PostLogoutReturnTarget;
-});
-// The Lexarbor presentation and the pre-sign-in administrator gate are singleton services
-// wired onto the package options after configuration, so the request-scoped audit writer is
-// resolved per failing request rather than captured here.
-builder.Services.AddOptions<HostedLoginOptions>()
-    .PostConfigure<AdminHostedLoginResponseWriter, AdminPreSignInRoleGate>(
-        (login, writer, gate) =>
-        {
-            login.ResponseWriter = writer;
-            login.PreSignInAuthorizationDecision = gate;
-        });
-// The hosted-login client is the internal-service channel: its Discovery,
-// JWKS and token-endpoint calls all target SignaCore. The shared outbound
-// correlation handler is appended to the same named client the package
-// registered (named-client configuration stacks), so an internal call made
-// while serving a request carries that request's correlation id downstream —
-// with no request context it adds nothing. The bare health-check HttpClient
-// and the JwtBearer OIDC metadata backchannel are deliberately not mounted:
-// the former is a standalone process probing itself, the latter is
-// infrastructure metadata retrieval, neither an internal service call.
-builder.Services.AddHttpClient(HostedLoginDefaults.HttpClientName)
+// The admin hosted-login slice on the framework's own OpenID Connect handler: the handler
+// owns the code flow and the standard RP-initiated logout; the registration wires the
+// SQLite-backed ticket store (with its audit companion writes), the antiforgery write model
+// on the historical X-SignaCore-CSRF header, the pre-sign-in administrator gate, the
+// hardened backchannel client, and the periodic session sweep. The SignaCore client package
+// is no longer referenced; an unconfigured deployment keeps its fixed degraded answers.
+builder.Services.AddLexarborAdminOidc();
+// The hosted-login backchannel is the internal-service channel: its Discovery, JWKS and
+// token-endpoint calls all target the identity provider. The shared outbound correlation
+// handler is appended to the same named client the registration created (named-client
+// configuration stacks), so an internal call made while serving a request carries that
+// request's correlation id downstream — with no request context it adds nothing. The bare
+// health-check HttpClient and the JwtBearer OIDC metadata backchannel are deliberately not
+// mounted: the former is a standalone process probing itself, the latter is infrastructure
+// metadata retrieval, neither an internal service call.
+builder.Services.AddHttpClient(AdminAuthenticationSource.OidcHttpClientName)
     .AddServiceMantleCorrelationIdPropagation();
 
 builder.Services

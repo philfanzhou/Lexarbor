@@ -10,11 +10,12 @@ using Microsoft.IdentityModel.Tokens;
 namespace Lexarbor.Service.Tests.TestInfrastructure;
 
 /// <summary>
-/// The synthetic SignaCore authority behind the official client package's backchannel:
-/// Discovery, JWKS, the token endpoint and the prepared-logout endpoint, with the defect
-/// injection points the hosted-login contract tests use. Registration replaces the
-/// <c>SignaCoreHostedLogin</c> HTTP client's primary handler with this stub, so the
-/// package's own Discovery client, token client and logout client all speak to it.
+/// The synthetic authority behind the OpenID Connect handler's backchannel: Discovery (with
+/// the standard end-session endpoint), JWKS and the token endpoint, with the defect injection
+/// points the hosted-login contract tests use. Registration replaces the admin OIDC client's
+/// primary handler with this stub, so the handler's own Discovery client and token client both
+/// speak to it. The standard RP-initiated logout needs no server-to-server call: the end-session
+/// interaction is the browser redirect the endpoint tests assert on directly.
 /// </summary>
 public sealed class SignaCoreAuthorityStub(TimeProvider clock) : HttpMessageHandler
 {
@@ -23,6 +24,7 @@ public sealed class SignaCoreAuthorityStub(TimeProvider clock) : HttpMessageHand
     public const string PostLogoutRedirect = "https://lexarbor.test/admin/auth/logout/return";
     public const string Secret = "synthetic-hosted-secret-marker";
     public const string Kid = "key-1";
+    public const string EndSessionEndpoint = Issuer + "/oauth2/logout/end";
     public static readonly string Code = WebEncoders.Base64UrlEncode(Encoding.ASCII.GetBytes("synthetic-code-marker-0123456789"));
     public static readonly string Handle = WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
 
@@ -40,26 +42,31 @@ public sealed class SignaCoreAuthorityStub(TimeProvider clock) : HttpMessageHand
     public RsaSecurityKey SigningKey => new(_rsa.ExportParameters(false)) { KeyId = Kid };
 
     public bool DiscoveryFails { get; set; }
-    /// <summary>Publishes the authorization endpoint on a second origin: the official
+    /// <summary>Publishes the authorization endpoint on a second origin: the host's
     /// same-origin triple check must refuse the whole document.</summary>
     public bool CrossOriginAuthorizationEndpoint { get; set; }
+    /// <summary>Omits the end-session endpoint from Discovery: the standard logout
+    /// then degrades to the fixed local-only result.</summary>
+    public bool EndSessionUnavailable { get; set; }
     public string? TokenDefect { get; set; }
-    public string? LogoutDefect { get; set; }
     public TaskCompletionSource? Gate { get; set; }
-    public TaskCompletionSource? LogoutGate { get; set; }
     public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    public TaskCompletionSource LogoutEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public ConcurrentDictionary<string, string> Challenges { get; } = new();
 
     private int _tokenPosts;
-    private int _logoutPosts;
     public int TokenPosts => _tokenPosts;
-    public int LogoutPosts => _logoutPosts;
     public Dictionary<string, string> TokenForm { get; private set; } = new();
-    public Dictionary<string, string> LogoutForm { get; private set; } = new();
     public string? LastAuthorizationHeader { get; private set; }
 
-    /// <summary>The x-correlation-id of the last token or logout request, for
+    /// <summary>
+    /// The redeemable codes, keyed by the handshake's PKCE verifier: the real authority
+    /// redeems a code exactly once per handshake, so a replayed callback — concurrent or
+    /// sequential — answers the fixed invalid_grant while an independent handshake (its own
+    /// verifier) redeems its own code.
+    /// </summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _redeemed = new();
+
+    /// <summary>The x-correlation-id of the last token request, for
     /// the outbound correlation-propagation assertions.</summary>
     public string? LastCorrelationId { get; private set; }
     public string LastAccess { get; private set; } = string.Empty;
@@ -79,7 +86,8 @@ public sealed class SignaCoreAuthorityStub(TimeProvider clock) : HttpMessageHand
                     ? "https://evil.test/authorize"
                     : IssuerValue + "/authorize",
                 token_endpoint = IssuerValue + "/token",
-                jwks_uri = IssuerValue + "/jwks"
+                jwks_uri = IssuerValue + "/jwks",
+                end_session_endpoint = EndSessionUnavailable ? null : IssuerValue + "/oauth2/logout/end"
             });
         }
         if (path == "/jwks")
@@ -102,7 +110,6 @@ public sealed class SignaCoreAuthorityStub(TimeProvider clock) : HttpMessageHand
             });
         }
         if (path == "/token") return await TokenAsync(request, cancellationToken);
-        if (path == "/oauth2/logout/requests") return await LogoutAsync(request, cancellationToken);
         return new HttpResponseMessage(HttpStatusCode.NotFound) { Content = new StringContent("{}") };
     }
 
@@ -119,16 +126,16 @@ public sealed class SignaCoreAuthorityStub(TimeProvider clock) : HttpMessageHand
         // Shared only for assertions: each request works from its own local copy so
         // concurrent redemptions never read another request's verifier.
         TokenForm = form;
-        Entered.TrySetResult();
-        if (Gate is not null) await Gate.Task.WaitAsync(cancellationToken);
-        var defect = TokenDefect;
-        // The real authority redeems only the code it issued; anything else is the
-        // fixed invalid_grant of a malformed or replayed code.
-        if (form.GetValueOrDefault("code") != Code)
+        // The real authority redeems only the code it issued, once per handshake; anything
+        // else is the fixed invalid_grant of a malformed or replayed code.
+        if (form.GetValueOrDefault("code") != Code || !_redeemed.TryAdd(form.GetValueOrDefault("code_verifier", ""), 0))
             return new(HttpStatusCode.BadRequest)
             {
                 Content = JsonContent.Create(new { error = "invalid_grant", error_description = Code })
             };
+        Entered.TrySetResult();
+        if (Gate is not null) await Gate.Task.WaitAsync(cancellationToken);
+        var defect = TokenDefect;
         if (defect == "network") throw new HttpRequestException(Code);
         if (defect == "timeout") throw new TaskCanceledException(Code);
         if (defect is "307" or "308") return new((HttpStatusCode)int.Parse(defect))
@@ -174,75 +181,6 @@ public sealed class SignaCoreAuthorityStub(TimeProvider clock) : HttpMessageHand
         if (defect == "missing-id") body.Remove("id_token");
         if (defect == "missing-access") body.Remove("access_token");
         return new(HttpStatusCode.OK) { Content = JsonContent.Create(body) };
-    }
-
-    private async Task<HttpResponseMessage> LogoutAsync(HttpRequestMessage request,
-        CancellationToken cancellationToken)
-    {
-        Interlocked.Increment(ref _logoutPosts);
-        LastAuthorizationHeader = request.Headers.Authorization?.ToString();
-        LastCorrelationId = request.Headers.TryGetValues("x-correlation-id", out var ids) ? ids.SingleOrDefault() : null;
-        var form = (await request.Content!.ReadAsStringAsync(cancellationToken))
-            .Split('&').Select(pair => pair.Split('=', 2))
-            .ToDictionary(pair => System.Net.WebUtility.UrlDecode(pair[0]),
-                pair => System.Net.WebUtility.UrlDecode(pair[1]));
-        // Shared only for assertions: each request works from its own local copy.
-        LogoutForm = form;
-        LogoutEntered.TrySetResult();
-        if (LogoutGate is not null) await LogoutGate.Task.WaitAsync(cancellationToken);
-        var defect = LogoutDefect;
-        // The real authority refuses an unusable hint or blank credentials: an empty
-        // or oversized id_token_hint, or a Basic header without both client parts,
-        // never prepares an upstream logout.
-        if (string.IsNullOrEmpty(form.GetValueOrDefault("id_token_hint"))
-            || form["id_token_hint"].Length > 8192)
-            return new(HttpStatusCode.BadRequest) { Content = JsonContent.Create(new { error = "invalid_request" }) };
-        try
-        {
-            var basic = Convert.FromBase64String(
-                (request.Headers.Authorization?.Parameter ?? string.Empty).Trim());
-            var parts = Encoding.UTF8.GetString(basic).Split(':', 2);
-            if (parts.Length != 2 || parts[0].Length == 0 || parts[1].Length == 0)
-                return new(HttpStatusCode.Unauthorized) { Content = JsonContent.Create(new { error = "invalid_client" }) };
-        }
-        catch (FormatException)
-        {
-            return new(HttpStatusCode.Unauthorized) { Content = JsonContent.Create(new { error = "invalid_client" }) };
-        }
-        if (defect == "network") throw new HttpRequestException("synthetic-upstream-marker");
-        if (defect == "timeout") throw new TaskCanceledException("sensitive-upstream-marker");
-        if (defect is "400" or "500" or "503" or "302") return new((HttpStatusCode)int.Parse(defect))
-        {
-            Content = new StringContent("{}")
-        };
-        if (defect == "oversize") return new(HttpStatusCode.OK) { Content = new StringContent(new string('a', 4097)) };
-        if (defect == "malformed") return new(HttpStatusCode.OK) { Content = new StringContent("{" + Code) };
-        if (defect == "missing-uri") return Json(new { outcome = "ok" });
-        if (defect == "non-string") return Json(new { logout_uri = 42 });
-        if (defect == "duplicate-field")
-            return new(HttpStatusCode.OK) { Content = new StringContent("{\"logout_uri\":\"/oauth2/logout\",\"logout_uri\":\"https://evil.test/l\"}") };
-        string value = defect switch
-        {
-            "evil-host" => "https://evil.test/oauth2/logout?logout_handle=" + Handle,
-            "wrong-port" => IssuerValue + ":843/oauth2/logout?logout_handle=" + Handle,
-            "wrong-path" => IssuerValue + "/other?logout_handle=" + Handle,
-            "no-query" => IssuerValue + "/oauth2/logout",
-            "bad-handle" => IssuerValue + "/oauth2/logout?logout_handle=sensitive-handle-marker",
-            "short-handle" => IssuerValue + "/oauth2/logout?logout_handle=abc",
-            "extra-query" => IssuerValue + "/oauth2/logout?logout_handle=" + Handle + "&x=1",
-            "duplicate-handle" => IssuerValue + "/oauth2/logout?logout_handle=" + Handle + "&logout_handle=" + Handle,
-            "fragment" => IssuerValue + "/oauth2/logout?logout_handle=" + Handle + "#f",
-            "userinfo" => "https://user@" + IssuerValue.Split("://", 2)[1] + "/oauth2/logout?logout_handle=" + Handle,
-            "relative-evil-host" => "//evil.test/oauth2/logout?logout_handle=" + Handle,
-            "relative-wrong-path" => "/other?logout_handle=" + Handle,
-            "relative-extra-query" => "/oauth2/logout?logout_handle=" + Handle + "&x=1",
-            "relative-bad-handle" => "/oauth2/logout?logout_handle=short",
-            "relative-fragment" => "/oauth2/logout?logout_handle=" + Handle + "#f",
-            "http-scheme" => "http://" + IssuerValue.Split("://", 2)[1] + "/oauth2/logout?logout_handle=" + Handle,
-            "relative" => "/oauth2/logout?logout_handle=" + Handle,
-            _ => IssuerValue + "/oauth2/logout?logout_handle=" + Handle
-        };
-        return Json(new { logout_uri = value });
     }
 
     public Dictionary<string, object> AccessClaims(string? role = null) => new()

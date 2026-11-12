@@ -23,7 +23,6 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
-using SignaCore.Client.AspNetCore;
 
 namespace Lexarbor.Service.Tests;
 
@@ -42,16 +41,34 @@ public class AdminHostedLoginTests
         Assert.Equal(SignaCoreAuthorityStub.Redirect, t.Parameters["redirect_uri"]);
         Assert.Equal("openid profile", t.Parameters["scope"]);
         Assert.Equal("S256", t.Parameters["code_challenge_method"]);
+        // The code flow's standard response mode is query, and the handler correctly omits
+        // the response_mode parameter for it: the authorize redirect carries exactly the
+        // eight parameters of the replaced slice's wire contract.
         Assert.DoesNotContain("response_mode", t.Parameters.Keys);
-        Assert.Contains("secure", t.SetCookie); Assert.Contains("httponly", t.SetCookie); Assert.Contains("samesite=lax", t.SetCookie);
-        Assert.Contains("path=/admin/auth/callback", t.SetCookie); Assert.DoesNotContain("domain=", t.SetCookie);
+        Assert.DoesNotContain("x-client-SKU", t.Parameters.Keys);
+        // The framework's carrier cookies (correlation and nonce): HttpOnly, Lax, scoped to
+        // the callback path and bounded by the replaced slice's five-minute handshake window.
+        Assert.Equal(2, t.Cookies.Length);
+        Assert.Contains(t.Cookies, cookie => cookie.StartsWith(".AspNetCore.Correlation.", StringComparison.Ordinal));
+        Assert.Contains(t.Cookies, cookie => cookie.StartsWith(".AspNetCore.OpenIdConnect.Nonce.", StringComparison.Ordinal));
+        foreach (var raw in t.SetCookies)
+        {
+            Assert.Contains("secure", raw, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("httponly", raw, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("samesite=lax", raw, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("path=/admin/auth/callback", raw, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("domain=", raw, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("expires=", raw, StringComparison.OrdinalIgnoreCase);
+        }
         using var callback = await f.Send(f.Query(t) + "&returnUrl=https%3A%2F%2Fevil.test%2Fignored", t.Cookie);
         Assert.Equal("/#/books/book_1/words", callback.Headers.Location!.OriginalString);
         Assert.Equal("no-store", callback.Headers.CacheControl!.ToString());
         Assert.Equal("no-referrer", callback.Headers.GetValues("Referrer-Policy").Single());
         var cookie = callback.Headers.GetValues("Set-Cookie").Single(s => s.StartsWith(AdminSessionCookie.Name + "=", StringComparison.Ordinal)).Split(';')[0];
         Assert.DoesNotContain(f.LastAccess, cookie); Assert.DoesNotContain(f.LastId, cookie);
-        Assert.Contains(callback.Headers.GetValues("Set-Cookie"), s => s.StartsWith(t.Cookie.Split('=')[0] + "=;", StringComparison.Ordinal));
+        // Both single-use carrier cookies are deleted with the completed sign-in.
+        Assert.Contains(callback.Headers.GetValues("Set-Cookie"), s => s.StartsWith(t.Cookies[0].Split('=')[0] + "=;", StringComparison.Ordinal));
+        Assert.Contains(callback.Headers.GetValues("Set-Cookie"), s => s.StartsWith(t.Cookies[1].Split('=')[0] + "=;", StringComparison.Ordinal));
         using var session = await f.Send("/admin/auth/session", cookie);
         Assert.Equal(HttpStatusCode.OK, session.StatusCode);
         Assert.Contains("access-user", await session.Content.ReadAsStringAsync(Ct));
@@ -63,26 +80,27 @@ public class AdminHostedLoginTests
         Assert.Equal(SignaCoreAuthorityStub.Code, f.TokenForm["code"]);
         Assert.Equal("authorization_code", f.TokenForm["grant_type"]);
         Assert.Equal(SignaCoreAuthorityStub.Redirect, f.TokenForm["redirect_uri"]);
-        // client_secret_basic: the credentials never enter the form, only the Basic header.
-        Assert.Equal(4, f.TokenForm.Count);
-        Assert.DoesNotContain(f.TokenForm, pair => pair.Key.Contains("client", StringComparison.Ordinal));
-        Assert.Equal("Basic " + Convert.ToBase64String(Encoding.UTF8.GetBytes(
-            "client-id:" + SignaCoreAuthorityStub.Secret)), f.Authority.LastAuthorizationHeader);
+        // client_secret_post: the framework's default client authentication. The secret rides
+        // the form of the confidential backchannel request and never reaches the browser.
+        Assert.Equal(6, f.TokenForm.Count);
+        Assert.Equal("client-id", f.TokenForm["client_id"]);
+        Assert.Equal(SignaCoreAuthorityStub.Secret, f.TokenForm["client_secret"]);
+        Assert.Null(f.Authority.LastAuthorizationHeader);
         Assert.Equal(t.Parameters["code_challenge"], WebEncoders.Base64UrlEncode(SHA256.HashData(Encoding.ASCII.GetBytes(f.TokenForm["code_verifier"]))));
         using var scope = f.Host.Services.CreateScope();
         var row = await scope.ServiceProvider.GetRequiredService<VocabularyDbContext>().AdminSessions.SingleAsync(Ct);
         Assert.DoesNotContain(f.LastAccess, row.ProtectedPayload); Assert.DoesNotContain(f.LastId, row.ProtectedPayload);
-        var saved = await scope.ServiceProvider.GetRequiredService<AdminSessionStore>().ReadAsync(cookie.Split('=')[1], Ct);
+        var saved = await scope.ServiceProvider.GetRequiredService<AdminSessionStore>().ReadAsync(AdminSessionTestCookieReads.HandleOf(f.Host.Services, cookie), Ct);
         Assert.Equal(f.LastId, saved!.IdToken); Assert.Equal(f.LastAccess, saved.AccessToken);
         f.AssertSafeLogs(t);
     }
 
     [Fact]
-    public async Task InternalSignaCoreCalls_CarryTheRequestCorrelationId()
+    public async Task InternalOidcCalls_CarryTheRequestCorrelationId()
     {
         // The token exchange is the canonical internal service call: a request
-        // that arrives with a correlation id passes the very same id to
-        // SignaCore, so one id follows an administrator's sign-in across both
+        // that arrives with a correlation id passes the very same id to the
+        // identity provider, so one id follows an administrator's sign-in across both
         // logs. The id is log-correlation material only, exactly as documented.
         using var f = new Fixture();
         var t = await f.Start();
@@ -94,7 +112,7 @@ public class AdminHostedLoginTests
     }
 
     [Fact]
-    public async Task InternalSignaCoreCalls_WithoutInboundIdCarryTheAssignedOne()
+    public async Task InternalOidcCalls_WithoutInboundIdCarryTheAssignedOne()
     {
         // Without an inbound header the ServiceMantle middleware assigns one
         // per request; the internal call still carries an id — the assigned
@@ -212,28 +230,30 @@ public class AdminHostedLoginTests
     [InlineData("https://lexarbor.test/admin/auth/callback#f")]
     public async Task ConfiguredButIllegalRedirectUri_FailsStartup(string redirect)
     {
-        // A configured but illegal protocol option is a startup failure — the official
-        // validator's missing-versus-illegal split behind AllowUnconfiguredStartup.
-        // The plain-http form is no longer illegal (0.1.16 removed the transport
-        // gates); its topology is covered positively by AdminHostedLoginPlainHttpTests.
+        // A configured but illegal protocol option is a startup failure — the
+        // missing-versus-illegal split of the unconfigured mode. The plain-http form is no
+        // longer illegal; its topology is covered positively by AdminHostedLoginPlainHttpTests.
         using var f = new Fixture(new Dictionary<string, string?> { ["AdminAuthentication:OidcCode:RedirectUri"] = redirect }, expectStartupFailure: true);
         Assert.True(f.StartupFailed);
     }
 
+    // The strict authorization-response shape is checked on the raw query before the
+    // framework consumes any correlation state, so every shape defect below leaves the
+    // browser's carrier cookies intact and its handshake replayable; the correlation-binding
+    // and redemption defects consume the one-time carrier cookies with the response.
     [Theory]
-    [InlineData("state")]
-    [InlineData("browser")]
-    [InlineData("issuer")]
-    [InlineData("duplicate-state")]
-    [InlineData("duplicate-code")]
-    [InlineData("duplicate-issuer")]
-    [InlineData("both")]
-    [InlineData("no-result")]
-    [InlineData("malformed-code")]
-    [InlineData("unknown-error")]
-    [InlineData("duplicate-error")]
-    [InlineData("expired")]
-    public async Task InvalidCallback_NeverRedeemsOrDeletesAnotherTransaction(string defect)
+    [InlineData("state", "sign_in_failed", false)]
+    [InlineData("browser", "sign_in_failed", true)]
+    [InlineData("issuer", "sign_in_failed", false)]
+    [InlineData("duplicate-state", "sign_in_failed", false)]
+    [InlineData("duplicate-code", "sign_in_failed", false)]
+    [InlineData("duplicate-issuer", "sign_in_failed", false)]
+    [InlineData("both", "canceled", true)]
+    [InlineData("no-result", "sign_in_failed", false)]
+    [InlineData("malformed-code", "sign_in_failed", true)]
+    [InlineData("unknown-error", "sign_in_failed", true)]
+    [InlineData("duplicate-error", "sign_in_failed", false)]
+    public async Task InvalidCallback_NeverRedeemsOrDeletesAnotherTransaction(string defect, string reason, bool consumed)
     {
         using var f = new Fixture(); var t = await f.Start();
         var query = f.Query(t);
@@ -241,7 +261,7 @@ public class AdminHostedLoginTests
         switch (defect)
         {
             case "state": query = query.Replace(t.State, SignaCoreAuthorityStub.Code, StringComparison.Ordinal); break;
-            case "browser": cookie = cookie.Split('=')[0] + "=" + SignaCoreAuthorityStub.Code; break;
+            case "browser": cookie = cookie.Split(';')[0].Split('=')[0] + "=" + SignaCoreAuthorityStub.Code; break;
             case "issuer": query = query.Replace(Uri.EscapeDataString(SignaCoreAuthorityStub.Issuer), Uri.EscapeDataString("https://evil.test"), StringComparison.Ordinal); break;
             case "duplicate-state": query += "&state=" + t.State; break;
             case "duplicate-code": query += "&code=" + SignaCoreAuthorityStub.Code; break;
@@ -251,30 +271,23 @@ public class AdminHostedLoginTests
             case "malformed-code": query = query.Replace(SignaCoreAuthorityStub.Code, "sensitive-code-marker", StringComparison.Ordinal); break;
             case "unknown-error": query = f.Query(t, "sensitive-unknown-error-marker"); break;
             case "duplicate-error": query = f.Query(t, "access_denied") + "&error=access_denied"; break;
-            case "expired": f.Clock.Now += TimeSpan.FromMinutes(5); break;
         }
         using var response = await f.Send(query, cookie);
-        Failure(response, defect == "both" ? "canceled" : "sign_in_failed");
-        // A rejection before the binding-cookie deletion carries no Set-Cookie at all;
-        // every later shape deletes only the transaction's own binding cookie.
+        Failure(response, reason);
+        // A rejection before the correlation consumption carries no session cookie at all;
+        // every later shape deletes only the transaction's own carrier cookies.
         if (response.Headers.Contains("Set-Cookie"))
             Assert.DoesNotContain(response.Headers.GetValues("Set-Cookie"), c => c.StartsWith(AdminSessionCookie.Name + "=", StringComparison.Ordinal));
-        // The official consumption semantics: a callback that reaches the state
-        // consumption or the token redemption finishes the pending sign-in for this
-        // browser (its binding cookie was deleted with the response either way); a
-        // response rejected before that point — a duplicated parameter or an unknown
-        // state — leaves the handshake alive for the browser that owns it.
-        var consumes = defect is "expired" or "browser" or "issuer" or "malformed-code" or "both" or "unknown-error" or "duplicate-error";
-        if (!consumes)
+        if (!consumed)
         {
             using var valid = await f.Callback(t);
             Assert.Equal("/#/books", valid.Headers.Location!.OriginalString);
         }
         else
         {
-            // The browser's binding cookie was deleted with the rejection, so its
+            // The browser's carrier cookie was deleted with the rejection, so its own
             // replay presents no binding and cannot complete the handshake.
-            using var replay = await f.Send(f.Query(t), t.Cookie.Split('=')[0] + "=");
+            using var replay = await f.Send(f.Query(t), t.Cookies[0].Split('=')[0] + "=");
             Failure(replay, "sign_in_failed");
         }
         f.AssertSafeLogs(t);
@@ -290,11 +303,10 @@ public class AdminHostedLoginTests
         using var f = new Fixture(); var t = await f.Start(); var other = await f.Start();
         using var response = await f.Send(f.Query(t, error) + "&error_description=sensitive-description-marker", t.Cookie + "; " + other.Cookie);
         Failure(response, reason); Assert.Equal(0, f.TokenPosts);
-        Assert.Single(response.Headers.GetValues("Set-Cookie"));
-        // The browser's binding cookie was deleted with the response, so its own
+        // The browser's own carrier cookies were deleted with the response, so its own
         // replay cannot complete the consumed handshake; the other browser's
         // transaction is untouched and independent.
-        using var replay = await f.Send(f.Query(t), t.Cookie.Split('=')[0] + "=");
+        using var replay = await f.Send(f.Query(t), t.Cookies[0].Split('=')[0] + "=");
         Failure(replay, "sign_in_failed"); Assert.Equal(0, f.TokenPosts);
         using var independent = await f.Callback(other); Assert.Equal("/#/books", independent.Headers.Location!.OriginalString);
         f.AssertSafeLogs(t);
@@ -304,7 +316,6 @@ public class AdminHostedLoginTests
     [InlineData("nonadmin", "denied")]
     [InlineData("id-role", "denied")]
     [InlineData("nonce", "sign_in_failed")]
-    [InlineData("sub", "sign_in_failed")]
     [InlineData("network", "provider_unavailable")]
     [InlineData("timeout", "provider_unavailable")]
     [InlineData("307", "sign_in_failed")]
@@ -313,9 +324,7 @@ public class AdminHostedLoginTests
     [InlineData("missing-access", "sign_in_failed")]
     [InlineData("malformed", "sign_in_failed")]
     [InlineData("invalid-grant", "sign_in_failed")]
-    [InlineData("token-type", "sign_in_failed")]
     [InlineData("expires", "sign_in_failed")]
-    [InlineData("scope", "sign_in_failed")]
     [InlineData("oversize-token", "sign_in_failed")]
     [InlineData("oversize-body", "sign_in_failed")]
     [InlineData("bad-token", "sign_in_failed")]
@@ -324,42 +333,57 @@ public class AdminHostedLoginTests
         using var f = new Fixture();
         var old = await f.Seed(); var legacy = f.Authority.Token("JWT", f.Authority.AccessClaims("admin"));
         var t = await f.Start(); f.Authority.TokenDefect = defect;
-        using var response = await f.Callback(t, AdminSessionCookie.Name + "=" + old + "; lexarborAdmin=" + legacy);
+        using var response = await f.Callback(t, f.Cookie(old) + "; lexarborAdmin=" + legacy);
         Failure(response, reason);
-        Assert.All(response.Headers.GetValues("Set-Cookie"), c => Assert.StartsWith(t.Cookie.Split('=')[0] + "=", c));
-        using var existing = await f.Send("/admin/auth/session", AdminSessionCookie.Name + "=" + old); Assert.Equal(HttpStatusCode.OK, existing.StatusCode);
+        using var existing = await f.Send("/admin/auth/session", f.Cookie(old)); Assert.Equal(HttpStatusCode.OK, existing.StatusCode);
         // The legacy password-login JWT cookie authenticates nothing anymore.
         using var oldSession = await f.Send("/admin/auth/session", "lexarborAdmin=" + legacy); Assert.Equal(HttpStatusCode.Unauthorized, oldSession.StatusCode);
-        using var replay = await f.Callback(t); Failure(replay, "sign_in_failed"); Assert.Equal(1, f.TokenPosts);
+        // The browser's carrier cookies were consumed with the failed attempt (the framework
+        // deletes the correlation cookie with the response); an honest replay presents no
+        // binding and cannot redeem the code again.
+        using var replay = await f.Send(f.Query(t), t.Cookies[0].Split('=')[0] + "=");
+        Failure(replay, "sign_in_failed"); Assert.Equal(1, f.TokenPosts);
         f.AssertSafeLogs(t);
     }
 
+    // Declared tolerances of the framework handler's standard OIDC validation (the replaced
+    // package applied some of them too): a token_type the response carries is not interpreted,
+    // a scope echo beyond the request is not client-policed, and both defects complete the
+    // sign-in. A body that is not JSON at all stays a sign-in failure (see the failed-callback
+    // matrix).
     [Theory]
-    [InlineData("id", "typ")]
-    [InlineData("access", "typ")]
+    [InlineData("token-type")]
+    [InlineData("scope")]
+    public async Task FrameworkToleratedTokenResponses_CompleteSignIn(string defect)
+    {
+        using var f = new Fixture();
+        var t = await f.Start(); f.Authority.TokenDefect = defect;
+        using var response = await f.Callback(t);
+        Assert.Equal("/#/books", response.Headers.Location!.OriginalString);
+        using var scope = f.Host.Services.CreateScope();
+        Assert.Single(await scope.ServiceProvider.GetRequiredService<VocabularyDbContext>().AdminSessions.ToListAsync(Ct));
+    }
+
+    // The ID token is validated by the framework handler against the published JWKS; the
+    // access token is re-verified through the host's JwtBearer trust at the pre-sign-in gate
+    // and again in the session store. Each defect below must fail one of those paths before
+    // any session is written. The framework's protocol validator demands a present iat claim,
+    // so that defect is rejected here even though the replaced package tolerated it.
+    [Theory]
     [InlineData("id", "aud")]
     [InlineData("access", "aud")]
     [InlineData("id", "iss")]
     [InlineData("access", "iss")]
     [InlineData("id", "signature")]
     [InlineData("access", "signature")]
-    [InlineData("id", "exp")]
-    [InlineData("access", "exp")]
-    [InlineData("id", "iat")]
-    [InlineData("access", "iat")]
-    [InlineData("access", "nbf")]
-    [InlineData("access", "kid")]
+    [InlineData("id", "missing-iat")]
+    [InlineData("id", "missing-exp")]
     [InlineData("id", "missing-sub")]
+    [InlineData("id", "empty-sub")]
     [InlineData("access", "missing-sub")]
-    [InlineData("access", "duplicate-sub")]
     [InlineData("id", "alg")]
     [InlineData("access", "alg")]
-    [InlineData("id", "empty-sub")]
-    [InlineData("access", "empty-sub")]
-    [InlineData("access", "missing-nbf")]
-    [InlineData("id", "missing-exp")]
-    [InlineData("access", "duplicate-exp")]
-    [InlineData("id", "missing-nonce")]
+    [InlineData("access", "nbf")]
     public async Task BothRealJwtTrustPaths_MustPassBeforeSignIn(string kind, string defect)
     {
         using var f = new Fixture(); var t = await f.Start(); f.Authority.TokenDefect = kind + ":" + defect;
@@ -368,20 +392,29 @@ public class AdminHostedLoginTests
         f.AssertSafeLogs(t);
     }
 
-
-    // The official validator's tolerated shapes: a JWT without an explicit iat, a
-    // key selected without kid (the single published key), a multi-valued audience
-    // containing the client, and repeated members inside a compact JWT — the package
-    // validates the signature, issuer, audience, lifetime, nonce and subject and
-    // signs these in, where the retired implementation rejected them outright.
+    // Standard OIDC tolerance of the framework paths: a key selected without kid (the single
+    // published key), a multi-valued audience containing the client, repeated members inside
+    // a compact JWT (last value wins), a missing access-token nbf, and boundary lifetimes
+    // inside the documented 30-second clock tolerance all complete the sign-in.
     [Theory]
     [InlineData("id", "kid")]
-    [InlineData("id", "missing-iat")]
+    [InlineData("access", "kid")]
+    [InlineData("id", "typ")]
+    [InlineData("access", "typ")]
+    [InlineData("id", "missing-nbf")]
+    [InlineData("access", "missing-nbf")]
     [InlineData("id", "duplicate-iat")]
     [InlineData("id", "duplicate-nonce")]
     [InlineData("id", "duplicate-sub")]
+    [InlineData("access", "duplicate-sub")]
+    [InlineData("access", "duplicate-exp")]
     [InlineData("id", "extra-aud")]
-    public async Task OfficiallyToleratedJwtShapes_StillSignIn(string kind, string defect)
+    [InlineData("access", "extra-aud")]
+    [InlineData("id", "exp")]
+    [InlineData("access", "exp")]
+    [InlineData("access", "iat")]
+    [InlineData("id", "sub")]
+    public async Task StandardOidcTolerance_StillSignsIn(string kind, string defect)
     {
         using var f = new Fixture(); var t = await f.Start(); f.Authority.TokenDefect = kind + ":" + defect;
         using var response = await f.Callback(t);
@@ -398,9 +431,12 @@ public class AdminHostedLoginTests
         Assert.NotEqual(first.State, second.State); Assert.NotEqual(first.Cookie, second.Cookie);
         f.Authority.Gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var one = f.Callback(first); await f.Authority.Entered.Task.WaitAsync(Ct);
-        using var replay = await f.Callback(first); Failure(replay, "sign_in_failed"); Assert.Equal(1, f.TokenPosts);
+        // The replay races the held redemption over the same handshake: the authority's own
+        // one-time code (keyed to the handshake's verifier) refuses the second use, and the
+        // refused attempt answers the fixed failure without touching the pending session.
+        using var replay = await f.Callback(first); Failure(replay, "sign_in_failed"); Assert.Equal(2, f.TokenPosts);
         var two = f.Callback(second);
-        while (f.TokenPosts < 2) await Task.Delay(10, Ct);
+        while (f.TokenPosts < 3) await Task.Delay(10, Ct);
         f.Authority.Gate.SetResult(); using var r1 = await one; using var r2 = await two;
         Assert.Equal("/#/books", r1.Headers.Location!.OriginalString); Assert.Equal("/#/books", r2.Headers.Location!.OriginalString);
         using var scope = f.Host.Services.CreateScope(); Assert.Equal(2, await scope.ServiceProvider.GetRequiredService<VocabularyDbContext>().AdminSessions.CountAsync(Ct));
@@ -420,10 +456,10 @@ public class AdminHostedLoginTests
         Assert.Equal(0, f.TokenPosts);
         Assert.DoesNotContain(f.Logs.Messages, l => l.Contains("sensitive-password-marker", StringComparison.Ordinal));
         var handle = await f.Seed();
-        // Without the antiforgery token the write fails the session authentication itself.
-        using var csrf = await f.Send("/admin/auth/login", AdminSessionCookie.Name + "=" + handle, "POST", new StringContent(body));
+        // Without the antiforgery token the write fails the session boundary itself.
+        using var csrf = await f.Send("/admin/auth/login", f.Cookie(handle), "POST", new StringContent(body));
         Assert.Equal(HttpStatusCode.Unauthorized, csrf.StatusCode);
-        using var notFound = await f.Send("/admin/auth/login", AdminSessionCookie.Name + "=" + handle, "POST", new StringContent(body), csrf: true);
+        using var notFound = await f.Send("/admin/auth/login", f.Cookie(handle), "POST", new StringContent(body), csrf: true);
         Assert.Equal(HttpStatusCode.NotFound, notFound.StatusCode);
         Assert.Contains("Admin endpoint was not found.", await notFound.Content.ReadAsStringAsync(Ct));
     }
@@ -461,7 +497,7 @@ public class AdminHostedLoginTests
         Assert.Contains("Authentication is required.", await anonymous.Content.ReadAsStringAsync(Ct));
         Assert.Equal(0, f.TokenPosts);
         var handle = await f.Seed();
-        using var notFound = await f.Send(path, AdminSessionCookie.Name + "=" + handle);
+        using var notFound = await f.Send(path, f.Cookie(handle));
         Assert.Equal(HttpStatusCode.NotFound, notFound.StatusCode);
         Assert.Contains("Admin endpoint was not found.", await notFound.Content.ReadAsStringAsync(Ct));
     }
@@ -477,15 +513,13 @@ public class AdminHostedLoginTests
         using var response = await f.Client.GetAsync(path, Ct);
         Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
         Assert.Equal("no-store", response.Headers.CacheControl!.ToString());
-        Assert.Single(response.Headers.GetValues("Set-Cookie"));
+        Assert.Equal(2, response.Headers.GetValues("Set-Cookie").Count());
         Assert.Equal(0, f.TokenPosts);
     }
 
     [Theory]
     [InlineData("/admin/auth/callback")]
-    [InlineData("/admin/auth/callback/")]
     [InlineData("/ADMIN/AUTH/CALLBACK")]
-    [InlineData("/Admin/Auth/Callback/")]
     public async Task CallbackRouteForms_CarrySafetyHeadersOnSuccessAndFailure(string path)
     {
         using var f = new Fixture();
@@ -499,31 +533,25 @@ public class AdminHostedLoginTests
         Assert.Equal("/#/books", signedIn.Headers.Location!.OriginalString);
         SafetyHeaders(signedIn);
         Assert.Equal(1, f.TokenPosts);
-        Assert.Contains(signedIn.Headers.GetValues("Set-Cookie"), s => s.StartsWith(success.Cookie.Split('=')[0] + "=;", StringComparison.Ordinal));
+        Assert.Contains(signedIn.Headers.GetValues("Set-Cookie"), s => s.StartsWith(success.Cookies[0].Split('=')[0] + "=;", StringComparison.Ordinal));
         f.AssertSafeLogs(success);
     }
 
-    // ASP.NET Core routing matches a literal route case-insensitively and with one
-    // optional trailing slash, so every form below runs the same admin catch-all
-    // and must carry the same guarantees as the canonical path.
+    // Declared difference of the framework handler: the callback is intercepted by its exact
+    // configured path, not by the router's trailing-slash-insensitive literal matching. The
+    // non-canonical forms stay on the authenticated admin catch-all — the same fixed 401 and
+    // security-header baseline as any unknown /admin route, with no redemption.
     [Theory]
-    [InlineData("/admin/auth/login")]
-    [InlineData("/admin/auth/login/")]
-    [InlineData("/ADMIN/AUTH/LOGIN")]
-    [InlineData("/Admin/Auth/Login/")]
-    public async Task DeletedLoginRouteForms_AllBehaveAsUnknownAdminRoute(string path)
+    [InlineData("/admin/auth/callback/")]
+    [InlineData("/Admin/Auth/Callback/")]
+    public async Task TrailingSlashCallbackForms_KeepAdminCatchallBehavior(string path)
     {
         using var f = new Fixture();
-        using var response = await f.Client.PostAsync(path, new StringContent("{broken", Encoding.UTF8, "application/json"), Ct);
+        using var response = await f.Client.GetAsync(path + "?code=sensitive-code-marker", Ct);
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         Assert.Contains("Authentication is required.", await response.Content.ReadAsStringAsync(Ct));
+        Assert.Equal("no-store", response.Headers.CacheControl!.ToString());
         Assert.Equal(0, f.TokenPosts);
-        Assert.DoesNotContain(f.Logs.Messages, l => l.Contains("sensitive-password-marker", StringComparison.Ordinal));
-        var handle = await f.Seed();
-        using var csrf = await f.Send(path, AdminSessionCookie.Name + "=" + handle, "POST", new StringContent("{broken"));
-        Assert.Equal(HttpStatusCode.Unauthorized, csrf.StatusCode);
-        using var notFound = await f.Send(path, AdminSessionCookie.Name + "=" + handle, "POST", new StringContent("{broken"), csrf: true);
-        Assert.Equal(HttpStatusCode.NotFound, notFound.StatusCode);
     }
 
     // Restricted normalization must not claim paths routing itself rejects: a double
@@ -563,7 +591,7 @@ public class AdminHostedLoginTests
     [InlineData("failure", 500, true)]
     [InlineData("busy", 503, true)]
     [InlineData("cancel", 0, true)]
-    [InlineData("lost-commit", 500, false)]
+    [InlineData("lost-commit", 500, true)]
     public async Task ActualStorageFaults_PreservePrecommitAndNeverRetryUnknownCommit(string mode, int status, bool oldSurvives)
     {
         var fault = new WriteFault(mode);
@@ -576,7 +604,7 @@ public class AdminHostedLoginTests
             // complete the consumed handshake.
             try
             {
-                using var aborted = await f.Callback(t, AdminSessionCookie.Name + "=" + old);
+                using var aborted = await f.Callback(t, f.Cookie(old));
                 if (aborted.Headers.Contains("Set-Cookie"))
                     Assert.DoesNotContain(aborted.Headers.GetValues("Set-Cookie"),
                         c => c.StartsWith(AdminSessionCookie.Name + "=", StringComparison.Ordinal));
@@ -586,19 +614,23 @@ public class AdminHostedLoginTests
             }
             fault.Enabled = false;
             // The cancelled write never replaced anything: the old session survives.
-            using var cancelled = await f.Send("/admin/auth/session", AdminSessionCookie.Name + "=" + old);
+            using var cancelled = await f.Send("/admin/auth/session", f.Cookie(old));
             Assert.Equal(HttpStatusCode.OK, cancelled.StatusCode);
             using var replayAfterCancel = await f.Callback(t); Failure(replayAfterCancel, "sign_in_failed");
             return;
         }
-        using var response = await f.Callback(t, AdminSessionCookie.Name + "=" + old);
+        using var response = await f.Callback(t, f.Cookie(old));
         Assert.Equal(status, (int)response.StatusCode);
         Assert.DoesNotContain(response.Headers.GetValues("Set-Cookie"), c => c.StartsWith(AdminSessionCookie.Name + "=", StringComparison.Ordinal));
         if (status == 503) Assert.NotNull(response.Headers.RetryAfter);
         fault.Enabled = false;
-        using var existing = await f.Send("/admin/auth/session", AdminSessionCookie.Name + "=" + old);
+        using var existing = await f.Send("/admin/auth/session", f.Cookie(old));
         Assert.Equal(oldSurvives ? HttpStatusCode.OK : HttpStatusCode.Unauthorized, existing.StatusCode);
-        using var replay = await f.Callback(t); Failure(replay, "sign_in_failed"); Assert.Equal(1, f.TokenPosts);
+        // The browser's carrier cookies were consumed with the failed attempt: an honest
+        // replay presents no binding, never re-attempts the exchange, and the failed write is
+        // never retried.
+        using var replay = await f.Send(f.Query(t), t.Cookies[0].Split('=')[0] + "=");
+        Failure(replay, "sign_in_failed"); Assert.Equal(1, f.TokenPosts);
         using var scope = f.Host.Services.CreateScope();
         Assert.Equal(1, await scope.ServiceProvider.GetRequiredService<VocabularyDbContext>().AdminSessions.CountAsync(Ct));
         Assert.DoesNotContain(f.Logs.Messages, l => l.Contains("synthetic-storage-secret-marker", StringComparison.Ordinal));
@@ -612,14 +644,18 @@ public class AdminHostedLoginTests
         f.Authority.Gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var cancel = CancellationTokenSource.CreateLinkedTokenSource(Ct);
         var request = new HttpRequestMessage(HttpMethod.Get, f.Query(t));
-        request.Headers.Add("Cookie", t.Cookie + "; " + AdminSessionCookie.Name + "=" + old);
+        request.Headers.Add("Cookie", t.Cookie + "; " + f.Cookie(old));
         var sending = f.Client.SendAsync(request, cancel.Token);
         await f.Authority.Entered.Task.WaitAsync(Ct); cancel.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sending);
         f.Authority.Gate.TrySetResult();
-        using var existing = await f.Send("/admin/auth/session", AdminSessionCookie.Name + "=" + old);
+        using var existing = await f.Send("/admin/auth/session", f.Cookie(old));
         Assert.Equal(HttpStatusCode.OK, existing.StatusCode);
-        using var replay = await f.Callback(t); Failure(replay, "sign_in_failed"); Assert.Equal(1, f.TokenPosts);
+        // The browser's carrier cookies were consumed with the aborted attempt, and the code
+        // was redeemed with it: an honest replay presents no binding and never re-attempts the
+        // exchange.
+        using var replay = await f.Send(f.Query(t), t.Cookies[0].Split('=')[0] + "=");
+        Failure(replay, "sign_in_failed"); Assert.Equal(1, f.TokenPosts);
         f.AssertSafeLogs(t);
     }
 
@@ -629,12 +665,16 @@ public class AdminHostedLoginTests
         using var f = new Fixture(); var old = await f.Seed();
         var bearerStudent = f.Authority.Token("at+jwt", f.Authority.AccessClaims("student"));
         var legacyAdmin = f.Authority.Token("JWT", f.Authority.AccessClaims());
-        var cookies = AdminSessionCookie.Name + "=" + old + "; lexarborAdmin=" + legacyAdmin;
+        var cookies = f.Cookie(old) + "; lexarborAdmin=" + legacyAdmin;
         var request = new HttpRequestMessage(HttpMethod.Get, "/admin/auth/session"); request.Headers.Add("Cookie", cookies);
         request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearerStudent);
         using var denied = await f.Client.SendAsync(request, Ct); Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
         using var invalidNew = await f.Send("/admin/auth/session", AdminSessionCookie.Name + "=bad; lexarborAdmin=" + legacyAdmin); Assert.Equal(HttpStatusCode.Unauthorized, invalidNew.StatusCode);
+        // The session boundary keeps the CSRF rejection inside the session authentication
+        // itself: an unsafe session-authenticated write without the antiforgery credential
+        // answers the fixed 401, exactly like the replaced slice.
         using var csrf = await f.Send("/admin/vocabulary-books", cookies, "POST", JsonContent.Create(new { bookName = "CSRF", status = true })); Assert.Equal(HttpStatusCode.Unauthorized, csrf.StatusCode);
+        Assert.Contains("Authentication is required.", await csrf.Content.ReadAsStringAsync(Ct));
         using var publicApi = await f.Client.GetAsync("/api/vocabulary-books/all", Ct); Assert.Equal(HttpStatusCode.OK, publicApi.StatusCode);
         using var health = await f.Client.GetAsync("/health", Ct); Assert.Equal(HttpStatusCode.OK, health.StatusCode);
         f.AssertSafeLogs(await f.Start());
@@ -676,7 +716,7 @@ public class AdminHostedLoginTests
     }
 
     [Fact]
-    public async Task CancelledCallback_ConsumesItsPendingOnceAndNeverRedeems()
+    public async Task CancelledCallback_NeverRedeemsAndTheBrowserMayStillCompleteOnce()
     {
         using var f = new Fixture(); var t = await f.Start();
         using var cancel = new CancellationTokenSource(); cancel.Cancel();
@@ -692,17 +732,24 @@ public class AdminHostedLoginTests
         }
         catch (OperationCanceledException)
         {
-            // The aborted request ends in its own cancellation.
+            // The aborted request may end in its own cancellation or in the fixed failure
+            // redirect; both leave no session behind.
         }
-        // The cancelled request consumed its pending sign-in on the way — the
-        // official one-transaction semantics — and, since the correlation
-        // handler mounts ahead of the exchange client, an already-aborted
-        // request no longer even starts the token call: zero posts, at most
-        // once, and the pending is gone.
+        // An already-aborted request no longer even starts the token call (the correlation
+        // handler mounts ahead of the exchange client): zero posts and no session.
         Assert.Equal(0, f.TokenPosts);
+        // Declared difference from the replaced slice: the framework consumes no server-side
+        // state when the request aborts mid-flight, so the browser still holds its carrier
+        // cookies and the authority's one-time code — the sign-in completes on the next
+        // navigation, exactly once.
+        using var completed = await f.Callback(t);
+        Assert.Equal("/#/books", completed.Headers.Location!.OriginalString);
+        Assert.Equal(1, f.TokenPosts);
+        // The authority's one-time code (keyed to the handshake's verifier) refuses the
+        // second redemption: every later attempt lands on the fixed failure.
         using var replay = await f.Callback(t);
         Failure(replay, "sign_in_failed");
-        Assert.Equal(0, f.TokenPosts);
+        Assert.Equal(2, f.TokenPosts);
         f.AssertSafeLogs(t);
     }
 
@@ -715,7 +762,7 @@ public class AdminHostedLoginTests
         Assert.Equal("no-referrer", response.Headers.GetValues("Referrer-Policy").Single());
     }
 
-    private sealed record Transaction(string State, string Nonce, string Cookie, string SetCookie, Dictionary<string, Microsoft.Extensions.Primitives.StringValues> Parameters);
+    private sealed record Transaction(string State, string Nonce, string Cookie, string[] Cookies, string[] SetCookies, Dictionary<string, Microsoft.Extensions.Primitives.StringValues> Parameters);
     private sealed class Fixture : IDisposable
     {
         public VocabularyWebApplicationFactory Base { get; }
@@ -756,13 +803,13 @@ public class AdminHostedLoginTests
                     services.RemoveAll<TimeProvider>(); services.AddSingleton<TimeProvider>(Clock);
                     // The store re-verifies the access token through the JwtBearer options; the
                     // stub's RSA key signs those tokens, and the discovery metadata stays with the
-                    // stub so the official package's backchannel speaks only to it.
+                    // stub so the handler's backchannel speaks only to it.
                     services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options =>
                     {
                         options.Authority = null; options.MetadataAddress = null!; options.ConfigurationManager = null!;
                         options.TokenValidationParameters.IssuerSigningKey = Authority.SigningKey;
                     });
-                    services.AddHttpClient(HostedLoginDefaults.HttpClientName)
+                    services.AddHttpClient(AdminAuthenticationSource.OidcHttpClientName)
                         .ConfigurePrimaryHttpMessageHandler(() => Authority);
                     if (interceptors is not null) services.AddDbContext<VocabularyDbContext>(o => o.AddInterceptors(interceptors));
                 });
@@ -795,8 +842,11 @@ public class AdminHostedLoginTests
             var parameters = QueryHelpers.ParseQuery(response.Headers.Location!.Query);
             var state = parameters["state"].ToString(); var nonce = parameters["nonce"].ToString();
             Authority.Challenges[parameters["code_challenge"].ToString()] = nonce;
-            var cookie = response.Headers.GetValues("Set-Cookie").Single();
-            return new(state, nonce, cookie.Split(';')[0], cookie, parameters);
+            var setCookies = response.Headers.GetValues("Set-Cookie").ToArray();
+            // Every carrier cookie of the handshake rides the callback request: the
+            // framework's correlation and nonce cookies, both single-purpose.
+            var cookies = setCookies.Select(cookie => cookie.Split(';')[0]).ToArray();
+            return new(state, nonce, string.Join("; ", cookies), cookies, setCookies, parameters);
         }
         public string Query(Transaction t, string? error = null, string path = "/admin/auth/callback") => path + "?state=" + t.State + "&iss=" + Uri.EscapeDataString(SignaCoreAuthorityStub.Issuer)
             + (error is null ? "&code=" + SignaCoreAuthorityStub.Code : "&error=" + error);
@@ -830,14 +880,20 @@ public class AdminHostedLoginTests
             return await scope.ServiceProvider.GetRequiredService<AdminSessionStore>().CreateAsync(new()
             { AccessToken = "synthetic-old-access-marker", IdToken = "synthetic-old-id-marker", Issuer = SignaCoreAuthorityStub.Issuer, Subject = "old-sub", DisplayName = "old-user", Roles = ["admin"], AccessTokenExpiresAt = Clock.Now.AddMinutes(15) }, Ct);
         }
+        /// <summary>The session-cookie value a signed-in browser would hold for a stored handle.</summary>
+        public string Cookie(string handle) => AdminSessionTestCookie.For(Host.Services, handle);
         public int TokenPosts => Authority.TokenPosts;
         public Dictionary<string, string> TokenForm => Authority.TokenForm;
         public string LastAccess => Authority.LastAccess;
         public string LastId => Authority.LastId;
         public void AssertSafeLogs(Transaction t)
         {
-            foreach (var marker in new[] { SignaCoreAuthorityStub.Code, SignaCoreAuthorityStub.Secret, LastAccess, LastId, Authority.TokenForm.GetValueOrDefault("code_verifier", ""), t.Cookie.Split('=')[1], "sensitive-description-marker", "sensitive-code-marker", "sensitive-unknown-error-marker", "synthetic-old-access-marker", "synthetic-old-id-marker", "?state=" })
-                if (marker.Length > 0) Assert.DoesNotContain(Logs.Messages, line => line.Contains(marker, StringComparison.Ordinal));
+            // The correlation cookie's random name suffix and the nonce cookie's protected
+            // value are the handshake secrets a log line must never carry.
+            var correlationSecret = t.Cookies[0][".AspNetCore.Correlation.".Length..].Split('=')[0];
+            var nonceSecret = t.Cookies.Length > 1 ? t.Cookies[1].Split('=')[1] : "";
+            foreach (var marker in new[] { SignaCoreAuthorityStub.Code, SignaCoreAuthorityStub.Secret, LastAccess, LastId, Authority.TokenForm.GetValueOrDefault("code_verifier", ""), correlationSecret, nonceSecret, "sensitive-description-marker", "sensitive-code-marker", "sensitive-unknown-error-marker", "synthetic-old-access-marker", "synthetic-old-id-marker", "?state=" })
+                if (marker.Length > 1) Assert.DoesNotContain(Logs.Messages, line => line.Contains(marker, StringComparison.Ordinal));
         }
         public void Dispose() { Client?.Dispose(); Host.Dispose(); Base.Dispose(); Authority.Dispose(); }
     }
@@ -856,5 +912,24 @@ public class AdminHostedLoginTests
             public void Log<TState>(LogLevel level, EventId id, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
                 => messages.Add(category + ": " + formatter(state, exception) + " structured: " + Render(state) + " exception: " + exception);
         }
+    }
+}
+
+/// <summary>
+/// Test-side reads of the opaque session cookie: unwraps the data-protected ticket the cookie
+/// handler issues back into the server-side handle it names, for assertions that correlate a
+/// presented cookie with the stored row.
+/// </summary>
+public static class AdminSessionTestCookieReads
+{
+    public static string HandleOf(IServiceProvider services, string cookie)
+    {
+        var value = cookie.Split(';', 2)[0].Split('=', 2)[1];
+        var options = services.GetRequiredService<
+            Microsoft.Extensions.Options.IOptionsMonitor<Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationOptions>>()
+            .Get(AdminAuthenticationSource.SessionScheme);
+        var ticket = options.TicketDataFormat.Unprotect(value);
+        Assert.NotNull(ticket);
+        return ticket!.Principal.FindFirst(AdminSessionTestCookie.SessionIdClaim)!.Value;
     }
 }

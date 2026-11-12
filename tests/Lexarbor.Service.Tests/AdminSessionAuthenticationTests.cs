@@ -44,8 +44,14 @@ public sealed class AdminSessionAuthenticationTests
         return await scope.ServiceProvider.GetRequiredService<AdminSessionStore>().CreateAsync(Session(role, expiry), Ct);
     }
 
-    private static string Cookies(string? handle, string? legacy = null) =>
-        (handle is null ? "" : $"{AdminSessionCookie.Name}={handle}")
+    /// <summary>The session-cookie value the framework cookie handler issues for a stored
+    /// handle: minted through the serving host's own data protection so the presented cookie
+    /// is byte-shape-identical to a signed-in browser's.</summary>
+    private static string Cookie(WebApplicationFactory<Program> host, string handle) =>
+        AdminSessionTestCookie.For(host.Services, handle);
+
+    private static string Cookies(WebApplicationFactory<Program> host, string? handle, string? legacy = null) =>
+        (string.IsNullOrEmpty(handle) ? "" : Cookie(host, handle))
         + (legacy is null ? "" : $"; {VocabularyWebApplicationFactory.CookieName}={legacy}");
 
     private Task<HttpResponseMessage> Send(HttpClient client, string method, string path, string cookies = "", string? bearer = null, bool csrf = false)
@@ -114,7 +120,7 @@ public sealed class AdminSessionAuthenticationTests
             || source is "all-admin" or "bad-bearer" or "empty-bearer" ? handle : source == "bad-new" ? "bad" : source == "empty-new" ? "" : null;
         string? bearer = source is "bearer-admin" or "all-admin" ? host.CreateToken("admin")
             : source == "bearer-student" ? host.CreateToken("student") : source == "bad-bearer" ? "bad" : source == "empty-bearer" ? "" : null;
-        var cookie = Cookies(selectedHandle, legacy);
+        var cookie = Cookies(host, selectedHandle, legacy);
         var get = await Send(client, "GET", "/admin/auth/session", cookie, bearer);
         var write = await Send(client, "POST", "/admin/vocabulary-books", cookie, bearer, csrf: true);
         Assert.Equal(getStatus, (int)get.StatusCode);
@@ -152,7 +158,7 @@ public sealed class AdminSessionAuthenticationTests
                 context.Request.Headers.Authorization = "Bearer ";
                 var (token, antiforgery) = AdminTestAntiforgery.Get(host);
                 context.Request.Headers[AdminTestAntiforgery.HeaderName] = token;
-                context.Request.Headers.Cookie = Cookies(handle, host.CreateToken("admin")) + "; " + antiforgery;
+                context.Request.Headers.Cookie = Cookies(host, handle, host.CreateToken("admin")) + "; " + antiforgery;
             }, Ct);
             Assert.Equal(401, result.Response.StatusCode);
         }
@@ -167,7 +173,7 @@ public sealed class AdminSessionAuthenticationTests
         using var host = new VocabularyWebApplicationFactory();
         using var client = Client(host);
         var handle = await Seed(host, role);
-        var cookies = Cookies(handle, dual ? host.CreateToken("admin") : null);
+        var cookies = Cookies(host, handle, dual ? host.CreateToken("admin") : null);
         // The declared presentation change: a session write without the token fails
         // the authentication itself (the fixed 401), and the logout endpoint answers
         // the package's fixed csrf rejection. Neither touches the session.
@@ -191,12 +197,12 @@ public sealed class AdminSessionAuthenticationTests
         using var client = Client(host);
         var handle = await Seed(host);
         var token = bearer ? host.CreateToken("admin") : null;
-        var cookies = Cookies(handle, host.CreateToken("admin"));
+        var cookies = Cookies(host, handle, host.CreateToken("admin"));
         if (bearer) Assert.Equal(HttpStatusCode.OK, (await Send(client, "POST", "/admin/vocabulary-books", cookies, token, csrf: true)).StatusCode);
         var logout = await Send(client, "POST", "/admin/auth/logout", cookies, token, csrf: true);
         Assert.Equal(HttpStatusCode.OK, logout.StatusCode);
         AssertSessionCookieDeleted(logout.Headers.GetValues("Set-Cookie"));
-        Assert.Equal(HttpStatusCode.Unauthorized, (await Send(client, "GET", "/admin/auth/session", Cookies(handle))).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await Send(client, "GET", "/admin/auth/session", Cookie(host, handle))).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await Send(client, "POST", "/admin/auth/logout", cookies, csrf: true)).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await Send(client, "POST", "/admin/auth/logout", csrf: true)).StatusCode);
         if (bearer) Assert.Equal(HttpStatusCode.OK, (await Send(client, "GET", "/admin/auth/session", bearer: token)).StatusCode);
@@ -221,7 +227,7 @@ public sealed class AdminSessionAuthenticationTests
             using var scope = configured.Services.CreateScope();
             await scope.ServiceProvider.GetRequiredService<VocabularyDbContext>().Database.ExecuteSqlRawAsync("UPDATE admin_session SET protected_payload = 'broken'", Ct);
         }
-        var cookies = Cookies(handle, host.CreateToken("admin"));
+        var cookies = Cookies(host, handle, host.CreateToken("admin"));
         Assert.Equal(HttpStatusCode.Unauthorized, (await Send(client, "GET", "/admin/auth/session", cookies)).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await Send(client, "POST", "/admin/vocabulary-books", cookies)).StatusCode);
         var logout = await Send(client, "POST", "/admin/auth/logout", cookies, csrf: true);
@@ -250,7 +256,7 @@ public sealed class AdminSessionAuthenticationTests
         logs.Messages.Clear();
         foreach (var path in new[] { "/admin/auth/logout", "/admin/auth/logout/", "/ADMIN/AUTH/LOGOUT" })
         {
-            var response = await Send(client, "POST", path, Cookies(handle, host.CreateToken("admin")), csrf: true);
+            var response = await Send(client, "POST", path, Cookies(configured, handle, host.CreateToken("admin")), csrf: true);
             Assert.Equal(status, (int)response.StatusCode);
             AssertSessionCookieDeleted(response.Headers.GetValues("Set-Cookie"));
             var body = await response.Content.ReadAsStringAsync(Ct);
@@ -262,7 +268,7 @@ public sealed class AdminSessionAuthenticationTests
             && !message.Contains(handle, StringComparison.Ordinal) && !message.Contains("admin_session", StringComparison.Ordinal)));
         failure.Enabled = false;
         // No commit occurred in these controlled failures: the copied handle still works.
-        Assert.Equal(HttpStatusCode.OK, (await Send(client, "GET", "/admin/auth/session", Cookies(handle))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await Send(client, "GET", "/admin/auth/session", Cookie(configured, handle))).StatusCode);
     }
 
     [Fact]
@@ -274,15 +280,15 @@ public sealed class AdminSessionAuthenticationTests
             services.AddSingleton<IAuthorizationHandler>(gate)));
         using var client = Client(configured);
         var handle = await Seed(configured);
-        var started = Send(client, "GET", "/admin/auth/session", Cookies(handle));
+        var started = Send(client, "GET", "/admin/auth/session", Cookie(configured, handle));
         await gate.Entered.Task.WaitAsync(Ct);
         try
         {
-            Assert.Equal(HttpStatusCode.OK, (await Send(client, "POST", "/admin/auth/logout", Cookies(handle), csrf: true)).StatusCode);
+            Assert.Equal(HttpStatusCode.OK, (await Send(client, "POST", "/admin/auth/logout", Cookie(configured, handle), csrf: true)).StatusCode);
         }
         finally { gate.Release.TrySetResult(); }
         Assert.Equal(HttpStatusCode.OK, (await started).StatusCode);
-        Assert.Equal(HttpStatusCode.Unauthorized, (await Send(client, "GET", "/admin/auth/session", Cookies(handle))).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await Send(client, "GET", "/admin/auth/session", Cookie(host, handle))).StatusCode);
     }
 
     [Fact]
@@ -311,7 +317,7 @@ public sealed class AdminSessionAuthenticationTests
             using (var second = new VocabularyWebApplicationFactory("Testing", true, keyContentRoot: root, databasePath: database))
             using (var client = Client(second))
             {
-                Assert.Equal(HttpStatusCode.OK, (await Send(client, "GET", "/admin/auth/session", Cookies(handle))).StatusCode);
+                Assert.Equal(HttpStatusCode.OK, (await Send(client, "GET", "/admin/auth/session", Cookie(second, handle))).StatusCode);
             }
             // A different root key against the existing key rows is refused at
             // startup by the protect/unprotect probe: the host never serves.

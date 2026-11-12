@@ -1,22 +1,23 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Json;
-using System.Text;
 using System.Text.Json;
 using Lexarbor.Host.Authentication;
 using Lexarbor.Service.Tests.TestInfrastructure;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
-using SignaCore.Client.AspNetCore;
 
 namespace Lexarbor.Service.Tests;
 
 /// <summary>
-/// The migration-specific acceptance tests of #209: the declared changes of adopting the
-/// official SignaCore client package (the antiforgery token model, the optional-login
-/// degradation, the removed Testing-only plain-HTTP transport's tripwire, the fixed
-/// application-root default return target) and the strict-profile defaults that must not
-/// be relaxed by this repository's own configuration.
+/// The migration-specific acceptance tests: the declared constants of moving the hosted login
+/// onto the framework's own OpenID Connect handler (the historical antiforgery token model,
+/// the optional-login degradation, the removed Testing-only plain-HTTP transport's tripwire,
+/// the fixed application-root default return target) and the strict-profile settings that must
+/// not be relaxed by this repository's own configuration.
 /// </summary>
 public class AdminHostedLoginMigrationTests
 {
@@ -33,7 +34,9 @@ public class AdminHostedLoginMigrationTests
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct));
         var token = body.RootElement.GetProperty("token").GetString();
         Assert.False(string.IsNullOrWhiteSpace(token));
-        Assert.Contains(response.Headers.GetValues("Set-Cookie"), c => c.Contains("httponly", StringComparison.OrdinalIgnoreCase));
+        var cookie = response.Headers.GetValues("Set-Cookie").Single();
+        Assert.Contains("httponly", cookie, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("secure", cookie, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -42,17 +45,17 @@ public class AdminHostedLoginMigrationTests
         using var host = new VocabularyWebApplicationFactory();
         using var client = host.CreateClient(new()
         { BaseAddress = new Uri("https://lexarbor.test"), AllowAutoRedirect = false, HandleCookies = false });
-        var handle = host.CreateSessionCookie();
-        // The declared CSRF failure presentation: the strategy scheme's fixed 401.
-        using var rejected = await SendWriteAsync(client, handle, null);
+        var cookie = host.CreateSessionCookie();
+        // The declared CSRF failure presentation: the session boundary's fixed 401.
+        using var rejected = await SendWriteAsync(client, cookie, null);
         Assert.Equal(HttpStatusCode.Unauthorized, rejected.StatusCode);
         Assert.Contains("Authentication is required.", await rejected.Content.ReadAsStringAsync(Ct));
         var (token, antiforgery) = AdminTestAntiforgery.Get(host);
-        using var accepted = await SendWriteAsync(client, handle, (token, antiforgery));
+        using var accepted = await SendWriteAsync(client, cookie, (token, antiforgery));
         Assert.Equal(HttpStatusCode.OK, accepted.StatusCode);
     }
 
-    private static async Task<HttpResponseMessage> SendWriteAsync(HttpClient client, string handle,
+    private static async Task<HttpResponseMessage> SendWriteAsync(HttpClient client, string cookie,
         (string Token, string Cookie)? antiforgery)
     {
         var request = new HttpRequestMessage(HttpMethod.Post, "/admin/vocabulary-books")
@@ -60,8 +63,8 @@ public class AdminHostedLoginMigrationTests
             Content = JsonContent.Create(new { bookName = "Migration book", status = true })
         };
         request.Headers.Add("Cookie", antiforgery is { } pair
-            ? handle + "; " + pair.Cookie
-            : handle);
+            ? cookie + "; " + pair.Cookie
+            : cookie);
         if (antiforgery is not null) request.Headers.Add(AdminTestAntiforgery.HeaderName, antiforgery.Value.Token);
         return await client.SendAsync(request, Ct);
     }
@@ -113,25 +116,37 @@ public class AdminHostedLoginMigrationTests
     }
 
     [Fact]
-    public void PackageOptions_KeepTheStrictProfileDefaults()
+    public void HandlerOptions_KeepTheHistoricalProfile()
     {
-        using var host = new VocabularyWebApplicationFactory();
-        var options = host.Services.GetRequiredService<IOptions<HostedLoginOptions>>().Value;
-        // The strict profile is the migration's A5 guarantee: zero clock skew, the
-        // scope-echo subset check, duplicate JSON member rejection, bounded bodies and
-        // future issued-at rejection — none of them relaxed by this repository.
-        Assert.Equal(TimeSpan.Zero, options.Validation.ClockSkew);
-        Assert.True(options.Validation.RequireScopeEchoSubset);
-        Assert.True(options.Validation.RejectDuplicateJsonMembers);
-        Assert.True(options.Validation.RejectFutureIssuedAt);
-        Assert.Equal(64 * 1024, options.Validation.MaxTokenResponseBytes);
-        Assert.Equal(4 * 1024, options.Validation.MaxLogoutResponseBytes);
-        Assert.Equal(AdminSessionCookie.Name, options.SessionCookieName);
-        Assert.True(options.AllowUnconfiguredStartup);
-        Assert.True(options.SessionEndpointRequireAuthorization);
-        Assert.Equal("/#/login?reason=logged_out", options.PostLogoutReturnPath);
-        Assert.NotNull(options.PreSignInAuthorizationDecision);
-        Assert.IsType<AdminHostedLoginResponseWriter>(options.ResponseWriter);
+        // A configured deployment: the options below are the per-deployment protocol values.
+        using var f = new HostedLoginMigrationFixture();
+        var cookie = f.Host.Services.GetRequiredService<IOptionsMonitor<CookieAuthenticationOptions>>()
+            .Get(AdminAuthenticationSource.SessionScheme);
+        var oidc = f.Host.Services.GetRequiredService<IOptionsMonitor<OpenIdConnectOptions>>()
+            .Get(AdminAuthenticationSource.OidcScheme);
+        // The historical byte-for-byte cookie names and header of the browser contract, the
+        // exact callback and return paths, and the strict-profile settings carried over from
+        // the replaced slice: no telemetry parameters, the five-minute handshake window, the
+        // 30-second clock tolerance, code + PKCE S256, and no pushed authorization.
+        Assert.Equal(AdminSessionCookie.Name, cookie.Cookie.Name);
+        Assert.True(cookie.Cookie.HttpOnly);
+        Assert.Equal(SameSiteMode.Lax, cookie.Cookie.SameSite);
+        Assert.False(cookie.SlidingExpiration);
+        Assert.Equal("/admin/auth/callback", oidc.CallbackPath.Value);
+        Assert.Equal("/admin/auth/logout/return", oidc.SignedOutCallbackPath.Value);
+        Assert.Equal(AdminHostedLoginWriter.PostLogoutReturnTarget, oidc.SignedOutRedirectUri);
+        Assert.True(oidc.DisableTelemetry);
+        Assert.True(oidc.UsePkce);
+        Assert.Equal("code", oidc.ResponseType);
+        Assert.Equal("query", oidc.ResponseMode);
+        Assert.Equal(TimeSpan.FromMinutes(5), oidc.RemoteAuthenticationTimeout);
+        Assert.Equal(TimeSpan.FromSeconds(30), oidc.TokenValidationParameters.ClockSkew);
+        Assert.Equal("name", oidc.TokenValidationParameters.NameClaimType);
+        Assert.Equal("role", oidc.TokenValidationParameters.RoleClaimType);
+        Assert.Equal(Microsoft.AspNetCore.Authentication.OpenIdConnect.PushedAuthorizationBehavior.Disable, oidc.PushedAuthorizationBehavior);
+        // The antiforgery write model keeps the historical request header the SPA sends.
+        Assert.Equal("X-SignaCore-CSRF", f.Host.Services.GetRequiredService<
+            IOptionsMonitor<Microsoft.AspNetCore.Antiforgery.AntiforgeryOptions>>().CurrentValue.HeaderName);
     }
 
     [Fact]
@@ -140,8 +155,8 @@ public class AdminHostedLoginMigrationTests
         using var f = new HostedLoginMigrationFixture();
         var transaction = await f.Start(null);
         using var callback = await f.Callback(transaction);
-        // The declared default change: the official package lands a start without a
-        // returnUrl on "/" instead of consulting the validator's historical default.
+        // The declared default change of the package era, kept: a start without a
+        // returnUrl lands on "/" instead of consulting the validator's historical default.
         Assert.Equal("/", callback.Headers.Location!.OriginalString);
     }
 
@@ -185,7 +200,7 @@ public class AdminHostedLoginMigrationTests
                         options.Authority = null; options.MetadataAddress = null!; options.ConfigurationManager = null!;
                         options.TokenValidationParameters.IssuerSigningKey = Authority.SigningKey;
                     });
-                services.AddHttpClient(HostedLoginDefaults.HttpClientName)
+                services.AddHttpClient(AdminAuthenticationSource.OidcHttpClientName)
                     .ConfigurePrimaryHttpMessageHandler(() => Authority);
             }));
             Client = Host.CreateClient(new()
@@ -197,11 +212,11 @@ public class AdminHostedLoginMigrationTests
             using var response = await Client.GetAsync(
                 "/admin/auth/start" + (target is null ? "" : "?returnUrl=" + Uri.EscapeDataString(target)), Ct);
             Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
-            var parameters = Microsoft.AspNetCore.WebUtilities.QueryHelpers
+            var parameters = QueryHelpers
                 .ParseQuery(response.Headers.Location!.Query);
             Authority.Challenges[parameters["code_challenge"].ToString()] = parameters["nonce"].ToString();
-            var cookie = response.Headers.GetValues("Set-Cookie").Single();
-            return new Transaction(parameters["state"].ToString(), cookie.Split(';')[0]);
+            var cookie = string.Join("; ", response.Headers.GetValues("Set-Cookie").Select(value => value.Split(';')[0]));
+            return new Transaction(parameters["state"].ToString(), cookie);
         }
 
         public Task<HttpResponseMessage> Callback(Transaction t) =>

@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -147,15 +147,14 @@ public class AdminAuthenticationTests :
     public async Task DeletedLoginRoute_AuthenticatedAdmin_GetsCatchall404()
     {
         using var client = CreateClient(_factory);
-        var handle = await SeedSessionAsync(_factory);
+        var cookie = AdminSessionTestCookie.For(_factory.Services, await SeedSessionAsync(_factory));
         var (token, antiforgery) = AdminTestAntiforgery.Get(_factory);
         var request = new HttpRequestMessage(HttpMethod.Post, "/admin/auth/login")
         {
             Content = JsonContent.Create(new { username = "admin", password = "test-password" })
         };
         request.Headers.Add(AdminTestAntiforgery.HeaderName, token);
-        request.Headers.TryAddWithoutValidation("Cookie",
-            $"{AdminSessionCookie.Name}={handle}; {antiforgery}");
+        request.Headers.TryAddWithoutValidation("Cookie", $"{cookie}; {antiforgery}");
 
         var response = await client.SendAsync(request, TestContext.Current.CancellationToken);
 
@@ -182,8 +181,8 @@ public class AdminAuthenticationTests :
     public async Task SessionCookie_AllowsBookAndVocabularyManagementReads()
     {
         using var client = CreateClient(_factory);
-        var handle = await SeedSessionAsync(_factory);
-        client.DefaultRequestHeaders.Add("Cookie", $"{AdminSessionCookie.Name}={handle}");
+        var cookie = AdminSessionTestCookie.For(_factory.Services, await SeedSessionAsync(_factory));
+        client.DefaultRequestHeaders.Add("Cookie", cookie);
 
         var books = await client.GetAsync(
             "/admin/vocabulary-books?keyword=test&page=1&size=20",
@@ -199,8 +198,8 @@ public class AdminAuthenticationTests :
     public async Task Logout_DeletesTheSessionCookieAndSubsequentAdminRequestReturns401()
     {
         using var client = CreateClient(_factory);
-        var handle = await SeedSessionAsync(_factory);
-        client.DefaultRequestHeaders.Add("Cookie", $"{AdminSessionCookie.Name}={handle}");
+        var cookie = AdminSessionTestCookie.For(_factory.Services, await SeedSessionAsync(_factory));
+        client.DefaultRequestHeaders.Add("Cookie", cookie);
 
         var logout = await LogoutAsync(client, _factory);
         var afterLogout = await client.GetAsync("/admin/vocabulary-books?page=1&size=20",
@@ -220,8 +219,8 @@ public class AdminAuthenticationTests :
     public async Task Logout_WithoutAntiforgeryToken_ReturnsTheCsrfRejection()
     {
         using var client = CreateClient(_factory);
-        var handle = await SeedSessionAsync(_factory);
-        client.DefaultRequestHeaders.Add("Cookie", $"{AdminSessionCookie.Name}={handle}");
+        var cookie = AdminSessionTestCookie.For(_factory.Services, await SeedSessionAsync(_factory));
+        client.DefaultRequestHeaders.Add("Cookie", cookie);
 
         var response = await client.PostAsync("/admin/auth/logout", content: null,
             TestContext.Current.CancellationToken);
@@ -234,8 +233,8 @@ public class AdminAuthenticationTests :
     public async Task CookieWrite_WithoutAntiforgeryToken_Returns401()
     {
         using var client = CreateClient(_factory);
-        var handle = await SeedSessionAsync(_factory);
-        client.DefaultRequestHeaders.Add("Cookie", $"{AdminSessionCookie.Name}={handle}");
+        var cookie = AdminSessionTestCookie.For(_factory.Services, await SeedSessionAsync(_factory));
+        client.DefaultRequestHeaders.Add("Cookie", cookie);
 
         var response = await client.PostAsJsonAsync(
             "/admin/vocabulary-books",

@@ -260,8 +260,16 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
             Roles = [role],
             AccessTokenExpiresAt = DateTimeOffset.UtcNow.AddMinutes(15)
         }, TestContext.Current.CancellationToken);
-        return $"{AdminSessionCookie.Name}={handle}";
+        return SessionCookieFor(handle);
     }
+
+    /// <summary>
+    /// Wraps a stored session handle in the cookie the framework cookie handler actually
+    /// issues: a data-protected ticket whose single claim names the server-side key. Tests
+    /// that seed a row directly use this so the presented cookie is byte-shape-identical to
+    /// a signed-in browser's.
+    /// </summary>
+    public string SessionCookieFor(string handle) => AdminSessionTestCookie.For(Services, handle);
 
     /// <summary>
     /// The hosted-login antiforgery boundary issues and validates its Secure cookie
@@ -428,4 +436,28 @@ public static class WebApplicationFactoryHttpsExtensions
 {
     public static HttpClient CreateHttpsClient(this Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> factory) =>
         factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
+}
+
+/// <summary>
+/// Mints the session-cookie value the framework cookie handler issues for a stored session
+/// handle: a data-protected ticket whose single session-id claim names the server-side key.
+/// Tests that seed rows directly present exactly what a signed-in browser would.
+/// </summary>
+public static class AdminSessionTestCookie
+{
+    public const string SessionIdClaim = "Microsoft.AspNetCore.Authentication.Cookies-SessionId";
+
+    public static string For(IServiceProvider services, string handle)
+    {
+        var options = services.GetRequiredService<
+            Microsoft.Extensions.Options.IOptionsMonitor<Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationOptions>>()
+            .Get(AdminAuthenticationSource.SessionScheme);
+        var principal = new ClaimsPrincipal(new ClaimsIdentity(
+            [new Claim(SessionIdClaim, handle, ClaimValueTypes.String, AdminAuthenticationSource.SessionScheme)],
+            AdminAuthenticationSource.SessionScheme));
+        var ticket = new Microsoft.AspNetCore.Authentication.AuthenticationTicket(
+            principal, new Microsoft.AspNetCore.Authentication.AuthenticationProperties(),
+            AdminAuthenticationSource.SessionScheme);
+        return AdminSessionCookie.Name + "=" + options.TicketDataFormat.Protect(ticket);
+    }
 }
