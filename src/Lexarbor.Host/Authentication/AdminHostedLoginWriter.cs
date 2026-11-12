@@ -86,14 +86,14 @@ public static class AdminHostedLoginWriter
     /// </summary>
     public static Task WriteStartFailureAsync(HttpContext context, AdminStartFailure failure,
         CancellationToken cancellationToken) => failure switch
-    {
-        AdminStartFailure.InvalidReturnUrl => VocabularyHttpResponse
-            .BadRequest("The login return target is invalid.").ExecuteAsync(context),
-        AdminStartFailure.AuthorityUnreachable => VocabularyHttpResponse
-            .BadGateway("The authentication provider is unavailable.").ExecuteAsync(context),
-        _ => VocabularyHttpResponse
-            .ServiceUnavailable("Hosted authentication is not configured.").ExecuteAsync(context),
-    };
+        {
+            AdminStartFailure.InvalidReturnUrl => VocabularyHttpResponse
+                .BadRequest("The login return target is invalid.").ExecuteAsync(context),
+            AdminStartFailure.AuthorityUnreachable => VocabularyHttpResponse
+                .BadGateway("The authentication provider is unavailable.").ExecuteAsync(context),
+            _ => VocabularyHttpResponse
+                .ServiceUnavailable("Hosted authentication is not configured.").ExecuteAsync(context),
+        };
 
     /// <summary>The session-status endpoint's fixed shape: the authorized administrator
     /// identity's display name and roles — never a token, never another reason.</summary>
