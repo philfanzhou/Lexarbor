@@ -11,7 +11,7 @@ Lexarbor is a self-hosted vocabulary catalog and quiz service. It combines a .NE
 - Maintain typed word relations through administrator APIs, with confirmation, conditional edits, and atomic batch creation; see [Vocabulary relations](docs/api/VocabularyRelations.md).
 - Import words idempotently with database-backed integrity constraints.
 - Generate four-option translation questions from one vocabulary book.
-- Browse an enabled book's units and paged entries with a Lexarbor-issued API key.
+- Browse enabled books and [look up vocabulary families](docs/api/VocabularyFamilies.md) with a Lexarbor-issued API key.
 - Automatically complete missing IPA/POS and expand word forms and derivatives when a text model is configured; new words use the existing submission supplement. See [Vocabulary expansion](docs/api/VocabularyExpansion.md).
 - Accept definitions no book has from one authenticated integration client, review them (optionally with AI advice), and store approved ones in a supplementary book; see [Meaning submissions](docs/api/MeaningSubmissions.md).
 - Serve the business API and administration UI from one HTTP endpoint.

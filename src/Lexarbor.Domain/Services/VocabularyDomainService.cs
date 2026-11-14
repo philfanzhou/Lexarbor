@@ -22,6 +22,7 @@ public partial class VocabularyDomainService
     private readonly IUnitOfWork _unitOfWork;
     private readonly MeaningSubmissionSettings? _submissionSettings;
     private readonly IMeaningSubmissionRepository? _submissionRepository;
+    private readonly IEnrichmentDestinationRepository? _expansionDestination;
 
     public VocabularyDomainService(
         IVocabularyRepository vocabularyRepository,
@@ -32,11 +33,13 @@ public partial class VocabularyDomainService
         IUnitOfWork unitOfWork,
         MeaningSubmissionSettings? submissionSettings = null,
         IMeaningSubmissionRepository? submissionRepository = null,
-        LearningQuestionGenerator? learningQuestions = null)
+        LearningQuestionGenerator? learningQuestions = null,
+        IEnrichmentDestinationRepository? expansionDestination = null)
     {
         _learningQuestions = learningQuestions ?? new LearningQuestionGenerator();
         _submissionSettings = submissionSettings;
         _submissionRepository = submissionRepository;
+        _expansionDestination = expansionDestination;
         _vocabularyRepository = vocabularyRepository;
         _bookRepository = bookRepository;
         _meaningRepository = meaningRepository;
@@ -488,7 +491,7 @@ public partial class VocabularyDomainService
                 correctMeaning.Meaning,
                 3,
                 scope, cancellationToken);
-            if (distractors.Count < 3 && IsSupplementaryBook(bookId))
+            if (distractors.Count < 3 && await IsSupplementaryBookAsync(bookId, cancellationToken))
             {
                 distractors = TopUp(
                     distractors,
@@ -530,7 +533,7 @@ public partial class VocabularyDomainService
                     correctMeaning.Meaning,
                     3,
                     scope, cancellationToken);
-            if (distractors.Count < 3 && IsSupplementaryBook(bookId))
+            if (distractors.Count < 3 && await IsSupplementaryBookAsync(bookId, cancellationToken))
             {
                 distractors = TopUp(
                     distractors,
@@ -583,16 +586,16 @@ public partial class VocabularyDomainService
         };
     }
 
-    /// <summary>
-    /// The supplementary book collects definitions no other book had, so it is
-    /// often too small to supply three distractors of its own. Its questions are
-    /// topped up from every enabled book rather than refused; every other book
-    /// keeps drawing from itself alone.
-    /// </summary>
-    private bool IsSupplementaryBook(string bookId) =>
-        _submissionRepository != null
-        && _submissionSettings is { IsConfigured: true }
-        && string.Equals(_submissionSettings.BookId!.Trim(), bookId, StringComparison.Ordinal);
+    private async Task<bool> IsSupplementaryBookAsync(string bookId, CancellationToken token)
+    {
+        if (_submissionRepository == null) return false;
+        var configuredBookId = _submissionSettings?.BookId?.Trim();
+        if (string.Equals(configuredBookId, bookId, StringComparison.Ordinal)) return true;
+        if (_expansionDestination == null) return false;
+
+        var destination = await _expansionDestination.ReadAsync(configuredBookId, token);
+        return destination is { Managed: true, State: "Ready" } && destination.BookId == bookId;
+    }
 
     private static List<T> TopUp<T>(List<T> drawn, List<T> extra, Func<T, string> text)
     {

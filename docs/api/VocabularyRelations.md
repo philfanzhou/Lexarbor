@@ -11,8 +11,8 @@ These are administrator APIs. They use the configured administrator role and the
 existing Bearer/session authentication boundary. Session-authenticated writes
 require the normal antiforgery header/cookie pair. All successes return the
 standard `{"success":true,"data":...}` envelope. Failures follow
-[Error handling](../development/ErrorHandling.md). There is no public relation
-API or relation administration UI in this release.
+[Error handling](../development/ErrorHandling.md). Integration clients can use the
+[read-only vocabulary family API](VocabularyFamilies.md).
 
 ## Relation object
 

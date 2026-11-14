@@ -9,11 +9,11 @@ using Microsoft.EntityFrameworkCore;
 namespace Lexarbor.Database.Repositories;
 
 /// <summary>
-/// The reads behind the anonymous book-browse endpoints, executed inside one
+/// The reads behind the catalog browse endpoints, executed inside one
 /// read snapshot per request so the totals and the page content describe the
 /// same instant of the book.
 /// </summary>
-public sealed class VocabularyPublicQueryRepository(VocabularyDbContext context) : IVocabularyPublicQueryRepository
+public sealed partial class VocabularyPublicQueryRepository(VocabularyDbContext context) : IVocabularyPublicQueryRepository
 {
     public Task<VocabularyPublicUnitList> GetUnitsAsync(string bookId, CancellationToken cancellationToken)
         => SnapshotAsync(async () =>

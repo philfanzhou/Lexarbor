@@ -74,7 +74,7 @@ These routes require the administrator role, like every `/admin` route.
 
 ## Supplementary-book questions
 
-`POST /api/vocabulary/question` for the supplementary book tops up missing distractors from every enabled book, because the book only holds definitions no other book had. Every other book still draws distractors only from itself.
+`POST /api/vocabulary/question` for the supplementary book tops up missing distractors from every enabled book, because the book only holds definitions no other book had. The managed expansion supplement uses the same fallback when it is the active expansion destination. Ordinary books draw distractors from themselves.
 
 ## Integration authentication
 

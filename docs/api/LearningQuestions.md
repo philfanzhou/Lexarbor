@@ -18,8 +18,11 @@ must exist in that book; the target need not itself be assigned to that unit.
 `sameEntryKind` defaults to false. These two optional fields constrain choice
 candidates exactly as on the existing single-question route: scope is the unit,
 or the whole book when omitted; a phrase position makes the target a phrase,
-otherwise it is a word. Only the configured supplementary book can top up its
-choice candidates from other enabled books. Other books keep their own scope.
+otherwise it is a word. When the configured submission supplement or the active
+managed expansion supplement has too few choice candidates, Lexarbor fills the
+remaining options from enabled books. The managed supplement is identified by
+its stored expansion-destination record. Ordinary books keep their own scope.
+The same rule applies to single and batch catalog questions.
 
 A pending submission uses its original display spelling and meaning, with choice
 candidates from all enabled books. An approved submission with `definitionKept`
