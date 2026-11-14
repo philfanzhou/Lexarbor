@@ -11,7 +11,8 @@ public sealed class LearningQuestionGenerator(Func<int, int>? pickIndex = null)
     public async Task<LearningQuestion> CreateAsync(
         string word, string meaning, LearningQuestionMode mode,
         Func<bool, CancellationToken, Task<VocabularyQuestionModel?>> createChoice,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Func<LearningQuestionType, LearningQuestion?>? createRelated = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (!Enum.IsDefined(mode)) throw new DomainValidationException("Mode must be new or review.");
@@ -23,6 +24,8 @@ public sealed class LearningQuestionGenerator(Func<int, int>? pickIndex = null)
         {
             types.Add(LearningQuestionType.ChineseToEnglish);
             if (LetterHiding.IsEligible(word)) types.Add(LearningQuestionType.FillLetters);
+            if (createRelated != null)
+                types.AddRange([LearningQuestionType.FormChoice, LearningQuestionType.RelationChoice, LearningQuestionType.FormFill]);
         }
 
         // A uniform permutation makes the first available type uniform among
@@ -40,11 +43,21 @@ public sealed class LearningQuestionGenerator(Func<int, int>? pickIndex = null)
                 return new FillLettersLearningQuestion(meaning, pattern, word);
             }
 
-            // Null alone means this type has insufficient distinct options.
+            LearningQuestion? question;
+            if (type is LearningQuestionType.EnglishToChinese or LearningQuestionType.ChineseToEnglish)
+            {
+                var choice = await createChoice(type == LearningQuestionType.ChineseToEnglish, cancellationToken);
+                question = choice == null ? null : new ChoiceLearningQuestion(type, choice.Word, choice.Options);
+            }
+            else
+            {
+                question = createRelated!(type);
+            }
+
+            // Null means this type cannot produce an unambiguous question.
             // Infrastructure, target/source failures and cancellation propagate.
-            var choice = await createChoice(type == LearningQuestionType.ChineseToEnglish, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
-            if (choice != null) return new ChoiceLearningQuestion(type, choice.Word, choice.Options);
+            if (question != null) return question;
         }
         throw new LearningQuestionException(LearningQuestionFailure.Unavailable);
     }

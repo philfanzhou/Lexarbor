@@ -15,9 +15,9 @@ internal static class LearningQuestionEndpoints
         var body = await ReadAsync<LearningQuestionRequest>(request, cancellationToken);
         if (body is null || !TryMode(body.Mode, out var mode)
             || string.IsNullOrWhiteSpace(body.WordId) || string.IsNullOrWhiteSpace(body.BookId)
-            || string.IsNullOrWhiteSpace(body.MeaningId)) return Invalid();
+            || string.IsNullOrWhiteSpace(body.MeaningId) || !TryRelation(body.Relation, out var relation)) return Invalid();
         return await Generate(() => service.CreateLearningQuestionAsync(
-            body.WordId, body.BookId, body.MeaningId, mode, body.UnitId, body.SameEntryKind ?? false, cancellationToken));
+            body.WordId, body.BookId, body.MeaningId, mode, body.UnitId, body.SameEntryKind ?? false, cancellationToken, relation));
     }
 
     internal static async Task<IResult> Submission(string id, HttpRequest request, MeaningSubmissionService service, CancellationToken cancellationToken)
@@ -40,6 +40,20 @@ internal static class LearningQuestionEndpoints
     {
         mode = value == "review" ? LearningQuestionMode.Review : LearningQuestionMode.New;
         return value is "new" or "review";
+    }
+
+    private static bool TryRelation(JsonElement value, out LearningQuestionRelation? relation)
+    {
+        relation = null;
+        if (value.ValueKind == JsonValueKind.Undefined) return true;
+        if (value.ValueKind != JsonValueKind.Object) return false;
+
+        try
+        {
+            relation = value.Deserialize<LearningQuestionRelation>(JsonSerializerOptions.Web);
+            return relation != null && !string.IsNullOrWhiteSpace(relation.SourceWordId) && VocabularyRelationTypes.IsValid(relation.Type);
+        }
+        catch (JsonException) { return false; }
     }
 
     private static async Task<IResult> Generate(Func<Task<LearningQuestion>> create)

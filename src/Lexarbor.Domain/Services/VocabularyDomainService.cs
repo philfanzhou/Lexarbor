@@ -23,6 +23,7 @@ public partial class VocabularyDomainService
     private readonly MeaningSubmissionSettings? _submissionSettings;
     private readonly IMeaningSubmissionRepository? _submissionRepository;
     private readonly IEnrichmentDestinationRepository? _expansionDestination;
+    private readonly IVocabularyPublicQueryRepository? _catalogQueries;
 
     public VocabularyDomainService(
         IVocabularyRepository vocabularyRepository,
@@ -34,12 +35,14 @@ public partial class VocabularyDomainService
         MeaningSubmissionSettings? submissionSettings = null,
         IMeaningSubmissionRepository? submissionRepository = null,
         LearningQuestionGenerator? learningQuestions = null,
-        IEnrichmentDestinationRepository? expansionDestination = null)
+        IEnrichmentDestinationRepository? expansionDestination = null,
+        IVocabularyPublicQueryRepository? catalogQueries = null)
     {
         _learningQuestions = learningQuestions ?? new LearningQuestionGenerator();
         _submissionSettings = submissionSettings;
         _submissionRepository = submissionRepository;
         _expansionDestination = expansionDestination;
+        _catalogQueries = catalogQueries;
         _vocabularyRepository = vocabularyRepository;
         _bookRepository = bookRepository;
         _meaningRepository = meaningRepository;
