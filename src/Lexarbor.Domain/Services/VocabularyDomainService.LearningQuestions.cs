@@ -36,11 +36,22 @@ public partial class VocabularyDomainService
         var related = reviewCatalog && relation != null
             ? await _catalogQueries!.GetLearningRelationAsync(wordId, relation, cancellationToken)
             : null;
+        var partOfSpeech = reviewCatalog ? VocabularyPartOfSpeech.FromLabel(meaning.PartOfSpeech) : null;
         return await _learningQuestions.CreateAsync(word.Word, meaning.Meaning, mode,
             (direction, token) => reviewCatalog
                 ? BuildReviewQuestionAsync(word, meaning, scope, direction, token)
                 : BuildQuestionAsync(word, meaning, scope, direction, token),
-            cancellationToken, related == null ? null : type => BuildRelatedQuestion(type, word, meaning, relation!, related));
+            cancellationToken, related == null ? null : type => BuildRelatedQuestion(type, word, meaning, relation!, related),
+            partOfSpeech == null ? null : token => BuildPartOfSpeechChoiceAsync(word, meaning, partOfSpeech, scope, token));
+    }
+
+    private async Task<LearningQuestion?> BuildPartOfSpeechChoiceAsync(VocabularyModel word, VocabularyMeaningModel meaning,
+        VocabularyPartOfSpeech partOfSpeech, VocabularyDistractorScope? scope, CancellationToken token)
+    {
+        var supplementary = await IsSupplementaryBookAsync(meaning.BookId, token);
+        var candidates = await _catalogQueries!.GetPartOfSpeechChoiceAsync(word, meaning, partOfSpeech, scope, supplementary, token);
+        return candidates == null ? null : new PartOfSpeechChoiceLearningQuestion(meaning.Meaning, candidates.AnchorWord, partOfSpeech.Code,
+            BuildOptions(word.Word, candidates.Distractors));
     }
 
     private async Task<VocabularyQuestionModel?> BuildReviewQuestionAsync(VocabularyModel word, VocabularyMeaningModel meaning,

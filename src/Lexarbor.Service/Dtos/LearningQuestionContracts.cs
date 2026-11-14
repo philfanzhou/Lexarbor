@@ -28,6 +28,7 @@ public sealed record FillLettersLearningQuestionDto(string Type, string Prompt, 
 public sealed record FormChoiceLearningQuestionDto(string Type, string Prompt, string RelationType, IReadOnlyList<LearningQuestionOptionDto> Options);
 public sealed record RelationChoiceLearningQuestionDto(string Type, string Prompt, string AnchorWord, IReadOnlyList<LearningQuestionOptionDto> Options);
 public sealed record FormFillLearningQuestionDto(string Type, string Prompt, string AnchorWord, string RelationType, IReadOnlyList<string?> Pattern, string AnswerWord);
+public sealed record PartOfSpeechChoiceLearningQuestionDto(string Type, string Prompt, string AnchorWord, string PartOfSpeech, IReadOnlyList<LearningQuestionOptionDto> Options);
 
 public static class LearningQuestionDto
 {
@@ -38,6 +39,7 @@ public static class LearningQuestionDto
         FormChoiceLearningQuestion form => new FormChoiceLearningQuestionDto(form.Type.ToString(), form.Prompt, form.RelationType, Options(form.Options)),
         RelationChoiceLearningQuestion relation => new RelationChoiceLearningQuestionDto(relation.Type.ToString(), relation.Prompt, relation.AnchorWord, Options(relation.Options)),
         FormFillLearningQuestion fill => new FormFillLearningQuestionDto(fill.Type.ToString(), fill.Prompt, fill.AnchorWord, fill.RelationType, fill.Pattern, fill.AnswerWord),
+        PartOfSpeechChoiceLearningQuestion choice => new PartOfSpeechChoiceLearningQuestionDto(choice.Type.ToString(), choice.Prompt, choice.AnchorWord, choice.PartOfSpeech, Options(choice.Options)),
         _ => throw new ArgumentOutOfRangeException(nameof(question))
     };
 

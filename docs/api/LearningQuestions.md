@@ -90,11 +90,12 @@ Examples show one possible ordering and pattern, not stable output.
   this mode never falls back to letter filling.
 - `review` selects uniformly among types that can actually be generated. The
   regular candidates are `EnglishToChinese`, `ChineseToEnglish`, and eligible
-  `FillLetters`. An eligible catalog relation adds up to three types. A uniform
+  `FillLetters`. An eligible catalog relation adds up to three types. Catalog
+  review also includes `PartOfSpeechChoice` when it can be generated. A uniform
   random ordering tries each type at most once, stopping at the first available
   one. Target/source errors, authentication, storage faults and cancellation
   propagate.
-- With three available types each has probability 1/3. With all six, each has 1/6.
+- With three available types each has probability 1/3. With all seven, each has 1/7.
   Requests have no daily quota, history exclusion, rotation or guaranteed finite
   coverage. They need not produce the same question or a different question.
 - `FillLetters` uses the validated target text and works even if there are no
@@ -111,14 +112,16 @@ of the following structures, with a nonblank `prompt`:
 | `FormChoice` | `type`, source spelling `prompt`, `relationType`, `options` |
 | `RelationChoice` | `type`, target spelling `prompt`, `anchorWord`, `options` |
 | `FormFill` | `type`, target meaning `prompt`, `anchorWord`, `relationType`, `pattern`, `answerWord` |
+| `PartOfSpeechChoice` | `type`, target meaning `prompt`, `anchorWord`, `partOfSpeech`, `options` |
 
 Choices have exactly four distinct nonblank `text` values and exactly one
 `isCorrect:true`. Every option carries an explicit JSON boolean, including false.
 Choice data contains neither `pattern` nor `answerWord`; fill data contains no
 `options`. There is no persistent question ID, student identity or timing field.
-`type` is a string. Clients that send `relation` in review must support the
-three related types. The submission route uses the three regular types and its
-existing choice selection rules.
+`type` is a string. Catalog review clients must support `PartOfSpeechChoice`.
+Clients that send `relation` in review must also support the three related
+types. The submission route uses the three regular types and its existing choice
+selection rules.
 
 ## Catalog relation practice
 
@@ -134,8 +137,8 @@ Content-Type: application/json
 `sourceWordId` and one of the [eleven relation codes](VocabularyRelations.md#types).
 Malformed `relation` returns `400` with `QUESTION_INVALID_REQUEST` in both modes.
 A confirmed relation from `sourceWordId` to `wordId` makes related types eligible
-in `review`. A missing, pending or reverse-only link uses the regular review
-types, with the same family distractor rules. In `new`, the relation is validated
+in `review`. A missing, pending or reverse-only link leaves the other eligible
+review types in the draw. In `new`, the relation is validated
 and the question follows the usual English-to-Chinese rules.
 
 `FormChoice` asks for the target spelling given the source and relation type.
@@ -184,7 +187,55 @@ an enabled book. Duplicate choice text is compared after trimming and ignoring
 case. The family pool spans enabled books. Vacant choices use the ordinary
 book, unit, entry-kind and supplementary-book fallback rules.
 
-### Letter hiding
+## Part-of-speech choice
+
+Lexarbor automatically considers this type for catalog `review`, with or
+without `relation`. `new` still draws only `EnglishToChinese`.
+
+```http
+POST /api/vocabulary/learning-question
+X-Api-Key: <issued-api-key>
+Content-Type: application/json
+
+{"wordId":"happily-id","bookId":"book-id","meaningId":"happily-meaning-id","mode":"review"}
+```
+
+```json
+{
+  "success": true,
+  "data": {
+    "type": "PartOfSpeechChoice",
+    "prompt": "快乐地",
+    "anchorWord": "happiness",
+    "partOfSpeech": "adverb",
+    "options": [
+      { "text": "happy", "isCorrect": false },
+      { "text": "happily", "isCorrect": true },
+      { "text": "cheerful", "isCorrect": false },
+      { "text": "sadly", "isCorrect": false }
+    ]
+  }
+}
+```
+
+Use `anchorWord` as the clue and `prompt` as the target definition. Localize
+`partOfSpeech` using its code: `noun`, `verb`, `adjective`, `adverb`, `pronoun`,
+`preposition`, `conjunction`, `determiner`, `article`, `numeral` or `interjection`.
+Common single labels such as `n.`, `vt.`, `adj.` and `adv.` map to those codes.
+The requested `wordId`, `bookId` and `meaningId` still determine the answer.
+
+The clue must have a different spelling and a recognized, different part of
+speech in an enabled book. It can come from either end of a confirmed derivative
+relation or from a sibling linked by confirmed derivative relations to a shared
+source. Wrong options first come from the target's confirmed family in enabled
+books. The ordinary book, unit, entry-kind and supplementary-book rules fill any
+remaining slots. The clue, duplicate spellings and alternatives matching the
+definition and part of speech are excluded. A missing or unrecognized label on
+the same definition also makes that alternative unsafe. If the target part of
+speech is unclear, another family spelling could answer, the clue is missing or
+fewer than three distinct wrong options remain, the draw tries another type.
+
+## Letter hiding
 
 The rules are migrated from Ruoyu.Study commit
 `45bcc7c51d1df61ec0c8bde5afceac7a8600a711`, `LetterHiding.cs` and its vocabulary
@@ -237,10 +288,10 @@ and scheduling. Responses include correct answers and must not be forwarded
 unchanged to a student's browser. Use the API key from the Study backend. Pending submissions are available
 through the authenticated submission routes.
 
-There are no new settings, migrations, dependencies or persistence directories.
-Validate against this PR's source/build. After merge, the release/deployment owner
-records the first supporting revision or image and shares it with the Study task.
-Study can implement and test against the merged contract in an isolated Lexarbor
-build. Deploy compatible Lexarbor before switching the running Study consumer.
-Production deployment and Study implementation are separate work, not PR merge
-prerequisites. See [Deployment](../development/Deployment.md#on-demand-learning-question-rollout).
+When upgrading an existing integration, deploy a client that accepts
+`PartOfSpeechChoice` before routing catalog review requests to a Lexarbor build
+that returns it. Keep sending the existing request fields during the upgrade.
+After Lexarbor supports `relation`, clients that use the three related types
+can send that field. The feature uses the current database and configuration.
+The deployment owner shares the supporting revision or image with the client
+owner so both sides can validate the contract before switching traffic.

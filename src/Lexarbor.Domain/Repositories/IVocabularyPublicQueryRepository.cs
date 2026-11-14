@@ -17,6 +17,9 @@ public interface IVocabularyPublicQueryRepository
     Task<IReadOnlyList<VocabularyQuestionOptionModel>?> GetReviewDistractorsAsync(VocabularyModel word, VocabularyMeaningModel meaning,
         VocabularyDistractorScope? scope, bool chineseToEnglish, bool supplementary, CancellationToken cancellationToken);
 
+    Task<PartOfSpeechChoiceCandidates?> GetPartOfSpeechChoiceAsync(VocabularyModel word, VocabularyMeaningModel meaning,
+        VocabularyPartOfSpeech partOfSpeech, VocabularyDistractorScope? scope, bool supplementary, CancellationToken cancellationToken);
+
     Task<VocabularyPublicUnitList> GetUnitsAsync(string bookId, CancellationToken cancellationToken);
 
     /// <param name="unitId">

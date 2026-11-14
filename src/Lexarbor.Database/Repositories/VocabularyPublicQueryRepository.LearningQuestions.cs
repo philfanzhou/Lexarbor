@@ -53,18 +53,13 @@ public sealed partial class VocabularyPublicQueryRepository
     {
         var confirmed = context.VocabularyRelations.AsNoTracking().Where(row => row.Status == "confirmed");
         var wordId = word.Id;
-        var family = confirmed.Where(row => row.SourceWordId == wordId).Select(row => row.TargetWordId)
-            .Union(confirmed.Where(row => row.TargetWordId == wordId).Select(row => row.SourceWordId))
-            .Union(SharedSourceTargets(confirmed, wordId)).Where(id => id != wordId);
+        var family = FamilyIds(confirmed, wordId);
         if (!await family.AnyAsync(cancellationToken)) return null;
 
         var wordKey = CatalogKeys.Of(word.Word);
         var meaningKey = CatalogKeys.Of(meaning.Meaning);
         var words = context.Vocabularies.AsNoTracking();
-        var enabled = from item in context.VocabularyMeanings.AsNoTracking()
-                      join book in context.VocabularyBooks.AsNoTracking() on item.BookId equals book.Id
-                      where book.Status
-                      select item;
+        var enabled = EnabledQuestionMeanings();
         var stemAnswers = from entry in words
                           join item in enabled on entry.Id equals item.VocabularyId
                           where item.NormalizedMeaning.ToLower() == meaningKey
@@ -110,6 +105,17 @@ public sealed partial class VocabularyPublicQueryRepository
             }
         }
     }, cancellationToken);
+
+    private IQueryable<VocabularyMeaningEntity> EnabledQuestionMeanings() =>
+        from item in context.VocabularyMeanings.AsNoTracking()
+        join book in context.VocabularyBooks.AsNoTracking() on item.BookId equals book.Id
+        where book.Status
+        select item;
+
+    private static IQueryable<string> FamilyIds(IQueryable<VocabularyRelationEntity> confirmed, string wordId) =>
+        confirmed.Where(row => row.SourceWordId == wordId).Select(row => row.TargetWordId)
+            .Union(confirmed.Where(row => row.TargetWordId == wordId).Select(row => row.SourceWordId))
+            .Union(SharedSourceTargets(confirmed, wordId)).Where(id => id != wordId);
 
     private IQueryable<VocabularyMeaningEntity> ScopedMeanings(IQueryable<VocabularyMeaningEntity> enabled,
         string bookId, VocabularyDistractorScope? scope, bool chineseToEnglish)

@@ -89,6 +89,34 @@ public sealed class LearningQuestionGeneratorTests
     }
 
     [Fact]
+    public async Task PartOfSpeechSharesTheDrawWithAllSixExistingTypes()
+    {
+        var counts = new Dictionary<LearningQuestionType, int>();
+        for (var first = 0; first < 7; first++)
+        {
+            var initial = true;
+            var generator = new LearningQuestionGenerator(max =>
+            {
+                if (!initial) return 0;
+                initial = false;
+                Assert.Equal(7, max);
+                return first;
+            });
+            var result = await generator.CreateAsync("happily", "快乐地", LearningQuestionMode.Review,
+                (direction, _) => Task.FromResult<VocabularyQuestionModel?>(Choice(direction)), Ct,
+                type => new ChoiceLearningQuestion(type, "Related", []),
+                token =>
+                {
+                    Assert.Equal(Ct, token);
+                    return Task.FromResult<LearningQuestion?>(new PartOfSpeechChoiceLearningQuestion("快乐地", "happiness", "adverb", []));
+                });
+            counts[result.Type] = counts.GetValueOrDefault(result.Type) + 1;
+        }
+        Assert.Equal(7, counts.Count);
+        Assert.All(counts.Values, count => Assert.Equal(1, count));
+    }
+
+    [Fact]
     public async Task NewAttemptsOnlyEnglishToChineseAndDoesNotFallBack()
     {
         var calls = 0;
