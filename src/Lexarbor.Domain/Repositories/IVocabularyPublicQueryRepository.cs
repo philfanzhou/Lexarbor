@@ -12,6 +12,11 @@ public interface IVocabularyPublicQueryRepository
 {
     Task<IReadOnlyList<VocabularyFamilyLookup>> LookupRelationsAsync(IReadOnlyList<VocabularyFamilyQuery> queries, CancellationToken cancellationToken);
 
+    Task<LearningQuestionRelationContext?> GetLearningRelationAsync(string wordId, LearningQuestionRelation relation, CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<VocabularyQuestionOptionModel>?> GetReviewDistractorsAsync(VocabularyModel word, VocabularyMeaningModel meaning,
+        VocabularyDistractorScope? scope, bool chineseToEnglish, bool supplementary, CancellationToken cancellationToken);
+
     Task<VocabularyPublicUnitList> GetUnitsAsync(string bookId, CancellationToken cancellationToken);
 
     /// <param name="unitId">

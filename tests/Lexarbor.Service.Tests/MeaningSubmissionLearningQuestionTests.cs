@@ -131,6 +131,53 @@ public sealed partial class MeaningSubmissionEndpointTests
     }
 
     [Fact]
+    public async Task ApprovedSubmissionReviewKeepsOrdinaryDistractors()
+    {
+        var pending = await Data(await Post("/integration/meaning-submissions", new { word = "Explode", meaning = "爆炸" }, _submissionKey));
+        var id = pending.GetProperty("id").GetString()!;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var service = scope.ServiceProvider.GetRequiredService<MeaningSubmissionService>();
+            await service.ApproveAsync(id, new("Explode", null, "爆炸", null, null, null), Ct);
+            var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+            var target = await db.Vocabularies.SingleAsync(item => item.NormalizedWord == "explode", Ct);
+            for (var index = 0; index < 3; index++)
+            {
+                var wordId = $"family-{index}";
+                db.Vocabularies.Add(new() { Id = wordId, Word = $"form-{index}" });
+                db.VocabularyMeanings.Add(new() { Id = $"m-{wordId}", VocabularyId = wordId, BookId = "main", Meaning = $"词族 {index}" });
+                db.VocabularyMeanings.Add(new() { Id = $"local-{index}", VocabularyId = $"w{index + 1}", BookId = "supplementary", Meaning = $"补充词书 {index}" });
+                db.VocabularyRelations.Add(new()
+                {
+                    Id = wordId,
+                    SourceWordId = target.Id,
+                    TargetWordId = wordId,
+                    Type = "derived_noun",
+                    OriginKind = "manual",
+                    Status = "confirmed",
+                    ReviewReason = null,
+                    LastConfirmedAtUnixMs = 0
+                });
+            }
+            await db.SaveChangesAsync(Ct);
+        }
+        using var host = _factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+        {
+            services.RemoveAll<LearningQuestionGenerator>();
+            services.AddScoped(_ => new LearningQuestionGenerator(_ => 0));
+        }));
+        using var client = host.CreateClient();
+        client.DefaultRequestHeaders.Add(BusinessApiAuthorization.Header, _submissionKey);
+        var route = $"/integration/meaning-submissions/{id}/learning-question";
+        var data = await LearningQuestionEndpointTests.Success(await client.PostAsJsonAsync(route,
+            new { mode = "review", relation = new { sourceWordId = "ignored", type = "derived_noun" } }, Ct));
+        Assert.Equal("EnglishToChinese", data.GetProperty("type").GetString());
+        LearningQuestionEndpointTests.AssertStructure(data);
+        var wrongOptions = data.GetProperty("options").EnumerateArray().Where(option => !option.GetProperty("isCorrect").GetBoolean());
+        Assert.Equal(new[] { "补充词书 0", "补充词书 1", "补充词书 2" }, wrongOptions.Select(option => option.GetProperty("text").GetString()).Order());
+    }
+
+    [Fact]
     public async Task LearningQuestionShortPendingUsesOnlyTheActuallyAvailableChoiceDirection()
     {
         var pending = await Data(await Post("/integration/meaning-submissions", new { word = "go", meaning = "去" }, _submissionKey));

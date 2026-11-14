@@ -50,6 +50,44 @@ public sealed class LearningQuestionGeneratorTests
         }
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task RelatedTypesShareTheUniformDrawAndUnavailableTypesAreTriedOnce(bool allAvailable)
+    {
+        var counts = new Dictionary<LearningQuestionType, int>();
+        foreach (var first in Enumerable.Range(0, 6))
+            foreach (var second in Enumerable.Range(0, 5))
+                foreach (var third in Enumerable.Range(0, 4))
+                    foreach (var fourth in Enumerable.Range(0, 3))
+                    {
+                        var draws = new Queue<int>([first, second, third, fourth]);
+                        var generator = new LearningQuestionGenerator(max => draws.Count == 0 ? 0 : draws.Dequeue() % max);
+                        var attempts = new HashSet<LearningQuestionType>();
+                        var result = await generator.CreateAsync("went", "去了", LearningQuestionMode.Review,
+                            (direction, _) =>
+                            {
+                                Assert.True(attempts.Add(direction ? LearningQuestionType.ChineseToEnglish : LearningQuestionType.EnglishToChinese));
+                                return Task.FromResult(direction && !allAvailable ? null : Choice(direction));
+                            }, Ct, type =>
+                            {
+                                Assert.True(attempts.Add(type));
+                                return type switch
+                                {
+                                    LearningQuestionType.FormChoice when allAvailable => new FormChoiceLearningQuestion("go", "past_tense", []),
+                                    LearningQuestionType.RelationChoice when allAvailable => new RelationChoiceLearningQuestion("went", "go", []),
+                                    LearningQuestionType.FormFill => new FormFillLearningQuestion("去了", "go", "past_tense", ["w", null, null, null], "went"),
+                                    _ => null
+                                };
+                            });
+                        counts[result.Type] = counts.GetValueOrDefault(result.Type) + 1;
+                    }
+
+        var available = allAvailable ? 6 : 3;
+        Assert.Equal(available, counts.Count);
+        Assert.All(counts.Values, count => Assert.Equal(360 / available, count));
+    }
+
     [Fact]
     public async Task NewAttemptsOnlyEnglishToChineseAndDoesNotFallBack()
     {

@@ -13,6 +13,8 @@ require the normal antiforgery header/cookie pair. All successes return the
 standard `{"success":true,"data":...}` envelope. Failures follow
 [Error handling](../development/ErrorHandling.md). Integration clients can use the
 [read-only vocabulary family API](VocabularyFamilies.md).
+[Catalog learning questions](LearningQuestions.md#catalog-relation-practice)
+use confirmed relations for review question types and related distractors.
 
 ## Relation object
 

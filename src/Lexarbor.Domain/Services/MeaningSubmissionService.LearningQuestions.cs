@@ -20,7 +20,7 @@ public sealed partial class MeaningSubmissionService
             if (string.IsNullOrWhiteSpace(submission.ResultWordId) || string.IsNullOrWhiteSpace(submission.ResultBookId)
                 || string.IsNullOrWhiteSpace(submission.ResultMeaningId))
                 throw new ResourceNotFoundException("Meaning submission was not found.");
-            return await _vocabularyService.CreateLearningQuestionAsync(
+            return await _vocabularyService.CreateSubmissionLearningQuestionAsync(
                 submission.ResultWordId!, submission.ResultBookId!, submission.ResultMeaningId!, mode,
                 cancellationToken: cancellationToken);
         }
