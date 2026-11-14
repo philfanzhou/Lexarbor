@@ -173,22 +173,19 @@ check_healthcheck_reports_healthy() {
   return 1
 }
 
-# Lexarbor ships no vocabulary data, so a new database must start with an empty
-# catalog. The runtime image has no sqlite3 to count rows with, so this asks the
-# public API; the row counts themselves are covered by DatabaseInitializerTests.
+# The test database is provisioned offline with a random synthetic catalog key.
+# Send the header on stdin so the key never appears in process arguments or logs.
 check_catalog_is_empty() {
   local container_name="$1"
-  local mapped_port response
+  local mapped_port response unauthenticated
   mapped_port="$(docker port "$container_name" 5008/tcp | head -n 1 | awk -F: '{print $NF}')"
-  response="$(curl --fail --silent --show-error \
+  unauthenticated="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
     "http://127.0.0.1:${mapped_port}/api/vocabulary-books/all")"
-
-  if ! jq --exit-status '.success == true and .data.books == []' <<<"$response" >/dev/null; then
-    echo "Expected an empty vocabulary catalog on a new database, got: ${response}" >&2
-    return 1
-  fi
-
-  echo "Container ${container_name} starts with an empty vocabulary catalog"
+  test "$unauthenticated" = 401
+  response="$(printf 'X-Api-Key: %s\n' "$catalog_key" | curl --fail --silent --show-error --header @- \
+    "http://127.0.0.1:${mapped_port}/api/vocabulary-books/all")"
+  jq --exit-status '.success == true and .data.books == []' <<<"$response" >/dev/null
+  echo "Authenticated catalog is empty in ${container_name}"
 }
 
 # Inspect metadata only; never print the root-key file's contents. The data
@@ -343,23 +340,37 @@ check_root_key_file "$FRESH_CONTAINER"
 test -s "$fresh_data/appsettings.json"
 test "$(docker exec "$FRESH_CONTAINER" stat -c '%a' /app/data/appsettings.json)" = 600
 test -s "$fresh_data/vocabulary.db"
-check_catalog_is_empty "$FRESH_CONTAINER"
 cmp --silent src/Lexarbor.Host/appsettings.json "$fresh_data/appsettings.json"
 docker exec "$FRESH_CONTAINER" sh -c 'sha256sum /app/data/data-protection-root-key' >"$TEST_ROOT/original-key-hashes"
 
-echo "Checking new-container request ceilings default to disabled"
-jq --exit-status '.RateLimits.AdminLogin.Enabled == false and .RateLimits.PublicApi.Enabled == false' \
+echo "Checking new-container login limit defaults to disabled"
+jq --exit-status '.RateLimits.AdminLogin.Enabled == false and (.RateLimits | has("PublicApi") | not)' \
   "$fresh_data/appsettings.json" >/dev/null
 fresh_port="$(docker port "$FRESH_CONTAINER" 5008/tcp | head -n 1 | awk -F: '{print $NF}')"
-for path_and_count in 'admin/auth/start 11' 'api/does-not-exist 301'; do
-  read -r probe_path probe_count <<<"$path_and_count"
-  for _ in $(seq 1 "$probe_count"); do
-    probe_status="$(curl --silent --show-error --dump-header "$TEST_ROOT/rate-headers" --output /dev/null --write-out '%{http_code}' \
-      "http://127.0.0.1:${fresh_port}/${probe_path}")"
-    test "$probe_status" != 429
-    ! grep -qi '^Retry-After:' "$TEST_ROOT/rate-headers"
-  done
+for _ in $(seq 1 11); do
+  probe_status="$(curl --silent --show-error --dump-header "$TEST_ROOT/rate-headers" --output /dev/null --write-out '%{http_code}' \
+    "http://127.0.0.1:${fresh_port}/admin/auth/start")"
+  test "$probe_status" != 429
+  ! grep -qi '^Retry-After:' "$TEST_ROOT/rate-headers"
 done
+docker rm -f "$FRESH_CONTAINER" >/dev/null
+catalog_key="$(python3 - "$fresh_data/vocabulary.db" <<'PYKEY'
+import hashlib
+import secrets
+import sqlite3
+import sys
+import uuid
+
+key = "lxk_" + secrets.token_hex(32)
+with sqlite3.connect(sys.argv[1]) as connection:
+    connection.execute(
+        "INSERT INTO business_api_key (id,secret_hash,caller_id,catalog,meaning_submissions,created_at_unix_ms) VALUES (?,?,?,?,?,?)",
+        (str(uuid.uuid4()), hashlib.sha256(key.encode("ascii")).hexdigest(), "container-smoke", 1, 0, 1))
+print(key)
+PYKEY
+)"
+start_bind_mounted_container "$FRESH_CONTAINER" "$fresh_data"
+check_catalog_is_empty "$FRESH_CONTAINER"
 docker rm -f "$FRESH_CONTAINER" >/dev/null
 
 echo "Checking specific-audio edits and enrichment discovery/service state survive container recreation"
@@ -487,56 +498,50 @@ with sqlite3.connect(sys.argv[1]) as connection:
 PYSQL
 done
 
-# Both explicit values must survive upgrade, and higher-priority overrides must
-# not modify the operator's file. Tiny quotas make both policies observable.
+# Preserve both explicit login values and ignore obsolete business settings.
+# Higher-priority overrides must leave the operator file intact.
 echo "Checking persisted request switches and environment/argument precedence"
 rate_data="$TEST_ROOT/rate-limits"
 mkdir -p "$rate_data"
 chmod 700 "$rate_data"
 for probe_mode in file environment arguments; do
   for login_enabled in true false; do
-    if [[ "$login_enabled" == true ]]; then public_enabled=false; else public_enabled=true; fi
-    jq --argjson login "$login_enabled" --argjson public "$public_enabled" \
-      '.RateLimits.AdminLogin = {Enabled:$login, PermitLimit:1, WindowSeconds:300} | .RateLimits.PublicApi = {Enabled:$public, PermitLimit:1, WindowSeconds:300}' \
+    if [[ "$login_enabled" == true ]]; then opposite=false; else opposite=true; fi
+    jq --argjson login "$login_enabled" \
+      '.RateLimits.AdminLogin = {Enabled:$login, PermitLimit:1, WindowSeconds:300} | .RateLimits.PublicApi = {Enabled:true, PermitLimit:"obsolete", WindowSeconds:0}' \
       src/Lexarbor.Host/appsettings.json >"$rate_data/appsettings.json"
     cp "$rate_data/appsettings.json" "$TEST_ROOT/rate-before.json"
     probe_env=()
     probe_args=()
     if [[ "$probe_mode" != file ]]; then
-      probe_env=(--env "RateLimits__AdminLogin__Enabled=$public_enabled" --env "RateLimits__PublicApi__Enabled=$login_enabled")
+      probe_env=(--env "RateLimits__AdminLogin__Enabled=$opposite" --env "RateLimits__PublicApi__Enabled=true")
     fi
     if [[ "$probe_mode" == environment ]]; then
-      expected_login="$public_enabled"
-      expected_public="$login_enabled"
+      expected_login="$opposite"
     else
       expected_login="$login_enabled"
-      expected_public="$public_enabled"
     fi
     if [[ "$probe_mode" == arguments ]]; then
-      probe_args=(--RateLimits:AdminLogin:Enabled "$login_enabled" --RateLimits:PublicApi:Enabled "$public_enabled")
+      probe_args=(--RateLimits:AdminLogin:Enabled "$login_enabled" --RateLimits:PublicApi:Enabled true)
     fi
     docker run --detach --name "$EXISTING_CONTAINER" \
       --user "$(id -u):$(id -g)" --volume "$rate_data:/app/data" \
       --publish 127.0.0.1::5008 "${probe_env[@]}" "$IMAGE_NAME" "${probe_args[@]}" >/dev/null
     wait_for_health "$EXISTING_CONTAINER"
     probe_port="$(docker port "$EXISTING_CONTAINER" 5008/tcp | head -n 1 | awk -F: '{print $NF}')"
-    for policy in login public; do
-      if [[ "$policy" == login ]]; then
-        probe_path=admin/auth/start; expected_enabled="$expected_login"
+    for attempt in 1 2; do
+      probe_status="$(curl --silent --show-error --dump-header "$TEST_ROOT/rate-headers" --output /dev/null --write-out '%{http_code}' \
+        "http://127.0.0.1:${probe_port}/admin/auth/start")"
+      if [[ "$expected_login" == true && "$attempt" == 2 ]]; then
+        test "$probe_status" = 429
+        grep -qi '^Retry-After:' "$TEST_ROOT/rate-headers"
       else
-        probe_path=api/does-not-exist; expected_enabled="$expected_public"
+        test "$probe_status" != 429
+        ! grep -qi '^Retry-After:' "$TEST_ROOT/rate-headers"
       fi
-      for attempt in 1 2; do
-        probe_status="$(curl --silent --show-error --dump-header "$TEST_ROOT/rate-headers" --output /dev/null --write-out '%{http_code}' \
-          "http://127.0.0.1:${probe_port}/${probe_path}")"
-        if [[ "$expected_enabled" == true && "$attempt" == 2 ]]; then
-          test "$probe_status" = 429
-          grep -qi '^Retry-After:' "$TEST_ROOT/rate-headers"
-        else
-          test "$probe_status" != 429
-          ! grep -qi '^Retry-After:' "$TEST_ROOT/rate-headers"
-        fi
-      done
+      probe_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+        "http://127.0.0.1:${probe_port}/api/vocabulary-books/all")"
+      test "$probe_status" = 401
     done
     cmp --silent "$TEST_ROOT/rate-before.json" "$rate_data/appsettings.json"
     docker rm -f "$EXISTING_CONTAINER" >/dev/null

@@ -28,7 +28,7 @@ function json(route: Route, data: unknown, status = 200) {
 }
 
 /** The public catalogue endpoint the book picker reads. */
-const booksRoute = /\/api\/vocabulary-books\/all$/
+const booksRoute = /\/admin\/vocabulary-books\/active$/
 
 /**
  * The import page needs an administrator session and the book list that fills

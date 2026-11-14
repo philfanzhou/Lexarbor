@@ -77,9 +77,6 @@ public sealed class AudioAdminPlaybackEndpointTests
                 ["Audio:SecretKey"] = "synthetic-secret",
                 ["Audio:OperationTimeoutSeconds"] = timeout.ToString(),
                 ["Audio:PlaybackTtlSeconds"] = ttl.ToString(),
-                ["RateLimits:PublicApi:Enabled"] = "true",
-                ["RateLimits:PublicApi:PermitLimit"] = "1",
-                ["RateLimits:PublicApi:WindowSeconds"] = "300",
                 ["RateLimits:AdminLogin:Enabled"] = "true",
                 ["RateLimits:AdminLogin:PermitLimit"] = "1",
                 ["RateLimits:AdminLogin:WindowSeconds"] = "300"

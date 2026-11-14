@@ -45,7 +45,7 @@ public sealed class PersistentConfigurationCoordinator
     // including retained credentials, never IConfiguration.AsEnumerable() as a file patch.
     private static readonly HashSet<string> AllowedFields = new(StringComparer.OrdinalIgnoreCase)
     {
-        "RateLimits:AdminLogin:Enabled", "RateLimits:PublicApi:Enabled",
+        "RateLimits:AdminLogin:Enabled",
         "Audio:Enabled", "Audio:InternalEndpoint", "Audio:PublicEndpoint", "Audio:Region",
         "Audio:Bucket", "Audio:KeyPrefix", "Audio:AccessKey", "Audio:SecretKey"
     };

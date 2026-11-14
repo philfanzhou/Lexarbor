@@ -94,7 +94,7 @@ async function setup(page: Page, path = '/import/batch') {
   await page.route('**/admin/auth/session', route => json(route, { success: true, data: { username: 'admin', roles: ['admin'] } }))
   await mockAntiforgery(page)
   await page.route('**/admin/system/version', route => json(route, { success: true, data: { version: '1', revision: null, channel: 'test' } }))
-  await page.route('**/api/vocabulary-books/all', route => json(route, { success: true, data: { books } }))
+  await page.route('**/admin/vocabulary-books/active', route => json(route, { success: true, data: { books } }))
   await page.route(/\/admin\/vocabulary-books\/[^/]+\/units$/, route => json(route, { success: true, data: { units: route.request().url().includes('book-a') ? units : [{ ...units[0], id: 'other-2', bookId: 'book-b' }] } }))
   await page.goto(`/#${path}`)
 }

@@ -64,7 +64,7 @@ async function mockAdministrator(page: Page) {
     json(route, { success: true, data: { items: ['Secondary'] } }))
   await page.route(/\/admin\/vocabulary-books(?:\?.*)?$/, (route) =>
     json(route, { success: true, data: { items: [starterBook], totalCount: 1, totalPage: 1 } }))
-  await page.route(/\/api\/vocabulary-books\/all$/, (route) =>
+  await page.route(/\/admin\/vocabulary-books\/active$/, (route) =>
     json(route, { success: true, data: { books: [starterBook] } }))
   // The whole-library word list and its book filter read these on arrival.
   await page.route(/\/admin\/vocabulary(?:\?.*)?$/, (route) =>

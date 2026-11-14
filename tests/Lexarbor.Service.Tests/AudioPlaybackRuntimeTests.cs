@@ -141,6 +141,7 @@ public sealed class AudioPlaybackRuntimeTests
     public async Task DestinationReservation_WaitsAsynchronouslyAndCancellationDoesNotAcquire(bool publicAudio)
     {
         await using var host = new Host(enabled: false);
+        await host.Client.UseCatalogKeyAsync(host.App);
         // No records: a destination preparation may reserve the acquisition gate.
         var entered = Signal(); var finish = Signal();
         host.Records.Check = async token => { entered.SetResult(); await finish.Task.WaitAsync(token); return false; };
@@ -292,6 +293,8 @@ public sealed class AudioPlaybackRuntimeTests
         }
         public async Task Seed()
         {
+            if (!Client.DefaultRequestHeaders.Contains(BusinessApiAuthorization.Header))
+                await Client.UseCatalogKeyAsync(App);
             using var scope = App.Services.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
             db.Vocabularies.Add(new() { Id = "w", Word = "tone" });
             db.VocabularyBooks.Add(new() { Id = "b", BookName = "Book", Status = true });

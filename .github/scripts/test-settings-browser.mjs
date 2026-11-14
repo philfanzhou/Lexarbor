@@ -19,7 +19,7 @@ try {
     step = 'initial disabled state without file';
     check(!await page.getByRole('checkbox', { name: '音频存储草稿开关' }).isChecked());
     const second = await context.newPage(); await second.goto(base + '#/settings');
-    const secondRateSwitch = second.getByRole('checkbox', { name: '公共 API草稿开关' });
+    const secondRateSwitch = second.getByRole('checkbox', { name: '管理员登录草稿开关' });
     await secondRateSwitch.waitFor();
     step = 'first browser save with CSRF and If-Match';
     for (const [label, value] of [
@@ -44,13 +44,13 @@ try {
     await second.close();
     step = 'live rate-limit off/on/429/off through browser controls';
     const statuses = () => page.evaluate(async () => {
-      const values = []; for (let i = 0; i < 4; i++) values.push((await fetch('/api/settings-probe')).status); return values;
+      const values = []; for (let i = 0; i < 4; i++) values.push((await fetch('/admin/settings-login-probe')).status); return values;
     });
     const disabledStatuses = await statuses(); console.log('Rate-limit disabled statuses: ' + disabledStatuses.join(',')); check(disabledStatuses.every(status => status === 200));
     // Opening the rate-limit tab reads the shared version after the S3 save.
     step = 'open rate-limit settings before enabling';
     await tab('请求限流').click();
-    const rateSwitch = page.getByRole('checkbox', { name: '公共 API草稿开关' });
+    const rateSwitch = page.getByRole('checkbox', { name: '管理员登录草稿开关' });
     const rateSaved = page.getByRole('status').filter({ hasText: '保存后已回读' });
     const saveRateLimits = page.getByRole('button', { name: '保存限流设置' });
     await rateSwitch.check();
@@ -84,7 +84,7 @@ try {
     step = 'read-only file failure preserves service and current configuration';
     await page.getByLabel('区域 Region', { exact: true }).fill('test-region'); await save.click();
     await page.waitForFunction(() => document.querySelector('[aria-label="音频存储状态"]').textContent.includes('保存失败（503）'));
-    check((await page.evaluate(async () => (await fetch('/api/settings-probe')).status)) === 200);
+    check((await page.evaluate(async () => (await fetch('/admin/settings-login-probe')).status)) === 200);
     check(await page.getByRole('checkbox', { name: '音频存储草稿开关' }).isChecked());
   } else if (mode === 'override') {
     step = 'command-line override is readonly with reason and effective value';

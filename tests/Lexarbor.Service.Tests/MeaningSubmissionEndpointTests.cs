@@ -1,8 +1,5 @@
-using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Net.Http.Json;
-using System.Security.Claims;
-using System.Security.Cryptography;
 using System.Text.Json;
 using Lexarbor.Database;
 using Lexarbor.Domain.Models;
@@ -11,37 +8,29 @@ using Lexarbor.Domain.Services;
 using Lexarbor.Service.Tests.TestInfrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.IdentityModel.Tokens;
 
 namespace Lexarbor.Service.Tests;
 
 public sealed partial class MeaningSubmissionEndpointTests : IAsyncLifetime
 {
-    private const string Issuer = "urn:test:student";
     private const string Subject = "test.student";
-    private const string Audience = "urn:lexarbor:integration";
-    private const string KeyId = "student-1";
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private readonly RSA _key = RSA.Create(2048);
-    private readonly string _keyDirectory = Directory.CreateTempSubdirectory("lexarbor-integration-").FullName;
+    private string _submissionKey = null!;
+    private string _catalogKey = null!;
     private VocabularyWebApplicationFactory _factory = null!;
     private HttpClient _client = null!;
 
     public async ValueTask InitializeAsync()
     {
-        var publicKeyPath = Path.Combine(_keyDirectory, "student.pub.pem");
-        await File.WriteAllTextAsync(publicKeyPath, _key.ExportSubjectPublicKeyInfoPem(), Ct);
         _factory = new VocabularyWebApplicationFactory("Testing", true, extraConfiguration: new Dictionary<string, string?>
         {
-            ["MeaningSubmissions:BookId"] = "supplementary",
-            ["MeaningSubmissions:Integration:Issuer"] = Issuer,
-            ["MeaningSubmissions:Integration:Subject"] = Subject,
-            ["MeaningSubmissions:Integration:PublicKeys:0:KeyId"] = KeyId,
-            ["MeaningSubmissions:Integration:PublicKeys:0:PublicKeyPath"] = publicKeyPath
+            ["MeaningSubmissions:BookId"] = "supplementary"
         });
         _client = _factory.CreateClient(new() { BaseAddress = new("https://localhost") });
+        _submissionKey = await _factory.SeedKeyAsync(Subject, catalog: false, meaningSubmissions: true);
+        _catalogKey = await _factory.SeedKeyAsync();
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
         db.VocabularyBooks.AddRange(
@@ -60,26 +49,15 @@ public sealed partial class MeaningSubmissionEndpointTests : IAsyncLifetime
     {
         _client.Dispose();
         await _factory.DisposeAsync();
-        _key.Dispose();
-        Directory.Delete(_keyDirectory, recursive: true);
     }
 
-    private string Token(string scope = "meaning-submissions", int lifetimeSeconds = 60, string subject = Subject, string kid = KeyId)
-    {
-        var issued = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        var token = new JwtSecurityToken(Issuer, Audience,
-            [new Claim("sub", subject), new Claim("scope", scope),
-                new Claim("iat", issued.ToString(), ClaimValueTypes.Integer64)],
-            DateTimeOffset.FromUnixTimeSeconds(issued).UtcDateTime,
-            DateTimeOffset.FromUnixTimeSeconds(issued + lifetimeSeconds).UtcDateTime,
-            new SigningCredentials(new RsaSecurityKey(_key) { KeyId = kid }, SecurityAlgorithms.RsaSha256));
-        return new JwtSecurityTokenHandler().WriteToken(token);
-    }
-
-    private async Task<HttpResponseMessage> Post(string path, object body, string? bearer)
+    private async Task<HttpResponseMessage> Post(string path, object body, string? credential)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = JsonContent.Create(body) };
-        if (bearer != null) request.Headers.Authorization = new("Bearer", bearer);
+        if (credential == _submissionKey || credential == _catalogKey)
+            request.Headers.Add(BusinessApiAuthorization.Header, credential);
+        else if (credential != null)
+            request.Headers.Authorization = new("Bearer", credential);
         return await _client.SendAsync(request, Ct);
     }
 
@@ -91,52 +69,28 @@ public sealed partial class MeaningSubmissionEndpointTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task IntegrationRoutes_RequireAValidServiceTokenWithTheScope()
-    {
-        var body = new { word = "serendipity", meaning = "意外发现" };
-        Assert.Equal(HttpStatusCode.Unauthorized, (await Post("/integration/meaning-submissions", body, null)).StatusCode);
-        Assert.Equal(HttpStatusCode.Unauthorized,
-            (await Post("/integration/meaning-submissions", body, _factory.CreateToken("admin"))).StatusCode);
-        Assert.Equal(HttpStatusCode.Unauthorized,
-            (await Post("/integration/meaning-submissions", body, Token(lifetimeSeconds: 120))).StatusCode);
-        Assert.Equal(HttpStatusCode.Unauthorized,
-            (await Post("/integration/meaning-submissions", body, Token(subject: "someone.else"))).StatusCode);
-        Assert.Equal(HttpStatusCode.Unauthorized,
-            (await Post("/integration/meaning-submissions", body, Token(kid: "unknown"))).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden,
-            (await Post("/integration/meaning-submissions", body, Token(scope: "other"))).StatusCode);
-
-        using var adminRequest = new HttpRequestMessage(HttpMethod.Get, "/admin/meaning-submissions");
-        adminRequest.Headers.Authorization = new("Bearer", Token());
-        Assert.Equal(HttpStatusCode.Unauthorized, (await _client.SendAsync(adminRequest, Ct)).StatusCode);
-
-        var unknown = await Post("/integration/unknown", body, Token());
-        Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
-    }
-
-    [Fact]
-    public async Task IntegrationToken_CannotReadOrWriteEnrichmentSettings()
+    public async Task SubmissionKey_CannotReadOrWriteEnrichmentSettings()
     {
         foreach (var method in new[] { HttpMethod.Get, HttpMethod.Put })
         {
             using var request = new HttpRequestMessage(method, "/admin/enrichment/settings");
-            request.Headers.Authorization = new("Bearer", Token());
+            request.Headers.Add(BusinessApiAuthorization.Header, _submissionKey);
             if (method == HttpMethod.Put) request.Content = JsonContent.Create(new { enrichment = new { audioEnabled = true } });
             Assert.Equal(HttpStatusCode.Unauthorized, (await _client.SendAsync(request, Ct)).StatusCode);
         }
     }
 
     [Fact]
-    public async Task IntegrationToken_CannotUseEnrichmentTasksOrRetry()
+    public async Task SubmissionKey_CannotUseEnrichmentTasksOrRetry()
     {
         foreach (var path in new[] { "/admin/enrichment/tasks", "/admin/enrichment/tasks/unknown", "/admin/enrichment/summary" })
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, path);
-            request.Headers.Authorization = new("Bearer", Token());
+            request.Headers.Add(BusinessApiAuthorization.Header, _submissionKey);
             Assert.Equal(HttpStatusCode.Unauthorized, (await _client.SendAsync(request, Ct)).StatusCode);
         }
         Assert.Equal(HttpStatusCode.Unauthorized, (await Post("/admin/enrichment/tasks/unknown/retry",
-            new { expectedRound = 1, retryKey = Guid.NewGuid().ToString() }, Token())).StatusCode);
+            new { expectedRound = 1, retryKey = Guid.NewGuid().ToString() }, _submissionKey)).StatusCode);
     }
 
     [Fact]
@@ -163,7 +117,7 @@ public sealed partial class MeaningSubmissionEndpointTests : IAsyncLifetime
             await db.SaveChangesAsync(Ct);
         }
         using var search = new HttpRequestMessage(HttpMethod.Get, "/integration/vocabulary/search?keyword=apple");
-        search.Headers.Authorization = new("Bearer", Token());
+        search.Headers.Add(BusinessApiAuthorization.Header, _submissionKey);
         using var response = await _client.SendAsync(search, Ct);
         var matches = await Data(response);
         var match = Assert.Single(matches.GetProperty("items").EnumerateArray());
@@ -183,12 +137,12 @@ public sealed partial class MeaningSubmissionEndpointTests : IAsyncLifetime
     public async Task SubmitReviewAndLookup_RoundTrip()
     {
         var created = await Data(await Post("/integration/meaning-submissions",
-            new { word = "serendipity", partOfSpeech = "n.", meaning = "意外发现" }, Token()));
+            new { word = "serendipity", partOfSpeech = "n.", meaning = "意外发现" }, _submissionKey));
         var id = created.GetProperty("id").GetString()!;
         Assert.Equal("pending", created.GetProperty("status").GetString());
 
         var question = await Data(await Post($"/integration/meaning-submissions/{id}/question",
-            new { chineseToEnglish = false }, Token()));
+            new { chineseToEnglish = false }, _submissionKey));
         Assert.Equal("serendipity", question.GetProperty("word").GetString());
         Assert.Equal(4, question.GetProperty("options").GetArrayLength());
 
@@ -204,12 +158,12 @@ public sealed partial class MeaningSubmissionEndpointTests : IAsyncLifetime
         Assert.Equal("approved", approved.GetProperty("status").GetString());
         Assert.True(approved.GetProperty("definitionKept").GetBoolean());
 
-        var lookup = await Data(await Post("/integration/meaning-submissions/lookup", new { ids = new[] { id, "missing" } }, Token()));
+        var lookup = await Data(await Post("/integration/meaning-submissions/lookup", new { ids = new[] { id, "missing" } }, _submissionKey));
         var found = Assert.Single(lookup.GetProperty("items").EnumerateArray());
         Assert.Equal("supplementary", found.GetProperty("resultBookId").GetString());
 
         using var search = new HttpRequestMessage(HttpMethod.Get, "/integration/vocabulary/search?keyword=Seren");
-        search.Headers.Authorization = new("Bearer", Token());
+        search.Headers.Add(BusinessApiAuthorization.Header, _submissionKey);
         var matches = await Data(await _client.SendAsync(search, Ct));
         var match = Assert.Single(matches.GetProperty("items").EnumerateArray());
         Assert.Equal("supplementary", match.GetProperty("bookId").GetString());
@@ -223,7 +177,7 @@ public sealed partial class MeaningSubmissionEndpointTests : IAsyncLifetime
     [InlineData(true)]
     public async Task ReviewComments_Compatibility_Projection_AndSource(bool reject)
     {
-        var pending = await Data(await Post("/integration/meaning-submissions", new { word = "testword", meaning = "original" }, Token()));
+        var pending = await Data(await Post("/integration/meaning-submissions", new { word = "testword", meaning = "original" }, _submissionKey));
         var id = pending.GetProperty("id").GetString()!;
         Assert.Null(pending.GetProperty("reviewComment").GetString());
         var adminToken = _factory.CreateToken("admin");
@@ -231,7 +185,7 @@ public sealed partial class MeaningSubmissionEndpointTests : IAsyncLifetime
             ? await Data(await Post($"/admin/meaning-submissions/{id}/reject", new { reviewComment = "  reason  " }, adminToken))
             : await Data(await Post($"/admin/meaning-submissions/{id}/approve", new { word = "testword", meaning = "corrected", reviewComment = "  reason  " }, adminToken));
         Assert.Equal("reason", reviewed.GetProperty("reviewComment").GetString());
-        var lookup = await Data(await Post("/integration/meaning-submissions/lookup", new { ids = new[] { id } }, Token()));
+        var lookup = await Data(await Post("/integration/meaning-submissions/lookup", new { ids = new[] { id } }, _submissionKey));
         Assert.Equal("reason", lookup.GetProperty("items")[0].GetProperty("reviewComment").GetString());
         using var read = new HttpRequestMessage(HttpMethod.Get, $"/admin/meaning-submissions?status={(reject ? "rejected" : "approved")}");
         read.Headers.Authorization = new("Bearer", adminToken);
@@ -239,7 +193,7 @@ public sealed partial class MeaningSubmissionEndpointTests : IAsyncLifetime
         Assert.Equal("admin", item.GetProperty("reviewerKind").GetString());
         Assert.Equal(Subject, item.GetProperty("source").GetString());
         Assert.Equal("reason", item.GetProperty("submission").GetProperty("reviewComment").GetString());
-        var again = await Data(await Post("/integration/meaning-submissions", new { word = "anotherword", meaning = "original" }, Token()));
+        var again = await Data(await Post("/integration/meaning-submissions", new { word = "anotherword", meaning = "original" }, _submissionKey));
         var next = again.GetProperty("id").GetString()!;
         if (reject)
         {
@@ -253,7 +207,7 @@ public sealed partial class MeaningSubmissionEndpointTests : IAsyncLifetime
             var ordinary = await Data(await Post($"/admin/meaning-submissions/{next}/approve", new { word = "anotherword", meaning = "original", reviewComment = "ignored for kept" }, adminToken));
             Assert.True(ordinary.GetProperty("definitionKept").GetBoolean());
             Assert.Null(ordinary.GetProperty("reviewComment").GetString());
-            var reused = await Data(await Post("/integration/meaning-submissions", new { word = "anotherword", meaning = "original" }, Token()));
+            var reused = await Data(await Post("/integration/meaning-submissions", new { word = "anotherword", meaning = "original" }, _submissionKey));
             Assert.Equal(next, reused.GetProperty("id").GetString()); Assert.Null(reused.GetProperty("reviewComment").GetString());
         }
     }
@@ -263,11 +217,11 @@ public sealed partial class MeaningSubmissionEndpointTests : IAsyncLifetime
     [InlineData("reject")]
     public async Task ReviewWrites_ValidateBoundsAndAuthentication(string action)
     {
-        var pending = await Data(await Post("/integration/meaning-submissions", new { word = "testword", meaning = "original" }, Token()));
+        var pending = await Data(await Post("/integration/meaning-submissions", new { word = "testword", meaning = "original" }, _submissionKey));
         var id = pending.GetProperty("id").GetString()!;
         var path = $"/admin/meaning-submissions/{id}/{action}";
         var body = new { word = "testword", meaning = "changed", reviewComment = "sensitive synthetic reason" };
-        foreach (var (token, status) in new[] { ((string?)null, HttpStatusCode.Unauthorized), (Token(), HttpStatusCode.Unauthorized), (_factory.CreateToken("student"), HttpStatusCode.Forbidden) })
+        foreach (var (token, status) in new[] { ((string?)null, HttpStatusCode.Unauthorized), (_submissionKey, HttpStatusCode.Unauthorized), (_factory.CreateToken("student"), HttpStatusCode.Forbidden) })
             Assert.Equal(status, (await Post(path, body, token)).StatusCode);
         using (var cookie = _factory.CreateClient())
         {
@@ -337,10 +291,11 @@ public sealed partial class MeaningSubmissionEndpointTests : IAsyncLifetime
     [Fact]
     public async Task HistoryAndCheck_RequireAdministrator_CookieCsrfOrBearer_RejectIntegration()
     {
-        foreach (var (token, expected) in new[] { ((string?)null, HttpStatusCode.Unauthorized), (Token(), HttpStatusCode.Unauthorized), (_factory.CreateToken("student"), HttpStatusCode.Forbidden) })
+        foreach (var (token, expected) in new[] { ((string?)null, HttpStatusCode.Unauthorized), (_submissionKey, HttpStatusCode.Unauthorized), (_factory.CreateToken("student"), HttpStatusCode.Forbidden) })
         {
             using var read = new HttpRequestMessage(HttpMethod.Get, "/admin/meaning-submission-reviews");
-            if (token != null) read.Headers.Authorization = new("Bearer", token);
+            if (token == _submissionKey) read.Headers.Add(BusinessApiAuthorization.Header, token);
+            else if (token != null) read.Headers.Authorization = new("Bearer", token);
             Assert.Equal(expected, (await _client.SendAsync(read, Ct)).StatusCode);
             Assert.Equal(expected, (await Post("/admin/meaning-submission-reviews/missing/checked", new { }, token)).StatusCode);
         }

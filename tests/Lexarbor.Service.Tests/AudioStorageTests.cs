@@ -125,6 +125,7 @@ public sealed class AudioStorageTests
         var error = await Assert.ThrowsAsync<AudioStorageException>(() => store.StatAsync(Location(), TestContext.Current.CancellationToken));
         Assert.Null(error.InnerException);
         Assert.DoesNotContain("synthetic-secret", error.ToString());
+        await client.UseCatalogKeyAsync(factory);
         foreach (var route in new[] { "/health/live", "/health/ready", "/api/vocabulary-books/all" })
             Assert.Equal(HttpStatusCode.OK, (await client.GetAsync(route, TestContext.Current.CancellationToken)).StatusCode);
         await using (var scope = factory.Services.CreateAsyncScope())

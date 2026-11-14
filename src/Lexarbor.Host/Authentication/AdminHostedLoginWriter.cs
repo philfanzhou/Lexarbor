@@ -156,7 +156,7 @@ public static class AdminLoginReturnTarget
 {
     private static readonly HashSet<string> Routes = new(StringComparer.Ordinal)
     {
-        "/settings", "/settings/audio-storage", "/settings/review", "/settings/text", "/settings/speech", "/settings/background",
+        "/settings", "/settings/api-keys", "/settings/audio-storage", "/settings/review", "/settings/text", "/settings/speech", "/settings/background",
         "/enrichment", "/books", "/vocabulary", "/phrases", "/import", "/import/phrase", "/import/batch"
     };
 

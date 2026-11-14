@@ -660,7 +660,7 @@ public class AdminHostedLoginTests
     }
 
     [Fact]
-    public async Task CodeMode_SourcePriorityCsrfPublicAndHealthRemainCompatible()
+    public async Task CodeMode_PreservesSessionPriorityCsrfAndHealth()
     {
         using var f = new Fixture(); var old = await f.Seed();
         var bearerStudent = f.Authority.Token("at+jwt", f.Authority.AccessClaims("student"));
@@ -675,7 +675,7 @@ public class AdminHostedLoginTests
         // answers the fixed 401, exactly like the replaced slice.
         using var csrf = await f.Send("/admin/vocabulary-books", cookies, "POST", JsonContent.Create(new { bookName = "CSRF", status = true })); Assert.Equal(HttpStatusCode.Unauthorized, csrf.StatusCode);
         Assert.Contains("Authentication is required.", await csrf.Content.ReadAsStringAsync(Ct));
-        using var publicApi = await f.Client.GetAsync("/api/vocabulary-books/all", Ct); Assert.Equal(HttpStatusCode.OK, publicApi.StatusCode);
+        using var publicApi = await f.Client.GetAsync("/api/vocabulary-books/all", Ct); Assert.Equal(HttpStatusCode.Unauthorized, publicApi.StatusCode);
         using var health = await f.Client.GetAsync("/health", Ct); Assert.Equal(HttpStatusCode.OK, health.StatusCode);
         f.AssertSafeLogs(await f.Start());
     }

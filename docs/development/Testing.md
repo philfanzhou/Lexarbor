@@ -154,7 +154,7 @@ checks them in real container logs while retaining health, non-root, and persist
 | Distribution | The database assembly embeds no vocabulary data resource |
 | Phonetics | The DTO, the model, and the database all keep separate British and American columns |
 
-`DatabaseStartupGateTests` pins the startup shapes of the rollback-journal switch through the real host and the SIGKILL crash simulator. A first start creates the database already in the rollback journal (header 1/1) and a later start crosses the pre-gate normalization as a no-op; a database switched back to the WAL shape — clean, or carrying a crash-leftover `-wal` sidecar from a SIGKILLed committing child — is converted before the gate observes it, with every committed row intact; a rollback crash's hot `-journal` file (an IMMEDIATE transaction killed before commit) is rolled back natively; sidecars without the main file keep failing closed; a read-only database file keeps failing startup without serving — the refusal the WAL mode used to produce implicitly through its shared-memory file; and a file that is not a database stops at the normalization with its bytes unchanged and no path in the diagnostic. `RollbackJournalBatchImportConcurrencyTests` pins the accepted cost end to end: a full 500-entry batch import with concurrent anonymous reads queues every read to success — never 5xx, never a timeout failure.
+`DatabaseStartupGateTests` pins the startup shapes of the rollback-journal switch through the real host and the SIGKILL crash simulator. A first start creates the database already in the rollback journal (header 1/1) and a later start crosses the pre-gate normalization as a no-op; a database switched back to the WAL shape — clean, or carrying a crash-leftover `-wal` sidecar from a SIGKILLed committing child — is converted before the gate observes it, with every committed row intact; a rollback crash's hot `-journal` file (an IMMEDIATE transaction killed before commit) is rolled back natively; sidecars without the main file keep failing closed; a read-only database file keeps failing startup without serving — the refusal the WAL mode used to produce implicitly through its shared-memory file; and a file that is not a database stops at the normalization with its bytes unchanged and no path in the diagnostic. `RollbackJournalBatchImportConcurrencyTests` pins the accepted cost end to end: a full 500-entry batch import with concurrent authenticated catalog reads queues every read to success — never 5xx, never a timeout failure.
 
 ### HTTP authentication and envelopes
 
@@ -171,7 +171,7 @@ checks them in real container logs while retaining health, non-root, and persist
 | Logout | Responds with an expired cookie, and later administration requests get 401 |
 | Identity unreachable or configuration missing | 502 / 503 |
 | Cookie administration write without the same-origin header | 403 |
-| Public `/api/*` | Does not require an administrator login |
+| Business `/api/*` and `/integration/*` | Valid API key with the required scope. Missing, invalid or revoked key returns 401, wrong scope returns 403 |
 | Unknown route | `/api/*` gives 404; anonymous `/admin/*` gives 401; administrator `/admin/*` gives 404 |
 | Unexpected exception | 500 with the generic message, leaking no internal exception |
 | Batch import, every row of the ADR-005 model | The documented status, envelope, and `errors`, with the database unchanged on every rejection |
@@ -179,25 +179,30 @@ checks them in real container logs while retaining health, non-root, and persist
 | Batch question generation | Mixed valid, blank-field, 404, and 422 items answer 200 with one per-item result in request order, each error carrying the status and message the single endpoint answers the same request with |
 | Batch question body ceilings | An empty or missing `items` array and more than 50 items answer 400; a body that is not JSON answers 400; a body over 1 MiB answers 413 on a Kestrel-hosted factory, with the at-limit body still answering per item |
 
+`BusinessApiKeyEndpointTests` covers all business routes, malformed and duplicate
+headers, administrator and legacy JWT isolation, session-antiforgery protected
+management, and persisted issuance and revocation across restart. It uses a
+historical submission source when testing rotation. The container smoke provisions
+an ephemeral test key and checks the authenticated empty catalog after recreation.
+
 ### Rate limiting
 
 | Scenario | Expectation |
 |------|------|
 | Login beyond the permit limit with the policy explicitly enabled | 429 Problem Details with fixed title/code, correlation id and positive `Retry-After` |
 | One address exhausts the login limit | Another address is still admitted |
-| Public `/api/*` beyond the permit limit with the policy explicitly enabled | 429, unknown `/api/*` routes included |
-| A question batch | One request of the `PublicApi` budget however many items it carries; two fifty-item batches still fit a two-permit window |
+| Legacy `RateLimits:PublicApi` settings | Ignored. Authorized catalog requests continue beyond the prior quota |
 | Administration endpoints | Never rate limited |
 | `X-Forwarded-For` with no trusted proxy | Ignored, so a caller cannot mint its own partition |
 | `X-Forwarded-For` from a trusted proxy | Partitions on the real client address |
-| Built-in/type defaults, missing section or missing `Enabled` | Both policies are disabled; requests beyond the old quotas have no policy 429 or `Retry-After` |
+| Built-in/type defaults, missing section or missing `Enabled` | Login limiter is disabled. Requests beyond its default quota have no policy 429 or `Retry-After` |
 | A policy disabled by configuration | Every request is admitted |
 | New container, existing file, environment and command-line overrides | Disabled first-start defaults; explicit true/false overrides respected without rewriting an existing file |
 | Enabled permits outside 1..10000 or seconds outside 10..600 | Startup fails rather than the limit being clamped or dropped |
 
 Additional rate-limit regressions cover numeric boundary acceptance, disabled
-invalid values and policy independence, explicitly enabled default quotas reaching
-the shared startup snapshot after late test-host configuration, separate policy/address buckets,
+invalid values, explicitly enabled login quotas reaching the shared startup
+snapshot after late test-host configuration, per-address buckets,
 IPv4-mapped and unknown-address buckets, concurrent admission without queueing,
 and shared rejection-write cancellation. The header adapter preserves an existing
 shared `Retry-After` and touches only product-policy 429 responses. Existing
@@ -356,11 +361,11 @@ The 20,000-word fixture captures actual EF SQL and EXPLAIN output in test output
 
 ## Public book browsing verification
 
-`PublicBookBrowseEndpointTests` covers the two anonymous browse routes against real SQLite: the unit list comes back ordered by unit number with per-distinct-meaning and per-distinct-word counts that match the administration unit-content route (a meaning holding Section A under both entry kinds, or Section B and no section, counts once), a book without units answers an empty array, and the entries route's total order — smallest place in scope by unit number then Section A/B/none, then normalized spelling and ids, unplaced meanings last — is verified by walking a multi-page traversal of cross-unit, cross-section, and same-spelling-polysemy data and matching the concatenation against the unpaginated order with no overlap or gap. Whole-book scope includes an unassigned meaning with empty `positions` last; unit scope lists only that unit's meanings and only its places; empty-string section and entry-kind sentinels serialize as null; `normalizedWord` and `meaningKey` fold case and trim the ends while `word` and `meaning` stay as stored. Failures answer through the shared mapping: missing book 404, disabled book 422 on both routes, a unit of another book the same 404 as a missing one, invalid paging 400, defaults 1/20. `PublicApiCompatibilityTests` pins the anonymous access and envelope shape of both routes, and `RateLimitingTests` pins that they draw on the shared `PublicApi` budget.
+`PublicBookBrowseEndpointTests` covers the two authenticated catalog browse routes against real SQLite: the unit list comes back ordered by unit number with per-distinct-meaning and per-distinct-word counts that match the administration unit-content route (a meaning holding Section A under both entry kinds, or Section B and no section, counts once), a book without units answers an empty array, and the entries route's total order — smallest place in scope by unit number then Section A/B/none, then normalized spelling and ids, unplaced meanings last — is verified by walking a multi-page traversal of cross-unit, cross-section, and same-spelling-polysemy data and matching the concatenation against the unpaginated order with no overlap or gap. Whole-book scope includes an unassigned meaning with empty `positions` last; unit scope lists only that unit's meanings and only its places; empty-string section and entry-kind sentinels serialize as null; `normalizedWord` and `meaningKey` fold case and trim the ends while `word` and `meaning` stay as stored. Failures answer through the shared mapping: missing book 404, disabled book 422 on both routes, a unit of another book the same 404 as a missing one, invalid paging 400, defaults 1/20. `PublicApiCompatibilityTests` pins the authenticated envelope shape of both routes.
 
 ## Batch question generation verification
 
-`VocabularyQuestionBatchEndpointTests` covers `POST /api/vocabulary/questions`: a five-item batch mixing a scoped valid item, a blank-field item, a 404 item, an unscoped valid item, and a disabled-book item answers 200 with five results whose `index` rows follow the request order, and each failing item's `error.status` and `error.message` are compared against the single endpoint's live response to the very same request body — the envelope message for the 400, the Problem Details title for the 404 and 422 — so the per-item contract cannot drift from the single one. The ceilings answer through the envelope: an empty or missing `items` array and a 51st item answer 400 while exactly 50 items answer 200 with 50 ordered results, a body that is not JSON answers 400, and a padded body over 1 MiB answers 413 on a Kestrel-hosted factory with both `Content-Length` and chunked transfer, with the at-limit body still answering per item. A gated book repository holds the first item's database read, the request is then cancelled and the gate released: the caller observes the cancellation and the counter shows the two remaining items never started. `PublicApiCompatibilityTests` pins the route's anonymous access and envelope shape, and `RateLimitingTests` pins that one batch costs one `PublicApi` request however many items it carries.
+`VocabularyQuestionBatchEndpointTests` covers `POST /api/vocabulary/questions`: a five-item batch mixing a scoped valid item, a blank-field item, a 404 item, an unscoped valid item, and a disabled-book item answers 200 with five results whose `index` rows follow the request order, and each failing item's `error.status` and `error.message` are compared against the single endpoint's live response to the very same request body — the envelope message for the 400, the Problem Details title for the 404 and 422 — so the per-item contract cannot drift from the single one. The ceilings answer through the envelope: an empty or missing `items` array and a 51st item answer 400 while exactly 50 items answer 200 with 50 ordered results, a body that is not JSON answers 400, and a padded body over 1 MiB answers 413 on a Kestrel-hosted factory with both `Content-Length` and chunked transfer, with the at-limit body still answering per item. A gated book repository holds the first item's database read, the request is then cancelled and the gate released: the caller observes the cancellation and the counter shows the two remaining items never started. `PublicApiCompatibilityTests` pins the authenticated envelope shape.
 
 ## Scoped cleanup verification
 
@@ -423,7 +428,7 @@ rate-limit or S3 administration endpoints; those modules require their own tests
 
 ## Online rate-limit settings
 
-`SystemSettingsTests` verifies authenticated GET/PUT, cookie CSRF and Bearer precedence, no-store/security headers, strict switch payloads, If-Match errors, concurrent-save conflicts, read-only-file failure, deployment override sources, invalid disabled numbers, and file/restart persistence. Real Host requests exercise disabled → enabled → 429 → disabled → enabled without resetting the original per-address bucket, using custom initially disabled quotas, unknown routes, browse, question batch, audio playback, and equivalent login paths. Existing audio upload tests continue to verify the separate concurrency admission guard. Coordinator tests cover cancellation before commit and noncancelable publication after commit.
+`SystemSettingsTests` verifies authenticated GET/PUT, cookie CSRF and Bearer precedence, no-store/security headers, strict switch payloads, If-Match errors, concurrent-save conflicts, read-only-file failure, deployment override sources, invalid disabled numbers, and file/restart persistence. Real Host requests exercise disabled → enabled → 429 → disabled → enabled without resetting the original per-address bucket, using a custom initially disabled login quota and equivalent login paths. Existing audio upload tests continue to verify the separate concurrency admission guard. Coordinator tests cover cancellation before commit and noncancelable publication after commit.
 
 `frontend/e2e/settings.spec.ts` covers actual/custom values, separate drafts, CSRF/If-Match and one submission, 400/413/503 failures, stale revisions, unknown/malformed reads and retry, source overrides, lost save responses and failed read-back, page/sign-out cancellation with late responses, exact login return, permission navigation, keyboard and narrow-screen behavior. Run `npm run test:e2e -- settings.spec.ts` for this slice and the full browser suite before merge.
 

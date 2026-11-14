@@ -32,6 +32,7 @@ public class VocabularyHttpEndpointTests :
     public async Task VocabularySearch_InvalidPaging_Returns400Envelope(string path)
     {
         using var client = _factory.CreateClient();
+        await client.UseCatalogKeyAsync(_factory);
 
         var response = await client.GetAsync(path, TestContext.Current.CancellationToken);
 
@@ -183,6 +184,7 @@ public class VocabularyHttpEndpointTests :
     {
         var (bookId, wordId) = await SeedBookAsync(distractorCount: 1);
         using var client = _factory.CreateClient();
+        await client.UseCatalogKeyAsync(_factory);
 
         var response = await client.PostAsJsonAsync(
             "/api/vocabulary/question",
@@ -206,6 +208,7 @@ public class VocabularyHttpEndpointTests :
             });
         });
         using var client = factory.CreateClient();
+        await client.UseCatalogKeyAsync(factory);
 
         var response = await client.GetAsync(
             "/api/vocabulary?keyword=test&page=1&size=20", TestContext.Current.CancellationToken);
@@ -228,6 +231,7 @@ public class VocabularyHttpEndpointTests :
             });
         });
         using var client = factory.CreateClient();
+        await client.UseCatalogKeyAsync(factory);
 
         var response = await client.GetAsync(
             "/api/vocabulary?keyword=test&page=1&size=20", TestContext.Current.CancellationToken);
@@ -310,6 +314,7 @@ public class VocabularyHttpEndpointTests :
     public async Task ListEndpoints_WithoutPagingParameters_AnswerTheFirstPage(string path)
     {
         using var client = CreateAdminClient();
+        await client.UseCatalogKeyAsync(_factory);
 
         var response = await client.GetAsync(path, TestContext.Current.CancellationToken);
 

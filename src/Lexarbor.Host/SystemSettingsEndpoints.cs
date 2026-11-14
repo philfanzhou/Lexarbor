@@ -11,7 +11,7 @@ public static class SystemSettingsEndpoints
     private const string Path = "/admin/system/settings/rate-limits";
     private sealed class SettingsMetadata;
     public sealed record PolicyResponse(bool Enabled, int PermitLimit, int WindowSeconds, string Source, bool Editable);
-    public sealed record RateLimitsResponse(string Revision, PolicyResponse AdminLogin, PolicyResponse PublicApi);
+    public sealed record RateLimitsResponse(string Revision, PolicyResponse AdminLogin);
 
     public static IApplicationBuilder UseSystemSettingsNoStore(this IApplicationBuilder app) => app.Use(async (context, next) =>
     {
@@ -43,13 +43,10 @@ public static class SystemSettingsEndpoints
 
     private static RateLimitsResponse Response(ConfigurationReadResult read, RateLimitSnapshot snapshot)
     {
-        PolicyResponse Policy(string name, RateLimitPolicySnapshot policy)
-        {
-            var source = read.Sources[$"RateLimits:{name}:Enabled"];
-            var sourceName = source.Source == ConfigurationValueSource.CommandLine ? "commandLine" : source.Source.ToString().ToLowerInvariant();
-            return new(policy.Enabled, policy.PermitLimit, policy.WindowSeconds, sourceName, source.Editable);
-        }
-        return new(read.Revision, Policy("AdminLogin", snapshot.AdminLogin), Policy("PublicApi", snapshot.PublicApi));
+        var policy = snapshot.AdminLogin;
+        var source = read.Sources["RateLimits:AdminLogin:Enabled"];
+        var sourceName = source.Source == ConfigurationValueSource.CommandLine ? "commandLine" : source.Source.ToString().ToLowerInvariant();
+        return new(read.Revision, new(policy.Enabled, policy.PermitLimit, policy.WindowSeconds, sourceName, source.Editable));
     }
 
     private static async Task<IResult> SaveAsync(HttpContext context, PersistentConfigurationCoordinator coordinator, RateLimitRuntime runtime)
@@ -71,14 +68,8 @@ public static class SystemSettingsEndpoints
             if (document.RootElement.ValueKind != JsonValueKind.Object) return Error(400, "Invalid rate limit settings.");
             foreach (var item in document.RootElement.EnumerateObject())
             {
-                var key = item.Name switch
-                {
-                    "adminLoginEnabled" => "RateLimits:AdminLogin:Enabled",
-                    "publicApiEnabled" => "RateLimits:PublicApi:Enabled",
-                    _ => null
-                };
-                if (key is null || item.Value.ValueKind is not (JsonValueKind.True or JsonValueKind.False)
-                    || !fields.TryAdd(key, JsonValue.Create(item.Value.GetBoolean())))
+                if (item.Name != "adminLoginEnabled" || item.Value.ValueKind is not (JsonValueKind.True or JsonValueKind.False)
+                    || !fields.TryAdd("RateLimits:AdminLogin:Enabled", JsonValue.Create(item.Value.GetBoolean())))
                     return Error(400, "Invalid rate limit settings.");
             }
             if (fields.Count == 0) return Error(400, "Invalid rate limit settings.");
@@ -89,8 +80,7 @@ public static class SystemSettingsEndpoints
         {
             var options = new RateLimitOptions();
             configuration.GetSection(RateLimitOptions.SectionName).Bind(options);
-            if ((options.AdminLogin.Enabled && !RateLimitingExtensions.ValidNumbers(options.AdminLogin))
-                || (options.PublicApi.Enabled && !RateLimitingExtensions.ValidNumbers(options.PublicApi)))
+            if (options.AdminLogin.Enabled && !RateLimitingExtensions.ValidNumbers(options.AdminLogin))
                 return Task.FromResult<PreparedConfigurationChange?>(null);
             var candidate = RateLimitSnapshot.From(options);
             return Task.FromResult<PreparedConfigurationChange?>(new(() => runtime.Publish(candidate)));

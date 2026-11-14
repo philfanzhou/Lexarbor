@@ -21,7 +21,7 @@ must not become public catalog meanings.
    meaning; rejected or revised proposals cannot create questions. Existing
    supplementary-book distractor fallback remains unchanged.
 3. Preserve manual administrator review, optional rejection/revision comments and
-   independent on-demand AI advice. Integration RS256 service tokens cannot
+   independent on-demand AI advice. Business API keys with the `meaning-submissions` scope cannot
    review; administrators use the existing Cookie+CSRF or administrator Bearer
    boundary. Public vocabulary reads remain unchanged.
 4. **Allow automatic AI decisions only behind the default-off**

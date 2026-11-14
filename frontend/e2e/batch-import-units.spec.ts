@@ -66,7 +66,7 @@ async function openBatchPage(page: Page) {
       success: true,
       data: { version: '1.2.3', revision: null, channel: 'release' }
     }))
-  await page.route(/\/api\/vocabulary-books\/all$/, (route) =>
+  await page.route(/\/admin\/vocabulary-books\/active$/, (route) =>
     json(route, { success: true, data: { books: [starterBook, otherBook] } }))
   await useUnits(page)
 

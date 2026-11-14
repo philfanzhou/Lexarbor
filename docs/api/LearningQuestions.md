@@ -2,15 +2,15 @@
 
 Lexarbor selects and generates one complete question for a caller's target meaning.
 The catalog and submission routes use the same selection and letter-hiding rules.
-The existing single-question, batch-question and submission `/question` contracts
-are unchanged. No student ID, history, question batch, answer or schedule is stored.
+The single-question, batch-question and submission `/question` routes share the
+[business API key requirements](BusinessApiKeys.md). No student ID, history, question batch, answer or schedule is stored.
 
 ## Routes and requests
 
 | Route | JSON body | Access |
 | --- | --- | --- |
-| `POST /api/vocabulary/learning-question` | Required `wordId`, `bookId`, `meaningId`, `mode`; optional `unitId`, `sameEntryKind` | Existing anonymous public API deployment boundary and rate limit |
-| `POST /integration/meaning-submissions/{id}/learning-question` | Required `mode` | Existing integration service identity and `meaning-submissions` scope; configured `MeaningSubmissions:BookId` |
+| `POST /api/vocabulary/learning-question` | Required `wordId`, `bookId`, `meaningId`, `mode`; optional `unitId`, `sameEntryKind` | `X-Api-Key` with `catalog` scope |
+| `POST /integration/meaning-submissions/{id}/learning-question` | Required `mode` | `X-Api-Key` with `meaning-submissions` scope; configured `MeaningSubmissions:BookId` |
 
 `mode` is exactly `new` or `review`. IDs must be nonblank. The catalog meaning
 must belong to both the requested word and book. A supplied nonblank `unitId`
@@ -32,6 +32,7 @@ text equality does not override `definitionKept`.
 
 ```http
 POST /api/vocabulary/learning-question
+X-Api-Key: <issued-api-key>
 Content-Type: application/json
 
 {"wordId":"word-explode","bookId":"book-1","meaningId":"meaning-explode","mode":"new","sameEntryKind":true}
@@ -60,7 +61,7 @@ token. For a pending submission whose display spelling is `Explode`:
 
 ```http
 POST /integration/meaning-submissions/submission-explode/learning-question
-Authorization: Bearer <integration-service-token>
+X-Api-Key: <issued-api-key>
 Content-Type: application/json
 
 {"mode":"review"}
@@ -161,8 +162,8 @@ before skipping a target, rather than treating every 404/422 as skippable.
 Study validates student ownership, signs and saves its own question/answer
 snapshot, hides answers until appropriate, and handles expiry, replay, grading
 and scheduling. Responses include correct answers and must not be forwarded
-unchanged to a student's browser. The public API's existing private-network
-boundary remains unchanged; public routes cannot read pending submissions.
+unchanged to a student's browser. Use the API key from the Study backend. Pending submissions are available
+through the authenticated submission routes.
 
 There are no new settings, migrations, dependencies or persistence directories.
 Validate against this PR's source/build. After merge, the release/deployment owner

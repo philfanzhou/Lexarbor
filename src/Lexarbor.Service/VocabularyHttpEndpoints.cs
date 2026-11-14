@@ -6,7 +6,6 @@ using Lexarbor.Service.Dtos;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Logging;
 
@@ -27,28 +26,16 @@ public static partial class VocabularyHttpEndpoints
     /// </summary>
     public const int MaxQuestionBatchItems = 50;
 
-    /// <param name="publicApiRateLimitPolicy">
-    /// Name of the rate limit policy to apply to the anonymous <c>/api</c> group,
-    /// or null to apply none. Passed in rather than named here because the ceiling
-    /// is a hosting decision: this project describes the routes, and the policy it
-    /// would otherwise reference is defined and configured by the host.
-    /// </param>
     /// <param name="configureAdminGroup">
     /// Optional host-side conventions for the <c>/admin</c> group, such as the
     /// ServiceMantle security response-header requirement. This project cannot
-    /// reference the library that defines it, so the host hands the decision in —
-    /// the same split as the rate limit policy above.
+    /// reference the library that defines it, so the host supplies the convention.
     /// </param>
     public static IEndpointRouteBuilder MapVocabularyHttpEndpoints(
         this IEndpointRouteBuilder app,
-        string? publicApiRateLimitPolicy = null,
         Action<RouteGroupBuilder>? configureAdminGroup = null)
     {
-        var apiGroup = app.MapGroup("/api");
-        if (!string.IsNullOrWhiteSpace(publicApiRateLimitPolicy))
-        {
-            apiGroup.RequireRateLimiting(publicApiRateLimitPolicy);
-        }
+        var apiGroup = app.MapGroup("/api").RequireBusinessApiScope(BusinessApiAuthorization.Catalog);
 
         apiGroup.MapGet("/vocabulary/{wordId}", GetVocabulary);
         apiGroup.MapGet("/vocabulary", SearchVocabulary);
@@ -69,6 +56,7 @@ public static partial class VocabularyHttpEndpoints
         adminGroup.MapPost("/vocabulary-books", AddBook);
         adminGroup.MapPut("/vocabulary-books", UpdateBook);
         adminGroup.MapGet("/vocabulary-books/{id}", GetBook);
+        adminGroup.MapGet("/vocabulary-books/active", GetAllBooks);
         adminGroup.MapGet("/vocabulary-books", SearchBooks);
         adminGroup.MapGet("/vocabulary-books/by-category", GetBooksByCategory);
         adminGroup.MapGet("/vocabulary-books/categories", GetAllCategories);
@@ -520,12 +508,8 @@ public static partial class VocabularyHttpEndpoints
         return VocabularyHttpResponse.Ok(result);
     }
 
-    // The two anonymous book-browse routes. They expose an enabled book's
-    // units and entries to callers without administrator credentials — the
-    // catalogue, search, and detail routes already expose the same data less
-    // directly — and answer a missing book 404 and a disabled one 422 exactly
-    // like the public detail route, so a disabled book's contents stay
-    // unreadable rather than merely unlisted.
+    // The business browse routes expose only enabled books, like catalog
+    // detail. A missing book returns 404 and a disabled book returns 422.
     private static async Task<IResult> GetPublicBookUnits(
         string bookId,
         VocabularyPublicQueryService queryService,

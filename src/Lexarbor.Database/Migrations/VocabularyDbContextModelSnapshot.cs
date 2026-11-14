@@ -465,6 +465,55 @@ namespace Lexarbor.Database.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Lexarbor.Database.Entities.BusinessApiKeyEntity", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CallerId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("caller_id");
+
+                    b.Property<bool>("Catalog")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("catalog");
+
+                    b.Property<long>("CreatedAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("created_at_unix_ms");
+
+                    b.Property<bool>("MeaningSubmissions")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("meaning_submissions");
+
+                    b.Property<long?>("RevokedAtUnixMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("revoked_at_unix_ms");
+
+                    b.Property<string>("SecretHash")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("secret_hash");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SecretHash")
+                        .IsUnique();
+
+                    b.ToTable("business_api_key", t =>
+                        {
+                            t.HasCheckConstraint("CK_business_api_key_caller", "length(caller_id) BETWEEN 1 AND 2048");
+
+                            t.HasCheckConstraint("CK_business_api_key_hash", "length(secret_hash) = 64 AND secret_hash NOT GLOB '*[^0-9a-f]*'");
+
+                            t.HasCheckConstraint("CK_business_api_key_scopes", "catalog IN (0, 1) AND meaning_submissions IN (0, 1) AND (catalog = 1 OR meaning_submissions = 1)");
+
+                            t.HasCheckConstraint("CK_business_api_key_times", "created_at_unix_ms >= 0 AND (revoked_at_unix_ms IS NULL OR revoked_at_unix_ms >= created_at_unix_ms)");
+                        });
+                });
+
             modelBuilder.Entity("Lexarbor.Database.Entities.EnrichmentCallEntity", b =>
                 {
                     b.Property<string>("Id")
@@ -514,11 +563,11 @@ namespace Lexarbor.Database.Migrations
 
                     b.HasIndex("Result", "FinishedAtUnixMs");
 
-                    b.HasIndex("Service", "Result", "FinishedAtUnixMs");
-
                     b.HasIndex("TargetId", "Round")
                         .IsUnique()
                         .HasFilter("result = 'Started'");
+
+                    b.HasIndex("Service", "Result", "FinishedAtUnixMs");
 
                     b.ToTable("enrichment_call", null, t =>
                         {

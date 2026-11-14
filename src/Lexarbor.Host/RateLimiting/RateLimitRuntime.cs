@@ -3,11 +3,10 @@ using Microsoft.Extensions.Options;
 namespace Lexarbor.Host.RateLimiting;
 
 public sealed record RateLimitPolicySnapshot(bool Enabled, int PermitLimit, int WindowSeconds);
-public sealed record RateLimitSnapshot(RateLimitPolicySnapshot AdminLogin, RateLimitPolicySnapshot PublicApi)
+public sealed record RateLimitSnapshot(RateLimitPolicySnapshot AdminLogin)
 {
     public static RateLimitSnapshot From(RateLimitOptions options) => new(
-        new(options.AdminLogin.Enabled, options.AdminLogin.PermitLimit, options.AdminLogin.WindowSeconds),
-        new(options.PublicApi.Enabled, options.PublicApi.PermitLimit, options.PublicApi.WindowSeconds));
+        new RateLimitPolicySnapshot(options.AdminLogin.Enabled, options.AdminLogin.PermitLimit, options.AdminLogin.WindowSeconds));
 }
 
 public sealed class RateLimitRuntime(IOptions<RateLimitOptions> options)

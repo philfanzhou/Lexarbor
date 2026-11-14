@@ -40,6 +40,7 @@ public class VocabularyQuestionBatchEndpointTests :
     {
         var data = await SeedAsync(_factory);
         using var client = _factory.CreateClient();
+        await client.UseCatalogKeyAsync(_factory);
         var missingMeaningId = $"bq-missing-{Guid.NewGuid():N}";
 
         var response = await client.PostAsJsonAsync(
@@ -156,6 +157,7 @@ public class VocabularyQuestionBatchEndpointTests :
     public async Task EmptyOrMissingItems_Returns400Envelope()
     {
         using var client = _factory.CreateClient();
+        await client.UseCatalogKeyAsync(_factory);
 
         var empty = await client.PostAsJsonAsync(
             BatchPath,
@@ -183,6 +185,7 @@ public class VocabularyQuestionBatchEndpointTests :
     {
         var data = await SeedAsync(_factory);
         using var client = _factory.CreateClient();
+        await client.UseCatalogKeyAsync(_factory);
 
         var items = Enumerable
             .Range(0, VocabularyHttpEndpoints.MaxQuestionBatchItems + 1)
@@ -227,6 +230,7 @@ public class VocabularyQuestionBatchEndpointTests :
     public async Task BodyThatIsNotValidJson_Returns400Envelope(string body, string contentType)
     {
         using var client = _factory.CreateClient();
+        await client.UseCatalogKeyAsync(_factory);
         using var content = new StringContent(body, Encoding.UTF8, contentType);
 
         var response = await client.PostAsync(BatchPath, content, TestContext.Current.CancellationToken);
@@ -249,6 +253,7 @@ public class VocabularyQuestionBatchEndpointTests :
         var data = await SeedAsync(factory);
         // The base-class client picks up the real Kestrel binding's address.
         using var client = ((WebApplicationFactory<Program>)factory).CreateClient();
+        await client.UseCatalogKeyAsync(factory);
 
         var overLimit = PaddedBatch(
             new { wordId = data.WordId, bookId = data.BookId },
@@ -319,6 +324,7 @@ public class VocabularyQuestionBatchEndpointTests :
                         release.Task));
             }));
         using var client = configured.CreateClient();
+        await client.UseCatalogKeyAsync(configured);
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
             TestContext.Current.CancellationToken);
 

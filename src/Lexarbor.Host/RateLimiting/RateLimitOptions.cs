@@ -1,10 +1,7 @@
 namespace Lexarbor.Host.RateLimiting;
 
 /// <summary>
-/// Request ceilings for the two anonymous surfaces. Both are per client address
-/// rather than global: a global ceiling on an anonymous endpoint is itself a
-/// denial-of-service tool, because one caller can spend the whole budget and
-/// lock everyone else out, including the administrator trying to log in.
+/// Optional administrator sign-in ceiling, partitioned by client address.
 /// </summary>
 public sealed class RateLimitOptions
 {
@@ -19,18 +16,6 @@ public sealed class RateLimitOptions
     {
         PermitLimit = 10,
         WindowSeconds = 300
-    };
-
-    /// <summary>
-    /// The anonymous <c>/api/*</c> routes. Deliberately loose: these are meant
-    /// to be called by an application, and the ceiling exists to stop one
-    /// address from monopolising a single-instance SQLite deployment, not to
-    /// meter normal use.
-    /// </summary>
-    public RateLimitPolicyOptions PublicApi { get; set; } = new()
-    {
-        PermitLimit = 300,
-        WindowSeconds = 60
     };
 }
 

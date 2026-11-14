@@ -51,7 +51,7 @@ Vocabulary continues to listen on container port 5008 and serves the following f
 | Administration login | `POST /admin/auth/login` | Anonymous |
 | Session state | `GET /admin/auth/session` | `role=admin` |
 | Administration logout | `POST /admin/auth/logout` | Anonymous, repeatable |
-| Public business API | The existing `/api/*` | Anonymous, kept compatible |
+| Business API | `/api/*` and `/integration/*` | Lexarbor-issued API key with the required scope |
 | Administration API | The existing `/admin/*` other than the authentication entry points | `role=admin` |
 
 An unknown `/api/*` or `/admin/*` path answers 404 in the shared envelope and does not fall through to the SPA. The SPA fallback stays anonymously accessible, which avoids the deadlock of being unable to load the login page while logged out.
@@ -148,31 +148,26 @@ Logout depends on that header when it is cookie-authenticated; the hosted login 
 
 ## 6. Route permission matrix
 
-### 6.1 Public business endpoints
+### 6.1 Authenticated business endpoints
 
-The following endpoints are anonymously accessible:
+The following endpoints require a Lexarbor-issued API key with the `catalog` scope:
 
 ```text
 GET  /api/vocabulary/{wordId}
 GET  /api/vocabulary
 POST /api/vocabulary/question
 POST /api/vocabulary/questions
+POST /api/vocabulary/learning-question
+GET  /api/vocabulary/{wordId}/audio
 GET  /api/vocabulary-books/all
 GET  /api/vocabulary-books/{bookId}/units
 GET  /api/vocabulary-books/{bookId}/entries?unitId&page&size
 ```
 
-The last two are the book-browse endpoints of §6.3, added for server-side
-callers that organize study data around a book's units and need the entry list
-of a book or unit without administrator credentials. No administrator cookie
-or new service-to-service authentication is introduced for them here. Should
-service-to-service authentication be needed later, the real callers should be
-confirmed first and a separate credential designed.
-
-`POST /api/vocabulary/questions` is the batch form of the single question
-route, described with the rest of question generation in §10; it is anonymous
-like every route in this group and costs one request of the same `PublicApi`
-rate-limit budget however many questions it carries.
+Book browsing is described in §6.3 and question generation in §10. The
+`/integration/vocabulary/search` and `/integration/meaning-submissions` routes
+use the `meaning-submissions` scope. See [Business API keys](../api/BusinessApiKeys.md)
+for issuance and rotation.
 
 ### 6.2 Administration endpoints
 
@@ -185,6 +180,10 @@ POST   /admin/vocabulary-books
 PUT    /admin/vocabulary-books
 GET    /admin/vocabulary-books/{id}
 GET    /admin/vocabulary-books
+GET    /admin/vocabulary-books/active
+GET    /admin/api-keys
+POST   /admin/api-keys
+DELETE /admin/api-keys/{id}
 GET    /admin/vocabulary-books/by-category
 GET    /admin/vocabulary-books/categories
 GET    /admin/vocabulary-books/education-levels
@@ -202,11 +201,11 @@ DELETE /admin/vocabulary-books/{bookId}/units/{unitId}
 DELETE /admin/vocabulary-books/{id}
 ```
 
-### 6.3 Anonymous book browsing
+### 6.3 Business book browsing
 
-The two browse endpoints expose an **enabled** book's structure to anonymous
-callers. A missing book answers 404 and a disabled one 422, the same answers
-the public detail route gives, so neither the units nor the entries of a
+The two browse endpoints expose an **enabled** book's structure to callers with
+the `catalog` scope. A missing book answers 404 and a disabled one 422, the same answers
+the catalog detail route gives, so neither the units nor the entries of a
 disabled book are ever listed. A `unitId` that does not exist, or belongs to
 another book, answers the same 404 — distinguishing the two would leak that
 the other book has the id. Both responses use the shared success envelope,
@@ -350,9 +349,9 @@ Each entry may carry an optional `unitId` naming an existing unit of the same bo
 - `unitId` draws the distractors only from candidates assigned to that unit of the book. A unit that does not exist, or belongs to another book, answers 404 with the same message either way, so the id of another book's unit reveals nothing. A unit with too few candidates answers the same 422 the book itself would; the endpoint never falls back to the wider book, because the caller is the one who knows whether widening is acceptable. The asked meaning itself is not required to sit in the unit.
 - `sameEntryKind` (default false) draws the distractors only from candidates of the asked meaning's own entry kind. The kind is read from the meaning's positions in the same scope `unitId` names — that unit, or the whole book when no unit was named — and one `phrase` position anywhere in the scope makes the target a phrase; everything else, unclassified positions included, is a word. A phrase question then offers only phrase distractors and a word question excludes every phrase: a phrase option next to a word stem gives the answer away. Nothing is ever inferred from the entry's text, so an unclassified target is asked as a word.
 
-The response keeps `word` and `options[].meaning` / `options[].isCorrect` with their meanings unchanged and adds: top-level `wordId`, `meaningId` (the meaning actually asked) and `chineseToEnglish` (the direction actually drawn when the request left it to the server); and `wordId` / `meaningId` on every option. An English-to-Chinese option is one meaning of one word and carries both ids; a Chinese-to-English option is a word, and only its correct one names the asked meaning — the distractor words carry `meaningId: null`, because no single meaning of such a word stands for the option. The endpoint stays anonymous and still returns `isCorrect`; a caller who quizzes a learner through it must call it server-side and keep the answer there, which is the arrangement the consuming trainer already requires.
+The response keeps `word` and `options[].meaning` / `options[].isCorrect` with their meanings unchanged and adds: top-level `wordId`, `meaningId` (the meaning actually asked) and `chineseToEnglish` (the direction actually drawn when the request left it to the server); and `wordId` / `meaningId` on every option. An English-to-Chinese option is one meaning of one word and carries both ids; a Chinese-to-English option is a word, and only its correct one names the asked meaning — the distractor words carry `meaningId: null`, because no single meaning of such a word stands for the option. The endpoint returns `isCorrect`. Callers keep the API key and correct answers in their backend.
 
-`POST /api/vocabulary/questions` asks up to 50 of those questions in one round trip: `{ "items": [ <single-question request>, ... ] }`, every item normalized and answered exactly as `POST /api/vocabulary/question` answers the same request — the same direction draw, the same blank-identifier handling, the same 404 and 422 conditions, through the same domain method. One item's failure never fails the batch: whenever the body itself is acceptable the batch answers 200 with `{ "results": [ { "index", "question" } | { "index", "error": { "status", "message" } } ] }`, one row per item in request order, where an item that misses `wordId` or `bookId` reports the 400 message the single endpoint's own envelope carries and a 404 or 422 item reports the status and message the single endpoint's exception mapping answers the same request with — so a caller retries a failed item exactly as it would retry a single request. The body is read by the endpoint itself, like a batch import, and carries the same 1 MiB ceiling: over it 413, a body that is not JSON 400, an empty `items` array or more than 50 items 400. The items run one after another — SQLite serves one connection — and a cancelled request stops before the next item rather than answering items nobody will read. One batch is one request of the `PublicApi` rate limit, whatever its item count, which is the point: a study session that would otherwise spend dozens of anonymous requests and their quota spends one. Nothing else is promised — the distractors of two items in one batch may repeat each other, each item reads its own snapshot, and the options still carry `isCorrect`, so the server-side-and-keep-the-answer arrangement of the single endpoint applies to the batch unchanged.
+`POST /api/vocabulary/questions` asks up to 50 of those questions in one round trip: `{ "items": [ <single-question request>, ... ] }`, every item normalized and answered exactly as `POST /api/vocabulary/question` answers the same request — the same direction draw, the same blank-identifier handling, the same 404 and 422 conditions, through the same domain method. One item's failure never fails the batch: whenever the body itself is acceptable the batch answers 200 with `{ "results": [ { "index", "question" } | { "index", "error": { "status", "message" } } ] }`, one row per item in request order, where an item that misses `wordId` or `bookId` reports the 400 message the single endpoint's own envelope carries and a 404 or 422 item reports the status and message the single endpoint's exception mapping answers the same request with — so a caller retries a failed item exactly as it would retry a single request. The body is read by the endpoint itself, like a batch import, and carries the same 1 MiB ceiling: over it 413, a body that is not JSON 400, an empty `items` array or more than 50 items 400. The items run one after another — SQLite serves one connection — and a cancelled request stops before the next item rather than answering items nobody will read. Nothing else is promised — the distractors of two items in one batch may repeat each other, each item reads its own snapshot, and the options still carry `isCorrect`, so the server-side-and-keep-the-answer arrangement of the single endpoint applies to the batch unchanged.
 
 The rules of generation:
 
@@ -506,7 +505,7 @@ The existing features, fields, and Vite build of book management and word import
 - The administrator cookie can reach the book and word administration endpoints.
 - Logout deletes the cookie; afterwards an administration endpoint answers 401.
 - An Authorization bearer administrator token can also reach the administration endpoints.
-- The existing anonymous behaviour of `/api/*` stays compatible.
+- Business endpoints require the appropriate API key scope.
 - A cookie write request without the CSRF protection header is refused.
 
 ### 15.2 Domain and data
@@ -567,7 +566,7 @@ npm run test:types
 npm run build
 ```
 
-When Identity and Vocabulary can both be run, add HTTP smoke tests for login, the cookie, logout, the public API, the persistent volume, and the migration state. When real deployment credentials are unavailable, the automated integration tests use fake Identity and no real integration result is invented.
+When Identity and Vocabulary can both be run, add HTTP smoke tests for login, the cookie, logout, the business API, the persistent volume, and the migration state. When real deployment credentials are unavailable, the automated integration tests use fake Identity and no real integration result is invented.
 
 ### Administrator build identity
 

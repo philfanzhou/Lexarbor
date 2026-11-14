@@ -26,7 +26,7 @@ public sealed class AudioStorageSettingsTests : IDisposable
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
     private string FilePath => Path.Combine(_root, "data", "appsettings.json");
     public AudioStorageSettingsTests() => File.WriteAllText(Path.Combine(_root, "appsettings.json"),
-        """{"Logging":{"LogLevel":{"Default":"Information","Microsoft.AspNetCore":"Warning","Microsoft.EntityFrameworkCore.Database.Command":"Warning"}},"Unknown":{"retain":42},"RateLimits":{"PublicApi":{"Enabled":false}}}""");
+        """{"Logging":{"LogLevel":{"Default":"Information","Microsoft.AspNetCore":"Warning","Microsoft.EntityFrameworkCore.Database.Command":"Warning"}},"Unknown":{"retain":42},"RateLimits":{"AdminLogin":{"Enabled":false}}}""");
     private VocabularyWebApplicationFactory Factory(Dictionary<string, string?>? config = null) => new("Testing", true,
         extraConfiguration: config, contentRootPath: _root);
     private static HttpClient Admin(VocabularyWebApplicationFactory factory)
@@ -89,7 +89,7 @@ public sealed class AudioStorageSettingsTests : IDisposable
             Assert.Equal(Access, file.RootElement.GetProperty("Audio").GetProperty("AccessKey").GetString());
             Assert.Equal(Secret, file.RootElement.GetProperty("Audio").GetProperty("SecretKey").GetString());
             Assert.Equal(42, file.RootElement.GetProperty("Unknown").GetProperty("retain").GetInt32());
-            Assert.False(file.RootElement.GetProperty("RateLimits").GetProperty("PublicApi").GetProperty("Enabled").GetBoolean());
+            Assert.False(file.RootElement.GetProperty("RateLimits").GetProperty("AdminLogin").GetProperty("Enabled").GetBoolean());
             Assert.DoesNotContain("vocabulary-client-secret", File.ReadAllText(FilePath));
             if (!OperatingSystem.IsWindows()) Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(FilePath));
             Assert.Equal(HttpStatusCode.BadRequest, (await Put(client, kept.Revision, """{"secretKey":{"action":"clear"}}""")).StatusCode);
@@ -237,7 +237,7 @@ public sealed class AudioStorageSettingsTests : IDisposable
         Assert.Equal((HttpStatusCode)428, (await Put(client, null, Complete())).StatusCode);
         foreach (var value in new[] { "*", "W/" + initial.Revision, "bad", initial.Revision + ", " + initial.Revision })
             Assert.Equal(HttpStatusCode.BadRequest, (await Put(client, value, Complete())).StatusCode);
-        using var request = new HttpRequestMessage(HttpMethod.Put, "/admin/system/settings/rate-limits") { Content = JsonContent.Create(new { publicApiEnabled = true }) };
+        using var request = new HttpRequestMessage(HttpMethod.Put, "/admin/system/settings/rate-limits") { Content = JsonContent.Create(new { adminLoginEnabled = true }) };
         request.Headers.TryAddWithoutValidation("If-Match", initial.Revision);
         var answers = await Task.WhenAll(Put(client, initial.Revision, Complete()), client.SendAsync(request, Ct));
         Assert.Single(answers, response => response.StatusCode == HttpStatusCode.OK);

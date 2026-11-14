@@ -1,5 +1,6 @@
 using System.Threading.RateLimiting;
 using Lexarbor.Host.RateLimiting;
+using Lexarbor.Service.Tests.TestInfrastructure;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -16,7 +17,7 @@ public class RateLimitCompatibilityTests
 {
     [Theory]
     [InlineData("admin-login", 429, null, "300")]
-    [InlineData("public-api", 429, null, "60")]
+    [InlineData("public-api", 429, null, null)]
     [InlineData("admin-login", 429, "7", "7")]
     [InlineData("admin-login", 503, null, null)]
     [InlineData("other-policy", 429, null, null)]
@@ -26,7 +27,7 @@ public class RateLimitCompatibilityTests
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
-        builder.Services.Configure<RateLimitOptions>(options => { options.AdminLogin.Enabled = true; options.PublicApi.Enabled = true; });
+        builder.Services.Configure<RateLimitOptions>(options => options.AdminLogin.Enabled = true);
         await using var app = builder.Build();
         app.UseRouting();
         app.UseLexarborRateLimitRetryAfter();
@@ -74,6 +75,7 @@ public class RateLimitCompatibilityTests
         // writes occur and a separate client bucket can still serve traffic.
         using var factory = new TestInfrastructure.VocabularyWebApplicationFactory();
         using var client = factory.CreateClient();
+        await client.UseCatalogKeyAsync(factory);
         using var response = await client.GetAsync("/api/vocabulary-books/all", TestContext.Current.CancellationToken);
         Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
     }

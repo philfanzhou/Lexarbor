@@ -17,8 +17,8 @@ async function admin(page: Page) {
   await page.route('**/admin/auth/session', route => json(route, { username: 'ci-admin', roles: ['admin'] }))
   await page.route('**/admin/system/version', route => json(route, { version: '1.0.0', revision: null, channel: 'release' }))
   await page.route('**/admin/auth/logout', route => json(route, {}))
-  await page.route('**/api/vocabulary-books/all', route => json(route, { success: true, data: { books: [] } }))
-  await page.route('**/admin/system/settings/rate-limits', route => json(route, { revision, adminLogin: { enabled: false, permitLimit: 10, windowSeconds: 300, source: 'default', editable: true }, publicApi: { enabled: false, permitLimit: 300, windowSeconds: 60, source: 'default', editable: true } }))
+  await page.route('**/admin/vocabulary-books/active', route => json(route, { success: true, data: { books: [] } }))
+  await page.route('**/admin/system/settings/rate-limits', route => json(route, { revision, adminLogin: { enabled: false, permitLimit: 10, windowSeconds: 300, source: 'default', editable: true } }))
 }
 const save = (page: Page) => page.getByRole('button', { name: '保存音频存储设置' })
 const notice = (page: Page) => page.getByRole('status', { name: '音频存储状态' })

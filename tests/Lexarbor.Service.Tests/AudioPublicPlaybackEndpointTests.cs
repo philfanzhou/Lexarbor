@@ -66,7 +66,7 @@ public sealed class AudioPublicPlaybackEndpointTests
         public readonly VocabularyWebApplicationFactory Factory;
         public readonly WebApplicationFactory<Program> App;
         public readonly HttpClient Client;
-        public Host(bool enabled = true, int timeout = 60, int ttl = 900, int permits = 100)
+        public Host(bool enabled = true, int timeout = 60, int ttl = 900)
         {
             Factory = new("Testing", true, extraConfiguration: new Dictionary<string, string?>
             {
@@ -77,9 +77,6 @@ public sealed class AudioPublicPlaybackEndpointTests
                 ["Audio:SecretKey"] = "synthetic-secret",
                 ["Audio:OperationTimeoutSeconds"] = timeout.ToString(),
                 ["Audio:PlaybackTtlSeconds"] = ttl.ToString(),
-                ["RateLimits:PublicApi:Enabled"] = "true",
-                ["RateLimits:PublicApi:PermitLimit"] = permits.ToString(),
-                ["RateLimits:PublicApi:WindowSeconds"] = "300",
                 ["RateLimits:AdminLogin:Enabled"] = "true",
                 ["RateLimits:AdminLogin:PermitLimit"] = "1",
                 ["RateLimits:AdminLogin:WindowSeconds"] = "300"
@@ -94,6 +91,7 @@ public sealed class AudioPublicPlaybackEndpointTests
         }
         public async Task SeedAsync()
         {
+            await Client.UseCatalogKeyAsync(App);
             using var scope = App.Services.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
             db.Vocabularies.AddRange(new() { Id = "w", Word = "take off", PhoneticUk = "uk", PhoneticUs = "us" },
                 new() { Id = "orphan", Word = "orphan" }, new() { Id = "other", Word = "other" });
@@ -331,15 +329,16 @@ public sealed class AudioPublicPlaybackEndpointTests
     }
 
     [Fact]
-    public async Task PublicAudioSharesExistingQuota_RetryAfterAndAdminRemainIndependent()
+    public async Task AudioSigningRequiresCatalogAuthenticationBeforeStorageAccess()
     {
-        await using var host = new Host(permits: 1); await host.SeedAsync(); await host.Bind();
-        host.Client.DefaultRequestHeaders.Authorization = null;
-        using var first = await host.Client.GetAsync(Route(), Ct); first.EnsureSuccessStatusCode();
-        using var limited = await host.Client.GetAsync("/api/vocabulary-books/enabled/entries", Ct);
-        Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
-        Assert.True(int.Parse(Assert.Single(limited.Headers.GetValues("Retry-After"))) > 0);
-        host.Client.DefaultRequestHeaders.Authorization = new("Bearer", host.Factory.CreateToken("admin"));
-        using var admin = await host.Client.GetAsync("/admin/vocabulary/w/audio/en-GB/playback", Ct); admin.EnsureSuccessStatusCode();
+        await using var host = new Host(); await host.SeedAsync(); await host.Bind();
+        using var admin = host.App.CreateClient();
+        admin.DefaultRequestHeaders.Authorization = new("Bearer", host.Factory.CreateToken("admin"));
+        using var denied = await admin.GetAsync(Route(), Ct);
+        Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
+        Assert.Empty(host.Store.Stats);
+        Assert.Empty(host.Store.Signs);
+        using var business = await host.Client.GetAsync(Route(), Ct);
+        business.EnsureSuccessStatusCode();
     }
 }

@@ -226,7 +226,7 @@ builder.Services.AddHttpClient(AutomaticMeaningSubmissionReviewClient.HttpClient
 builder.Services.AddSingleton<AutomaticMeaningSubmissionReviewClient>();
 builder.Services.AddSingleton<MeaningSubmissionReviewBatchExecutor>();
 builder.Services.AddHostedService<MeaningSubmissionReviewWorker>();
-builder.Services.AddSingleton(provider => IntegrationServiceTrust.Read(provider.GetRequiredService<IConfiguration>()));
+builder.Services.AddScoped<BusinessApiKeyRepository>();
 builder.Services.AddSingleton<EnrichmentRuntimeConfiguration>();
 builder.Services.AddHttpClient(OpenAiCompatibleReviewAssistant.HttpClientName);
 builder.Services.AddSingleton<IMeaningSubmissionReviewAssistant, OpenAiCompatibleReviewAssistant>();
@@ -306,8 +306,8 @@ builder.Services
     })
     .AddScheme<AuthenticationSchemeOptions, AdminAuthenticationPresentationHandler>(
         AdminAuthenticationSource.PresentationScheme, null)
-    .AddScheme<AuthenticationSchemeOptions, IntegrationServiceAuthenticationHandler>(
-        AdminAuthenticationSource.IntegrationScheme, null)
+    .AddScheme<AuthenticationSchemeOptions, BusinessApiKeyAuthentication>(
+        BusinessApiKeyAuthentication.SchemeName, null)
     .AddJwtBearer();
 
 // Configured from the resolved options rather than from the configuration read
@@ -386,17 +386,14 @@ builder.Services
 // resolve to one operator holding management.admin. The role check itself stays
 // Lexarbor's product rule and lives in the mapping.
 builder.Services.AddServiceMantleManagementAuthorization();
-// The integration surface accepts only the integration scheme's service tokens
-// carrying the meaning-submissions scope; administrator credentials never
-// satisfy it, and a service token never satisfies the administrator policy.
-builder.Services.AddAuthorization(options => options.AddPolicy(
-    MeaningSubmissionEndpoints.IntegrationPolicyName,
-    policy => policy
-        .AddAuthenticationSchemes(AdminAuthenticationSource.IntegrationScheme)
-        .RequireAuthenticatedUser()
-        .RequireAssertion(context => context.User.FindAll("scope")
-            .SelectMany(claim => claim.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries))
-            .Contains(MeaningSubmissionEndpoints.IntegrationScope, StringComparer.Ordinal))));
+builder.Services.AddAuthorization(options =>
+{
+    foreach (var scope in new[] { BusinessApiAuthorization.Catalog, BusinessApiAuthorization.MeaningSubmissions })
+        options.AddPolicy(scope, policy => policy
+            .AddAuthenticationSchemes(BusinessApiKeyAuthentication.SchemeName)
+            .RequireAuthenticatedUser()
+            .RequireClaim(BusinessApiAuthorization.ScopeClaim, scope));
+});
 
 var networkOptions = builder.Configuration.GetSection(NetworkOptions.SectionName).Get<NetworkOptions>() ?? new NetworkOptions();
 var useTrustedForwarding = networkOptions.IsConfigured || networkOptions.ForwardLimit != 1;
@@ -602,7 +599,6 @@ var app = builder.Build();
 app.Services.GetRequiredService<PersistentConfigurationCoordinator>();
 // Fail startup on an invalid meaning-submission setting instead of on first use.
 app.Services.GetRequiredService<MeaningSubmissionSettings>();
-app.Services.GetRequiredService<IntegrationServiceTrust>();
 await app.Services.GetRequiredService<EnrichmentRuntimeConfiguration>().InitializeAsync(
     app.Services.GetRequiredService<PersistentConfigurationCoordinator>());
 
@@ -626,7 +622,6 @@ app.Logger.LogInformation("Database: SQLite");
 
 var rateLimitOptions = app.Services.GetRequiredService<IOptions<RateLimitOptions>>().Value;
 LogRateLimit("admin login", rateLimitOptions.AdminLogin);
-LogRateLimit("public API", rateLimitOptions.PublicApi);
 if (useTrustedForwarding)
 {
     app.Logger.LogInformation(
@@ -831,13 +826,14 @@ app.UseAuthorization();
 // changes no route; it only carries the ServiceMantle security response-header
 // marker down to every endpoint and nested group these mappers create, so the
 // six mandatory headers apply uniformly — including the unknown-route catch-all
-// below. The one mapper that also maps public /api endpoints takes the
+// below. The mapper that also maps /api endpoints takes the
 // requirement for its admin group as a delegate instead, so /api never
 // inherits it.
 var adminSurface = app.MapGroup(string.Empty).RequireServiceMantleSecurityResponseHeaders();
 adminSurface.MapAdminAuthEndpoints();
 adminSurface.MapSystemVersionEndpoints();
 adminSurface.MapSystemSettingsEndpoints();
+adminSurface.MapBusinessApiKeyEndpoints();
 adminSurface.MapVocabularyWordEditEndpoints();
 adminSurface.MapVocabularyRelationEndpoints();
 adminSurface.MapVocabularyMeaningEditEndpoints();
@@ -853,10 +849,8 @@ adminSurface.MapVocabularyCleanupEndpoints();
 adminSurface.MapMeaningSubmissionAdminEndpoints();
 adminSurface.MapMeaningSubmissionReviewAdminEndpoints();
 app.MapMeaningSubmissionIntegrationEndpoints();
-app.MapAudioPublicPlaybackEndpoints(
-    RateLimitingExtensions.PublicApiPolicy);
+app.MapAudioPublicPlaybackEndpoints();
 app.MapVocabularyHttpEndpoints(
-    RateLimitingExtensions.PublicApiPolicy,
     static adminGroup => adminGroup.RequireServiceMantleSecurityResponseHeaders());
 // The ServiceMantle health endpoints are anonymous and unmetered: /health/live
 // answers liveness alone, /health/ready and /health project the readiness
@@ -873,11 +867,10 @@ string[] allHttpMethods =
     HttpMethods.Delete,
     HttpMethods.Options
 ];
-var unknownApi = app.MapMethods(
+app.MapMethods(
         "/api/{**path}",
         allHttpMethods,
         () => VocabularyHttpResponse.NotFound("API endpoint was not found."));
-unknownApi.RequireRateLimiting(RateLimitingExtensions.PublicApiPolicy);
 // Unknown integration routes answer JSON 404 rather than the SPA shell.
 app.MapMethods(
     "/integration/{**path}",

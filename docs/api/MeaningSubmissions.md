@@ -20,7 +20,7 @@ Except for the new [learning-question business errors](LearningQuestions.md#erro
 
 ## Integration routes
 
-These routes require an integration service token (see [Authentication](#integration-authentication)). They answer `503` when `MeaningSubmissions:BookId` is not configured.
+These routes require an API key with the `meaning-submissions` scope (see [Authentication](#integration-authentication)). They answer `503` when `MeaningSubmissions:BookId` is not configured.
 
 ### `POST /integration/meaning-submissions`
 
@@ -78,14 +78,11 @@ These routes require the administrator role, like every `/admin` route.
 
 ## Integration authentication
 
-The client signs a short-lived RS256 JWT per request with its deployment private key and sends it as `Authorization: Bearer <token>`. Lexarbor accepts it only when:
-
-- the header `kid` names a key in the configured public-key ring and `alg` is `RS256`;
-- `iss`, `aud` and `sub` equal the configured values;
-- `iat`, `nbf` and `exp` each appear once, `exp - iat` is 1–60 seconds, `iat` is not more than 5 seconds in the future, and lifetime validation allows 5 seconds of skew;
-- the space-separated `scope` claim contains `meaning-submissions`.
-
-A missing or invalid token answers `401`; a valid token without the scope answers `403`. Administrator sessions and administrator Bearer tokens never authenticate integration routes, and integration tokens never authenticate administrator routes. Configuration is described in [Deployment](../development/Deployment.md#meaning-submissions).
+Send a Lexarbor-issued key with `meaning-submissions` scope in `X-Api-Key`.
+Lexarbor records its caller ID as the source when it creates a submission.
+Missing, invalid or revoked keys return `401`, and a valid key without the
+scope returns `403`. See [Business API keys](BusinessApiKeys.md) for issuance,
+rotation and migration from the former self-signed JWT.
 
 ## Enrichment after approval
 
@@ -247,7 +244,7 @@ permanent conclusion, submission status, catalog or AI work. Unknown records ret
 uncheck, batch action, undo or rollback API.
 
 Both routes require administrator Cookie+CSRF for writes or administrator Bearer;
-anonymous, ordinary and integration tokens cannot access them. Human verification
+anonymous callers, ordinary tokens and business API keys cannot access them. Human verification
 is independent of subsequent vocabulary edits/deletion and later AI conclusions.
 The submission list additionally accepts optional
 `reviewerKind=admin|ai|unknown` (unknown includes null legacy/pending/direct matches).

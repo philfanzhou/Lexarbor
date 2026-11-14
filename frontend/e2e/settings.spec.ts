@@ -5,8 +5,7 @@ const url = '**/admin/system/settings/rate-limits'
 const revision = '"1234567890abcdef1234567890abcdef"'
 const nextRevision = '"abcdef1234567890abcdef1234567890"'
 function state(enabled = false, source = 'default', editable = true) {
-  return { revision, adminLogin: { enabled: false, permitLimit: 7, windowSeconds: 120, source, editable },
-    publicApi: { enabled, permitLimit: 2, windowSeconds: 60, source: 'file', editable: true } }
+  return { revision, adminLogin: { enabled, permitLimit: 7, windowSeconds: 120, source, editable } }
 }
 function json(route: Route, value: unknown, status = 200) {
   return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(value) })
@@ -18,9 +17,9 @@ async function admin(page: Page) {
   await page.route('**/admin/auth/session', route => json(route, { username: 'ci-admin', roles: ['admin'] }))
   await page.route('**/admin/system/version', route => json(route, { version: '1.0.0', revision: null, channel: 'release' }))
   await page.route('**/admin/auth/logout', route => json(route, {}))
-  await page.route('**/api/vocabulary-books/all', route => json(route, { success: true, data: { books: [] } }))
+  await page.route('**/admin/vocabulary-books/active', route => json(route, { success: true, data: { books: [] } }))
 }
-const publicSwitch = (page: Page) => page.getByRole('checkbox', { name: '公共 API草稿开关' })
+const loginSwitch = (page: Page) => page.getByRole('checkbox', { name: '管理员登录草稿开关' })
 const save = (page: Page) => page.getByRole('button', { name: '保存限流设置' })
 
 test('settings defaults to reading rate limits and only loads the selected category', async ({ page }) => {
@@ -35,9 +34,9 @@ test('settings defaults to reading rate limits and only loads the selected categ
   const system = page.getByRole('link', { name: '系统设置', exact: true })
   await system.click()
   const categories = page.getByRole('navigation', { name: '设置分类' })
-  await expect(categories.getByRole('link')).toHaveText(['请求限流', '音频存储', '审核助手', '文本补齐', '语音生成', '后台策略'])
+  await expect(categories.getByRole('link')).toHaveText(['请求限流', '接入 API Key', '音频存储', '审核助手', '文本补齐', '语音生成', '后台策略'])
   await expect(categories.getByRole('link', { name: '请求限流' })).toHaveAttribute('aria-current', 'page')
-  await expect(publicSwitch(page)).not.toBeChecked()
+  await expect(loginSwitch(page)).not.toBeChecked()
   expect(requests).toEqual(['GET /admin/system/settings/rate-limits'])
 
   const audio = categories.getByRole('link', { name: '音频存储' })
@@ -46,7 +45,7 @@ test('settings defaults to reading rate limits and only loads the selected categ
   await expect(page).toHaveURL(/#\/settings\/audio-storage$/)
   await expect(audio).toHaveAttribute('aria-current', 'page')
   await expect(system).toHaveClass(/is-active/)
-  await expect(publicSwitch(page)).toHaveCount(0)
+  await expect(loginSwitch(page)).toHaveCount(0)
   await expect(page.getByRole('status', { name: '音频存储状态' })).toContainText('读取失败')
   expect(requests).toEqual(['GET /admin/system/settings/rate-limits', 'GET /admin/system/settings/audio-storage'])
 })
@@ -59,7 +58,7 @@ test('actual custom values, draft, If-Match and CSRF, GET confirmation and one s
   await page.route(url, async route => {
     if (route.request().method() === 'GET') { gets++; return json(route, current) }
     puts++
-    expect(route.request().postDataJSON()).toEqual({ publicApiEnabled: true })
+    expect(route.request().postDataJSON()).toEqual({ adminLoginEnabled: true })
     expect(route.request().headers()['if-match']).toBe(revision)
     expect(route.request().headers()['x-signacore-csrf']).toBeTruthy()
     await new Promise(resolve => setTimeout(resolve, 200))
@@ -68,9 +67,9 @@ test('actual custom values, draft, If-Match and CSRF, GET confirmation and one s
   })
   await page.goto('/#/settings')
   await expect(page.getByText('7 次 / 120 秒')).toBeVisible()
-  await publicSwitch(page).focus()
+  await loginSwitch(page).focus()
   await page.keyboard.press('Space')
-  await expect(page.getByText('当前生效：关闭')).toHaveCount(2)
+  await expect(page.getByText('当前生效：关闭')).toHaveCount(1)
   await save(page).click()
   await expect(save(page)).toBeDisabled()
   await expect(page.getByRole('status').first()).toHaveText('保存后已回读确认当前生效状态。')
@@ -84,11 +83,11 @@ for (const status of [400, 413, 503]) {
     await admin(page)
     await page.route(url, route => route.request().method() === 'GET' ? json(route, state()) : json(route, { message: 'Settings unavailable.' }, status))
     await page.goto('/#/settings')
-    await publicSwitch(page).check()
+    await loginSwitch(page).check()
     await save(page).click()
     await expect(page.getByRole('status').first()).toContainText(`保存失败（${status}）`)
-    await expect(publicSwitch(page)).toBeChecked()
-    await expect(page.getByText('当前生效：关闭')).toHaveCount(2)
+    await expect(loginSwitch(page)).toBeChecked()
+    await expect(page.getByText('当前生效：关闭')).toHaveCount(1)
     await expect(save(page)).toBeEnabled()
   })
 }
@@ -101,12 +100,12 @@ test('version conflict requires a fresh read and preserves draft', async ({ page
     return json(route, { ...state(), revision: reads > 1 ? nextRevision : revision })
   })
   await page.goto('/#/settings')
-  await publicSwitch(page).check()
+  await loginSwitch(page).check()
   await save(page).click()
   await expect(page.getByText('当前生效状态：未知', { exact: true })).toBeVisible()
   await expect(save(page)).toBeDisabled()
   await page.getByRole('button', { name: '重新读取', exact: true }).click()
-  await expect(publicSwitch(page)).toBeChecked()
+  await expect(loginSwitch(page)).toBeChecked()
   await expect(save(page)).toBeEnabled()
 })
 test('failed or malformed reads show unknown; retry shows actual and readonly sources', async ({ page }) => {
@@ -121,8 +120,8 @@ test('failed or malformed reads show unknown; retry shows actual and readonly so
   await page.getByRole('button', { name: '重新读取', exact: true }).click()
   await expect(page.getByRole('status').first()).toContainText('状态未知')
   await page.getByRole('button', { name: '重新读取', exact: true }).click()
-  await expect(publicSwitch(page)).toBeChecked()
-  await expect(page.getByRole('checkbox', { name: '管理员登录草稿开关' })).toBeDisabled()
+  await expect(loginSwitch(page)).toBeChecked()
+  await expect(loginSwitch(page)).toBeDisabled()
   await expect(page.getByText('环境变量覆盖（网页只读）')).toBeVisible()
 })
 test('lost PUT response is checked with GET without resubmitting', async ({ page }) => {
@@ -136,7 +135,7 @@ test('lost PUT response is checked with GET without resubmitting', async ({ page
     return route.abort('failed')
   })
   await page.goto('/#/settings')
-  await publicSwitch(page).check()
+  await loginSwitch(page).check()
   await save(page).click()
   await expect(page.getByRole('status').first()).toContainText('保存响应未确认，已重新读取')
   await expect(page.getByText('当前生效：开启')).toBeVisible()
@@ -153,24 +152,24 @@ test('lost save and failed confirmation stay unknown until retry', async ({ page
     return json(route, state(reads > 2))
   })
   await page.goto('/#/settings')
-  await publicSwitch(page).check()
+  await loginSwitch(page).check()
   await save(page).click()
   await expect(page.getByRole('status').first()).toContainText('保存结果未知，回读失败')
   await expect(save(page)).toBeDisabled()
   await page.getByRole('button', { name: '重新读取', exact: true }).click()
-  await expect(publicSwitch(page)).toBeChecked()
+  await expect(loginSwitch(page)).toBeChecked()
   await expect(page.getByText('当前生效：开启')).toBeVisible()
   expect(puts).toBe(1)
 })
 test('narrow screen and keyboard controls fit viewport', async ({ page }) => {
   await admin(page)
-  await page.route(url, route => json(route, state(false, 'commandLine', false)))
+  await page.route(url, route => json(route, state(false, 'file', true)))
   await page.setViewportSize({ width: 375, height: 812 })
   await page.goto('/#/settings')
   await expect(page.getByRole('link', { name: '系统设置' })).toBeVisible()
-  await publicSwitch(page).focus()
+  await loginSwitch(page).focus()
   await page.keyboard.press('Space')
-  await expect(publicSwitch(page)).toBeChecked()
+  await expect(loginSwitch(page)).toBeChecked()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })
 test('leaving cancels reads; late 401 cannot clear session', async ({ page }) => {
@@ -196,7 +195,7 @@ test('logout clears pending settings and late results cannot restore panel', asy
   await json(pending!, state(true)).catch(() => undefined)
   await expect(page.getByRole('heading', { name: '请求限流' })).toHaveCount(0)
 })
-for (const target of ['/settings', '/settings/speech']) {
+for (const target of ['/settings', '/settings/speech', '/settings/api-keys']) {
   test(`unauthorized navigation keeps the exact login return target ${target}`, async ({ page }) => {
     await page.route('**/admin/auth/session', route => json(route, { message: 'Unauthorized' }, 401))
     const start = `/admin/auth/start?returnUrl=${encodeURIComponent(target)}`
@@ -224,7 +223,7 @@ test('successful PUT with unavailable GET confirmation does not claim save failu
     return reads === 1 ? json(route, state()) : json(route, { message: 'Unavailable.' }, 503)
   })
   await page.goto('/#/settings')
-  await publicSwitch(page).check()
+  await loginSwitch(page).check()
   await save(page).click()
   await expect(page.getByRole('status').first()).toContainText('保存结果未知，回读失败')
   await expect(page.getByRole('status').first()).not.toContainText('保存失败')
