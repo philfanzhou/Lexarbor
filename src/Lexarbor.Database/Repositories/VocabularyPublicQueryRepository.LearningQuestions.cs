@@ -65,8 +65,8 @@ public sealed partial class VocabularyPublicQueryRepository
                       join book in context.VocabularyBooks.AsNoTracking() on item.BookId equals book.Id
                       where book.Status
                       select item;
-        var stemAnswers = from item in enabled
-                          join entry in words on item.VocabularyId equals entry.Id
+        var stemAnswers = from entry in words
+                          join item in enabled on entry.Id equals item.VocabularyId
                           where item.NormalizedMeaning.ToLower() == meaningKey
                           select entry.NormalizedWord;
         var targetMeanings = from item in enabled
@@ -74,8 +74,11 @@ public sealed partial class VocabularyPublicQueryRepository
                              where entry.NormalizedWord == wordKey
                              select item.NormalizedMeaning.ToLower();
         var otherWords = words.Where(entry => entry.NormalizedWord != wordKey);
+        // Seek by the candidate's spelling first, including duplicate catalog
+        // entries for it. Building a list of all answers would scan the meanings
+        // table because the normalized definition has no independent index.
         var eligible = chineseToEnglish
-            ? otherWords.Where(entry => !stemAnswers.Contains(entry.NormalizedWord))
+            ? otherWords.Where(entry => !stemAnswers.Any(answer => answer == entry.NormalizedWord))
             : otherWords;
         var answers = new ReviewOptions();
         var answerText = (chineseToEnglish ? word.Word : meaning.Meaning).Trim();
