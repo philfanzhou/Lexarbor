@@ -30,11 +30,10 @@ async function admin(page: Page) {
   await page.route('**/admin/auth/session', route => json(route, { username: 'ci-admin', roles: ['admin'] }))
   await page.route('**/admin/system/version', route => json(route, { version: '1.0.0', revision: null, channel: 'release' }))
   await page.route('**/admin/auth/logout', route => json(route, {}))
-  await page.route('**/api/vocabulary-books/all', route => json(route, { success: true, data: { books: [] } }))
+  await page.route('**/admin/vocabulary-books/active', route => json(route, { success: true, data: { books: [] } }))
   await page.route('**/admin/system/settings/audio-storage', route => json(route, {}, 503))
   await page.route('**/admin/system/settings/rate-limits', route => json(route, { revision,
-    adminLogin: { enabled: false, permitLimit: 10, windowSeconds: 300, source: 'default', editable: true },
-    publicApi: { enabled: false, permitLimit: 300, windowSeconds: 60, source: 'default', editable: true } }))
+    adminLogin: { enabled: false, permitLimit: 10, windowSeconds: 300, source: 'default', editable: true } }))
 }
 const tab = (page: Page, title: string) => page.getByRole('navigation', { name: '设置分类' }).getByRole('link', { name: title, exact: true })
 const save = (page: Page, title = '审核助手') => page.getByRole('button', { name: `保存${title}设置`, exact: true })
@@ -260,12 +259,11 @@ for (const other of ['panel', 'administrator'] as const) {
         if (route.request().method() === 'PUT') currentRevision = nextRevision
         return json(route, {
           revision: currentRevision,
-          adminLogin: { enabled: false, permitLimit: 10, windowSeconds: 300, source: 'default', editable: true },
-          publicApi: { enabled: currentRevision === nextRevision, permitLimit: 300, windowSeconds: 60, source: 'file', editable: true }
+          adminLogin: { enabled: currentRevision === nextRevision, permitLimit: 10, windowSeconds: 300, source: 'file', editable: true }
         })
       })
       await second.goto('/#/settings')
-      await second.getByLabel('公共 API草稿开关', { exact: true }).check()
+      await second.getByLabel('管理员登录草稿开关', { exact: true }).check()
       await second.getByRole('button', { name: '保存限流设置', exact: true }).click()
       await expect(second.getByRole('status')).toContainText('保存后已回读')
     } else {

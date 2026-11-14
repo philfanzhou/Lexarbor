@@ -587,7 +587,11 @@ sealed class PlaybackProbeHost(WebApplication app, HttpClient client, PlaybackPr
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
         builder.WebHost.ConfigureKestrel(server => server.Listen(IPAddress.Loopback, 0));
-        builder.Services.AddAuthorization(options => options.AddPolicy(AdminEndpointAuthorization.PolicyName, policy => policy.RequireRole("admin")));
+        builder.Services.AddAuthorization(options =>
+        {
+            options.AddPolicy(AdminEndpointAuthorization.PolicyName, policy => policy.RequireRole("admin"));
+            options.AddPolicy(BusinessApiAuthorization.Catalog, policy => policy.RequireClaim(BusinessApiAuthorization.ScopeClaim, BusinessApiAuthorization.Catalog));
+        });
         builder.Services.AddSingleton<IAudioReadRepository>(repository);
         builder.Services.AddSingleton<IAudioPublicReadRepository>(repository);
         var store = new PlaybackProbeStore(objectStore);
@@ -604,6 +608,8 @@ sealed class PlaybackProbeHost(WebApplication app, HttpClient client, PlaybackPr
         {
             if (context.Request.Path.StartsWithSegments("/admin"))
                 context.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Role, "admin")], "isolated-probe"));
+            else if (context.Request.Path.StartsWithSegments("/api"))
+                context.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(BusinessApiAuthorization.ScopeClaim, BusinessApiAuthorization.Catalog)], "isolated-probe"));
             await next(context);
         });
         app.UseAuthorization();

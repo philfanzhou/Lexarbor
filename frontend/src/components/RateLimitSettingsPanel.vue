@@ -4,12 +4,12 @@ import { useSettingsDraftGuard } from '@/router/settingsDraftGuard'
 import { sessionGeneration } from '@/services/authState'
 import { getApiError } from '@/services/apiError'
 import { readRateLimits, saveRateLimits } from '@/services/systemSettingsApi'
-import type { RateLimitChanges, RateLimitSettings } from '@/services/systemSettingsApi'
+import type { RateLimitSettings } from '@/services/systemSettingsApi'
 
 const lastRead = ref<RateLimitSettings | null>(null)
 const available = ref(false)
 const actual = computed(() => available.value ? lastRead.value : null)
-const draft = ref({ adminLogin: false, publicApi: false })
+const draft = ref(false)
 const busy = ref(false)
 const notice = ref('')
 const generation = sessionGeneration.value
@@ -17,23 +17,17 @@ let saving = false
 let active = true
 let controller: AbortController | null = null
 const current = () => active && generation === sessionGeneration.value
-const policies = [
-  { key: 'adminLogin' as const, label: '管理员登录', description: '登录发起请求 /admin/auth/start' },
-  { key: 'publicApi' as const, label: '公共 API', description: '公共浏览、出题和音频播放 /api/*' }
-]
 const sourceLabels = { default: '默认配置', file: '持久化文件', environment: '环境变量覆盖（网页只读）', commandLine: '启动参数覆盖（网页只读）' }
 const changed = computed(() => {
   const settings = lastRead.value
-  return settings !== null && policies.some(({ key }) => settings[key].editable && settings[key].enabled !== draft.value[key])
+  return settings !== null && settings.adminLogin.editable && settings.adminLogin.enabled !== draft.value
 })
 useSettingsDraftGuard(() => current() && !saving && changed.value)
 
 function adopt(value: RateLimitSettings, resetDraft = false) {
   const previous = lastRead.value
-  for (const { key } of policies) {
-    if (resetDraft || !previous || !value[key].editable || previous[key].enabled === draft.value[key]) {
-      draft.value[key] = value[key].enabled
-    }
+  if (resetDraft || !previous || !value.adminLogin.editable || previous.adminLogin.enabled === draft.value) {
+    draft.value = value.adminLogin.enabled
   }
   lastRead.value = value
   available.value = true
@@ -63,9 +57,7 @@ async function load() {
 async function save() {
   if (!current() || busy.value || !actual.value || !changed.value) return
   const previous = actual.value
-  const changes: RateLimitChanges = {}
-  if (previous.adminLogin.editable && previous.adminLogin.enabled !== draft.value.adminLogin) changes.adminLoginEnabled = draft.value.adminLogin
-  if (previous.publicApi.editable && previous.publicApi.enabled !== draft.value.publicApi) changes.publicApiEnabled = draft.value.publicApi
+  const changes = { adminLoginEnabled: draft.value }
   const signal = begin()
   saving = true
   notice.value = '正在保存，生效状态等待确认。'
@@ -110,7 +102,7 @@ function cancel() {
   controller?.abort()
   available.value = false
   lastRead.value = null
-  draft.value = { adminLogin: false, publicApi: false }
+  draft.value = false
 }
 watch(sessionGeneration, cancel, { flush: 'sync' })
 onBeforeUnmount(cancel)
@@ -121,18 +113,18 @@ onMounted(() => { void load() })
   <el-card class="rate-limit-settings" shadow="never">
     <section aria-labelledby="settings-heading">
       <h2 id="settings-heading">请求限流</h2>
-      <p>两个开关独立生效。次数与窗口只读，按客户端地址共享额度；关闭后重开不会重置当前窗口。</p>
+      <p>登录发起请求按客户端地址计数。次数与窗口只读。关闭后重新开启会继续使用当前窗口。</p>
       <p role="status" aria-live="polite">{{ notice || '正在读取当前生效状态…' }}</p>
       <p v-if="!actual">当前生效状态：未知</p>
-      <div v-for="policy in policies" :key="policy.key" class="policy-row">
-        <h3>{{ policy.label }}</h3>
-        <p>{{ policy.description }}</p>
+      <div class="policy-row">
+        <h3>管理员登录</h3>
+        <p>登录发起请求 /admin/auth/start</p>
         <template v-if="actual">
-          <p>当前生效：<strong>{{ actual[policy.key].enabled ? '开启' : '关闭' }}</strong></p>
-          <p>{{ actual[policy.key].permitLimit }} 次 / {{ actual[policy.key].windowSeconds }} 秒 · {{ sourceLabels[actual[policy.key].source] }}</p>
+          <p>当前生效：<strong>{{ actual.adminLogin.enabled ? '开启' : '关闭' }}</strong></p>
+          <p>{{ actual.adminLogin.permitLimit }} 次 / {{ actual.adminLogin.windowSeconds }} 秒 · {{ sourceLabels[actual.adminLogin.source] }}</p>
           <label>
-            <input v-model="draft[policy.key]" type="checkbox" :disabled="busy || !actual[policy.key].editable" :aria-label="`${policy.label}草稿开关`">
-            草稿：{{ draft[policy.key] ? '开启' : '关闭' }}
+            <input v-model="draft" type="checkbox" :disabled="busy || !actual.adminLogin.editable" aria-label="管理员登录草稿开关">
+            草稿：{{ draft ? '开启' : '关闭' }}
           </label>
         </template>
       </div>

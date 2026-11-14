@@ -1,7 +1,7 @@
 # System settings
 
-The administrator page at `/#/settings` displays effective request ceilings, their
-configuration source, and separate unsaved switch drafts. A failed read means
+The administrator page at `/#/settings` displays the effective administrator login ceiling, its
+configuration source, and the unsaved switch draft. A failed read means
 **unknown**, never disabled. Numeric limits and windows are read-only; change them
 offline and restart. The same page also manages S3 storage, the review assistant and autonomous enrichment.
 
@@ -19,30 +19,23 @@ offline and restart. The same page also manages S3 storage, the review assistant
     "windowSeconds": 300,
     "source": "default",
     "editable": true
-  },
-  "publicApi": {
-    "enabled": false,
-    "permitLimit": 300,
-    "windowSeconds": 60,
-    "source": "default",
-    "editable": true
   }
 }
 ```
 
 `ETag` equals the opaque `revision`, including its quotes. `source` describes the
 switch: `default`, `file`, `environment`, or `commandLine`. The latter two sources
-have `editable: false`; the other switch may still be saved independently. The
+have `editable: false`. The
 numeric values are the effective startup configuration, including invalid values
 when disabled. A disabled policy with invalid numbers cannot be enabled online.
 
-`PUT /admin/system/settings/rate-limits` accepts at least one boolean field:
+`PUT /admin/system/settings/rate-limits` accepts one boolean field:
 
 ```json
-{ "adminLoginEnabled": true, "publicApiEnabled": false }
+{ "adminLoginEnabled": true }
 ```
 
-Omitted switches retain their effective values. Unknown or duplicate fields,
+Unknown or duplicate fields,
 non-booleans, and an empty object are rejected. Supply the current **strong**
 `If-Match` value exactly as returned by GET. A successful PUT returns the same
 shape as GET and an ETag for that response snapshot. All setting reads and writes
@@ -69,16 +62,14 @@ a save in another module invalidates an older settings page.
 
 ## Persistence and runtime behavior
 
-Both ceilings default to disabled. Enabling uses the existing ServiceMantle
+The login ceiling defaults to disabled. Enabling uses the existing ServiceMantle
 named policy and per-client-address sliding-window bucket. Publishing a change
 applies to requests that enter the limit pipeline afterwards; an in-flight
 request keeps its decision. Disabling skips the policy, consumes no permits,
 and does not add that policy's Retry-After. Re-enabling retains a still-live
-bucket and does not reset consumed permits. Login and public API budgets remain
-independent. Only `/admin/auth/start` and `/api/*` are metered; unknown public
-routes, browsing, question batches, and audio playback share the public budget.
-Callback, logout, health, SPA, administrator business, and settings routes remain
-unmetered. Audio upload concurrency/queue admission is a separate unchanged guard.
+bucket and does not reset consumed permits. Only `/admin/auth/start` is metered.
+Audio upload concurrency and queue admission are separate from this setting.
+The retired `publicApi` response field and `publicApiEnabled` switch are removed.
 
 A save modifies only allowed settings in `<contentRoot>/data/appsettings.json`
 (`/app/data/appsettings.json` in containers), preserving unrelated JSON fields.
@@ -96,7 +87,7 @@ and reads back after saving. A lost PUT response may mean the file was committed
 it displays an unknown outcome and performs GET, never automatically resubmits.
 If confirmation fails, retry the read and compare the current state with the draft.
 Leaving the page or logging out aborts reads and discards drafts. Drafts live in
-memory. Hosted login accepts the six exact routes listed in the
+memory. Hosted login accepts the exact settings routes listed in the
 [frontend route table](../frontend/README.md#routes).
 
 These are process-local request ceilings, not distributed quotas or DDoS protection.

@@ -103,16 +103,16 @@ public class HealthEndpointTests
     }
 
     [Fact]
-    public async Task HealthRoutes_AreAnonymousAndOutsideThePublicApiCeiling()
+    public async Task HealthRoutes_AreAnonymousAndOutsideTheAdminLoginCeiling()
     {
         await using var factory = new VocabularyWebApplicationFactory(
             environment: "Testing",
             includeAppCredentials: true,
             extraConfiguration: new Dictionary<string, string?>
             {
-                ["RateLimits:PublicApi:Enabled"] = "true",
-                ["RateLimits:PublicApi:PermitLimit"] = "1",
-                ["RateLimits:PublicApi:WindowSeconds"] = "300"
+                ["RateLimits:AdminLogin:Enabled"] = "true",
+                ["RateLimits:AdminLogin:PermitLimit"] = "1",
+                ["RateLimits:AdminLogin:WindowSeconds"] = "300"
             });
         using var client = factory.CreateClient();
 

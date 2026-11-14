@@ -13,7 +13,7 @@ async function open(page: Page) {
   await page.route('**/admin/auth/session', route => json(route, { success: true, data: { username: 'admin', roles: ['admin'] } }))
   await mockAntiforgery(page)
   await page.route('**/admin/system/version', route => json(route, { success: true, data: { version: '1', revision: null, channel: 'test' } }))
-  await page.route('**/api/vocabulary-books/all', route => json(route, { success: true, data: { books } }))
+  await page.route('**/admin/vocabulary-books/active', route => json(route, { success: true, data: { books } }))
   await page.goto('/#/import/phrase')
   await expect(page.getByRole('heading', { name: '新增短语' })).toBeVisible()
 }

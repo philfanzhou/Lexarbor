@@ -4,17 +4,15 @@ using Lexarbor.Service.Dtos;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Routing;
 
 namespace Lexarbor.Service;
 
 public static class AudioPublicPlaybackEndpoints
 {
-    public static void MapAudioPublicPlaybackEndpoints(this IEndpointRouteBuilder app,
-        string? publicApiRateLimitPolicy = null)
+    public static void MapAudioPublicPlaybackEndpoints(this IEndpointRouteBuilder app)
     {
-        var endpoint = app.MapGet("/api/vocabulary/{wordId}/audio", async (HttpContext context, string wordId,
+        app.MapGet("/api/vocabulary/{wordId}/audio", async (HttpContext context, string wordId,
             [FromQuery] string? bookId, [FromQuery] string? meaningId, [FromQuery] string? locale,
             IAudioPlaybackOperationFactory operations, CancellationToken cancellationToken) =>
         {
@@ -37,8 +35,7 @@ public static class AudioPublicPlaybackEndpoints
                 });
             }
             catch (AudioPlaybackUnavailableException) { return Error(503, "Audio storage is unavailable."); }
-        });
-        if (!string.IsNullOrWhiteSpace(publicApiRateLimitPolicy)) endpoint.RequireRateLimiting(publicApiRateLimitPolicy);
+        }).RequireAuthorization(BusinessApiAuthorization.Catalog);
     }
     private static IResult Error(int status, string message)
         => Results.Json(new { success = false, message }, statusCode: status);

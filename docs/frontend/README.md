@@ -21,6 +21,7 @@
 | `/phrases` | Administrator | Phrase positions by book, unit, section, and keyword |
 | `/submissions` | Administrator | Meaning submission review queue |
 | `/settings` | Administrator | System settings, open to Request limits |
+| `/settings/api-keys` | Administrator | Issue, list and revoke integration API keys |
 | `/settings/audio-storage` | Administrator | S3 storage for audio assets |
 | `/settings/review` | Administrator | Review assistant and automatic review |
 | `/settings/text` | Administrator | Field enrichment and pronunciation preparation |
@@ -83,7 +84,7 @@ The Axios response interceptor runs the global 401/403 handling before any compo
 
 SignaCore's hosted pages are the only administrator sign-in, so the login page renders exactly one sign-in action and never asks for a password. The frontend orchestrates navigations only; every protocol value — state, nonce, PKCE verifier, code, access token, ID token, client secret — stays server-side and never enters a browser request, the URL the app controls, or web storage.
 
-The **使用 SignaCore 登录** button runs a top-level navigation to this site's `GET /admin/auth/start`, forwarding the current `redirect` query as `returnUrl` only when it exactly matches the backend's route allowlist (the six System settings routes listed above, `/enrichment`, `/books`, `/vocabulary`, `/phrases`, `/import`, `/import/phrase`, `/import/batch`, or `/books/<id>/words` with a safe id); otherwise the parameter is omitted and the backend default applies. One activation begins exactly one navigation: the button turns busy and a second activation is a no-op. The provider round trip and the callback are backend-driven; on success the browser lands on the stored return page, where the ordinary route guard's `GET /admin/auth/session` restore establishes the username, roles, and the one version request.
+The **使用 SignaCore 登录** button runs a top-level navigation to this site's `GET /admin/auth/start`, forwarding the current `redirect` query as `returnUrl` only when it exactly matches the backend's route allowlist (the System settings routes listed above, `/enrichment`, `/books`, `/vocabulary`, `/phrases`, `/import`, `/import/phrase`, `/import/batch`, or `/books/<id>/words` with a safe id); otherwise the parameter is omitted and the backend default applies. One activation begins exactly one navigation: the button turns busy and a second activation is a no-op. The provider round trip and the callback are backend-driven; on success the browser lands on the stored return page, where the ordinary route guard's `GET /admin/auth/session` restore establishes the username, roles, and the one version request.
 
 The login page consumes the six fixed `reason` values of the callback and logout-return routes as exactly one notice each, and ignores an unknown value harmlessly:
 
@@ -386,18 +387,23 @@ Opening the tab reads the current state without changing either switch.
 The other five tabs have their own URLs and can be bookmarked. Each tab loads its
 settings when opened and has its own save and reread controls. The four review
 and enrichment tabs use the shared settings endpoint and submit only the changed
-fields on the current tab. Hosted login accepts each of the six exact routes.
+fields on the current tab. Hosted login accepts the settings paths listed above.
 
 Switching tabs or following another link inside the admin app prompts before
 discarding unsubmitted changes. Staying preserves the draft. Leaving clears the
 draft, including any secret inputs, and cancels pending requests. Signing out
 clears drafts immediately.
 
-The Request limits tab shows the effective login and public API ceilings and
+The Request limits tab shows the effective administrator login ceiling and
 configuration sources. Environment and command-line overrides are read-only.
 Save uses strong If-Match and CSRF, blocks duplicates, then confirms by GET.
 A lost response triggers read-back without resubmitting. If a read fails, the tab
 shows an unknown state and offers a retry. See [System settings API](../api/SystemSettings.md).
+
+The **接入 API Key** tab lists issued key metadata and lets administrators issue
+or revoke credentials. The plain key appears only in the issuance result. It
+is cleared on dismissal, navigation or logout. The import pickers fetch enabled
+books using the administrator session. See [Business API keys](../api/BusinessApiKeys.md).
 
 ### Audio storage (S3)
 

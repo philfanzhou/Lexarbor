@@ -12,6 +12,7 @@ export {}
 declare module 'vue' {
   export interface GlobalComponents {
     AudioStorageSettingsPanel: typeof import('./src/components/AudioStorageSettingsPanel.vue')['default']
+    BusinessApiKeysPanel: typeof import('./src/components/BusinessApiKeysPanel.vue')['default']
     ElAlert: typeof import('element-plus/es')['ElAlert']
     ElButton: typeof import('element-plus/es')['ElButton']
     ElCard: typeof import('element-plus/es')['ElCard']

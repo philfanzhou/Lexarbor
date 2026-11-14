@@ -85,7 +85,7 @@ public sealed class PersistentConfigurationCoordinatorTests : IDisposable
             Task.FromResult<PreparedConfigurationChange?>(new(() => published++));
         var results = await Task.WhenAll(
             coordinator.SaveAsync(revision, Switch("Audio:Enabled", true), Candidate, Ct),
-            coordinator.SaveAsync(revision, Switch("RateLimits:PublicApi:Enabled", true), Candidate, Ct));
+            coordinator.SaveAsync(revision, Switch("RateLimits:AdminLogin:Enabled", true), Candidate, Ct));
         Assert.Single(results, result => result.Status == ConfigurationSaveStatus.Success);
         Assert.Single(results, result => result.Status == ConfigurationSaveStatus.Conflict);
         Assert.Equal(1, published);
@@ -203,7 +203,7 @@ public sealed class PersistentConfigurationCoordinatorTests : IDisposable
             var blocked = await coordinator.SaveAsync(read.Revision, Switch("Audio:Enabled", false), Prepare, Ct);
             Assert.Equal(ConfigurationSaveStatus.Overridden, blocked.Status);
             Assert.Equal(["Audio:Enabled"], blocked.OverriddenFields);
-            var saved = await coordinator.SaveAsync(read.Revision, Switch("RateLimits:PublicApi:Enabled", true), (candidate, _) =>
+            var saved = await coordinator.SaveAsync(read.Revision, Switch("Enrichment:AudioEnabled", true), (candidate, _) =>
             {
                 Assert.True(candidate.GetValue<bool>("Audio:Enabled"));
                 Assert.True(candidate.GetValue<bool>("RateLimits:AdminLogin:Enabled"));
@@ -417,12 +417,12 @@ public sealed class PersistentConfigurationCoordinatorTests : IDisposable
             Assert.True(read.StorageAvailable);
             Assert.Equal(ConfigurationValueSource.File, read.Sources["Audio:Enabled"].Source);
             Assert.Equal(ConfigurationSaveStatus.Success,
-                (await coordinator.SaveAsync(read.Revision, Switch("RateLimits:PublicApi:Enabled", true), Prepare, Ct)).Status);
+                (await coordinator.SaveAsync(read.Revision, Switch("RateLimits:AdminLogin:Enabled", true), Prepare, Ct)).Status);
         }
 
         using var restarted = new TestInfrastructure.VocabularyWebApplicationFactory("Testing", true, contentRootPath: _root);
         var restartedConfiguration = restarted.Services.GetRequiredService<IConfiguration>();
-        Assert.True(restartedConfiguration.GetValue<bool>("RateLimits:PublicApi:Enabled"));
+        Assert.True(restartedConfiguration.GetValue<bool>("RateLimits:AdminLogin:Enabled"));
         Assert.False(restartedConfiguration.GetValue<bool>("Audio:Enabled"));
         Assert.Equal("保留🌳", restartedConfiguration["Unknown:Value"]);
         Assert.True((await restarted.Services.GetRequiredService<PersistentConfigurationCoordinator>().ReadAsync(Ct)).StorageAvailable);

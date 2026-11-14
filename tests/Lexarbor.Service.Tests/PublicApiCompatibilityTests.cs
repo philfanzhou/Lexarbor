@@ -20,10 +20,11 @@ public class PublicApiCompatibilityTests :
     }
 
     [Fact]
-    public async Task Detail_RemainsAnonymousWithExistingEnvelopeShape()
+    public async Task Detail_KeepsExistingEnvelopeShape()
     {
         var data = await SeedCompleteBookAsync();
         using var client = _factory.CreateClient();
+        await client.UseCatalogKeyAsync(_factory);
 
         var response = await client.GetAsync(
             $"/api/vocabulary/{data.WordId}?bookId={data.BookId}",
@@ -59,6 +60,7 @@ public class PublicApiCompatibilityTests :
     {
         var data = await SeedCompleteBookAsync();
         using var client = _factory.CreateClient();
+        await client.UseCatalogKeyAsync(_factory);
         client.DefaultRequestHeaders.Authorization = new("Bearer", _factory.CreateToken("admin"));
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
@@ -96,9 +98,10 @@ public class PublicApiCompatibilityTests :
     }
 
     [Fact]
-    public async Task Search_RemainsAnonymousWithExistingEnvelopeShape()
+    public async Task Search_KeepsExistingEnvelopeShape()
     {
         using var client = _factory.CreateClient();
+        await client.UseCatalogKeyAsync(_factory);
 
         var response = await client.GetAsync(
             "/api/vocabulary?keyword=compatibility&page=1&size=20",
@@ -115,10 +118,11 @@ public class PublicApiCompatibilityTests :
     }
 
     [Fact]
-    public async Task Question_RemainsAnonymousWithExistingEnvelopeShape()
+    public async Task Question_KeepsExistingEnvelopeShape()
     {
         var data = await SeedCompleteBookAsync();
         using var client = _factory.CreateClient();
+        await client.UseCatalogKeyAsync(_factory);
 
         var response = await client.PostAsJsonAsync(
             "/api/vocabulary/question",
@@ -143,6 +147,7 @@ public class PublicApiCompatibilityTests :
     {
         var data = await SeedCompleteBookAsync();
         using var client = _factory.CreateClient();
+        await client.UseCatalogKeyAsync(_factory);
 
         // The request a caller sent before the scope fields existed: the
         // direction falls to the server's draw and the answer still holds four
@@ -172,10 +177,11 @@ public class PublicApiCompatibilityTests :
     }
 
     [Fact]
-    public async Task QuestionBatch_RemainsAnonymousWithEnvelopeShape()
+    public async Task QuestionBatch_KeepsEnvelopeShape()
     {
         var data = await SeedCompleteBookAsync();
         using var client = _factory.CreateClient();
+        await client.UseCatalogKeyAsync(_factory);
 
         var response = await client.PostAsJsonAsync(
             "/api/vocabulary/questions",
@@ -204,9 +210,10 @@ public class PublicApiCompatibilityTests :
     }
 
     [Fact]
-    public async Task Books_RemainsAnonymousWithExistingEnvelopeShape()
+    public async Task Books_KeepsExistingEnvelopeShape()
     {
         using var client = _factory.CreateClient();
+        await client.UseCatalogKeyAsync(_factory);
 
         var response = await client.GetAsync("/api/vocabulary-books/all",
             TestContext.Current.CancellationToken);
@@ -224,10 +231,11 @@ public class PublicApiCompatibilityTests :
     }
 
     [Fact]
-    public async Task BookUnits_RemainAnonymousWithEnvelopeShape()
+    public async Task BookUnits_KeepEnvelopeShape()
     {
         var data = await SeedCompleteBookAsync();
         using var client = _factory.CreateClient();
+        await client.UseCatalogKeyAsync(_factory);
 
         var response = await client.GetAsync(
             $"/api/vocabulary-books/{data.BookId}/units",
@@ -245,10 +253,11 @@ public class PublicApiCompatibilityTests :
     }
 
     [Fact]
-    public async Task BookEntries_RemainAnonymousWithEnvelopeShape()
+    public async Task BookEntries_KeepEnvelopeShape()
     {
         var data = await SeedCompleteBookAsync();
         using var client = _factory.CreateClient();
+        await client.UseCatalogKeyAsync(_factory);
 
         var response = await client.GetAsync(
             $"/api/vocabulary-books/{data.BookId}/entries?page=1&size=20",

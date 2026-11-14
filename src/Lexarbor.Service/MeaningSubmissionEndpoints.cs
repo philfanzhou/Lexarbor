@@ -12,26 +12,21 @@ using Microsoft.AspNetCore.Routing;
 namespace Lexarbor.Service;
 
 /// <summary>
-/// The integration surface (<c>/integration/meaning-submissions</c>, service
-/// tokens with the <c>meaning-submissions</c> scope) and the administrator review
+/// The integration surface (<c>/integration/meaning-submissions</c>, API
+/// keys with the <c>meaning-submissions</c> scope) and the administrator review
 /// surface (<c>/admin/meaning-submissions</c>).
 /// </summary>
 public static class MeaningSubmissionEndpoints
 {
-    /// <summary>The policy the Host binds to the integration authentication scheme.</summary>
-    public const string IntegrationPolicyName = "Lexarbor.Integration.MeaningSubmissions";
-
-    public const string IntegrationScope = "meaning-submissions";
-
     public static void MapMeaningSubmissionIntegrationEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/integration/meaning-submissions").RequireAuthorization(IntegrationPolicyName);
+        var group = app.MapGroup("/integration/meaning-submissions").RequireBusinessApiScope(BusinessApiAuthorization.MeaningSubmissions);
         group.MapPost("/{id}/learning-question", LearningQuestionEndpoints.Submission);
         group.MapPost("", async ([FromBody] MeaningSubmissionCreateRequest request, ClaimsPrincipal user,
             MeaningSubmissionService service, CancellationToken cancellationToken) =>
         {
             if (!service.IsConfigured) return NotConfigured();
-            var source = user.FindFirst("sub")?.Value ?? string.Empty;
+            var source = user.FindFirst(BusinessApiAuthorization.CallerClaim)!.Value;
             var submission = await service.SubmitAsync(
                 source, request.Word, request.PartOfSpeech, request.Meaning, request.Example, cancellationToken);
             return VocabularyHttpResponse.Ok(MeaningSubmissionDto.From(submission));
@@ -39,7 +34,7 @@ public static class MeaningSubmissionEndpoints
         app.MapGet("/integration/vocabulary/search", async ([FromQuery] string? keyword,
             MeaningSubmissionService service, CancellationToken cancellationToken) =>
             VocabularyHttpResponse.Ok(new { items = await service.SearchCatalogAsync(keyword, cancellationToken) }))
-            .RequireAuthorization(IntegrationPolicyName);
+            .RequireAuthorization(BusinessApiAuthorization.MeaningSubmissions);
         group.MapPost("/lookup", async ([FromBody] MeaningSubmissionLookupRequest request,
             MeaningSubmissionService service, CancellationToken cancellationToken) =>
         {

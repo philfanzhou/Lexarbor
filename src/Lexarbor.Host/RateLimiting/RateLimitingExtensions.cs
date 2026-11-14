@@ -10,7 +10,6 @@ namespace Lexarbor.Host.RateLimiting;
 public static class RateLimitingExtensions
 {
     public const string AdminLoginPolicy = "admin-login";
-    public const string PublicApiPolicy = "public-api";
 
     public static void AddLexarborRateLimiting(
         this ServiceMantleBuilder serviceMantle,
@@ -19,19 +18,13 @@ public static class RateLimitingExtensions
         // Valid placeholders survive disabled policies. Options bind after the
         // test host's late configuration, before the shared startup snapshot.
         var adminLogin = new SharedPolicy { PermitLimit = 10, Window = TimeSpan.FromSeconds(300) };
-        var publicApi = new SharedPolicy { PermitLimit = 300, Window = TimeSpan.FromSeconds(60) };
         serviceMantle.AddRateLimiting(options =>
         {
             options.ConsumerPolicies.Add(AdminLoginPolicy, adminLogin);
-            options.ConsumerPolicies.Add(PublicApiPolicy, publicApi);
         });
         serviceMantle.Services.AddOptions<RateLimitOptions>()
             .Bind(configuration.GetSection(RateLimitOptions.SectionName))
-            .PostConfigure(options =>
-            {
-                Apply(options.AdminLogin, adminLogin);
-                Apply(options.PublicApi, publicApi);
-            });
+            .PostConfigure(options => Apply(options.AdminLogin, adminLogin));
     }
 
     private static void Apply(RateLimitPolicyOptions configured, SharedPolicy shared)
@@ -54,12 +47,7 @@ public static class RateLimitingExtensions
             if (metadata?.GetMetadata<DisableRateLimitingAttribute>() is not null) return false;
             var policy = metadata?.GetMetadata<EnableRateLimitingAttribute>()?.PolicyName;
             var snapshot = context.RequestServices.GetRequiredService<RateLimitRuntime>().Current;
-            return policy switch
-            {
-                AdminLoginPolicy => snapshot.AdminLogin.Enabled,
-                PublicApiPolicy => snapshot.PublicApi.Enabled,
-                _ => true
-            };
+            return policy != AdminLoginPolicy || snapshot.AdminLogin.Enabled;
         }, branch =>
         {
             branch.UseLexarborRateLimitRetryAfter();
@@ -74,12 +62,10 @@ public static class RateLimitingExtensions
             var metadata = context.GetEndpoint()?.Metadata;
             var policy = metadata?.GetMetadata<EnableRateLimitingAttribute>()?.PolicyName;
             if (metadata?.GetMetadata<DisableRateLimitingAttribute>() is null
-                && policy is AdminLoginPolicy or PublicApiPolicy)
+                && policy == AdminLoginPolicy)
             {
                 var options = context.RequestServices.GetRequiredService<IOptions<RateLimitOptions>>().Value;
-                var seconds = policy == AdminLoginPolicy
-                    ? options.AdminLogin.WindowSeconds
-                    : options.PublicApi.WindowSeconds;
+                var seconds = options.AdminLogin.WindowSeconds;
                 context.Response.OnStarting(() =>
                 {
                     // Sliding-window leases currently omit RetryAfter metadata.

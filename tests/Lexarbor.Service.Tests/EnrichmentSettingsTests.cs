@@ -241,7 +241,7 @@ public sealed partial class EnrichmentSettingsTests : IDisposable
         foreach (var revision in new[] { "*", "W/" + Revision(state), Revision(state) + ", " + Revision(state) })
             Assert.Equal(HttpStatusCode.BadRequest, (await Put(client, revision, """{"enrichment":{"concurrency":2}}""")).StatusCode);
         Assert.Equal(HttpStatusCode.RequestEntityTooLarge, (await Put(client, Revision(state), new string(' ', 17000))).StatusCode);
-        using var other = new HttpRequestMessage(HttpMethod.Put, "/admin/system/settings/rate-limits") { Content = JsonContent.Create(new { publicApiEnabled = true }) };
+        using var other = new HttpRequestMessage(HttpMethod.Put, "/admin/system/settings/rate-limits") { Content = JsonContent.Create(new { adminLoginEnabled = true }) };
         other.Headers.TryAddWithoutValidation("If-Match", Revision(state));
         var results = await Task.WhenAll(Put(client, Revision(state), """{"enrichment":{"concurrency":2}}"""), client.SendAsync(other, Ct));
         Assert.Single(results, r => r.StatusCode == HttpStatusCode.OK); Assert.Single(results, r => r.StatusCode == HttpStatusCode.PreconditionFailed);

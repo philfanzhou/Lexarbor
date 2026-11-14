@@ -79,6 +79,8 @@ public class VocabularyDbContext : DbContext
     public DbSet<EnrichmentServiceEntity> EnrichmentServices { get; set; } = null!;
     public DbSet<EnrichmentServiceProbeEntity> EnrichmentServiceProbes { get; set; } = null!;
 
+    public DbSet<BusinessApiKeyEntity> BusinessApiKeys { get; set; } = null!;
+
     public DbSet<AdminSessionEntity> AdminSessions { get; set; } = null!;
 
     public DbSet<MeaningSubmissionEntity> MeaningSubmissions { get; set; } = null!;
@@ -106,6 +108,18 @@ public class VocabularyDbContext : DbContext
         modelBuilder.Entity<AdminSessionEntity>(entity =>
         {
             entity.HasIndex(e => new { e.ExpiresAtUnixMs, e.HandleHash });
+        });
+
+        modelBuilder.Entity<BusinessApiKeyEntity>(entity =>
+        {
+            entity.HasIndex(key => key.SecretHash).IsUnique();
+            entity.ToTable(table =>
+            {
+                table.HasCheckConstraint("CK_business_api_key_hash", "length(secret_hash) = 64 AND secret_hash NOT GLOB '*[^0-9a-f]*'");
+                table.HasCheckConstraint("CK_business_api_key_caller", "length(caller_id) BETWEEN 1 AND 2048");
+                table.HasCheckConstraint("CK_business_api_key_scopes", "catalog IN (0, 1) AND meaning_submissions IN (0, 1) AND (catalog = 1 OR meaning_submissions = 1)");
+                table.HasCheckConstraint("CK_business_api_key_times", "created_at_unix_ms >= 0 AND (revoked_at_unix_ms IS NULL OR revoked_at_unix_ms >= created_at_unix_ms)");
+            });
         });
 
         modelBuilder.Entity<VocabularyEntity>(entity =>

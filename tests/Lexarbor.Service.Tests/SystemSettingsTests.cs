@@ -45,46 +45,38 @@ public sealed class SystemSettingsTests : IDisposable
         Assert.Equal(result.Revision, response.Headers.ETag?.ToString());
         return result;
     }
-    private static Task<HttpResponseMessage> Put(HttpClient client, string? revision, string json = "{\"publicApiEnabled\":true}")
+    private static Task<HttpResponseMessage> Put(HttpClient client, string? revision, string json = "{\"adminLoginEnabled\":true}")
     {
         var request = new HttpRequestMessage(HttpMethod.Put, PathUrl) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
         if (revision is not null) request.Headers.TryAddWithoutValidation("If-Match", revision);
         return client.SendAsync(request, Ct);
     }
-    private static Task<HttpResponseMessage> Request(HttpClient client, string path, string method = "GET")
+    private static Task<HttpResponseMessage> Request(HttpClient client, string path)
     {
-        var request = new HttpRequestMessage(new HttpMethod(method), path);
+        var request = new HttpRequestMessage(HttpMethod.Get, path);
         request.Headers.Add(VocabularyWebApplicationFactory.ClientAddressHeader, "203.0.113.81");
-        if (method == "POST") request.Content = JsonContent.Create(new { items = new[] { new { wordId = "missing", bookId = "missing" } } });
         return client.SendAsync(request, Ct);
     }
 
-    [Theory]
-    [InlineData("publicApiEnabled", "/api/unknown", "GET", "/admin/auth/start")]
-    [InlineData("publicApiEnabled", "/api/vocabulary-books/all", "GET", "/admin/auth/start")]
-    [InlineData("publicApiEnabled", "/api/vocabulary/questions", "POST", "/admin/auth/start")]
-    [InlineData("publicApiEnabled", "/api/vocabulary/missing/audio?bookId=missing", "GET", "/admin/auth/start")]
-    [InlineData("adminLoginEnabled", "/ADMIN/AUTH/START/", "GET", "/api/unknown")]
-    public async Task LiveSwitch_UsesConfiguredQuotaAndRetainsBucketAcrossDisable(string field, string path, string method, string other)
+    [Fact]
+    public async Task LiveSwitch_UsesConfiguredQuotaAndRetainsBucketAcrossDisable()
     {
+        const string path = "/ADMIN/AUTH/START/";
         using var factory = Factory(new()
         {
             ["RateLimits:AdminLogin:PermitLimit"] = "1",
-            ["RateLimits:PublicApi:PermitLimit"] = "1",
-            ["RateLimits:AdminLogin:WindowSeconds"] = "600",
-            ["RateLimits:PublicApi:WindowSeconds"] = "600"
+            ["RateLimits:AdminLogin:WindowSeconds"] = "600"
         });
         using var client = Admin(factory);
         Assert.Equal(FilePath, factory.Services.GetRequiredService<PersistentConfigurationFileStore>().FilePath);
         var initial = await Read(client);
         Assert.False(initial.AdminLogin.Enabled);
-        Assert.False(initial.PublicApi.Enabled);
         Assert.False(File.Exists(FilePath));
-        for (var i = 0; i < 3; i++) Assert.NotEqual(HttpStatusCode.TooManyRequests, (await Request(client, path, method)).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await Put(client, initial.Revision, $"{{\"{field}\":true}}")).StatusCode);
-        Assert.NotEqual(HttpStatusCode.TooManyRequests, (await Request(client, path, method)).StatusCode);
-        Assert.Equal(HttpStatusCode.TooManyRequests, (await Request(client, path, method)).StatusCode);
-        Assert.NotEqual(HttpStatusCode.TooManyRequests, (await Request(client, other)).StatusCode);
+        for (var i = 0; i < 3; i++) Assert.NotEqual(HttpStatusCode.TooManyRequests, (await Request(client, path)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await Put(client, initial.Revision, "{\"adminLoginEnabled\":true}")).StatusCode);
+        Assert.NotEqual(HttpStatusCode.TooManyRequests, (await Request(client, path)).StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, (await Request(client, path)).StatusCode);
+        Assert.NotEqual(HttpStatusCode.TooManyRequests, (await Request(client, "/api/unknown")).StatusCode);
         foreach (var unmetered in new[] { PathUrl, "/admin/auth/callback", "/admin/auth/logout/return", "/health/live", "/health/ready", "/admin/system/version" })
         {
             var response = await Request(client, unmetered);
@@ -92,28 +84,26 @@ public sealed class SystemSettingsTests : IDisposable
             Assert.False(response.Headers.Contains("Retry-After"));
         }
         var enabled = await Read(client);
-        Assert.Equal(HttpStatusCode.OK, (await Put(client, enabled.Revision, $"{{\"{field}\":false}}")).StatusCode);
-        var disabledResponse = await Request(client, path, method);
+        Assert.Equal(HttpStatusCode.OK, (await Put(client, enabled.Revision, "{\"adminLoginEnabled\":false}")).StatusCode);
+        var disabledResponse = await Request(client, path);
         Assert.NotEqual(HttpStatusCode.TooManyRequests, disabledResponse.StatusCode);
         Assert.False(disabledResponse.Headers.Contains("Retry-After"));
         var disabled = await Read(client);
-        Assert.Equal(HttpStatusCode.OK, (await Put(client, disabled.Revision, $"{{\"{field}\":true}}")).StatusCode);
-        Assert.Equal(HttpStatusCode.TooManyRequests, (await Request(client, path, method)).StatusCode);
-        Assert.Equal("file", (await Read(client)).PublicApi.Source == "file" ? "file" : (await Read(client)).AdminLogin.Source);
+        Assert.Equal(HttpStatusCode.OK, (await Put(client, disabled.Revision, "{\"adminLoginEnabled\":true}")).StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, (await Request(client, path)).StatusCode);
+        Assert.Equal("file", (await Read(client)).AdminLogin.Source);
     }
 
-    [Theory]
-    [InlineData("AdminLogin", "adminLoginEnabled")]
-    [InlineData("PublicApi", "publicApiEnabled")]
-    public async Task InvalidDisabledNumbers_AreDisplayedButCannotBeEnabled(string name, string field)
+    [Fact]
+    public async Task InvalidDisabledNumbers_AreDisplayedButCannotBeEnabled()
     {
-        using var factory = Factory(new() { [$"RateLimits:{name}:PermitLimit"] = "-1", [$"RateLimits:{name}:WindowSeconds"] = "601" });
+        using var factory = Factory(new() { ["RateLimits:AdminLogin:PermitLimit"] = "-1", ["RateLimits:AdminLogin:WindowSeconds"] = "601" });
         using var client = Admin(factory);
         var state = await Read(client);
-        var policy = name == "AdminLogin" ? state.AdminLogin : state.PublicApi;
+        var policy = state.AdminLogin;
         Assert.Equal(-1, policy.PermitLimit);
         Assert.Equal(601, policy.WindowSeconds);
-        var response = await Put(client, state.Revision, $"{{\"{field}\":true}}");
+        var response = await Put(client, state.Revision, "{\"adminLoginEnabled\":true}");
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.False(File.Exists(FilePath));
         Assert.Equal(state, await Read(client));
@@ -121,10 +111,11 @@ public sealed class SystemSettingsTests : IDisposable
 
     [Theory]
     [InlineData("{}")]
-    [InlineData("{\"publicApiEnabled\":\"true\"}")]
-    [InlineData("{\"publicApiEnabled\":null}")]
-    [InlineData("{\"publicApiEnabled\":true,\"windowSeconds\":60}")]
-    [InlineData("{\"publicApiEnabled\":true,\"publicApiEnabled\":false}")]
+    [InlineData("{\"publicApiEnabled\":true}")]
+    [InlineData("{\"adminLoginEnabled\":\"true\"}")]
+    [InlineData("{\"adminLoginEnabled\":null}")]
+    [InlineData("{\"adminLoginEnabled\":true,\"windowSeconds\":60}")]
+    [InlineData("{\"adminLoginEnabled\":true,\"adminLoginEnabled\":false}")]
     [InlineData("[]")]
     [InlineData("not-json")]
     public async Task InvalidRequest_DoesNotWrite(string json)
@@ -153,7 +144,7 @@ public sealed class SystemSettingsTests : IDisposable
         File.SetAttributes(FilePath, FileAttributes.ReadOnly);
         try
         {
-            var result = await Put(client, state.Revision, "{\"publicApiEnabled\":false,\"adminLoginEnabled\":false}");
+            var result = await Put(client, state.Revision, "{\"adminLoginEnabled\":false}");
             Assert.Equal(HttpStatusCode.ServiceUnavailable, result.StatusCode);
             Assert.Equal(bytes, File.ReadAllBytes(FilePath));
             Assert.Equal(state, await Read(client));
@@ -164,7 +155,7 @@ public sealed class SystemSettingsTests : IDisposable
     [Theory]
     [InlineData("environment")]
     [InlineData("commandLine")]
-    public async Task DeploymentOverride_IsReadOnlyAndOtherSwitchRemainsEditable(string source)
+    public async Task DeploymentOverride_IsReadOnly(string source)
     {
         using var baseFactory = Factory();
         using var factory = baseFactory.WithWebHostBuilder(builder => builder.ConfigureAppConfiguration((_, config) =>
@@ -179,7 +170,6 @@ public sealed class SystemSettingsTests : IDisposable
         Assert.True(state.AdminLogin.Enabled); Assert.False(state.AdminLogin.Editable);
         Assert.Equal(source, state.AdminLogin.Source);
         Assert.Equal(HttpStatusCode.Conflict, (await Put(client, state.Revision, "{\"adminLoginEnabled\":false}")).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await Put(client, state.Revision)).StatusCode);
         Assert.True((await Read(client)).AdminLogin.Enabled);
     }
     private sealed class SyntheticEnvironmentSource : IConfigurationSource
@@ -198,12 +188,12 @@ public sealed class SystemSettingsTests : IDisposable
         using (var client = Admin(factory))
         {
             var state = await Read(client);
-            Assert.Equal(HttpStatusCode.OK, (await Put(client, state.Revision, "{\"adminLoginEnabled\":true,\"publicApiEnabled\":true}")).StatusCode);
+            Assert.Equal(HttpStatusCode.OK, (await Put(client, state.Revision, "{\"adminLoginEnabled\":true}")).StatusCode);
             Assert.DoesNotContain("vocabulary-client-secret", File.ReadAllText(FilePath));
         }
         using var restarted = Factory(); using var restartedClient = Admin(restarted);
         var restored = await Read(restartedClient);
-        Assert.True(restored.AdminLogin.Enabled); Assert.True(restored.PublicApi.Enabled);
+        Assert.True(restored.AdminLogin.Enabled);
         Assert.Equal("file", restored.AdminLogin.Source);
     }
 

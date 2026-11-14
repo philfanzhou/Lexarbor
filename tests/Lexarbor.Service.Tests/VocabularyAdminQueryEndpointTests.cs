@@ -43,6 +43,7 @@ public class VocabularyAdminQueryEndpointTests
         using var content = await GetAsync(client, "/admin/vocabulary-books/disabled/content");
         Assert.Equal(new[] { "book", "items", "meaningCount", "totalCount", "totalPage", "wordCount" }, content.RootElement.EnumerateObject().Select(p => p.Name).Order());
         Assert.Equal(1, content.RootElement.GetProperty("meaningCount").GetInt32());
+        await client.UseCatalogKeyAsync(factory);
         using var publicResult = await GetAsync(client, "/api/vocabulary?keyword=word");
         Assert.Empty(publicResult.RootElement.GetProperty("items").EnumerateArray());
         using var publicDetail = await client.GetAsync("/api/vocabulary/w?bookId=disabled", TestContext.Current.CancellationToken);
@@ -197,6 +198,7 @@ public class VocabularyAdminQueryEndpointTests
         Assert.Equal("ub", Assert.Single(otherBookUnits).GetProperty("unitId").GetString());
 
         // The public detail has pronunciation metadata, but no administrative unit extension.
+        await client.UseCatalogKeyAsync(factory);
         using var publicDetail = await GetAsync(client, "/api/vocabulary/shared?bookId=A");
         var publicMeaning = publicDetail.RootElement.GetProperty("meanings")[0];
         Assert.Equal(new[] { "bookId", "example", "id", "meaning", "partOfSpeech", "pronunciation", "vocabularyId" },

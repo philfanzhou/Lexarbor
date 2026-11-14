@@ -139,7 +139,7 @@ public sealed class AdminSessionAuthenticationTests
             Assert.Single(body.RootElement.GetProperty("data").GetProperty("roles").EnumerateArray());
         }
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/health", Ct)).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/vocabulary-books/all", Ct)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/vocabulary-books/all", Ct)).StatusCode);
     }
 
     [Fact]

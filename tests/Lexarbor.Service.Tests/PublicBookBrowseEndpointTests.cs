@@ -21,6 +21,7 @@ public class PublicBookBrowseEndpointTests
         await using var factory = new VocabularyWebApplicationFactory();
         await SeedAsync(factory);
         using var client = factory.CreateClient();
+        await client.UseCatalogKeyAsync(factory);
 
         using var response = await client.GetAsync("/api/vocabulary-books/A/units",
             TestContext.Current.CancellationToken);
@@ -66,6 +67,7 @@ public class PublicBookBrowseEndpointTests
         await using var factory = new VocabularyWebApplicationFactory();
         await SeedAsync(factory);
         using var client = factory.CreateClient();
+        await client.UseCatalogKeyAsync(factory);
 
         using var response = await client.GetAsync("/api/vocabulary-books/E/units",
             TestContext.Current.CancellationToken);
@@ -83,6 +85,7 @@ public class PublicBookBrowseEndpointTests
         await using var factory = new VocabularyWebApplicationFactory();
         await SeedAsync(factory);
         using var client = factory.CreateClient();
+        await client.UseCatalogKeyAsync(factory);
 
         // The full order, once: unit 1's meanings by normalized spelling then
         // meaning id, then unit 3 Section A, Section B, and the meanings
@@ -125,6 +128,7 @@ public class PublicBookBrowseEndpointTests
         await using var factory = new VocabularyWebApplicationFactory();
         await SeedAsync(factory);
         using var client = factory.CreateClient();
+        await client.UseCatalogKeyAsync(factory);
 
         using var response = await client.GetAsync("/api/vocabulary-books/A/entries?page=1&size=100",
             TestContext.Current.CancellationToken);
@@ -154,6 +158,7 @@ public class PublicBookBrowseEndpointTests
         await using var factory = new VocabularyWebApplicationFactory();
         await SeedAsync(factory);
         using var client = factory.CreateClient();
+        await client.UseCatalogKeyAsync(factory);
 
         using var response = await client.GetAsync("/api/vocabulary-books/A/entries?unitId=u3",
             TestContext.Current.CancellationToken);
@@ -177,6 +182,7 @@ public class PublicBookBrowseEndpointTests
         await using var factory = new VocabularyWebApplicationFactory();
         await SeedAsync(factory);
         using var client = factory.CreateClient();
+        await client.UseCatalogKeyAsync(factory);
 
         using var response = await client.GetAsync("/api/vocabulary-books/A/entries?page=1&size=100",
             TestContext.Current.CancellationToken);
@@ -224,6 +230,7 @@ public class PublicBookBrowseEndpointTests
         await using var factory = new VocabularyWebApplicationFactory();
         await SeedAsync(factory);
         using var client = factory.CreateClient();
+        await client.UseCatalogKeyAsync(factory);
         using var response = await client.GetAsync("/api/vocabulary-books/A/entries" + query,
             TestContext.Current.CancellationToken);
         response.EnsureSuccessStatusCode();
@@ -262,6 +269,7 @@ public class PublicBookBrowseEndpointTests
         await using var factory = new VocabularyWebApplicationFactory();
         await SeedAsync(factory);
         using var client = factory.CreateClient();
+        await client.UseCatalogKeyAsync(factory);
 
         using var response = await client.GetAsync(path, TestContext.Current.CancellationToken);
 

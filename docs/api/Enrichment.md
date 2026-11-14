@@ -4,7 +4,7 @@ These endpoints require the existing administrator policy, including a configure
 custom administrator role. Browser requests use the administrator session cookie;
 POST also requires the existing CSRF pair. An explicit Bearer header takes priority
 over a cookie and requires an administrator token. Ordinary catalog tokens and
-meaning-submission service tokens cannot use these endpoints. No public task API,
+business API keys cannot use these endpoints. No public task API,
 batch-start operation, or supplier call is added.
 
 The administrator SPA at `/#/enrichment` consumes this contract. It links to the

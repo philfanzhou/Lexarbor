@@ -39,7 +39,7 @@ export const getBooks = (
  * with a 422 the administrator had no way to predict.
  */
 export const getActiveBooks = () =>
-  api.get<BookListData>('/api/vocabulary-books/all')
+  api.get<BookListData>('/admin/vocabulary-books/active')
 
 export const addBook = (data: Partial<Book>) =>
   api.post<{ id: string }>('/admin/vocabulary-books', data)

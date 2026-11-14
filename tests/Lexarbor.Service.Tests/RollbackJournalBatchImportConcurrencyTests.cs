@@ -13,7 +13,7 @@ namespace Lexarbor.Service.Tests;
 /// <summary>
 /// The rollback journal's accepted cost, pinned end to end against the real
 /// host: a full 500-entry batch import runs in one write transaction, and the
-/// anonymous reads that arrive while it runs queue inside their bounded wait
+/// catalog reads that arrive while it runs queue inside their bounded wait
 /// and succeed — briefly blocked at most, never failed — which is exactly the
 /// observable behavior the journal rollback documents as "not guaranteed to be
 /// uninterrupted, guaranteed to succeed within the timeout".
@@ -29,7 +29,7 @@ public class RollbackJournalBatchImportConcurrencyTests
     };
 
     [Fact]
-    public async Task FullBatchImport_WithConcurrentAnonymousReads_QueuesReadsToSuccess()
+    public async Task FullBatchImport_WithConcurrentCatalogReads_QueuesReadsToSuccess()
     {
         var directory = VocabularyWebApplicationFactory.CreateGateSafeDirectory(
             $"lexarbor-rollback-read-{Guid.NewGuid():N}");
@@ -40,7 +40,8 @@ public class RollbackJournalBatchImportConcurrencyTests
                 "Testing",
                 includeAppCredentials: true,
                 databasePath: database);
-            using var anonymous = factory.CreateClient();
+            using var catalog = factory.CreateClient();
+            await catalog.UseCatalogKeyAsync(factory);
             using var admin = factory.CreateClient();
             admin.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
                 "Bearer", factory.CreateToken("admin"));
@@ -112,7 +113,7 @@ public class RollbackJournalBatchImportConcurrencyTests
                 },
                 Ct));
             var reads = Enumerable.Range(0, 5)
-                .Select(_ => anonymous.GetAsync($"/api/vocabulary/{wordId}?bookId={bookId}", Ct))
+                .Select(_ => catalog.GetAsync($"/api/vocabulary/{wordId}?bookId={bookId}", Ct))
                 .ToArray();
             var second = await import2;
             Assert.Equal(HttpStatusCode.OK, second.StatusCode);

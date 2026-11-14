@@ -11,11 +11,9 @@ export interface RateLimitPolicy {
 export interface RateLimitSettings {
   revision: string
   adminLogin: RateLimitPolicy
-  publicApi: RateLimitPolicy
 }
 export interface RateLimitChanges {
-  adminLoginEnabled?: boolean
-  publicApiEnabled?: boolean
+  adminLoginEnabled: boolean
 }
 
 function parse(value: unknown): RateLimitSettings {
@@ -26,7 +24,7 @@ function parse(value: unknown): RateLimitSettings {
     && ['default', 'file', 'environment', 'commandLine'].includes(policy.source)
   if (!settings || typeof settings.revision !== 'string'
     || !/^"[0-9a-f]{32}"$/.test(settings.revision)
-    || !validPolicy(settings.adminLogin) || !validPolicy(settings.publicApi)) {
+    || !validPolicy(settings.adminLogin)) {
     throw new ApiError('无法读取有效的限流状态。')
   }
   return settings as RateLimitSettings

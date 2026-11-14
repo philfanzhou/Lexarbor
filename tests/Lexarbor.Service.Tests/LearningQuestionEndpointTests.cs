@@ -34,6 +34,7 @@ public sealed class LearningQuestionEndpointTests
             services.AddScoped(_ => new LearningQuestionGenerator(max => first % max));
         }));
         using var client = host.CreateClient();
+        await client.UseCatalogKeyAsync(host);
         await Seed(host.Services);
         var response = await client.PostAsJsonAsync(Path, Request(mode), Ct);
         var data = await Success(response);
@@ -54,6 +55,7 @@ public sealed class LearningQuestionEndpointTests
             services.AddScoped(_ => new LearningQuestionGenerator(max => pick % max));
         }));
         using var client = host.CreateClient();
+        await client.UseCatalogKeyAsync(host);
         await Seed(host.Services);
         using (var scope = host.Services.CreateScope())
         {
@@ -78,6 +80,7 @@ public sealed class LearningQuestionEndpointTests
     {
         using var factory = new VocabularyWebApplicationFactory();
         using var client = factory.CreateClient();
+        await client.UseCatalogKeyAsync(factory);
         await Error(await client.PostAsync(Path, new StringContent(json, Encoding.UTF8, "application/json"), Ct),
             HttpStatusCode.BadRequest, "QUESTION_INVALID_REQUEST");
         await Error(await client.PostAsync(Path, new StringContent("plain"), Ct), HttpStatusCode.BadRequest, "QUESTION_INVALID_REQUEST");
@@ -88,6 +91,7 @@ public sealed class LearningQuestionEndpointTests
     {
         using var factory = new VocabularyWebApplicationFactory();
         using var client = factory.CreateClient();
+        await client.UseCatalogKeyAsync(factory);
         await Seed(factory.Services, distractors: false);
         await Error(await client.PostAsJsonAsync(Path, Request("new"), Ct), HttpStatusCode.UnprocessableEntity, "QUESTION_UNAVAILABLE");
         Assert.Equal("FillLetters", (await Success(await client.PostAsJsonAsync(Path, Request("review"), Ct))).GetProperty("type").GetString());
@@ -125,6 +129,7 @@ public sealed class LearningQuestionEndpointTests
     {
         using var factory = new VocabularyWebApplicationFactory();
         using var client = factory.CreateClient();
+        await client.UseCatalogKeyAsync(factory);
         await Seed(factory.Services, distractors: false);
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
@@ -144,6 +149,7 @@ public sealed class LearningQuestionEndpointTests
     {
         using var factory = new VocabularyWebApplicationFactory();
         using var client = factory.CreateClient();
+        await client.UseCatalogKeyAsync(factory);
         await Seed(factory.Services);
         using (var scope = factory.Services.CreateScope())
         {
@@ -193,6 +199,7 @@ public sealed class LearningQuestionEndpointTests
             });
         }));
         using var client = host.CreateClient();
+        await client.UseCatalogKeyAsync(host);
         await Seed(host.Services);
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(Ct);
         var task = client.PostAsJsonAsync(Path, Request("review"), cancellation.Token);

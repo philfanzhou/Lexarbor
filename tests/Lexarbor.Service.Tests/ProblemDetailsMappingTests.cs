@@ -149,6 +149,7 @@ public class ProblemDetailsMappingTests
                 () => throw new Lexarbor.Domain.Exceptions.StorageBusyException("busy details must not leak")));
         }));
         using var client = configured.CreateClient();
+        await client.UseCatalogKeyAsync(configured);
 
         using var response = await client.GetAsync("/api/vocabulary?keyword=x&page=1&size=20", Ct);
 
@@ -173,6 +174,7 @@ public class ProblemDetailsMappingTests
                 () => throw new InvalidOperationException(secret)));
         }));
         using var client = configured.CreateClient();
+        await client.UseCatalogKeyAsync(configured);
 
         using var response = await client.GetAsync("/api/vocabulary?keyword=x&page=1&size=20", Ct);
 
@@ -204,6 +206,7 @@ public class ProblemDetailsMappingTests
             });
         });
         using var client = configured.CreateClient();
+        await client.UseCatalogKeyAsync(configured);
 
         using var response = await client.GetAsync("/api/vocabulary?keyword=x&page=1&size=20", Ct);
 
@@ -244,6 +247,7 @@ public class ProblemDetailsMappingTests
             services.AddScoped<IVocabularyRepository>(__ => new GatedRepository(gate));
         }));
         using var client = configured.CreateClient();
+        await client.UseCatalogKeyAsync(configured);
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(Ct);
 
         var sending = client.GetAsync("/api/vocabulary?keyword=x&page=1&size=20", cancellation.Token);

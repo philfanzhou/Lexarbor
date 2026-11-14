@@ -28,6 +28,7 @@ public class VocabularyQuestionEndpointTests :
     {
         var data = await SeedScopedBookAsync();
         using var client = _factory.CreateClient();
+        await client.UseCatalogKeyAsync(_factory);
 
         var response = await client.PostAsJsonAsync(
             "/api/vocabulary/question",
@@ -89,6 +90,7 @@ public class VocabularyQuestionEndpointTests :
     {
         var data = await SeedScopedBookAsync();
         using var client = _factory.CreateClient();
+        await client.UseCatalogKeyAsync(_factory);
 
         var response = await client.PostAsJsonAsync(
             "/api/vocabulary/question",
@@ -131,6 +133,7 @@ public class VocabularyQuestionEndpointTests :
     {
         var data = await SeedScopedBookAsync();
         using var client = _factory.CreateClient();
+        await client.UseCatalogKeyAsync(_factory);
 
         var response = await client.PostAsJsonAsync(
             "/api/vocabulary/question",
@@ -150,6 +153,7 @@ public class VocabularyQuestionEndpointTests :
     {
         var data = await SeedScopedBookAsync();
         using var client = _factory.CreateClient();
+        await client.UseCatalogKeyAsync(_factory);
 
         var response = await client.PostAsJsonAsync(
             "/api/vocabulary/question",
@@ -170,6 +174,7 @@ public class VocabularyQuestionEndpointTests :
         var data = await SeedScopedBookAsync();
         var other = await SeedScopedBookAsync();
         using var client = _factory.CreateClient();
+        await client.UseCatalogKeyAsync(_factory);
 
         // The unit exists, but not in the requested book — the same 404 a
         // missing one gets, so the other book's ids reveal nothing.
@@ -191,6 +196,7 @@ public class VocabularyQuestionEndpointTests :
     {
         var data = await SeedScopedBookAsync();
         using var client = _factory.CreateClient();
+        await client.UseCatalogKeyAsync(_factory);
 
         // The named meaning holds no position of the unit, so its kind is word
         // there, and the unit's word-kind pool counts two members. Asking for
@@ -216,6 +222,7 @@ public class VocabularyQuestionEndpointTests :
     {
         var data = await SeedScopedBookAsync();
         using var client = _factory.CreateClient();
+        await client.UseCatalogKeyAsync(_factory);
 
         var response = await client.PostAsJsonAsync(
             "/api/vocabulary/question",

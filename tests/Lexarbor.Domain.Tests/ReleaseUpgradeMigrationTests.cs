@@ -31,12 +31,13 @@ public sealed class ReleaseUpgradeMigrationTests
         await AssertPreserved(file, before);
         var upgraded = await file.RowsAsync("SELECT * FROM __EFMigrationsHistory ORDER BY MigrationId");
         Assert.Equal(JsonSerializer.Serialize(history), JsonSerializer.Serialize(upgraded.Take(history.Length)));
-        Assert.Equal(history.Length + 6, upgraded.Length);
+        Assert.Equal(history.Length + 7, upgraded.Length);
         await using (var restarted = file.Open()) await restarted.Database.MigrateAsync(Ct);
         await AssertPreserved(file, before);
         Assert.Equal(JsonSerializer.Serialize(upgraded), JsonSerializer.Serialize(await file.RowsAsync("SELECT * FROM __EFMigrationsHistory ORDER BY MigrationId")));
         Assert.Empty(await file.RowsAsync("SELECT * FROM enrichment_generated_word"));
         Assert.Empty(await file.RowsAsync("SELECT * FROM vocabulary_relation"));
+        Assert.Empty(await file.RowsAsync("SELECT * FROM business_api_key"));
     }
 
     [Fact]

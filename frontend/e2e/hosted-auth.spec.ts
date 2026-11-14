@@ -44,7 +44,7 @@ async function mockAdministration(page: Page) {
       success: true,
       data: { items: [starterBook], totalCount: 1, totalPage: 1 }
     }))
-  await page.route(/\/api\/vocabulary-books\/all$/, (route) =>
+  await page.route(/\/admin\/vocabulary-books\/active$/, (route) =>
     json(route, { success: true, data: { books: [starterBook] } }))
 }
 

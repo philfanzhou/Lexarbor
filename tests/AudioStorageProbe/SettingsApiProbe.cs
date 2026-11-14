@@ -171,7 +171,7 @@ internal static class SettingsApiProbe
         {
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions { ContentRootPath = root });
             builder.Logging.ClearProviders(); builder.WebHost.ConfigureKestrel(server => server.Listen(IPAddress.Loopback, 0));
-            builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["Audio:OperationTimeoutSeconds"] = "3", ["Audio:RecoveryIntervalSeconds"] = "10", ["RateLimits:PublicApi:PermitLimit"] = "2", ["RateLimits:PublicApi:WindowSeconds"] = "600" });
+            builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["Audio:OperationTimeoutSeconds"] = "3", ["Audio:RecoveryIntervalSeconds"] = "10", ["RateLimits:AdminLogin:PermitLimit"] = "2", ["RateLimits:AdminLogin:WindowSeconds"] = "600" });
             var file = new PersistentConfigurationFileStore(root);
             builder.Configuration.AddJsonFile(file.FilePath, optional: true, reloadOnChange: false);
             if (commandLineOverride) builder.Configuration.AddCommandLine(["--Audio:Region=us-east-1"]);
@@ -193,7 +193,7 @@ internal static class SettingsApiProbe
             builder.Services.AddAuthorization(options =>
             {
                 options.AddPolicy(ManagementAuthorizationDefaults.AdminPolicyName, policy => policy.RequireRole("admin"));
-
+                options.AddPolicy(BusinessApiAuthorization.Catalog, policy => policy.RequireClaim(BusinessApiAuthorization.ScopeClaim, BusinessApiAuthorization.Catalog));
             });
             builder.Services.AddScoped(_ => new VocabularyDbContext(dbOptions));
             builder.Services.AddScoped<IAudioRecordExistenceRepository, AudioRecordExistenceRepository>();
@@ -215,7 +215,10 @@ internal static class SettingsApiProbe
             app.Services.GetRequiredService<RateLimitRuntime>();
             app.Use(async (context, next) =>
             {
-                if (context.Request.Path.StartsWithSegments("/admin")) context.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Role, "admin")], "isolated-probe"));
+                if (context.Request.Path.StartsWithSegments("/admin"))
+                    context.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Role, "admin")], "isolated-probe"));
+                else if (context.Request.Path.StartsWithSegments("/api"))
+                    context.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(BusinessApiAuthorization.ScopeClaim, BusinessApiAuthorization.Catalog)], "isolated-probe"));
                 await next(context);
             });
             var frontend = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../frontend/dist"));
@@ -228,10 +231,10 @@ internal static class SettingsApiProbe
             app.MapGet("/admin/vocabulary-books/categories", () => Results.Json(new { success = true, data = new { items = Array.Empty<object>() } }));
             app.MapGet("/admin/vocabulary-books/education-levels", () => Results.Json(new { success = true, data = new { items = Array.Empty<object>() } }));
             app.MapGet("/admin/vocabulary-books", () => Results.Json(new { success = true, data = new { items = Array.Empty<object>(), totalCount = 0, totalPage = 0 } }));
-            app.MapGet("/api/settings-probe", () => Results.Ok()).RequireRateLimiting(RateLimitingExtensions.PublicApiPolicy);
+            app.MapGet("/admin/settings-login-probe", () => Results.Ok()).RequireRateLimiting(RateLimitingExtensions.AdminLoginPolicy);
             app.MapVocabularyAdminQueryEndpoints();
             app.UseSystemSettingsNoStore(); app.UseAuthorization(); app.MapSystemSettingsEndpoints();
-            app.MapAudioUploadEndpoints(); app.MapAudioAdminQueryEndpoints(); app.MapAudioAdminPlaybackEndpoints(); app.MapAudioPublicPlaybackEndpoints(RateLimitingExtensions.PublicApiPolicy);
+            app.MapAudioUploadEndpoints(); app.MapAudioAdminQueryEndpoints(); app.MapAudioAdminPlaybackEndpoints(); app.MapAudioPublicPlaybackEndpoints();
             await app.StartAsync();
             var address = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single();
             return new(app, new HttpClient { BaseAddress = new Uri(address), Timeout = TimeSpan.FromSeconds(15) });

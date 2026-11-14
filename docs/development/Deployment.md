@@ -347,7 +347,7 @@ The database runs under SQLite's default rollback journal. The earlier releases 
 Three consequences for operators:
 
 - **The database is one file again.** `vocabulary.db` is no longer accompanied by `vocabulary.db-wal` and `vocabulary.db-shm` while the application runs. A backup taken with the application stopped needs only the one file; stop writes before copying, or use a SQLite online-backup tool, exactly as before. The shared-memory file WAL required beside the database is gone, and with it the WAL-specific restriction on network filesystems — an NFS or SMB mount of `/app/data` still cannot host a SQLite database safely, so a bind mount from the host or a Docker volume remains the supported layout.
-- **A committing write briefly holds off reads.** Under the rollback journal a write transaction's commit blocks concurrent readers for its duration. For this read-heavy service that window is the batch import (`POST /admin/vocabulary/batch`, up to 500 entries in one transaction), on the order of a hundred milliseconds; anonymous reads that arrive during it queue and answer within their timeout instead of failing. This is the accepted cost of the rollback.
+- **A committing write briefly holds off reads.** Under the rollback journal a write transaction's commit blocks concurrent readers for its duration. For this read-heavy service that window is the batch import (`POST /admin/vocabulary/batch`, up to 500 entries in one transaction), on the order of a hundred milliseconds; catalog reads that arrive during it queue and answer within their timeout instead of failing. This is the accepted cost of the rollback.
 - **Crash leftovers return to the single native shape.** A crash, a power loss, or a `kill -9` can leave a `vocabulary.db-journal` file behind; the next open rolls it back natively and startup continues, with no operator action. Sidecars without the main database file are not a crash to recover — startup refuses rather than creating a new file over them.
 
 `Default Timeout` in the connection string bounds how long a write waits for a database another connection is holding. Lexarbor lowers the driver's 30-second default to 5 seconds, so contention answers `503` with a `Retry-After` header instead of occupying a request thread for longer than the caller is prepared to wait. Set `Default Timeout=` explicitly in `ConnectionStrings:Default` to choose a different value.
@@ -362,7 +362,7 @@ administrator sessions keep their meaning. The `AddServiceDataProtectionKeys`
 migration creates the table; nothing else in the database changes.
 Hosted sign-in is the only login and establishes only the internal session scheme
 described below; the retired password-login JWT cookie is not authenticated by
-anything. Anonymous APIs and health responses are unchanged.
+anything. Health probes remain available without credentials.
 
 The envelopes are protected by a **root key** with two sources, in this order:
 
@@ -483,7 +483,7 @@ Each request selects exactly one authentication source:
 Invalid, expired or unreadable selected credentials return 401 without falling back
 or mixing roles from another source. Authenticated users without the configured role
 receive 403. Challenges remain JSON, with no HTML redirect. `/admin/auth/session`
-retains `{success:true,data:{username,roles}}`; public API and health stay anonymous.
+retains `{success:true,data:{username,roles}}`. Health probes are anonymous. Business routes use the API key policy.
 For authenticated cookie requests, all non-safe `/admin` methods require exactly
 `X-Requested-With: XMLHttpRequest`; Bearer requests are exempt even when carrying
 the session cookie. Unauthenticated protected writes return 401.
@@ -648,7 +648,7 @@ cannot believe password login still exists.
 
 When these variables are not supplied, values come from the persistent file and ultimately from the image defaults. The validated access token must contain `role=admin` by default. Override `AdminAuthentication__RequiredRole` to use another role. Missing hosted-login settings do not prevent startup; `GET /admin/auth/start` answers its existing 503 until the configuration is complete, and the startup log states that `AdminAuthentication:OidcCode` is missing or invalid.
 
-`LEXARBOR_REQUIRE_HTTPS_METADATA` decides whether the provider's signing metadata may be fetched over plain HTTP. It is required unless the environment is Development or the authority is a loopback address, so an `http://` authority pointing at another host stops the container at startup with a message naming the setting, rather than starting and answering 500 on every administration request. Loopback is exempt because there is no network path to rewrite, and because the image's placeholder authority is a loopback one: a container that has not been given an identity provider still starts and serves its public API. The keys served from that address decide every administration authorization, so anyone able to rewrite the response can mint an administrator token; setting this to `false` is a statement that the network path to the provider is trusted. It is deliberately absent from the image's `appsettings.json`: writing a value there would freeze it into the persistent file on first start and take the environment out of the decision. Whichever way it resolves, the startup log says so — at information when metadata is required and at warning when it is not.
+`LEXARBOR_REQUIRE_HTTPS_METADATA` decides whether the provider's signing metadata may be fetched over plain HTTP. It is required unless the environment is Development or the authority is a loopback address, so an `http://` authority pointing at another host stops the container at startup with a message naming the setting, rather than starting and answering 500 on every administration request. Loopback is exempt because there is no network path to rewrite, and because the image's placeholder authority is a loopback one: a container that has not been given an identity provider can still start and serve health probes. The keys served from that address decide every administration authorization, so anyone able to rewrite the response can mint an administrator token; setting this to `false` is a statement that the network path to the provider is trusted. It is deliberately absent from the image's `appsettings.json`: writing a value there would freeze it into the persistent file on first start and take the environment out of the decision. Whichever way it resolves, the startup log says so — at information when metadata is required and at warning when it is not.
 
 ### Connecting to SignaCore
 
@@ -1046,77 +1046,35 @@ their URL query attributes redacted before export.
 
 ## Rate limits and client addresses
 
-Both request ceilings are disabled by default, including when the `RateLimits`
-section or either `Enabled` value is missing. To apply a per-client-address
-ceiling, explicitly set that policy's `Enabled=true`. `GET /admin/auth/start`
-initiates the browser-bound hosted login, so without one it is a way to aim traffic
-at the identity provider from an address the provider attributes to Lexarbor. The
-`/api/*` routes are metered far more loosely, only to stop one caller
-monopolising a single-instance SQLite deployment. Administration routes are not limited:
-an authenticated administrator is not the threat, and metering the administration UI
-would break it long before it broke an attacker.
-
-ServiceMantle 0.3.0 supplies process-local sliding windows with six segments,
-no queue, and separate buckets for each policy and trusted client address.
-IPv4-mapped IPv6 addresses share their IPv4 bucket; requests without an address
-share one unknown bucket. No arbitrary header is used as an address fallback.
-A refused request answers `429` as `application/problem+json`, with
-`errorCode: rate_limit.exceeded`, `title: Too many requests.`, `status: 429`,
-and a correlation id matching `x-correlation-id`. No client address or bucket
-key appears in the response or shared rejection diagnostic.
-
-`Retry-After` remains a positive integer. When the shared sliding-window lease
-omits retry metadata, the Host supplies the configured whole window as a
-conservative backoff suggestion, preserving any shared header. Concurrent traffic
-can still exhaust the quota when the suggested delay ends. This is neither a
-distributed limiter nor a WAF or DDoS defense; numeric quotas are fixed at startup; the administrator can switch either policy online at `/#/settings`.
-
-A new container copies these disabled defaults into `/app/data/appsettings.json`.
-Upgrades never overwrite an existing file: explicit `true` or `false` values
-remain effective, with environment variables and then command-line arguments
-taking precedence. For example, `RateLimits__AdminLogin__Enabled=true` and
-`RateLimits__PublicApi__Enabled=true` enable both policies without editing the
-file. Disabling them does not promise unlimited throughput and does not disable
-the separate audio upload admission limits (default 2 concurrent, 8 queued).
-
-A server-side consumer that pages through the anonymous book-browse or
-vocabulary routes calls from one address on a schedule of its own, so its
-legitimate traffic can reach the public ceiling before any browser does. When the
-public policy is enabled, size
-`RateLimits:PublicApi:PermitLimit` for that caller's expected rate — for a
-container deployment the environment variable
-`RateLimits__PublicApi__PermitLimit` overrides it without editing
-`appsettings.json`. The limit stays per client address, but the raised ceiling
-is one shared setting, so it applies to every anonymous caller of `/api`, not
-only the consumer it was sized for: raising it beyond the default is
-appropriate only for an intranet deployment where `/api` is not reachable by
-untrusted clients.
+Lexarbor can apply a per-client-address ceiling to `GET /admin/auth/start`,
+including case and trailing-slash equivalents. It is disabled by default and
+can be switched online at `/#/settings`. Only sign-in initiation consumes this
+budget. Audio upload concurrency and queue admission use their own settings.
 
 | Configuration key | Default | Purpose |
 |---|---|---|
 | `RateLimits:AdminLogin:PermitLimit` | `10` | Login attempts per window, per client address |
 | `RateLimits:AdminLogin:WindowSeconds` | `300` | Login window length |
-| `RateLimits:AdminLogin:Enabled` | `false` | Set to `true` to apply the login ceiling |
-| `RateLimits:PublicApi:PermitLimit` | `300` | Anonymous `/api/*` requests per window, per client address |
-| `RateLimits:PublicApi:WindowSeconds` | `60` | Public API window length |
-| `RateLimits:PublicApi:Enabled` | `false` | Set to `true` to apply the public API ceiling |
+| `RateLimits:AdminLogin:Enabled` | `false` | Enables the login ceiling |
 
-Enabled policies require `PermitLimit` in `1..10000` and `WindowSeconds` in
-`10..600`. Out-of-range settings fail startup without clamping. Disabled policies
-accept invalid numeric settings at startup, consume no bucket, and log a startup warning. The settings page displays those actual numbers and rejects enabling them until they are corrected offline and the host is restarted. Valid numbers from an initially disabled policy are used when enabling online.
-Only `GET /admin/auth/start` (including case/trailing-slash equivalents) and all
-`/api/*` routes, including unknown routes, are metered. Callback, logout, logout
-return, administrator business routes, health and the SPA remain unmetered.
+An enabled policy requires `PermitLimit` in `1..10000` and `WindowSeconds` in
+`10..600`. Disabled policies may retain invalid numeric settings. The settings
+page displays them and refuses to enable the policy until they are corrected
+offline and the host is restarted. The persistent file keeps its existing
+values on upgrade. An environment variable such as
+`RateLimits__AdminLogin__Enabled=true` or a command-line argument overrides
+that file.
 
-Upgrade deployments with enabled settings outside those bounds before starting
-the new version. Rolling back application code restores fixed windows, the old
-429 envelope and the original numeric range. No database migration or data rewrite
-is involved; numeric defaults, route names, authentication and persistent directories
-stay unchanged.
+ServiceMantle uses process-local sliding windows with six segments and no
+queue. IPv4-mapped IPv6 addresses share their IPv4 bucket. Requests without an
+address share one unknown bucket. A refusal returns `429` with
+`application/problem+json`, `errorCode: rate_limit.exceeded`, and a matching
+`x-correlation-id`. `Retry-After` uses the configured window when the lease
+supplies no retry metadata.
 
 ### Behind a reverse proxy
 
-The ceilings partition on the address the connection reports. Behind a reverse proxy that
+The login ceiling partitions on the address the connection reports. Behind a reverse proxy that
 is the proxy for every request, which turns a per-client limit into a shared one — and a
 shared login limit is itself a way to lock the administrator out. Name the hops to fix it:
 
@@ -1138,12 +1096,42 @@ Trusted forwarding is provided by `ServiceMantle.Web` v0.2.0. Configure the prox
 send matching `X-Forwarded-For` and `X-Forwarded-Proto` lists, one entry per hop;
 asymmetric headers are ignored. Invalid addresses, CIDR ranges, or hop limits fail
 startup. Forwarding remains disabled with the default empty trust lists. This
-integration enables only forwarded headers: it does not add ServiceMantle setup,
-management, phase, health, or rate-limit endpoints. The existing Lexarbor login
-and public API ceilings and their 429 responses remain in effect.
+integration supplies the trusted client address used by the login ceiling.
+Startup logs report the login ceiling and the configured forwarding trust.
 
-Startup logs both ceilings and whether any hop is trusted, so a misconfigured proxy is
-visible in the first lines of the container log.
+## Business API key upgrade
+
+1. Back up the SQLite database and the deployment configuration. Record the
+   old `MeaningSubmissions:Integration:Subject` if a submission client is active.
+2. Upgrade Lexarbor. `AddBusinessApiKeys` creates an empty `business_api_key`
+   table and a unique index on the digest. Existing vocabulary, audio and
+   submission rows retain their IDs and data. If automatic startup migrations
+   are disabled, apply this migration before serving traffic.
+3. Sign in as an administrator. Issue a key per catalog client and a key with
+   `meaning-submissions` for the previous submission caller, using its exact
+   old `Subject` as the caller ID. Install the keys in the clients' backend
+   secret stores over a trusted channel. Enable both scopes on a key when its
+   client needs both.
+4. Switch clients to send `X-Api-Key` on their existing business routes.
+   Requests without a key return `401` as soon as the upgraded service starts.
+   Coordinate the upgrade and client switch in the same maintenance window.
+   Check an authenticated catalog request and, if used, submission lookup and
+   question generation before restoring consumer traffic.
+5. Remove the old `MeaningSubmissions:Integration` configuration, client JWT
+   signing setup, and `RateLimits:PublicApi` settings from the persistent file,
+   environment and launch arguments. The upgraded host ignores those settings,
+   including invalid values. It preserves unrelated persistent configuration.
+
+The SQLite database contains key digests and metadata. Include it in normal
+backups and restrict access as you would to other persistent data. A restored
+backup reinstates the key revocation state recorded at the time of the backup.
+Revoke or replace any key whose state may have changed after that backup.
+Downgrading requires the pre-upgrade backup, or migrating down with this version
+of the tools to `20261108102126_AddEnrichmentTakeover` before starting the older
+image. The Down migration drops the keys table. Restore the earlier client and
+server authentication configuration if rolling back.
+
+See [Business API keys](../api/BusinessApiKeys.md) for permissions and rotation.
 
 ## Health and smoke checks
 
@@ -1151,7 +1139,7 @@ visible in the first lines of the container log.
 curl http://localhost:5008/health/ready
 curl http://localhost:5008/health/live
 curl -i http://localhost:5008/admin/vocabulary-books
-curl http://localhost:5008/api/vocabulary-books/all
+curl -i http://localhost:5008/api/vocabulary-books/all
 ```
 
 The health endpoints are provided by ServiceMantle and are anonymous and unmetered.
@@ -1180,7 +1168,7 @@ external monitors that parsed the old envelope must read the new fields or use
 `/health/live`. The container `HEALTHCHECK` now probes `/health/ready`, so a
 container whose database is unreachable turns unhealthy.
 
-Expected results: health returns 200; an anonymous administration request returns 401; the public book request returns a success envelope whose `data.books` is empty on a new instance.
+Health returns 200. The bare administration and catalog requests return 401. Repeat the catalog request with a valid `catalog` key to receive a success envelope. `data.books` is empty on a new instance.
 
 The administrator shared-word replacement API requires no configuration or database migration. Changes affect the shared word in every book, including disabled books. The conflict check normalizes historical spelling with .NET Unicode casing and whitespace rules at request time; it does not rewrite stored rows or indexes. It may scan the catalogue while holding the existing write transaction, so larger catalogues can take longer to edit. The administration word detail drawer is the dependent UI: its save confirms every referencing book, disabled ones included, before sending the full three-field replacement, and rolling back the frontend removes that entry point. Take a consistent SQLite backup before maintenance: rolling back application code removes the new API but does not restore previous spelling or phonetics. Restore prior data from the backup when needed, and roll back any dependent UI before the API. Disconnecting after submitting a write does not undo a commit; query state after an unknown result instead of blindly replaying it.
 
@@ -1402,9 +1390,9 @@ See [the database contract](../database/README.md#specific-audio-invalidation-re
 
 ### Public learning playback
 
-The [public audio endpoint](../api/Audio.md#public-book-authorized-playback) is anonymous and uses the existing public API rate limit. Every request requires an enabled book and matching word/meaning membership, checked together with the selected audio in one SQLite snapshot. Storage IO begins after the snapshot ends. Disabling a book prevents later authorization; a request already authorized and already signed URLs may still play until their S3 expiry. Links are short lived (default 900 seconds) and responses are `no-store`. Clients should fetch on playback and refresh after expiry, handle missing/stale and safe 503 responses, and avoid logging or persisting the URL.
+The [catalog audio endpoint](../api/Audio.md#public-book-authorized-playback) requires an API key with `catalog` scope. Every request requires an enabled book and matching word/meaning membership, checked together with the selected audio in one SQLite snapshot. Storage IO begins after the snapshot ends. Disabling a book prevents later authorization; a request already authorized and already signed URLs may still play until their S3 expiry. Links are short lived (default 900 seconds) and responses are `no-store`. Clients should fetch on playback and refresh after expiry, handle missing/stale and safe 503 responses, and avoid logging or persisting the URL.
 
-Deploy a reachable public S3 endpoint serving private MP3 objects and supporting signed GET and Range. For a prefixed proxy preserve signed Host and strip the prefix. Lexarbor adds no download proxy, fixed public access, learning UI or global CORS permission; configure S3/proxy CORS for actual origins only when the client uses cross-origin fetch/WebAudio. The private storage integration exercises this public HTTP mapper with a real MP3, Range, expired/renewed signatures, permission denial, missing objects and disable/re-enable behavior. Old public routes, response fields, anonymous authentication and quotas remain unchanged.
+Deploy a reachable public S3 endpoint serving private MP3 objects and supporting signed GET and Range. For a prefixed proxy preserve signed Host and strip the prefix. Lexarbor adds no download proxy, fixed public access, learning UI or global CORS permission; configure S3/proxy CORS for actual origins only when the client uses cross-origin fetch/WebAudio. The private storage integration exercises the catalog HTTP mapper with a real MP3, Range, expired/renewed signatures, permission denial, missing objects and disable/re-enable behavior.
 
 ### Online request-limit settings
 
@@ -1529,16 +1517,12 @@ Meaning submissions are off unless a supplementary book is configured. See the [
 | Setting | Description |
 |---|---|
 | `MeaningSubmissions:BookId` | ID of an existing, enabled book that receives approved submissions. Unset: submissions and approval answer `503`, and the review page shows a warning |
-| `MeaningSubmissions:Integration:Issuer` / `Subject` | Required when a public key is configured; must equal the client's `iss` and `sub`. Non-empty, no whitespace |
-| `MeaningSubmissions:Integration:Audience` | Default `urn:lexarbor:integration` |
-| `MeaningSubmissions:Integration:PublicKeys:<n>:KeyId` | Unique, 1–128 letters, digits, `.`, `_` or `-` |
-| `MeaningSubmissions:Integration:PublicKeys:<n>:PublicKeyPath` | PEM RSA public key (at least 2048 bits). A file containing a private key is refused |
 | `MeaningSubmissions:Ai:Endpoint` / `Model` | Optional OpenAI-compatible base URL (for example `https://api.example.com/v1`) and model; both set enables review advice |
 | `MeaningSubmissions:Ai:ApiKey` | Optional server-only bearer key; set it through the protected review/enrichment settings API (0600 persistent file), or an environment override (`MeaningSubmissions__Ai__ApiKey`, read-only online) |
 | `MeaningSubmissions:Ai:TimeoutSeconds` | 1–300, default 30 |
 | `MeaningSubmissions:Ai:AutoReviewEnabled` | Default false; online `reviewAssistant.autoReviewEnabled` explicitly authorizes automatic decisions |
 
-An invalid value stops startup with a message naming the setting only. Without any public key the integration routes answer `401`. Integration trust settings are read once at startup; signing-key rotation means adding the new public key to the ring, restarting, switching the client's signing key, then removing the old key and restarting again.
+Grant the `meaning-submissions` scope to the submission client. See [Business API key upgrade](#business-api-key-upgrade) to migrate the former JWT client.
 
 The upgrade adds the `meaning_submission` table only (migration `AddMeaningSubmissions`); every existing row and table is unchanged. Back up SQLite before upgrading. An older image does not start on the upgraded database: the startup version gate stops with `migration.version_too_new`. To roll back, either restore the backup, or use the current migration tooling to return to `20261021010701_RemoveTextbookAudio` (Down drops the table together with every submission) and then deploy the older image. The review advice sends only the submission's word, part of speech, definition and example to the configured endpoint.
 
@@ -1811,11 +1795,9 @@ remain. Recover lost checks from a matched backup. The existing older-image
 
 ## On-demand learning-question rollout
 
-The [learning-question routes](../api/LearningQuestions.md) need no migration,
-new setting, credential, background job or storage directory. The public route
-uses the existing anonymous API limit and deployment boundary; the submission
-route uses the existing integration identity, scope and supplementary-book
-configuration. Correct answers belong in the trusted consumer's snapshots, not
+The [learning-question routes](../api/LearningQuestions.md) use the `catalog`
+and `meaning-submissions` API key scopes, respectively. The submission route
+also requires the supplementary-book configuration. Correct answers belong in the trusted consumer's snapshots, not
 in an unfiltered browser response.
 
 Validate the providing PR from its source/build before merge. After merge, record

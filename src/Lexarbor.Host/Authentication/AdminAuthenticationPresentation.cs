@@ -11,7 +11,6 @@ public static class AdminAuthenticationSource
 {
     public const string PolicyScheme = "AdminAuthentication";
     public const string PresentationScheme = "AdminAuthentication.Presentation";
-    public const string IntegrationScheme = "IntegrationService";
 
     /// <summary>
     /// The cookie scheme holding the SQLite-backed server-side session: its opaque,
@@ -69,12 +68,11 @@ public static class AdminAuthenticationSource
     // request — cookie-bearing or anonymous — is answered by the hosted-login
     // session scheme. Authentication, challenge and forbid must never choose a
     // fallback identity, so a legacy JWT cookie can no longer authenticate anything.
-    // The integration surface is authenticated only by integration service
-    // tokens: its bearer header is never handed to the identity provider's JWT
-    // handler, and no administrator session is read for it.
+    // Business paths authenticate only API keys, with no admin session read
+    // or administrator token validation.
     public static string Select(HttpRequest request) =>
-        request.Path.StartsWithSegments("/integration")
-            ? IntegrationScheme
+        request.Path.StartsWithSegments("/api") || request.Path.StartsWithSegments("/integration")
+            ? BusinessApiKeyAuthentication.SchemeName
             : IsBearer(request)
             ? JwtBearerDefaultsName
             : SessionScheme;
