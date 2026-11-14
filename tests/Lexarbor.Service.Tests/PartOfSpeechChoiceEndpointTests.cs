@@ -97,20 +97,20 @@ public sealed class PartOfSpeechChoiceEndpointTests
     }
 
     [Theory]
-    [InlineData(null, "review", false, "FillLetters")]
-    [InlineData(false, "review", false, "FillLetters")]
-    [InlineData(true, "new", false, "EnglishToChinese")]
-    [InlineData(true, "review", true, "PartOfSpeechChoice")]
-    [InlineData(false, "review", true, "FormFill")]
-    public async Task OptInKeepsOldModesAndCoexistsWithRelation(bool? enabled, string mode, bool useRelation, string expected)
+    [InlineData("review", false, 3, "PartOfSpeechChoice")]
+    [InlineData("new", false, 0, "EnglishToChinese")]
+    [InlineData("new", true, 0, "EnglishToChinese")]
+    [InlineData("review", true, 6, "PartOfSpeechChoice")]
+    [InlineData("review", true, 5, "FormFill")]
+    public async Task AutomaticSelectionRespectsModeAndCoexistsWithRelation(string mode, bool useRelation, int first, string expected)
     {
         await using var factory = new VocabularyWebApplicationFactory();
-        await using var host = Pick(factory, count => count - 1);
+        await using var host = Pick(factory, count => first % count);
         using var client = host.CreateClient();
         await client.UseCatalogKeyAsync(host);
         await Seed(host.Services, extraLocalOption: true);
 
-        var request = Request("happily", mode, enabled);
+        var request = Request("happily", mode);
         if (useRelation) request.Add("relation", new { sourceWordId = "happy", type = "derived_adverb" });
         var data = await Success(await client.PostAsJsonAsync(Route, request, Ct));
         Assert.Equal(expected, data.GetProperty("type").GetString());
@@ -142,16 +142,16 @@ public sealed class PartOfSpeechChoiceEndpointTests
     }
 
     [Fact]
-    public async Task FlagsCannotSkipCatalogAuthorizationOrAcceptStringValues()
+    public async Task ReviewRequiresCatalogAuthorization()
     {
         await using var factory = new VocabularyWebApplicationFactory();
         using var client = factory.CreateClient();
         var request = Request("happily");
-        request["enablePartOfSpeechChoice"] = "true";
         using var unauthenticated = await client.PostAsJsonAsync(Route, request, Ct);
         Assert.Equal(HttpStatusCode.Unauthorized, unauthenticated.StatusCode);
-        await client.UseCatalogKeyAsync(factory);
-        await Error(await client.PostAsJsonAsync(Route, request, Ct), HttpStatusCode.BadRequest, "QUESTION_INVALID_REQUEST");
+        client.DefaultRequestHeaders.Add(BusinessApiAuthorization.Header, await factory.SeedKeyAsync(catalog: false, meaningSubmissions: true));
+        using var forbidden = await client.PostAsJsonAsync(Route, request, Ct);
+        Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
     }
 
     private static WebApplicationFactory<Program> Pick(VocabularyWebApplicationFactory host, Func<int, int> pick) =>
@@ -161,20 +161,15 @@ public sealed class PartOfSpeechChoiceEndpointTests
             services.AddScoped(_ => new LearningQuestionGenerator(pick));
         }));
 
-    private static Dictionary<string, object> Request(string target, string mode = "review", bool? enabled = true)
+    private static Dictionary<string, object> Request(string target, string mode = "review") => new()
     {
-        var input = new Dictionary<string, object>
-        {
-            ["wordId"] = target,
-            ["bookId"] = "book",
-            ["meaningId"] = "m-" + target,
-            ["mode"] = mode,
-            ["unitId"] = "unit",
-            ["sameEntryKind"] = true
-        };
-        if (enabled is bool value) input.Add("enablePartOfSpeechChoice", value);
-        return input;
-    }
+        ["wordId"] = target,
+        ["bookId"] = "book",
+        ["meaningId"] = "m-" + target,
+        ["mode"] = mode,
+        ["unitId"] = "unit",
+        ["sameEntryKind"] = true
+    };
 
     private static async Task Seed(IServiceProvider services, bool extraLocalOption = false, string target = "happily")
     {

@@ -10,7 +10,7 @@ The single-question, batch-question and submission `/question` routes share the
 
 | Route | JSON body | Access |
 | --- | --- | --- |
-| `POST /api/vocabulary/learning-question` | Required `wordId`, `bookId`, `meaningId`, `mode`; optional `unitId`, `sameEntryKind`, `relation`, `enablePartOfSpeechChoice` | `X-Api-Key` with `catalog` scope |
+| `POST /api/vocabulary/learning-question` | Required `wordId`, `bookId`, `meaningId`, `mode`; optional `unitId`, `sameEntryKind`, `relation` | `X-Api-Key` with `catalog` scope |
 | `POST /integration/meaning-submissions/{id}/learning-question` | Required `mode` | `X-Api-Key` with `meaning-submissions` scope; configured `MeaningSubmissions:BookId` |
 
 `mode` is exactly `new` or `review`. IDs must be nonblank. The catalog meaning
@@ -90,8 +90,8 @@ Examples show one possible ordering and pattern, not stable output.
   this mode never falls back to letter filling.
 - `review` selects uniformly among types that can actually be generated. The
   regular candidates are `EnglishToChinese`, `ChineseToEnglish`, and eligible
-  `FillLetters`. An eligible catalog relation adds up to three types. The
-  part-of-speech question can join the same draw when explicitly enabled. A uniform
+  `FillLetters`. An eligible catalog relation adds up to three types. Catalog
+  review also includes `PartOfSpeechChoice` when it can be generated. A uniform
   random ordering tries each type at most once, stopping at the first available
   one. Target/source errors, authentication, storage faults and cancellation
   propagate.
@@ -118,10 +118,10 @@ Choices have exactly four distinct nonblank `text` values and exactly one
 `isCorrect:true`. Every option carries an explicit JSON boolean, including false.
 Choice data contains neither `pattern` nor `answerWord`; fill data contains no
 `options`. There is no persistent question ID, student identity or timing field.
-`type` is a string. Clients that send `relation` in review must support the
-three related types. Clients that enable `enablePartOfSpeechChoice` in review
-must also support `PartOfSpeechChoice`. The submission route uses the three
-regular types and its existing choice selection rules.
+`type` is a string. Catalog review clients must support `PartOfSpeechChoice`.
+Clients that send `relation` in review must also support the three related
+types. The submission route uses the three regular types and its existing choice
+selection rules.
 
 ## Catalog relation practice
 
@@ -137,8 +137,8 @@ Content-Type: application/json
 `sourceWordId` and one of the [eleven relation codes](VocabularyRelations.md#types).
 Malformed `relation` returns `400` with `QUESTION_INVALID_REQUEST` in both modes.
 A confirmed relation from `sourceWordId` to `wordId` makes related types eligible
-in `review`. A missing, pending or reverse-only link uses the regular review
-types, with the same family distractor rules. In `new`, the relation is validated
+in `review`. A missing, pending or reverse-only link leaves the other eligible
+review types in the draw. In `new`, the relation is validated
 and the question follows the usual English-to-Chinese rules.
 
 `FormChoice` asks for the target spelling given the source and relation type.
@@ -189,16 +189,15 @@ book, unit, entry-kind and supplementary-book fallback rules.
 
 ## Part-of-speech choice
 
-Use `enablePartOfSpeechChoice: true` to add the type to the catalog `review`
-draw. The flag is optional and defaults to false. `new` still draws only
-`EnglishToChinese`. The flag works with or without `relation`.
+Lexarbor automatically considers this type for catalog `review`, with or
+without `relation`. `new` still draws only `EnglishToChinese`.
 
 ```http
 POST /api/vocabulary/learning-question
 X-Api-Key: <issued-api-key>
 Content-Type: application/json
 
-{"wordId":"happily-id","bookId":"book-id","meaningId":"happily-meaning-id","mode":"review","enablePartOfSpeechChoice":true}
+{"wordId":"happily-id","bookId":"book-id","meaningId":"happily-meaning-id","mode":"review"}
 ```
 
 ```json
@@ -289,10 +288,10 @@ and scheduling. Responses include correct answers and must not be forwarded
 unchanged to a student's browser. Use the API key from the Study backend. Pending submissions are available
 through the authenticated submission routes.
 
-There are no new settings, migrations, dependencies or persistence directories.
-Validate against this PR's source/build. After merge, the release/deployment owner
-records the first supporting revision or image and shares it with the Study task.
-Study can implement and test against the merged contract in an isolated Lexarbor
-build. Deploy compatible Lexarbor before switching the running Study consumer.
-Production deployment and Study implementation are separate work, not PR merge
-prerequisites. See [Deployment](../development/Deployment.md#on-demand-learning-question-rollout).
+When upgrading an existing integration, deploy a client that accepts
+`PartOfSpeechChoice` before routing catalog review requests to a Lexarbor build
+that returns it. Keep sending the existing request fields during the upgrade.
+After Lexarbor supports `relation`, clients that use the three related types
+can send that field. The feature uses the current database and configuration.
+The deployment owner shares the supporting revision or image with the client
+owner so both sides can validate the contract before switching traffic.

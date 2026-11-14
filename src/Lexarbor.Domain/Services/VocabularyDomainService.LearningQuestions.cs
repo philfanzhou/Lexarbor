@@ -14,18 +14,16 @@ public partial class VocabularyDomainService
     public Task<LearningQuestion> CreateLearningQuestionAsync(
         string wordId, string bookId, string meaningId, LearningQuestionMode mode,
         string? unitId = null, bool sameEntryKind = false, CancellationToken cancellationToken = default,
-        LearningQuestionRelation? relation = null, bool enablePartOfSpeechChoice = false) =>
-        CreateLearningQuestionCoreAsync(wordId, bookId, meaningId, mode, unitId, sameEntryKind, relation,
-            useFamily: true, enablePartOfSpeechChoice, cancellationToken);
+        LearningQuestionRelation? relation = null) =>
+        CreateLearningQuestionCoreAsync(wordId, bookId, meaningId, mode, unitId, sameEntryKind, relation, useFamily: true, cancellationToken);
 
     internal Task<LearningQuestion> CreateSubmissionLearningQuestionAsync(
         string wordId, string bookId, string meaningId, LearningQuestionMode mode, CancellationToken cancellationToken) =>
-        CreateLearningQuestionCoreAsync(wordId, bookId, meaningId, mode, null, false, null,
-            useFamily: false, enablePartOfSpeechChoice: false, cancellationToken);
+        CreateLearningQuestionCoreAsync(wordId, bookId, meaningId, mode, null, false, null, useFamily: false, cancellationToken);
 
     private async Task<LearningQuestion> CreateLearningQuestionCoreAsync(
         string wordId, string bookId, string meaningId, LearningQuestionMode mode, string? unitId, bool sameEntryKind,
-        LearningQuestionRelation? relation, bool useFamily, bool enablePartOfSpeechChoice, CancellationToken cancellationToken)
+        LearningQuestionRelation? relation, bool useFamily, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(wordId) || string.IsNullOrWhiteSpace(bookId) || string.IsNullOrWhiteSpace(meaningId))
             throw new DomainValidationException("Word ID, book ID and meaning ID are required.");
@@ -38,7 +36,7 @@ public partial class VocabularyDomainService
         var related = reviewCatalog && relation != null
             ? await _catalogQueries!.GetLearningRelationAsync(wordId, relation, cancellationToken)
             : null;
-        var partOfSpeech = reviewCatalog && enablePartOfSpeechChoice ? VocabularyPartOfSpeech.FromLabel(meaning.PartOfSpeech) : null;
+        var partOfSpeech = reviewCatalog ? VocabularyPartOfSpeech.FromLabel(meaning.PartOfSpeech) : null;
         return await _learningQuestions.CreateAsync(word.Word, meaning.Meaning, mode,
             (direction, token) => reviewCatalog
                 ? BuildReviewQuestionAsync(word, meaning, scope, direction, token)
