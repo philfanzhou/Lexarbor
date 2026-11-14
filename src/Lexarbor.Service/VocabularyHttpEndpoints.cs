@@ -22,7 +22,7 @@ public static partial class VocabularyHttpEndpoints
     /// <summary>
     /// The most questions one batch request may ask for. Every item runs its
     /// own queries against the one SQLite connection, so this is what bounds
-    /// how long a single anonymous request holds the database busy.
+    /// how long a single request holds the database busy.
     /// </summary>
     public const int MaxQuestionBatchItems = 50;
 
@@ -38,6 +38,9 @@ public static partial class VocabularyHttpEndpoints
         var apiGroup = app.MapGroup("/api").RequireBusinessApiScope(BusinessApiAuthorization.Catalog);
 
         apiGroup.MapGet("/vocabulary/{wordId}", GetVocabulary);
+        apiGroup.MapGet("/vocabulary/{wordId}/relations", GetWordFamily);
+        apiGroup.MapPost("/vocabulary/relations/lookup", LookupWordFamilies)
+            .WithMetadata(new RequestSizeLimitAttribute(MaxBatchRequestBytes));
         apiGroup.MapGet("/vocabulary", SearchVocabulary);
         apiGroup.MapPost("/vocabulary/question", GetQuestion);
         apiGroup.MapPost("/vocabulary/learning-question", LearningQuestionEndpoints.Catalog);
