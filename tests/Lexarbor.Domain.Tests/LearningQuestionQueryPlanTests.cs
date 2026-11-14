@@ -30,8 +30,14 @@ public sealed class LearningQuestionQueryPlanTests
             db.VocabularyMeanings.Add(new() { Id = $"m-{spelling}", VocabularyId = spelling, BookId = "book", Meaning = spelling });
             db.VocabularyRelations.Add(new()
             {
-                Id = spelling, SourceWordId = "target", TargetWordId = spelling, Type = "derived_verb",
-                OriginKind = "manual", Status = "confirmed", ReviewReason = null, LastConfirmedAtUnixMs = 0
+                Id = spelling,
+                SourceWordId = "target",
+                TargetWordId = spelling,
+                Type = "derived_verb",
+                OriginKind = "manual",
+                Status = "confirmed",
+                ReviewReason = null,
+                LastConfirmedAtUnixMs = 0
             });
         }
         await db.SaveChangesAsync(token);
