@@ -1,7 +1,7 @@
 namespace Lexarbor.Domain.Models;
 
 public enum LearningQuestionMode { New, Review }
-public enum LearningQuestionType { EnglishToChinese, ChineseToEnglish, FillLetters, FormChoice, RelationChoice, FormFill }
+public enum LearningQuestionType { EnglishToChinese, ChineseToEnglish, FillLetters, FormChoice, RelationChoice, FormFill, PartOfSpeechChoice }
 
 public sealed record LearningQuestionRelation(string SourceWordId, string Type);
 
@@ -24,3 +24,8 @@ public sealed record RelationChoiceLearningQuestion(string TargetWord, string An
 
 public sealed record FormFillLearningQuestion(string Meaning, string AnchorWord, string RelationType, IReadOnlyList<string?> Pattern, string AnswerWord)
     : LearningQuestion(LearningQuestionType.FormFill, Meaning);
+
+public sealed record PartOfSpeechChoiceLearningQuestion(string Meaning, string AnchorWord, string PartOfSpeech, IReadOnlyList<VocabularyQuestionOptionModel> Options)
+    : LearningQuestion(LearningQuestionType.PartOfSpeechChoice, Meaning);
+
+public sealed record PartOfSpeechChoiceCandidates(string AnchorWord, IReadOnlyList<string> Distractors);

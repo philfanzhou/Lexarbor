@@ -17,7 +17,8 @@ internal static class LearningQuestionEndpoints
             || string.IsNullOrWhiteSpace(body.WordId) || string.IsNullOrWhiteSpace(body.BookId)
             || string.IsNullOrWhiteSpace(body.MeaningId) || !TryRelation(body.Relation, out var relation)) return Invalid();
         return await Generate(() => service.CreateLearningQuestionAsync(
-            body.WordId, body.BookId, body.MeaningId, mode, body.UnitId, body.SameEntryKind ?? false, cancellationToken, relation));
+            body.WordId, body.BookId, body.MeaningId, mode, body.UnitId, body.SameEntryKind ?? false,
+            cancellationToken, relation, body.EnablePartOfSpeechChoice == true));
     }
 
     internal static async Task<IResult> Submission(string id, HttpRequest request, MeaningSubmissionService service, CancellationToken cancellationToken)

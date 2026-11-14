@@ -12,7 +12,8 @@ public sealed class LearningQuestionGenerator(Func<int, int>? pickIndex = null)
         string word, string meaning, LearningQuestionMode mode,
         Func<bool, CancellationToken, Task<VocabularyQuestionModel?>> createChoice,
         CancellationToken cancellationToken = default,
-        Func<LearningQuestionType, LearningQuestion?>? createRelated = null)
+        Func<LearningQuestionType, LearningQuestion?>? createRelated = null,
+        Func<CancellationToken, Task<LearningQuestion?>>? createPartOfSpeechChoice = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (!Enum.IsDefined(mode)) throw new DomainValidationException("Mode must be new or review.");
@@ -26,6 +27,7 @@ public sealed class LearningQuestionGenerator(Func<int, int>? pickIndex = null)
             if (LetterHiding.IsEligible(word)) types.Add(LearningQuestionType.FillLetters);
             if (createRelated != null)
                 types.AddRange([LearningQuestionType.FormChoice, LearningQuestionType.RelationChoice, LearningQuestionType.FormFill]);
+            if (createPartOfSpeechChoice != null) types.Add(LearningQuestionType.PartOfSpeechChoice);
         }
 
         // A uniform permutation makes the first available type uniform among
@@ -48,6 +50,10 @@ public sealed class LearningQuestionGenerator(Func<int, int>? pickIndex = null)
             {
                 var choice = await createChoice(type == LearningQuestionType.ChineseToEnglish, cancellationToken);
                 question = choice == null ? null : new ChoiceLearningQuestion(type, choice.Word, choice.Options);
+            }
+            else if (type == LearningQuestionType.PartOfSpeechChoice)
+            {
+                question = await createPartOfSpeechChoice!(cancellationToken);
             }
             else
             {
