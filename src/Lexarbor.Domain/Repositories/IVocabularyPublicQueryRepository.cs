@@ -3,13 +3,15 @@ using Lexarbor.Domain.Models;
 namespace Lexarbor.Domain.Repositories;
 
 /// <summary>
-/// The catalog reads behind book browsing and vocabulary family lookup. Book browsing sees
+/// The catalog reads behind book browsing, meaning lookup and vocabulary family lookup. Book browsing sees
 /// only enabled books: a missing book answers the detail route's 404 and a
 /// disabled one its 422, so no unit or entry of a disabled book is ever
 /// listed.
 /// </summary>
 public interface IVocabularyPublicQueryRepository
 {
+    Task<IReadOnlyList<VocabularyMeaningLookup>> LookupMeaningsAsync(IReadOnlyList<string> words, CancellationToken cancellationToken);
+
     Task<IReadOnlyList<VocabularyFamilyLookup>> LookupRelationsAsync(IReadOnlyList<VocabularyFamilyQuery> queries, CancellationToken cancellationToken);
 
     Task<LearningQuestionRelationContext?> GetLearningRelationAsync(string wordId, LearningQuestionRelation relation, CancellationToken cancellationToken);

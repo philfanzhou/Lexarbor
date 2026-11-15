@@ -7,7 +7,7 @@ audio URL and passes the URL to the browser.
 
 | Scope | Routes |
 | --- | --- |
-| `catalog` | Vocabulary and book queries, single, batch and learning questions, and audio link issuance under `/api/vocabulary*` |
+| `catalog` | Vocabulary and book queries including [batch meaning lookup](VocabularyMeaningLookup.md), single, batch and learning questions, and audio link issuance under `/api/vocabulary*` |
 | `meaning-submissions` | `/integration/vocabulary/search` and `/integration/meaning-submissions` with its lookup and question subroutes |
 
 A key can carry either or both scopes. Missing, malformed, unknown and revoked
