@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Services;
 using Microsoft.AspNetCore.Http;
@@ -7,8 +6,6 @@ namespace Lexarbor.Service;
 
 public static partial class VocabularyHttpEndpoints
 {
-    private const int MaxFamilyLookupItems = 100;
-
     private static async Task<IResult> GetWordFamily(string wordId, string? meaning, string? partOfSpeech,
         VocabularyPublicQueryService query, CancellationToken token)
     {
@@ -24,46 +21,18 @@ public static partial class VocabularyHttpEndpoints
 
     private static async Task<IResult> LookupWordFamilies(HttpRequest request, VocabularyPublicQueryService query, CancellationToken token)
     {
-        if (request.ContentLength > MaxBatchRequestBytes) return FamilyRequestTooLarge();
-
-        // A chunked body has no length header, and some hosts have no size-limit feature.
-        using var body = new MemoryStream();
-        var buffer = new byte[8192];
-        try
-        {
-            int read;
-            while ((read = await request.Body.ReadAsync(buffer, token)) != 0)
-            {
-                if (body.Length + read > MaxBatchRequestBytes) return FamilyRequestTooLarge();
-                body.Write(buffer, 0, read);
-            }
-        }
-        catch (BadHttpRequestException error) when (error.StatusCode == StatusCodes.Status413PayloadTooLarge)
-        {
-            return FamilyRequestTooLarge();
-        }
-
-        WordFamilyLookupRequest? input;
-        try
-        {
-            input = request.HasJsonContentType()
-                ? JsonSerializer.Deserialize<WordFamilyLookupRequest>(body.GetBuffer().AsSpan(0, (int)body.Length), JsonSerializerOptions.Web)
-                : null;
-        }
-        catch (JsonException)
-        {
-            return VocabularyHttpResponse.BadRequest("The request body is not valid JSON.");
-        }
+        var (input, error) = await ReadLookupRequestAsync<WordFamilyLookupRequest>(request, token);
+        if (error != null) return error;
 
         var queries = input switch
         {
-            { WordIds: { Length: >= 1 and <= MaxFamilyLookupItems } ids, Items: null } => ids.Select(id => new VocabularyFamilyQuery(id)).ToArray(),
+            { WordIds: { Length: >= 1 and <= MaxLookupItems } ids, Items: null } => ids.Select(id => new VocabularyFamilyQuery(id)).ToArray(),
             { WordIds: null, Items: { } entries } => entries,
             _ => null
         };
-        if (queries is not { Length: >= 1 and <= MaxFamilyLookupItems } || queries.Any(entry => entry == null || !IsValidFamilyQuery(entry)))
+        if (queries is not { Length: >= 1 and <= MaxLookupItems } || queries.Any(entry => entry == null || !IsValidFamilyQuery(entry)))
             return VocabularyHttpResponse.BadRequest(
-                $"Supply 1 to {MaxFamilyLookupItems} word IDs or lookup entries. Each entry must have a word ID or a spelling, with nonblank meaning and part of speech when supplied.");
+                $"Supply 1 to {MaxLookupItems} word IDs or lookup entries. Each entry must have a word ID or a spelling, with nonblank meaning and part of speech when supplied.");
 
         var items = await query.LookupRelationsAsync(queries, token);
         return VocabularyHttpResponse.Ok(new { items });
@@ -73,9 +42,6 @@ public static partial class VocabularyHttpEndpoints
         (input.WordId == null ? !string.IsNullOrWhiteSpace(input.Word) : input.Word == null && !string.IsNullOrWhiteSpace(input.WordId))
         && (input.Meaning == null || !string.IsNullOrWhiteSpace(input.Meaning))
         && (input.PartOfSpeech == null || !string.IsNullOrWhiteSpace(input.PartOfSpeech));
-
-    private static IResult FamilyRequestTooLarge() => Results.Json(new { success = false, message = "The request body is too large." },
-        statusCode: StatusCodes.Status413PayloadTooLarge);
 
     private sealed record WordFamilyLookupRequest(string[]? WordIds, VocabularyFamilyQuery[]? Items);
 }

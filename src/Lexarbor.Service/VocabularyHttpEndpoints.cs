@@ -14,8 +14,7 @@ namespace Lexarbor.Service;
 public static partial class VocabularyHttpEndpoints
 {
     /// <summary>
-    /// Request body ceiling for a batch import, in bytes. 500 entries of
-    /// ordinary vocabulary fit in a fraction of it; see ADR-005.
+    /// Request body ceiling for batch endpoints, in bytes.
     /// </summary>
     public const long MaxBatchRequestBytes = 1024 * 1024;
 
@@ -40,6 +39,8 @@ public static partial class VocabularyHttpEndpoints
         apiGroup.MapGet("/vocabulary/{wordId}", GetVocabulary);
         apiGroup.MapGet("/vocabulary/{wordId}/relations", GetWordFamily);
         apiGroup.MapPost("/vocabulary/relations/lookup", LookupWordFamilies)
+            .WithMetadata(new RequestSizeLimitAttribute(MaxBatchRequestBytes));
+        apiGroup.MapPost("/vocabulary/meanings/lookup", LookupMeanings)
             .WithMetadata(new RequestSizeLimitAttribute(MaxBatchRequestBytes));
         apiGroup.MapGet("/vocabulary", SearchVocabulary);
         apiGroup.MapPost("/vocabulary/question", GetQuestion);
