@@ -286,14 +286,14 @@ public sealed class RelatedLearningQuestionEndpointTests
 
     private static object Request(string target, string anchor, string type, string mode = "review", string book = "book",
         string? meaningId = null, bool legacy = false) => new
-    {
-        wordId = target,
-        bookId = book,
-        meaningId = meaningId ?? "m-" + target,
-        mode,
-        relation = legacy ? (object)new { sourceWordId = anchor, type }
+        {
+            wordId = target,
+            bookId = book,
+            meaningId = meaningId ?? "m-" + target,
+            mode,
+            relation = legacy ? (object)new { sourceWordId = anchor, type }
             : new { sourceWordId = anchor, type, relationId = $"{anchor}:{target}:{type}", sourceMeaningId = "m-" + anchor }
-    };
+        };
 
     private static async Task Seed(IServiceProvider services, bool translation = false)
     {
@@ -339,7 +339,9 @@ public sealed class RelatedLearningQuestionEndpointTests
     private static void AddPair(VocabularyDbContext db, string source, string target, string type, string? targetMeaning = null) =>
         db.VocabularyRelationMeanings.Add(new()
         {
-            RelationId = $"{source}:{target}:{type}", SourceMeaningId = "m-" + source, TargetMeaningId = targetMeaning ?? "m-" + target
+            RelationId = $"{source}:{target}:{type}",
+            SourceMeaningId = "m-" + source,
+            TargetMeaningId = targetMeaning ?? "m-" + target
         });
 
     private static VocabularyRelationEntity Edge(string source, string target, string type, bool confirmed = true) => new()

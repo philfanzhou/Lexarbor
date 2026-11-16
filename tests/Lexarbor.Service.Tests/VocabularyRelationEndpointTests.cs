@@ -93,8 +93,12 @@ public sealed class VocabularyRelationEndpointTests
         using var client = await Client(factory);
         var valid = new
         {
-            sourceWordId = "write", targetWordId = "wrote", type = "past_tense", usageNote = "Past tense of write.",
-            confirm = true, meaningPairs = new[] { new { sourceMeaningId = "write-meaning", targetMeaningId = "wrote-meaning" } }
+            sourceWordId = "write",
+            targetWordId = "wrote",
+            type = "past_tense",
+            usageNote = "Past tense of write.",
+            confirm = true,
+            meaningPairs = new[] { new { sourceMeaningId = "write-meaning", targetMeaningId = "wrote-meaning" } }
         };
         using var invalid = await client.PostAsJsonAsync(Route, valid with
         {
@@ -110,8 +114,13 @@ public sealed class VocabularyRelationEndpointTests
             .GetProperty("targetMeaningId").GetString());
         using var removed = await client.PutAsJsonAsync($"{Route}/{id}", new
         {
-            valid.sourceWordId, valid.targetWordId, valid.type, valid.usageNote, valid.confirm,
-            expectedVersion = 1, meaningPairs = Array.Empty<object>()
+            valid.sourceWordId,
+            valid.targetWordId,
+            valid.type,
+            valid.usageNote,
+            valid.confirm,
+            expectedVersion = 1,
+            meaningPairs = Array.Empty<object>()
         }, Ct);
         Assert.False((await Data(removed)).TryGetProperty("meaningPairs", out _));
     }

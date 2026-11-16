@@ -127,8 +127,13 @@ public sealed class PartOfSpeechChoiceEndpointTests
         await Seed(host.Services, extraLocalOption: true);
 
         var request = Request("happily", mode);
-        if (useRelation) request.Add("relation", new { sourceWordId = "happy", type = "derived_adverb",
-            relationId = "happy:happily", sourceMeaningId = "m-happy" });
+        if (useRelation) request.Add("relation", new
+        {
+            sourceWordId = "happy",
+            type = "derived_adverb",
+            relationId = "happy:happily",
+            sourceMeaningId = "m-happy"
+        });
         var data = await Success(await client.PostAsJsonAsync(Route, request, Ct));
         Assert.Equal(expected, data.GetProperty("type").GetString());
     }
