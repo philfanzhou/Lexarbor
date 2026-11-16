@@ -5,7 +5,11 @@ public sealed record VocabularyFamilyQuery(string? WordId, string? Word = null, 
 public sealed record VocabularyFamilyLookup(string? WordId, bool Found, IReadOnlyList<VocabularyFamilyRelation> Items);
 
 public sealed record VocabularyFamilyRelation(string RelationId, string Type, string Direction, string? UsageNote, string OriginKind,
-    VocabularyFamilyWord Word, IReadOnlyList<VocabularyFamilyMeaning> Meanings);
+    VocabularyFamilyWord Word, IReadOnlyList<VocabularyFamilyMeaning> Meanings, IReadOnlyList<VocabularyFamilyMeaningPair> MeaningPairs);
+
+public sealed record VocabularyCatalogReference(string WordId, string BookId, string MeaningId);
+
+public sealed record VocabularyFamilyMeaningPair(VocabularyCatalogReference Source, VocabularyCatalogReference Target);
 
 public sealed record VocabularyFamilyWord(string WordId, string Word, string NormalizedWord, string? PhoneticUk, string? PhoneticUs);
 

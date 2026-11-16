@@ -72,6 +72,18 @@ public sealed partial class VocabularyPublicQueryRepository
             var meanings = meaningRows.GroupBy(row => row.VocabularyId, StringComparer.Ordinal)
                 .ToDictionary(group => group.Key, group => group.Select(row => row.Details).ToArray(), StringComparer.Ordinal);
 
+            var edgeIds = edges.Select(edge => edge.Id).ToArray();
+            var pairs = await ConfirmedMeaningRelations(confirmed.Where(edge => EF.Parameter(edgeIds).Contains(edge.Id)))
+                .OrderBy(link => link.Source.Id).ThenBy(link => link.Target.Id)
+                .Select(link => new
+                {
+                    link.Edge.Id,
+                    Pair = new VocabularyFamilyMeaningPair(
+                        new(link.Source.VocabularyId, link.Source.BookId, link.Source.Id),
+                        new(link.Target.VocabularyId, link.Target.BookId, link.Target.Id))
+                }).ToArrayAsync(cancellationToken);
+            var pairsByRelation = pairs.ToLookup(row => row.Id, row => row.Pair, StringComparer.Ordinal);
+
             var outgoing = edges.ToLookup(edge => edge.SourceWordId, StringComparer.Ordinal);
             var incoming = edges.Where(edge => edge.SourceWordId != edge.TargetWordId).ToLookup(edge => edge.TargetWordId, StringComparer.Ordinal);
             var results = new Dictionary<string, VocabularyFamilyLookup>(StringComparer.Ordinal);
@@ -92,7 +104,8 @@ public sealed partial class VocabularyPublicQueryRepository
                 : wordsBySpelling[query.Word!];
 
             VocabularyFamilyRelation Project(FamilyEdge edge, string direction, string otherWordId) =>
-                new(edge.Id, edge.Type, direction, edge.UsageNote, edge.OriginKind, words[otherWordId], meanings.GetValueOrDefault(otherWordId) ?? []);
+                new(edge.Id, edge.Type, direction, edge.UsageNote, edge.OriginKind, words[otherWordId],
+                    meanings.GetValueOrDefault(otherWordId) ?? [], pairsByRelation[edge.Id].ToArray());
         }, cancellationToken);
 
     private static IQueryable<VocabularyFamilyWord> SelectFamilyWords(IQueryable<VocabularyEntity> words) =>

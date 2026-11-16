@@ -11,4 +11,8 @@ public interface IVocabularyRelationRepository
     Task AddAsync(VocabularyRelationModel relation, CancellationToken cancellationToken);
     Task<bool> ReplaceAsync(VocabularyRelationModel relation, long expectedVersion, CancellationToken cancellationToken);
     Task<bool> DeleteAsync(string id, long expectedVersion, CancellationToken cancellationToken);
+    Task<IReadOnlyList<VocabularyRelationMeaningPair>> GetMeaningPairsAsync(string relationId, CancellationToken cancellationToken);
+    Task ReplaceMeaningPairsAsync(VocabularyRelationModel relation, IReadOnlyList<VocabularyRelationMeaningPair> pairs,
+        CancellationToken cancellationToken);
+    Task<bool> AddMeaningPairAsync(string relationId, VocabularyRelationMeaningPair pair, CancellationToken cancellationToken);
 }

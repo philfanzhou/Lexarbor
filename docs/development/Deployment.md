@@ -259,6 +259,15 @@ point. Old-image direct access to an upgraded database is not supported.
 
 ### Vocabulary relation upgrade
 
+`20261116010236_AddVocabularyRelationMeanings` adds the table for confirmed
+meaning pairs. Existing word-level links stay available for browsing. Deploy
+Lexarbor before enabling the new Study requests. Legacy requests continue to
+receive ordinary review questions. Administrators can
+[recover proven pairs or confirm them explicitly](../api/VocabularyRelations.md#link-meanings).
+To roll back this migration, target `20261114040544_AddBusinessApiKeys` with
+current migration tooling after stopping writes and taking a backup. Down
+removes meaning pairs and their invalidation triggers.
+
 `20261105011010_AddVocabularyRelations` adds one empty relationship table and its
 indexes to the existing SQLite database. It requires no new configuration,
 credentials, seed data, storage directory, or external service. Existing book,

@@ -22,8 +22,10 @@ public sealed class VocabularyExpansionService(IVocabularyExpansionRepository ex
             foreach (var candidate in plan.Candidates)
             {
                 token.ThrowIfCancellationRequested();
-                var word = await words.GetByNormalizedWordAsync(candidate.Word.Trim().ToLowerInvariant());
-                if (word == null)
+                var existing = await expansions.FindExistingMeaningAsync(candidate, token);
+                var targetMeaningId = existing?.MeaningId;
+                var targetWordId = existing?.WordId ?? (await words.GetByNormalizedWordAsync(CatalogKeys.Of(candidate.Word)))?.Id;
+                if (targetWordId == null)
                 {
                     var created = await vocabulary.AddOrUpdateCoreAsync(new VocabularyModel { Word = candidate.Word },
                         new VocabularyMeaningModel
@@ -33,13 +35,20 @@ public sealed class VocabularyExpansionService(IVocabularyExpansionRepository ex
                             Meaning = candidate.Meaning,
                             Example = candidate.Example
                         });
-                    word = created.Word;
-                    await expansions.MarkGeneratedAsync(word.Id, task.Id, token);
+                    targetWordId = created.Word.Id;
+                    targetMeaningId = created.Meaning.Id;
+                    await expansions.MarkGeneratedAsync(targetWordId, task.Id, token);
                 }
                 // Existing facts, including manual notes and review status, always win.
-                if (await relations.FindAsync(task.Target.WordId, word.Id, candidate.Type, token) == null)
-                    await relationService.CreateInsideAsync(new(task.Target.WordId, word.Id, candidate.Type,
-                        candidate.UsageNote.Trim(), Confirm: true), "generated", task.Id);
+                var note = candidate.UsageNote.Trim();
+                var previous = await relations.FindAsync(task.Target.WordId, targetWordId, candidate.Type, token);
+                var edge = previous ?? (await relationService.CreateInsideAsync(new(task.Target.WordId, targetWordId, candidate.Type,
+                        note, Confirm: true), "generated", task.Id)).Relation;
+                if (edge.Status == "confirmed" && edge.OriginKind == "generated" && edge.UsageNote == note
+                    && task.Target.MeaningId is { } sourceMeaningId && targetMeaningId != null
+                    && await relations.AddMeaningPairAsync(edge.Id, new(sourceMeaningId, targetMeaningId), token)
+                    && previous != null)
+                    await relationService.AdvanceVersionAsync(edge, token);
             }
             if (!canPublish() || !await tasks.CompleteInTransactionAsync(guard, clock.GetUtcNow().ToUnixTimeMilliseconds(), token))
                 throw new ConflictException("Vocabulary expansion changed before publication.");

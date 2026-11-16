@@ -174,6 +174,13 @@ Downgrade drops this table and its indexes, losing all relationship data while
 preserving catalog rows. Coordinate the migration with the updated cleanup and
 word replacement code; see [deployment](../development/Deployment.md#vocabulary-relation-upgrade).
 
+`AddVocabularyRelationMeanings` adds `vocabulary_relation_meaning`, keyed by
+`(relation_id, source_meaning_id, target_meaning_id)`. The relationship and both
+meaning foreign keys cascade on deletion. Separate meaning indexes serve
+directional lookup and invalidation. SQLite triggers clear affected pairs when
+meaning content or relation scope changes. Meaning edits and deletions also
+advance the version of each affected relation inside the write transaction.
+
 ## Meaning submissions
 
 `AddMeaningSubmissions` adds only the independent `meaning_submission` table. A row is a definition an integration client proposed: `word`, `part_of_speech`, `meaning`, `example`, the client `source`, a `status` (0 pending, 1 approved, 2 rejected, enforced by `CK_meaning_submission_status`), the `result_*` location and text once approved, and Unix-millisecond `created_at_unix_ms`, `updated_at_unix_ms` and `reviewed_at_unix_ms`. Stored generated columns `normalized_word` (`lower(trim(word))`), `normalized_part_of_speech` (`lower(trim(coalesce(part_of_speech, '')))`) and `normalized_meaning` (`trim(meaning)`) use the catalog's own normalization. The filtered unique index `IX_meaning_submission_pending_key` allows one pending row per normalized definition; `IX_meaning_submission_status_created_at_unix_ms` serves the review queues. The table has no foreign key to the catalog: an approved row keeps its result IDs even if the meaning is later edited or deleted. Approval writes the meaning through the import path and updates the row in one `UnitOfWork` transaction.

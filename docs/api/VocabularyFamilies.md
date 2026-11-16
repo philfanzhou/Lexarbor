@@ -29,6 +29,12 @@ X-Api-Key: <issued-api-key>
         "direction": "outgoing",
         "usageNote": "The state of being happy.",
         "originKind": "generated",
+        "meaningPairs": [
+          {
+            "source": { "wordId": "happy-id", "bookId": "book-id", "meaningId": "happy-meaning-id" },
+            "target": { "wordId": "happiness-id", "bookId": "supplement-id", "meaningId": "happiness-meaning-id" }
+          }
+        ],
         "word": {
           "wordId": "happiness-id",
           "word": "happiness",
@@ -62,6 +68,15 @@ empty array when none are available. The `meaningKey` is SQLite's
 `lower(trim(meaning))`, as in book entries. `originKind` describes the relation
 and can be `manual`, `import`, or `generated`. Confirmed relations from any
 of those sources are eligible.
+
+`meaningPairs` carries the current, confirmed links between specific meanings
+in enabled books. Each `source` and `target` uses the stored direction of the
+relation. For an incoming item, the related word is the pair's `source`. An
+empty array allows word-family browsing. To suggest a definition, match the
+learner's exact reference at one end and use the other end's exact reference.
+Keep the returned `wordId`, `bookId` and `meaningId` together, including when
+the catalog contains several word IDs for the spelling. Use the same references
+with the [learning question route](LearningQuestions.md#catalog-relation-practice).
 
 The `meaning` and `partOfSpeech` query parameters are optional. Both use exact
 matching after applying the catalog's `lower(trim(...))` rule, which trims

@@ -8,15 +8,19 @@ namespace Lexarbor.Database.Repositories;
 public sealed partial class VocabularyPublicQueryRepository
 {
     /// <summary>Reads the directed link, competing answers and form choices in a single snapshot.</summary>
-    public Task<LearningQuestionRelationContext?> GetLearningRelationAsync(string wordId, LearningQuestionRelation relation,
+    public Task<LearningQuestionRelationContext?> GetLearningRelationAsync(VocabularyMeaningModel targetMeaning, LearningQuestionRelation relation,
         CancellationToken cancellationToken) => SnapshotAsync<LearningQuestionRelationContext?>(async () =>
     {
         var confirmed = context.VocabularyRelations.AsNoTracking().Where(row => row.Status == "confirmed");
         var words = context.Vocabularies.AsNoTracking();
-        var match = await (from edge in confirmed
-                           join anchor in words on edge.SourceWordId equals anchor.Id
-                           join target in words on edge.TargetWordId equals target.Id
-                           where anchor.Id == relation.SourceWordId && target.Id == wordId && edge.Type == relation.Type
+        var links = ConfirmedMeaningRelations(confirmed.Where(edge => edge.Id == relation.RelationId
+            && edge.Type == relation.Type && edge.SourceWordId == relation.SourceWordId));
+        var match = await (from link in links
+                           join anchor in words on link.Edge.SourceWordId equals anchor.Id
+                           join target in words on link.Edge.TargetWordId equals target.Id
+                           where link.Source.Id == relation.SourceMeaningId && link.Target.Id == targetMeaning.Id
+                               && target.Id == targetMeaning.VocabularyId && link.Target.BookId == targetMeaning.BookId
+                               && link.Target.Meaning == targetMeaning.Meaning && link.Target.PartOfSpeech == targetMeaning.PartOfSpeech
                            select new { Anchor = anchor.Word, AnchorKey = anchor.NormalizedWord, TargetKey = target.NormalizedWord })
             .SingleOrDefaultAsync(cancellationToken);
         if (match == null || string.IsNullOrWhiteSpace(match.Anchor)) return null;
@@ -111,6 +115,24 @@ public sealed partial class VocabularyPublicQueryRepository
         join book in context.VocabularyBooks.AsNoTracking() on item.BookId equals book.Id
         where book.Status
         select item;
+
+    private IQueryable<ConfirmedMeaningRelation> ConfirmedMeaningRelations(IQueryable<VocabularyRelationEntity> edges)
+    {
+        var enabled = EnabledQuestionMeanings();
+        return from edge in edges
+               join pair in context.VocabularyRelationMeanings.AsNoTracking() on edge.Id equals pair.RelationId
+               join source in enabled on pair.SourceMeaningId equals source.Id
+               join target in enabled on pair.TargetMeaningId equals target.Id
+               where source.VocabularyId == edge.SourceWordId && target.VocabularyId == edge.TargetWordId
+               select new ConfirmedMeaningRelation { Edge = edge, Source = source, Target = target };
+    }
+
+    private sealed class ConfirmedMeaningRelation
+    {
+        public required VocabularyRelationEntity Edge { get; init; }
+        public required VocabularyMeaningEntity Source { get; init; }
+        public required VocabularyMeaningEntity Target { get; init; }
+    }
 
     private static IQueryable<string> FamilyIds(IQueryable<VocabularyRelationEntity> confirmed, string wordId) =>
         confirmed.Where(row => row.SourceWordId == wordId).Select(row => row.TargetWordId)

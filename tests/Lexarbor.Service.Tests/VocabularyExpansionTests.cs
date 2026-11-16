@@ -25,7 +25,7 @@ public sealed partial class EnrichmentTargetExecutorTests
         var catalog = new VocabularyDomainService(words, books, new VocabularyMeaningRepository(db),
             new VocabularyBookUnitRepository(db), new VocabularyMeaningUnitRepository(db), unit);
         return new(tasks, repo, books, new(repo, words, relations, books, catalog,
-            new(relations, unit, f.Clock), tasks, unit, f.Clock), new(http, f.Clock),
+            new(relations, unit, f.Clock, repo), tasks, unit, f.Clock), new(http, f.Clock),
             new(new EnrichmentSchedulerRepository(db, tasks), f.Runtime, f.Clock), f.Runtime,
             new() { BookId = book }, f.Clock, destinations);
     }
@@ -42,7 +42,8 @@ public sealed partial class EnrichmentTargetExecutorTests
         await using var f = await Fixture.Create(); await Supplement(f);
         f.Db.Vocabularies.Add(new() { Id = "led", Word = "led", PhoneticUk = "led" });
         await f.Db.SaveChangesAsync(Ct); f.Db.ChangeTracker.Clear();
-        var relationService = new VocabularyRelationService(new VocabularyRelationRepository(f.Db), new UnitOfWork(f.Db), f.Clock);
+        var relationService = new VocabularyRelationService(new VocabularyRelationRepository(f.Db), new UnitOfWork(f.Db), f.Clock,
+            new VocabularyExpansionRepository(f.Db));
         var manual = await relationService.CreateAsync(new("word", "led", "past_tense", "Human note"), Ct);
         var handler = new ExpansionHandler([Candidate() with { UsageNote = "  A person who leads.  " }, Candidate("led", "past_tense"), Candidate("led", "past_participle")]);
         using var http = new HttpFactory(handler);
@@ -60,6 +61,8 @@ public sealed partial class EnrichmentTargetExecutorTests
         Assert.Equal("generated", relation.OriginKind); Assert.Equal(task.Id, relation.OriginReference);
         Assert.Equal("confirmed", relation.Status);
         Assert.Equal("A person who leads.", relation.UsageNote);
+        var pair = await f.Db.VocabularyRelationMeanings.SingleAsync(Ct);
+        Assert.Equal((relation.Id, "meaning", meaning.Id), (pair.RelationId, pair.SourceMeaningId, pair.TargetMeaningId));
         var discovered = await new EnrichmentSchedulerRepository(f.Db).DiscoverAsync(20, [generated.Id], Ct);
         Assert.Contains(discovered, k => k.WordId == generated.Id && k.Step == EnrichmentStep.Fields);
         Assert.Contains(discovered, k => k.WordId == generated.Id && k.Step == EnrichmentStep.Audio);
@@ -71,6 +74,35 @@ public sealed partial class EnrichmentTargetExecutorTests
         var config = new EnrichmentAdminConfiguration(true, true, true, true, true, true, 5, "text", "text", "uk", "us", "t", "t", "s", "s", "supplement");
         var detail = await admin.DetailAsync(task.Id, 1, 10, config, f.Clock.Now, Ct);
         Assert.Null(detail!.Task.Locale); Assert.Equal("Succeeded", detail.Task.State);
+    }
+
+    [Fact]
+    public async Task ExpansionUsesExactExistingSenseOnTheMatchingHistoricalWordAndCanRecoverIt()
+    {
+        await using var f = await Fixture.Create();
+        await Supplement(f);
+        f.Db.Vocabularies.AddRange(new() { Id = "a-homograph", Word = "led" }, new() { Id = "z-matching", Word = "LED" });
+        f.Db.VocabularyMeanings.AddRange(
+            new() { Id = "homograph", VocabularyId = "a-homograph", BookId = "book", Meaning = "发光二极管", PartOfSpeech = "v." },
+            new() { Id = "matching", VocabularyId = "z-matching", BookId = "book", Meaning = "带领了", PartOfSpeech = "verb" });
+        await f.Db.SaveChangesAsync(Ct);
+        f.Db.ChangeTracker.Clear();
+        var candidate = Candidate("led", "past_tense") with { Meaning = "带领了", PartOfSpeech = "v." };
+        using var http = new HttpFactory(new ExpansionHandler([candidate]));
+        var result = await Expansion(f, f.Db, http).ExecuteAsync(await f.Ensure(ExpansionKey), "worker", Ct);
+        Assert.Equal(EnrichmentState.Succeeded, Round(result!).State);
+        var relation = await f.Db.VocabularyRelations.AsNoTracking().SingleAsync(Ct);
+        Assert.Equal("z-matching", relation.TargetWordId);
+        Assert.Equal("matching", (await f.Db.VocabularyRelationMeanings.SingleAsync(Ct)).TargetMeaningId);
+        Assert.Equal(3, await f.Db.VocabularyMeanings.CountAsync(Ct));
+
+        // A legacy publication retained the evidence, but did not record the pair.
+        await f.Db.VocabularyRelationMeanings.ExecuteDeleteAsync(Ct);
+        var relations = new VocabularyRelationService(new VocabularyRelationRepository(f.Db), new UnitOfWork(f.Db),
+            f.Clock, new VocabularyExpansionRepository(f.Db));
+        var recovered = await relations.RecoverMeaningPairAsync(relation.Id, relation.Version, Ct);
+        Assert.Equal(new VocabularyRelationMeaningPair("meaning", "matching"), Assert.Single(recovered.MeaningPairs!));
+        Assert.Equal(relation.Version + 1, recovered.Version);
     }
 
     [Fact]

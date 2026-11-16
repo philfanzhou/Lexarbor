@@ -1,4 +1,5 @@
 using Lexarbor.Database.Entities;
+using Lexarbor.Domain.Exceptions;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 using Microsoft.Data.Sqlite;
@@ -78,6 +79,33 @@ public sealed class VocabularyRelationRepository(VocabularyDbContext context) : 
     public async Task<bool> DeleteAsync(string id, long expectedVersion, CancellationToken cancellationToken) =>
         await context.VocabularyRelations.Where(r => r.Id == id && r.Version == expectedVersion)
             .ExecuteDeleteAsync(cancellationToken) == 1;
+
+    public async Task<IReadOnlyList<VocabularyRelationMeaningPair>> GetMeaningPairsAsync(string relationId, CancellationToken cancellationToken) =>
+        await context.VocabularyRelationMeanings.AsNoTracking().Where(pair => pair.RelationId == relationId)
+            .OrderBy(pair => pair.SourceMeaningId).ThenBy(pair => pair.TargetMeaningId)
+            .Select(pair => new VocabularyRelationMeaningPair(pair.SourceMeaningId, pair.TargetMeaningId)).ToArrayAsync(cancellationToken);
+
+    public async Task ReplaceMeaningPairsAsync(VocabularyRelationModel relation, IReadOnlyList<VocabularyRelationMeaningPair> pairs,
+        CancellationToken cancellationToken)
+    {
+        var ids = pairs.SelectMany(pair => new[] { pair.SourceMeaningId, pair.TargetMeaningId }).Distinct(StringComparer.Ordinal).ToArray();
+        var owners = await context.VocabularyMeanings.AsNoTracking().Where(meaning => EF.Parameter(ids).Contains(meaning.Id))
+            .ToDictionaryAsync(meaning => meaning.Id, meaning => meaning.VocabularyId, cancellationToken);
+        if (pairs.Any(pair => owners.GetValueOrDefault(pair.SourceMeaningId) != relation.SourceWordId
+            || owners.GetValueOrDefault(pair.TargetMeaningId) != relation.TargetWordId))
+            throw new DomainValidationException("Each meaning must belong to its relation endpoint.");
+
+        await context.VocabularyRelationMeanings.Where(pair => pair.RelationId == relation.Id).ExecuteDeleteAsync(cancellationToken);
+        foreach (var pair in pairs)
+            await AddMeaningPairAsync(relation.Id, pair, cancellationToken);
+    }
+
+    public async Task<bool> AddMeaningPairAsync(string relationId, VocabularyRelationMeaningPair pair, CancellationToken cancellationToken) =>
+        await context.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO vocabulary_relation_meaning (relation_id, source_meaning_id, target_meaning_id)
+            VALUES ({relationId}, {pair.SourceMeaningId}, {pair.TargetMeaningId})
+            ON CONFLICT (relation_id, source_meaning_id, target_meaning_id) DO NOTHING
+            """, cancellationToken) == 1;
 
     private static VocabularyRelationModel? Model(VocabularyRelationEntity? r) => r == null ? null : new(
         r.Id, r.SourceWordId, r.TargetWordId, r.Type, r.UsageNote, r.Status, r.ReviewReason, r.OriginKind,

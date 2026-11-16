@@ -27,14 +27,14 @@ public partial class VocabularyDomainService
     {
         if (string.IsNullOrWhiteSpace(wordId) || string.IsNullOrWhiteSpace(bookId) || string.IsNullOrWhiteSpace(meaningId))
             throw new DomainValidationException("Word ID, book ID and meaning ID are required.");
-        if (relation != null && (string.IsNullOrWhiteSpace(relation.SourceWordId) || !VocabularyRelationTypes.IsValid(relation.Type)))
-            throw new DomainValidationException("A source word ID and a valid relation type are required.");
+        if (relation != null && !relation.IsValid())
+            throw new DomainValidationException("The question relation is invalid.");
 
         var (word, meaning, scope) = await ResolveQuestionTargetAsync(
             wordId, bookId, meaningId, unitId, sameEntryKind, cancellationToken);
         var reviewCatalog = useFamily && mode == LearningQuestionMode.Review && _catalogQueries != null;
-        var related = reviewCatalog && relation != null
-            ? await _catalogQueries!.GetLearningRelationAsync(wordId, relation, cancellationToken)
+        var related = reviewCatalog && relation?.RelationId != null
+            ? await _catalogQueries!.GetLearningRelationAsync(meaning, relation, cancellationToken)
             : null;
         var partOfSpeech = reviewCatalog ? VocabularyPartOfSpeech.FromLabel(meaning.PartOfSpeech) : null;
         return await _learningQuestions.CreateAsync(word.Word, meaning.Meaning, mode,

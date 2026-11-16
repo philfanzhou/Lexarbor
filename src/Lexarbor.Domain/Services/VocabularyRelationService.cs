@@ -5,7 +5,7 @@ using Lexarbor.Domain.Repositories;
 namespace Lexarbor.Domain.Services;
 
 public sealed class VocabularyRelationService(IVocabularyRelationRepository repository,
-    IUnitOfWork unitOfWork, TimeProvider time)
+    IUnitOfWork unitOfWork, TimeProvider time, IVocabularyExpansionRepository expansions)
 {
     public const int MaxBatchSize = 100;
 
@@ -42,6 +42,41 @@ public sealed class VocabularyRelationService(IVocabularyRelationRepository repo
         });
     }
 
+    public async Task<VocabularyRelationModel> GetWithMeaningPairsAsync(string id, CancellationToken cancellationToken)
+    {
+        var relation = await GetAsync(id, cancellationToken);
+        return await WithMeaningPairsAsync(relation, cancellationToken);
+    }
+
+    public Task<VocabularyRelationModel> RecoverMeaningPairAsync(string id, long expectedVersion, CancellationToken cancellationToken)
+    {
+        ValidateVersion(expectedVersion);
+        cancellationToken.ThrowIfCancellationRequested();
+        return unitOfWork.ExecuteInTransactionAsync(async () =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var current = await GetWithMeaningPairsAsync(id, CancellationToken.None);
+            if (current.Version != expectedVersion) throw VersionConflict();
+            if (current.MeaningPairs is { Count: > 0 }) return current;
+            var pair = await expansions.ReadHistoricalMeaningPairAsync(current, CancellationToken.None)
+                ?? throw new ConflictException("The expansion record does not establish a current meaning pair.");
+            await repository.AddMeaningPairAsync(current.Id, pair, CancellationToken.None);
+            var updated = await AdvanceVersionAsync(current, CancellationToken.None);
+            return updated with { MeaningPairs = [pair] };
+        });
+    }
+
+    internal async Task<VocabularyRelationModel> AdvanceVersionAsync(VocabularyRelationModel current, CancellationToken cancellationToken)
+    {
+        var updated = current with
+        {
+            Version = checked(current.Version + 1),
+            UpdatedAtUnixMs = Math.Max(time.GetUtcNow().ToUnixTimeMilliseconds(), current.UpdatedAtUnixMs)
+        };
+        if (!await repository.ReplaceAsync(updated, current.Version, cancellationToken)) throw VersionConflict();
+        return updated;
+    }
+
     public Task<VocabularyRelationBatchResult> CreateBatchAsync(IReadOnlyList<VocabularyRelationInput?> inputs,
         CancellationToken cancellationToken = default)
     {
@@ -72,6 +107,8 @@ public sealed class VocabularyRelationService(IVocabularyRelationRepository repo
                 { throw new ResourceNotFoundException($"Relation at index {index}: {error.Message}"); }
                 catch (ConflictException error)
                 { throw new ConflictException($"Relation at index {index}: {error.Message}"); }
+                catch (DomainValidationException error)
+                { throw new DomainValidationException($"Relation at index {index}: {error.Message}"); }
             }
             return new VocabularyRelationBatchResult(items, created, items.Count - created);
         });
@@ -109,7 +146,9 @@ public sealed class VocabularyRelationService(IVocabularyRelationRepository repo
                 Version = checked(current.Version + 1)
             };
             if (!await repository.ReplaceAsync(updated, expectedVersion, CancellationToken.None)) throw VersionConflict();
-            return updated;
+            if (input.MeaningPairs != null)
+                await repository.ReplaceMeaningPairsAsync(updated, input.MeaningPairs.OfType<VocabularyRelationMeaningPair>().ToArray(), CancellationToken.None);
+            return await WithMeaningPairsAsync(updated, CancellationToken.None);
         });
     }
 
@@ -138,7 +177,10 @@ public sealed class VocabularyRelationService(IVocabularyRelationRepository repo
             if (current.UsageNote != input.UsageNote)
                 throw new ConflictException("An equivalent vocabulary relation has different content; update it explicitly.");
             // Replays never confirm an existing relation or overwrite its initial provenance.
-            return new(current, false);
+            var existing = await WithMeaningPairsAsync(current, CancellationToken.None);
+            if (input.MeaningPairs != null && !input.MeaningPairs.ToHashSet().SetEquals(existing.MeaningPairs ?? []))
+                throw new ConflictException("An equivalent vocabulary relation has different meaning pairs; update it explicitly.");
+            return new(existing, false);
         }
         var now = time.GetUtcNow().ToUnixTimeMilliseconds();
         var relation = new VocabularyRelationModel(Guid.NewGuid().ToString(), input.SourceWordId, input.TargetWordId,
@@ -146,7 +188,16 @@ public sealed class VocabularyRelationService(IVocabularyRelationRepository repo
             input.Confirm ? null : "new_relation", origin, reference, 1, now, now, input.Confirm ? now : null);
         await repository.AddAsync(relation, CancellationToken.None);
         await unitOfWork.SaveChangesAsync();
-        return new(relation, true);
+        if (input.MeaningPairs is not { Count: > 0 } pairs) return new(relation, true);
+        var meaningPairs = pairs.OfType<VocabularyRelationMeaningPair>().ToArray();
+        await repository.ReplaceMeaningPairsAsync(relation, meaningPairs, CancellationToken.None);
+        return new(relation with { MeaningPairs = meaningPairs }, true);
+    }
+
+    private async Task<VocabularyRelationModel> WithMeaningPairsAsync(VocabularyRelationModel relation, CancellationToken cancellationToken)
+    {
+        var pairs = await repository.GetMeaningPairsAsync(relation.Id, cancellationToken);
+        return relation with { MeaningPairs = pairs.Count == 0 ? null : pairs };
     }
 
     private async Task RequireWordsAsync(VocabularyRelationInput input)
@@ -164,6 +215,10 @@ public sealed class VocabularyRelationService(IVocabularyRelationRepository repo
         var note = string.IsNullOrWhiteSpace(input.UsageNote) ? null : input.UsageNote.Trim();
         if (note?.Length > 2000 || note?.Contains('\0') == true)
             throw new DomainValidationException("Usage note must contain at most 2000 characters and no null characters.");
+        if (input.MeaningPairs is { } pairs && (pairs.Count > 100 || pairs.Count > 0 && !input.Confirm
+            || pairs.Any(pair => pair == null || !ValidMeaningId(pair.SourceMeaningId) || !ValidMeaningId(pair.TargetMeaningId))
+            || pairs.Distinct().Count() != pairs.Count))
+            throw new DomainValidationException("Supply up to 100 distinct meaning pairs on a confirmed relation.");
         return input with
         {
             SourceWordId = Required(input.SourceWordId, "Source word ID"),
@@ -172,6 +227,8 @@ public sealed class VocabularyRelationService(IVocabularyRelationRepository repo
             UsageNote = note
         };
     }
+
+    private static bool ValidMeaningId(string? value) => !string.IsNullOrWhiteSpace(value) && !value.Contains('\0') && value == value.Trim();
 
     private static string Required(string? value, string name) => string.IsNullOrWhiteSpace(value) || value.Contains('\0')
         ? throw new DomainValidationException($"{name} is required and must not contain null characters.") : value.Trim();
