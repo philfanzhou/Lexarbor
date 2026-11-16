@@ -26,11 +26,18 @@ If it is missing or disabled, expansion waits without spending a model call;
 field completion and audio work remain independent. A previously existing target
 word is reused without adding/replacing its meanings or memberships. A new word
 gets a meaning in the supplement, never in the source textbook. Existing relations
-retain their notes, provenance and confirmation state; new relations are confirmed
+retain their notes, provenance and confirmation state. New relations are confirmed
 with `originKind=generated` and the task ID as `originReference`. A self-relation
 is allowed for invariant inflections, but not for a same-spelling derivative.
 
-All new words, meanings, relations, generated-word provenance and completion commit
+The task records a meaning pair for its source and the newly created meaning,
+or for a unique existing definition with compatible POS in an enabled book.
+The lookup includes historical rows with the same normalized spelling and uses
+the matching row's word ID. An unmatched or ambiguous existing word keeps a
+word-level relationship for browsing. Historical generated pairs can be
+[recovered from the saved expansion plan](VocabularyRelations.md#link-meanings).
+
+All new words, meanings, relations, meaning pairs, generated-word provenance and completion commit
 atomically after source-version, task-lease and configuration checks. A failed
 commit rolls them back. Validated plans are persisted before publication, allowing
 restart recovery without another model call. A remote outcome lost before staging

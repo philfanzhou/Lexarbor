@@ -13,7 +13,7 @@ public sealed class VocabularyRelationTests : TestBase
 {
     private CancellationToken Ct => TestContext.Current.CancellationToken;
     private static VocabularyRelationService Service(VocabularyDbContext db) =>
-        new(new VocabularyRelationRepository(db), new UnitOfWork(db), TimeProvider.System);
+        new(new VocabularyRelationRepository(db), new UnitOfWork(db), TimeProvider.System, new VocabularyExpansionRepository(db));
     private static VocabularyRelationInput Input(string source = "write", string target = "wrote",
         string type = "past_tense", bool confirm = false, string? note = null) => new(source, target, type, note, confirm);
 

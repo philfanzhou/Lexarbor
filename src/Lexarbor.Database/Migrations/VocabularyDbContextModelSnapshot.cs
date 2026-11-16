@@ -1729,6 +1729,29 @@ namespace Lexarbor.Database.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Lexarbor.Database.Entities.VocabularyRelationMeaningEntity", b =>
+                {
+                    b.Property<string>("RelationId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("relation_id");
+
+                    b.Property<string>("SourceMeaningId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("source_meaning_id");
+
+                    b.Property<string>("TargetMeaningId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("target_meaning_id");
+
+                    b.HasKey("RelationId", "SourceMeaningId", "TargetMeaningId");
+
+                    b.HasIndex("SourceMeaningId");
+
+                    b.HasIndex("TargetMeaningId");
+
+                    b.ToTable("vocabulary_relation_meaning");
+                });
+
             modelBuilder.Entity("ServiceMantle.Persistence.Relational.DataProtection.DataProtectionKeyEntity", b =>
                 {
                     b.Property<string>("ServiceId")
@@ -2090,6 +2113,27 @@ namespace Lexarbor.Database.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("FK_vocabulary_relation_target");
+                });
+
+            modelBuilder.Entity("Lexarbor.Database.Entities.VocabularyRelationMeaningEntity", b =>
+                {
+                    b.HasOne("Lexarbor.Database.Entities.VocabularyRelationEntity", null)
+                        .WithMany()
+                        .HasForeignKey("RelationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Lexarbor.Database.Entities.VocabularyMeaningEntity", null)
+                        .WithMany()
+                        .HasForeignKey("SourceMeaningId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Lexarbor.Database.Entities.VocabularyMeaningEntity", null)
+                        .WithMany()
+                        .HasForeignKey("TargetMeaningId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Lexarbor.Database.Entities.VocabularyBookEntity", b =>

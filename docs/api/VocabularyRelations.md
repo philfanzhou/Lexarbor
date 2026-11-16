@@ -135,6 +135,30 @@ preserves the status/reason. `confirm=true` explicitly confirms the current
 submitted content and sets the confirmation time. Thus the same route supports
 reconfirmation after a word edit.
 
+## Link meanings
+
+Create, replace and batch create accept an optional `meaningPairs` array of up
+to 100 distinct objects with `sourceMeaningId` and `targetMeaningId`. Each ID
+must belong to the respective word endpoint. A nonempty array requires
+`confirm: true`. On replacement, an empty array clears all pairs. Omitting it
+keeps current pairs as long as the relationship's endpoints, type, usage note
+and confirmation remain valid. The individual relation response includes
+`meaningPairs` when the relation has pairs.
+
+`POST /admin/vocabulary-relations/{relationId}/meaning-pairs/recover?expectedVersion=1`
+can recover a pair from a historical expansion. It requires the same admin
+authorization and version check as other writes. Recovery verifies the original
+generated relation and completed expansion plan, the current source revision,
+and a unique matching definition and compatible POS on the stored target word.
+An existing pair is returned as-is. A stale version or insufficient evidence
+returns 409. Administrators can explicitly select pairs through replacement.
+
+Changing a related meaning's normalized definition, part of speech, example,
+word or book, or deleting the meaning, removes that meaning's pairs and advances
+the relation version. Moving a relation to review or changing its endpoints,
+type or note clears its former pairs. Public lookups expose pairs only while
+both books are enabled.
+
 ## Delete
 
 `DELETE /admin/vocabulary-relations/{relationId}?expectedVersion=1` returns

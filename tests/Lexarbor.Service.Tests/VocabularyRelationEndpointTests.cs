@@ -75,6 +75,8 @@ public sealed class VocabularyRelationEndpointTests
         }
         using var batch = await client.PostAsync(Route + "/batch", Json("{"), Ct);
         Assert.Equal(status, (int)batch.StatusCode);
+        using var recover = await client.PostAsync(Route + "/missing/meaning-pairs/recover?expectedVersion=1", null, Ct);
+        Assert.Equal(status, (int)recover.StatusCode);
         if (identity != "cookie-no-csrf")
             foreach (var route in new[] { Route, Route + "/missing", "/admin/vocabulary-relation-types", "/admin/vocabulary/write/relations" })
             {
@@ -82,6 +84,45 @@ public sealed class VocabularyRelationEndpointTests
                 Assert.Equal(status, (int)response.StatusCode);
             }
         Assert.Equal(0, await Count(factory));
+    }
+
+    [Fact]
+    public async Task MeaningPairsRequireTheCorrectOwnersAndCanBeCleared()
+    {
+        await using var factory = new VocabularyWebApplicationFactory();
+        using var client = await Client(factory);
+        var valid = new
+        {
+            sourceWordId = "write",
+            targetWordId = "wrote",
+            type = "past_tense",
+            usageNote = "Past tense of write.",
+            confirm = true,
+            meaningPairs = new[] { new { sourceMeaningId = "write-meaning", targetMeaningId = "wrote-meaning" } }
+        };
+        using var invalid = await client.PostAsJsonAsync(Route, valid with
+        {
+            meaningPairs = [new { sourceMeaningId = "wrote-meaning", targetMeaningId = "write-meaning" }]
+        }, Ct);
+        Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+        Assert.Equal(0, await Count(factory));
+        using var created = await client.PostAsJsonAsync(Route, valid, Ct);
+        var relation = await Data(created);
+        var id = relation.GetProperty("id").GetString();
+        using var detail = await client.GetAsync($"{Route}/{id}", Ct);
+        Assert.Equal("wrote-meaning", Assert.Single((await Data(detail)).GetProperty("meaningPairs").EnumerateArray())
+            .GetProperty("targetMeaningId").GetString());
+        using var removed = await client.PutAsJsonAsync($"{Route}/{id}", new
+        {
+            valid.sourceWordId,
+            valid.targetWordId,
+            valid.type,
+            valid.usageNote,
+            valid.confirm,
+            expectedVersion = 1,
+            meaningPairs = Array.Empty<object>()
+        }, Ct);
+        Assert.False((await Data(removed)).TryGetProperty("meaningPairs", out _));
     }
 
     [Theory]

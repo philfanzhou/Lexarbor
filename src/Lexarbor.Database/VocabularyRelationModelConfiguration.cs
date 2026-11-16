@@ -7,6 +7,15 @@ internal static class VocabularyRelationModelConfiguration
 {
     public static void Configure(ModelBuilder modelBuilder)
     {
+        var meaning = modelBuilder.Entity<VocabularyRelationMeaningEntity>();
+        meaning.HasKey(pair => new { pair.RelationId, pair.SourceMeaningId, pair.TargetMeaningId });
+        meaning.HasOne<VocabularyRelationEntity>().WithMany().HasForeignKey(pair => pair.RelationId)
+            .OnDelete(DeleteBehavior.Cascade);
+        meaning.HasOne<VocabularyMeaningEntity>().WithMany().HasForeignKey(pair => pair.SourceMeaningId)
+            .OnDelete(DeleteBehavior.Cascade);
+        meaning.HasOne<VocabularyMeaningEntity>().WithMany().HasForeignKey(pair => pair.TargetMeaningId)
+            .OnDelete(DeleteBehavior.Cascade);
+
         var entity = modelBuilder.Entity<VocabularyRelationEntity>();
         entity.Property(r => r.Status).HasDefaultValue("needs_review");
         // Explicit null means confirmed. Do not let EF substitute the database default.

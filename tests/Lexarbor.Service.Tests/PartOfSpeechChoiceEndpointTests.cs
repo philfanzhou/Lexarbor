@@ -38,7 +38,8 @@ public sealed class PartOfSpeechChoiceEndpointTests
         Assert.Equal(partOfSpeech, data.GetProperty("partOfSpeech").GetString());
         Assert.Equal(meaning, data.GetProperty("prompt").GetString());
         Assert.Equal(target, Correct(data));
-        Assert.Equal(new[] { "cloud", "local", "merrily" }, Wrong(data).Order());
+        Assert.Contains("merrily", Wrong(data));
+        Assert.All(Wrong(data), option => Assert.Contains(option, new[] { "cloud", "happy", "local", "merrily" }));
     }
 
     [Theory]
@@ -49,6 +50,8 @@ public sealed class PartOfSpeechChoiceEndpointTests
     [InlineData("missing-target-label")]
     [InlineData("ambiguous-target-label")]
     [InlineData("competing-family-answer")]
+    [InlineData("unrelated-target-sense")]
+    [InlineData("different-sibling-source-sense")]
     [InlineData("too-few-options")]
     public async Task UnavailablePartOfSpeechQuestionFallsBack(string reason)
     {
@@ -57,6 +60,7 @@ public sealed class PartOfSpeechChoiceEndpointTests
         using var client = host.CreateClient();
         await client.UseCatalogKeyAsync(host);
         await Seed(host.Services);
+        var request = Request("happily");
         using (var scope = host.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
@@ -85,13 +89,25 @@ public sealed class PartOfSpeechChoiceEndpointTests
                     AddMeaning(db, "matching-sense", "merrily", "other", " 快乐地 ", "adverb");
                     await db.SaveChangesAsync(Ct);
                     break;
+                case "unrelated-target-sense":
+                    AddMeaning(db, "different-sense", "happily", "book", "恰巧", "adv.");
+                    request["meaningId"] = "different-sense";
+                    await db.SaveChangesAsync(Ct);
+                    break;
+                case "different-sibling-source-sense":
+                    AddMeaning(db, "different-source", "happy", "book", "幸运的", "adj.");
+                    await db.SaveChangesAsync(Ct);
+                    await db.VocabularyRelationMeanings.Where(pair => pair.RelationId == "happy:happiness").ExecuteUpdateAsync(
+                        set => set.SetProperty(pair => pair.SourceMeaningId, "different-source"), Ct);
+                    break;
                 default:
-                    await db.VocabularyMeaningUnits.Where(row => row.MeaningId == "m-cloud").ExecuteDeleteAsync(Ct);
+                    await db.VocabularyMeaningUnits.Where(row => row.MeaningId == "m-cloud" || row.MeaningId == "m-local")
+                        .ExecuteDeleteAsync(Ct);
                     break;
             }
         }
 
-        var data = await Success(await client.PostAsJsonAsync(Route, Request("happily"), Ct));
+        var data = await Success(await client.PostAsJsonAsync(Route, request, Ct));
         Assert.Equal("FillLetters", data.GetProperty("type").GetString());
         AssertStructure(data);
     }
@@ -111,7 +127,13 @@ public sealed class PartOfSpeechChoiceEndpointTests
         await Seed(host.Services, extraLocalOption: true);
 
         var request = Request("happily", mode);
-        if (useRelation) request.Add("relation", new { sourceWordId = "happy", type = "derived_adverb" });
+        if (useRelation) request.Add("relation", new
+        {
+            sourceWordId = "happy",
+            type = "derived_adverb",
+            relationId = "happy:happily",
+            sourceMeaningId = "m-happy"
+        });
         var data = await Success(await client.PostAsJsonAsync(Route, request, Ct));
         Assert.Equal(expected, data.GetProperty("type").GetString());
     }
@@ -128,13 +150,14 @@ public sealed class PartOfSpeechChoiceEndpointTests
         {
             var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
             db.EnrichmentDestinations.Add(new() { Id = "expansion", BookId = "book" });
-            await db.VocabularyMeaningUnits.Where(row => row.MeaningId == "m-cloud").ExecuteDeleteAsync(Ct);
+            await db.VocabularyMeaningUnits.Where(row => row.MeaningId == "m-cloud" || row.MeaningId == "m-local")
+                .ExecuteDeleteAsync(Ct);
             await db.SaveChangesAsync(Ct);
         }
 
         var data = await Success(await client.PostAsJsonAsync(Route, Request("happily"), Ct));
         Assert.Equal("PartOfSpeechChoice", data.GetProperty("type").GetString());
-        Assert.Contains("local", Wrong(data));
+        Assert.Contains(Wrong(data), option => option is "local" or "cloud" or "outside");
         Assert.Contains("merrily", Wrong(data));
         Assert.DoesNotContain("happiness", Wrong(data));
         Assert.DoesNotContain(Wrong(data), text => string.Equals(text, "cheerfully", StringComparison.OrdinalIgnoreCase));
@@ -179,8 +202,8 @@ public sealed class PartOfSpeechChoiceEndpointTests
             new VocabularyBookEntity { Id = "other", BookName = "Other", Status = true });
         db.VocabularyBookUnits.Add(new() { Id = "unit", BookId = "book", Number = 1 });
         db.Vocabularies.AddRange(new VocabularyEntity { Id = "happily", Word = "happily" }, new VocabularyEntity { Id = "happy", Word = "happy" });
+        AddMeaning(db, "m-happy", "happy", "book", "快乐的", target == "happy" ? "adj" : "");
         if (target == "happily") AddMeaning(db, "m-happily", "happily", "book", "快乐地", " ADV. ");
-        else AddMeaning(db, "m-happy", "happy", "book", "快乐的", "adj");
         AddWord(db, "happiness", "happiness", "other", "幸福", "noun");
         // Related inflection eligible as a wrong answer, but not as a clue.
         AddWord(db, "merrily", "merrily", "other", "愉快地", "adv");
@@ -194,6 +217,9 @@ public sealed class PartOfSpeechChoiceEndpointTests
         AddMeaning(db, "candidate-adjective", "alias", "other", "快乐的", "adjective");
         db.VocabularyRelations.AddRange(Link("happy", "happiness", "derived_noun"), Link("happy", "happily", "derived_adverb"),
             Link("happily", "merrily", "past_tense"), Link("happy", "merrily", "past_tense"));
+        db.VocabularyRelationMeanings.Add(new() { RelationId = "happy:happiness", SourceMeaningId = "m-happy", TargetMeaningId = "m-happiness" });
+        if (target == "happily")
+            db.VocabularyRelationMeanings.Add(new() { RelationId = "happy:happily", SourceMeaningId = "m-happy", TargetMeaningId = "m-happily" });
         foreach (var word in new[] { "local", "cloud", "candidate" }) AddPosition(db, word);
         if (extraLocalOption)
         {

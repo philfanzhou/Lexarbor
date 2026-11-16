@@ -14,7 +14,15 @@ public sealed partial class VocabularyPublicQueryRepository
             var confirmed = context.VocabularyRelations.AsNoTracking().Where(edge => edge.Status == "confirmed");
             var derivatives = confirmed.Where(edge => edge.Type == "derived_noun" || edge.Type == "derived_verb"
                 || edge.Type == "derived_adjective" || edge.Type == "derived_adverb");
-            var clues = FamilyIds(derivatives, word.Id);
+            var links = ConfirmedMeaningRelations(derivatives);
+            var outgoing = links.Where(link => link.Source.Id == meaning.Id && link.Source.BookId == meaning.BookId
+                && link.Source.Meaning == meaning.Meaning && link.Source.PartOfSpeech == meaning.PartOfSpeech);
+            var incoming = links.Where(link => link.Target.Id == meaning.Id && link.Target.BookId == meaning.BookId
+                && link.Target.Meaning == meaning.Meaning && link.Target.PartOfSpeech == meaning.PartOfSpeech);
+            var siblings = from parent in incoming
+                           join sibling in links on parent.Source.Id equals sibling.Source.Id
+                           select sibling.Target.Id;
+            var clues = outgoing.Select(link => link.Target.Id).Union(incoming.Select(link => link.Source.Id)).Union(siblings);
             var family = FamilyIds(confirmed, word.Id);
             var words = context.Vocabularies.AsNoTracking();
             var enabled = EnabledQuestionMeanings();
@@ -26,7 +34,7 @@ public sealed partial class VocabularyPublicQueryRepository
             var otherWord = words.Where(candidate => candidate.NormalizedWord != targetKey && candidate.NormalizedWord != string.Empty);
             var clueTexts = from entry in otherWord
                             join item in enabled on entry.Id equals item.VocabularyId
-                            where clues.Contains(entry.Id) && EF.Parameter(knownAliases).Contains(item.NormalizedPartOfSpeech)
+                            where clues.Contains(item.Id) && EF.Parameter(knownAliases).Contains(item.NormalizedPartOfSpeech)
                                 && !EF.Parameter(targetAliases).Contains(item.NormalizedPartOfSpeech)
                             select entry.Word;
             var anchors = (await clueTexts.Distinct().ToArrayAsync(cancellationToken))
