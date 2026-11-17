@@ -58,7 +58,6 @@ public sealed class VocabularyPublicPronunciationSnapshotTests
         await db.Database.MigrateAsync(Ct);
         await AudioTestDatabase.SeedAsync(db);
         await db.Database.ExecuteSqlRawAsync("UPDATE vocabulary_meaning SET phonetic_uk='specific' WHERE id='meaning'", Ct);
-        await db.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL", Ct);
     }
 
     private sealed class AfterBookRead(Func<Task> action) : DbCommandInterceptor
@@ -67,7 +66,7 @@ public sealed class VocabularyPublicPronunciationSnapshotTests
         public override async ValueTask<DbDataReader> ReaderExecutedAsync(DbCommand command, CommandExecutedEventData eventData,
             DbDataReader result, CancellationToken cancellationToken = default)
         {
-            if (!_fired && command.CommandText.Contains("FROM \"vocabulary_book\"", StringComparison.Ordinal))
+            if (!_fired && command.CommandText.Contains("FROM vocabulary_book", StringComparison.Ordinal))
             {
                 _fired = true;
                 await action();

@@ -6,6 +6,7 @@ using Lexarbor.Domain.Exceptions;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Services;
 using Microsoft.EntityFrameworkCore;
+using Lexarbor.Tests.Shared;
 using Xunit;
 
 namespace Lexarbor.Domain.Tests;
@@ -116,7 +117,7 @@ public class VocabularyWordEditTests : TestBase
         await Assert.ThrowsAsync<DomainValidationException>(() => Service(_dbContext).ReplaceAsync("w", " ", null, null, TestContext.Current.CancellationToken));
         using var cancellation = new CancellationTokenSource(); cancellation.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Service(_dbContext).ReplaceAsync("w", "new", null, null, cancellation.Token));
-        await _dbContext.Database.ExecuteSqlRawAsync("CREATE TRIGGER reject_word BEFORE UPDATE ON vocabulary BEGIN SELECT RAISE(ABORT,'synthetic'); END;", TestContext.Current.CancellationToken);
+        await _dbContext.Database.ExecuteSqlRawAsync(Lexarbor.Tests.Shared.PostgreSqlTestServer.RejectingTriggerSql("reject_word", "BEFORE UPDATE", "vocabulary"), TestContext.Current.CancellationToken);
         await Assert.ThrowsAsync<ConflictException>(() => Service(_dbContext).ReplaceAsync("w", "new", null, null, TestContext.Current.CancellationToken));
         var persisted = await _dbContext.Vocabularies.AsNoTracking().SingleAsync(v => v.Id == "w", TestContext.Current.CancellationToken);
         Assert.Equal("original", persisted.Word);
@@ -129,13 +130,11 @@ public class VocabularyWordEditTests : TestBase
     [InlineData("edit", "import")]
     public async Task IndependentContexts_SerializeEditsAndImports_AndCommitAfterCancellation(string firstKind, string secondKind)
     {
-        var path = Path.Combine(Path.GetTempPath(), $"lexarbor-word-edit-{Guid.NewGuid():N}.db");
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         try
         {
-            var options = new DbContextOptionsBuilder<VocabularyDbContext>().UseSqlite($"Data Source={path};Pooling=False;Default Timeout=1").Options;
+            var options = PostgreSqlTestServer.Options(ConnectionString).Options;
             await using var first = new VocabularyDbContext(options);
-            await first.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
             await SeedAsync(first);
             await using var second = new VocabularyDbContext(options);
             // Populate a stale tracked snapshot before the other transaction.
@@ -167,7 +166,6 @@ public class VocabularyWordEditTests : TestBase
         finally
         {
             release.TrySetResult();
-            foreach (var suffix in new[] { "", "-wal", "-shm" }) File.Delete(path + suffix);
         }
     }
 

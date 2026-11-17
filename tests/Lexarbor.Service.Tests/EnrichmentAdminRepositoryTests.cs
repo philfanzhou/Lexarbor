@@ -244,7 +244,7 @@ public sealed partial class EnrichmentTargetExecutorTests
         private int _updates;
         public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command, CommandEventData eventData, InterceptionResult<int> result, CancellationToken token = default)
         {
-            if (command.CommandText.StartsWith("UPDATE \"enrichment_target\"", StringComparison.Ordinal) && ++_updates == 2)
+            if (command.CommandText.StartsWith("UPDATE enrichment_target", StringComparison.Ordinal) && ++_updates == 2)
                 throw new InvalidOperationException("Synthetic retry dependency failure.");
             return ValueTask.FromResult(result);
         }
@@ -253,7 +253,7 @@ public sealed partial class EnrichmentTargetExecutorTests
     {
         public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command, CommandEventData eventData, InterceptionResult<int> result, CancellationToken token = default)
         {
-            if (command.CommandText.StartsWith("UPDATE \"enrichment_target\"", StringComparison.Ordinal)) source.Cancel();
+            if (command.CommandText.StartsWith("UPDATE enrichment_target", StringComparison.Ordinal)) source.Cancel();
             return ValueTask.FromResult(result);
         }
     }

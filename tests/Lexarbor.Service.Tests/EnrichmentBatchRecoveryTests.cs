@@ -155,7 +155,7 @@ public sealed partial class EnrichmentTargetExecutorTests
         public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command, CommandEventData eventData,
             InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
         {
-            if (command.CommandText.Contains("INSERT INTO \"ai_request_batch\"", StringComparison.Ordinal))
+            if (command.CommandText.Contains("INSERT INTO ai_request_batch", StringComparison.Ordinal))
                 throw new InvalidOperationException("Synthetic batch begin failure.");
             return ValueTask.FromResult(result);
         }

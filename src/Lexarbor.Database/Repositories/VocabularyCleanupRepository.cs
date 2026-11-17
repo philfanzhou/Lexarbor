@@ -1,11 +1,10 @@
 using System.Data.Common;
-using System.Text.Json;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 using Mapster;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using Npgsql;
 
 namespace Lexarbor.Database.Repositories;
 
@@ -17,8 +16,7 @@ public sealed class VocabularyCleanupRepository(VocabularyDbContext context) : I
         await context.Database.OpenConnectionAsync(cancellationToken);
         try
         {
-            await using var transaction = ((SqliteConnection)context.Database.GetDbConnection()).BeginTransaction(deferred: true);
-            await using var enlisted = await context.Database.UseTransactionAsync(transaction, cancellationToken);
+            await using var transaction = await ReadSnapshot.BeginAsync(context, cancellationToken);
             var result = await read();
             await transaction.CommitAsync(cancellationToken);
             return result;
@@ -42,7 +40,7 @@ public sealed class VocabularyCleanupRepository(VocabularyDbContext context) : I
         $"{alias}.book_id=@book" + (selection.Action switch
         {
             "removeMeaning" => $" AND {alias}.vocabulary_id=@word AND {alias}.id=@meaning",
-            "removeWords" => $" AND {alias}.vocabulary_id IN (SELECT value FROM json_each(@words))",
+            "removeWords" => $" AND {alias}.vocabulary_id = ANY(@words)",
             _ => ""
         });
 
@@ -51,13 +49,13 @@ public sealed class VocabularyCleanupRepository(VocabularyDbContext context) : I
         var command = context.Database.GetDbConnection().CreateCommand();
         command.Transaction = context.Database.CurrentTransaction!.GetDbTransaction();
         command.CommandText = sql;
-        command.Parameters.Add(new SqliteParameter("@book", bookId));
+        command.Parameters.Add(new NpgsqlParameter("@book", bookId));
         if (selection.Action == "removeMeaning")
         {
-            command.Parameters.Add(new SqliteParameter("@word", selection.WordId));
-            command.Parameters.Add(new SqliteParameter("@meaning", selection.MeaningId));
+            command.Parameters.Add(new NpgsqlParameter("@word", selection.WordId));
+            command.Parameters.Add(new NpgsqlParameter("@meaning", selection.MeaningId));
         }
-        if (selection.Action == "removeWords") command.Parameters.Add(new SqliteParameter("@words", JsonSerializer.Serialize(selection.WordIds)));
+        if (selection.Action == "removeWords") command.Parameters.Add(new NpgsqlParameter("@words", (selection.WordIds ?? []).ToArray()));
         return command;
     }
 
@@ -71,7 +69,7 @@ public sealed class VocabularyCleanupRepository(VocabularyDbContext context) : I
         // Execute through EF for normal command instrumentation and failure
         // injection; use fresh parameters for each command.
         await using var command = Command(sql, bookId, selection);
-        var parameters = command.Parameters.Cast<DbParameter>().Select(p => new SqliteParameter(p.ParameterName, p.Value)).ToArray();
+        var parameters = command.Parameters.Cast<DbParameter>().Select(p => new NpgsqlParameter(p.ParameterName, p.Value)).ToArray();
         return await context.Database.ExecuteSqlRawAsync(sql, parameters.Cast<object>());
     }
 
@@ -95,10 +93,15 @@ public sealed class VocabularyCleanupRepository(VocabularyDbContext context) : I
 
     public async Task<VocabularyCleanupResult> DeleteAsync(string bookId, VocabularyCleanupSelection selection)
     {
-        const string table = "temp.lexarbor_cleanup_affected";
+        const string table = "pg_temp.lexarbor_cleanup_affected";
         try
         {
-            await ExecuteAsync($"CREATE TEMP TABLE lexarbor_cleanup_affected(id TEXT PRIMARY KEY)", bookId, selection);
+            // The table lives only inside this write transaction: a rollback
+            // removes it with everything else, and a commit drops it. An
+            // explicit DROP in a finally block would run after a failed
+            // statement, when PostgreSQL refuses every further command in the
+            // transaction, and replace the original failure with that refusal.
+            await ExecuteAsync("CREATE TEMP TABLE lexarbor_cleanup_affected(id text COLLATE \"C\" PRIMARY KEY) ON COMMIT DROP", bookId, selection);
             var affected = await ExecuteAsync($"INSERT INTO {table} SELECT DISTINCT m.vocabulary_id FROM vocabulary_meaning m WHERE {Predicate(selection)}", bookId, selection);
             var deletedMeanings = await ExecuteAsync($"DELETE FROM vocabulary_meaning AS m WHERE {Predicate(selection)}", bookId, selection);
             var retained = await ScalarAsync($"""
@@ -115,12 +118,12 @@ public sealed class VocabularyCleanupRepository(VocabularyDbContext context) : I
                 """, bookId, selection);
             var deletedBook = selection.Action == "delete" &&
                 await ExecuteAsync("DELETE FROM vocabulary_book WHERE id=@book", bookId, selection) == 1;
+            await ExecuteAsync($"DROP TABLE {table}", bookId, selection);
             return new VocabularyCleanupResult(bookId, selection.Action, affected, deletedMeanings, deletedWords, deletedBook, retained);
         }
         finally
         {
-            try { await ExecuteAsync($"DROP TABLE IF EXISTS {table}", bookId, selection); }
-            finally { context.ChangeTracker.Clear(); }
+            context.ChangeTracker.Clear();
         }
     }
 }

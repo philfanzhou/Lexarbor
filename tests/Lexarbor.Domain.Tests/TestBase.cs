@@ -3,7 +3,7 @@ using Lexarbor.Database;
 using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
-using Microsoft.Data.Sqlite;
+using Lexarbor.Tests.Shared;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 
@@ -11,7 +11,9 @@ namespace Lexarbor.Domain.Tests;
 
 public class TestBase : IDisposable
 {
-    private readonly SqliteConnection _connection;
+    protected string ConnectionString => _database.ConnectionString;
+
+    private readonly PostgreSqlTestDatabase _database;
     protected readonly VocabularyDbContext _dbContext;
     protected readonly IVocabularyRepository _vocabularyRepository;
     protected readonly IVocabularyBookRepository _bookRepository;
@@ -22,14 +24,8 @@ public class TestBase : IDisposable
 
     public TestBase()
     {
-        _connection = new SqliteConnection("Data Source=:memory:");
-        _connection.Open();
-        var options = new DbContextOptionsBuilder<VocabularyDbContext>()
-            .UseSqlite(_connection)
-            .Options;
-
-        _dbContext = new VocabularyDbContext(options);
-        _dbContext.Database.EnsureCreated();
+        _database = new PostgreSqlTestDatabase();
+        _dbContext = _database.Open();
 
         _vocabularyRepository = new VocabularyRepository(_dbContext);
         _bookRepository = new VocabularyBookRepository(_dbContext);
@@ -59,6 +55,6 @@ public class TestBase : IDisposable
     public void Dispose()
     {
         _dbContext.Dispose();
-        _connection.Dispose();
+        _database.Dispose();
     }
 }

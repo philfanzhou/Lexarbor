@@ -747,7 +747,7 @@ public sealed partial class EnrichmentTargetExecutorTests
         public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command, CommandEventData eventData,
             InterceptionResult<int> result, CancellationToken cancellationToken = default)
         {
-            if (Enabled && command.CommandText.StartsWith("UPDATE \"enrichment_round\"", StringComparison.Ordinal)
+            if (Enabled && command.CommandText.StartsWith("UPDATE enrichment_round", StringComparison.Ordinal)
                 && command.CommandText.Contains("plan_json", StringComparison.Ordinal)) throw new InvalidOperationException("Synthetic plan commit failure.");
             return ValueTask.FromResult(result);
         }

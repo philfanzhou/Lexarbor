@@ -551,9 +551,9 @@ public sealed partial class AutomaticMeaningSubmissionReviewTests
         public bool Enabled; public bool Triggered; public CancellationTokenSource? Cancel;
         public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result, CancellationToken token = default)
         {
-            if (Cancel != null && !Triggered && command.CommandText.StartsWith("INSERT INTO \"meaning_submission_ai_review\"", StringComparison.Ordinal))
+            if (Cancel != null && !Triggered && command.CommandText.StartsWith("INSERT INTO meaning_submission_ai_review", StringComparison.Ordinal))
             { Triggered = true; Cancel.Cancel(); token.ThrowIfCancellationRequested(); }
-            if (Enabled && command.CommandText.StartsWith("INSERT INTO \"meaning_submission_ai_review\"", StringComparison.Ordinal))
+            if (Enabled && command.CommandText.StartsWith("INSERT INTO meaning_submission_ai_review", StringComparison.Ordinal))
             { Triggered = true; throw new InvalidOperationException("Synthetic commit failure."); }
             return ValueTask.FromResult(result);
         }

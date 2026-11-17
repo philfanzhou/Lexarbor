@@ -1,7 +1,6 @@
 using Lexarbor.Database.Entities;
 using Lexarbor.Domain.Exceptions;
 using Lexarbor.Domain.Repositories;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 namespace Lexarbor.Database.Repositories;
@@ -111,9 +110,9 @@ public sealed class AdminSessionRepository(VocabularyDbContext context, IUnitOfW
         try { return await operation(); }
         catch (OperationCanceledException) { throw; }
         catch (StorageBusyException) { throw new StorageBusyException(StorageFailureMessage); }
-        catch (SqliteException exception) when (exception.SqliteErrorCode is 5 or 6)
+        catch (Exception exception) when (StorageErrors.IsBusy(exception))
         { throw new StorageBusyException(StorageFailureMessage); }
-        catch (Exception exception) when (exception is SqliteException or DbUpdateException or ConflictException or InvalidOperationException)
+        catch (Exception exception) when (exception is Npgsql.NpgsqlException or DbUpdateException or ConflictException or InvalidOperationException)
         { throw new AdminSessionStorageException(); }
         finally { SessionOperation.Value = previous; }
     }

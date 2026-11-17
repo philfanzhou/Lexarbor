@@ -78,22 +78,21 @@ builder.WebHost.ConfigureKestrel(options =>
 });
 
 // Add services to the container.
-var connectionString = SqliteConnectionConfiguration.Build(
-    builder.Configuration.GetConnectionString("Default"),
-    builder.Environment.ContentRootPath);
+var connectionString = PostgreSqlConnectionConfiguration.Build(
+    builder.Configuration.GetConnectionString("Default"));
 // One registration path serves both the application and the ServiceMantle
 // Data Protection key repository: the factory creates the repository's own
 // contexts, and the scoped wrapper gives each request exactly one context.
 builder.Services.AddDbContextFactory<VocabularyDbContext>(options =>
 {
-    options.UseSqlite(connectionString);
+    options.UseNpgsql(connectionString);
 });
 builder.Services.AddScoped(serviceProvider =>
     serviceProvider.GetRequiredService<IDbContextFactory<VocabularyDbContext>>().CreateDbContext());
-// The ServiceMantle startup gate: SQLite target preparation, single-instance
-// validation, and migration orchestration around the executor above.
+// The ServiceMantle startup gate: PostgreSQL target preparation, the advisory
+// migration lock, and migration orchestration around the executor above.
 builder.Services.AddLexarborDatabaseStartup();
-// Data Protection keys live in the SQLite database as `sm:v1:` authenticated
+// Data Protection keys live in the PostgreSQL database as `sm:v1:` authenticated
 // envelopes scoped to the lexarbor service id, protected by the deployment's
 // root key (injected or created under data/); see DataProtectionRootKey.
 builder.Services
@@ -278,7 +277,7 @@ builder.Services.Configure<OidcCodeOptions>(builder.Configuration.GetSection(Oid
 builder.Services.AddSingleton<IHttpContextAccessor, HttpContextAccessor>();
 // The admin hosted-login slice on the framework's own OpenID Connect handler: the handler
 // owns the code flow and the standard RP-initiated logout; the registration wires the
-// SQLite-backed ticket store (with its audit companion writes), the antiforgery write model
+// Database-backed ticket store (with its audit companion writes), the antiforgery write model
 // on the historical X-SignaCore-CSRF header, the pre-sign-in administrator gate, the
 // hardened backchannel client, and the periodic session sweep. The SignaCore client package
 // is no longer referenced; an unconfigured deployment keeps its fixed degraded answers.
@@ -436,7 +435,7 @@ var serviceMantle = builder.Services.AddServiceMantle(
     instanceId,
     serviceVersion: ApplicationVersion.Current);
 // Readiness is answered by the ServiceMantle health endpoints: one bounded,
-// read-only SQLite probe per request plus this process's startup migration
+// read-only database probe per request plus this process's startup migration
 // result. The probe timeout stays well inside the container HEALTHCHECK's own
 // deadline so a wedged database is reported rather than killed.
 serviceMantle.AddServiceMantleHealthEndpoints(options => options.ProbeTimeout = TimeSpan.FromSeconds(3));
@@ -618,7 +617,7 @@ if (persistentConfiguration != null)
             : "Loaded persistent configuration from {ConfigurationPath}",
         persistentConfiguration.Path);
 }
-app.Logger.LogInformation("Database: SQLite");
+app.Logger.LogInformation("Database: PostgreSQL");
 
 var rateLimitOptions = app.Services.GetRequiredService<IOptions<RateLimitOptions>>().Value;
 LogRateLimit("admin login", rateLimitOptions.AdminLogin);
@@ -721,8 +720,8 @@ if (builder.Configuration.GetValue("Database:InitializeOnStartup", true))
     try
     {
         // The ServiceMantle startup gate: observe (and only now create) the
-        // SQLite target, refuse unusable ones — with one WAL crash-recovery
-        // attempt — and run the EF migration orchestration. A failure keeps
+        // PostgreSQL database, refuse unusable ones, and run the EF migration
+        // orchestration under the advisory migration lock. A failure keeps
         // its fixed safe diagnostic and stops startup with a non-zero exit.
         await LexarborDatabaseStartup.RunStartupMigrationAsync(app.Services);
         healthState.MigrationStatus = ServiceMantle.Health.ServiceMigrationReadinessState.Succeeded;
@@ -749,7 +748,7 @@ else
             : ServiceMantle.Health.ServiceMigrationReadinessState.Succeeded;
     }
     catch (Exception exception) when (
-        exception is OperationCanceledException or Microsoft.Data.Sqlite.SqliteException or InvalidOperationException)
+        exception is OperationCanceledException or Npgsql.NpgsqlException or InvalidOperationException)
     {
         healthState.MigrationStatus = ServiceMantle.Health.ServiceMigrationReadinessState.NotStarted;
     }

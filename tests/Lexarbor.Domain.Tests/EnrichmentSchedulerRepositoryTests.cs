@@ -189,7 +189,7 @@ public sealed class EnrichmentSchedulerRepositoryTests
     {
         using var file = new AudioTestDatabase(); var notifier = new Notifier();
         await using var db = new VocabularyDbContext(new DbContextOptionsBuilder<VocabularyDbContext>()
-            .UseSqlite($"Data Source={file.PathName};Pooling=False").Options, notifier);
+            .UseNpgsql(file.ConnectionString).Options, notifier);
         await db.Database.MigrateAsync(Ct); var uow = new UnitOfWork(db);
         await uow.ExecuteInTransactionAsync(async () =>
         {
@@ -249,7 +249,7 @@ public sealed class EnrichmentSchedulerRepositoryTests
     {
         using var file = new AudioTestDatabase(); var notifier = new Notifier();
         await using var db = new VocabularyDbContext(new DbContextOptionsBuilder<VocabularyDbContext>()
-            .UseSqlite($"Data Source={file.PathName};Pooling=False").Options, notifier);
+            .UseNpgsql(file.ConnectionString).Options, notifier);
         await db.Database.MigrateAsync(Ct);
         var uow = new UnitOfWork(db); var words = new VocabularyRepository(db);
         var books = new VocabularyBookRepository(db); var meanings = new VocabularyMeaningRepository(db);
@@ -279,32 +279,6 @@ public sealed class EnrichmentSchedulerRepositoryTests
         Assert.Equal(MeaningSubmissionStatus.Approved, approved.Status);
     }
 
-    [Fact]
-    public async Task SchedulerMigration_PreservesTaskCallsAndCatalog_AndDownLosesOnlySchedulerState()
-    {
-        using var file = new AudioTestDatabase(); await using var db = file.Open();
-        const string previous = "20261101194034_AddMeaningPhoneticEpochs";
-        await db.Database.MigrateAsync(Ct); await AudioTestDatabase.SeedAsync(db);
-        var tasks = new EnrichmentTaskRepository(db, new FixedClock());
-        var task = (await tasks.EnsureAsync(new("word", null, AudioLocale.EnGb, EnrichmentStep.Audio), "v", 1, Ct))!;
-        var guard = (await tasks.ClaimAsync(task.Id, "worker", 1, 5000, Ct))!;
-        await tasks.BeginCallAsync(guard, Guid.NewGuid().ToString(), "tts", Guid.NewGuid().ToString(), 1, Ct);
-        await tasks.FinishCallAsync(guard, (await tasks.GetAsync(task.Id, Ct))!.Calls[0].Id, EnrichmentCallResult.Throttled, "tts.rate_limited", 1, 100, Ct);
-        // Seed through the current writer, then return to the historical schema before testing its upgrade.
-        await db.GetService<IMigrator>().MigrateAsync(previous, Ct);
-        var before = await file.LegacyEnrichmentHistoryAsync();
-        await db.Database.MigrateAsync(Ct);
-        var repo = new EnrichmentSchedulerRepository(db); await repo.DiscoverAsync(1, [], Ct);
-        await repo.EnterServiceAsync("tts", "v", false, 1, 100, Ct);
-        await db.GetService<IMigrator>().MigrateAsync(previous, Ct);
-        Assert.Equal(before, await file.LegacyEnrichmentHistoryAsync());
-        Assert.Equal(2, await db.Vocabularies.CountAsync(Ct));
-        Assert.Empty(await file.RowsAsync("SELECT name FROM sqlite_master WHERE name IN ('enrichment_discovery','enrichment_service','enrichment_service_probe')"));
-        await db.Database.MigrateAsync(Ct);
-        Assert.Empty(await db.EnrichmentServices.ToListAsync(Ct)); Assert.False(db.Database.HasPendingModelChanges());
-        Assert.Empty(await file.RowsAsync("PRAGMA foreign_key_check"));
-    }
-
     [Theory]
     [InlineData(null)]
     [InlineData("meaning")]
@@ -321,7 +295,7 @@ public sealed class EnrichmentSchedulerRepositoryTests
         }
         var notifier = new Notifier(); var fault = new FailUnbindCommit();
         await using var db = new VocabularyDbContext(new DbContextOptionsBuilder<VocabularyDbContext>()
-            .UseSqlite($"Data Source={file.PathName};Pooling=False").AddInterceptors(fault).Options, notifier);
+            .UseNpgsql(file.ConnectionString).AddInterceptors(fault).Options, notifier);
         var repository = new AudioUploadRepository(db);
         Assert.Equal(AudioUnbindDisposition.Conflict, await repository.UnbindAsync("word", meaning, AudioLocale.EnGb, "wrong", Ct));
         Assert.Equal(AudioUnbindDisposition.NotFound, await repository.UnbindAsync("absent", meaning, AudioLocale.EnGb, "asset", Ct));
@@ -369,7 +343,7 @@ public sealed class EnrichmentSchedulerRepositoryTests
         public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command, CommandEventData eventData,
             InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
         {
-            if (Enabled && command.CommandText.Contains("UPDATE \"enrichment_service\"", StringComparison.Ordinal))
+            if (Enabled && command.CommandText.Contains("UPDATE enrichment_service", StringComparison.Ordinal))
             { Triggered = true; throw new InvalidOperationException("Synthetic service commit failure."); }
             return ValueTask.FromResult(result);
         }

@@ -2,7 +2,6 @@ using Lexarbor.Database.Entities;
 using Lexarbor.Domain.Exceptions;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 
@@ -26,8 +25,7 @@ public sealed class VocabularyRelationRepository(VocabularyDbContext context) : 
         await context.Database.OpenConnectionAsync(cancellationToken);
         try
         {
-            await using var transaction = ((SqliteConnection)context.Database.GetDbConnection()).BeginTransaction(deferred: true);
-            await using var enlisted = await context.Database.UseTransactionAsync(transaction, cancellationToken);
+            await using var transaction = await ReadSnapshot.BeginAsync(context, cancellationToken);
             var rows = context.VocabularyRelations.AsNoTracking().AsQueryable();
             if (wordId != null)
                 rows = query.Direction switch

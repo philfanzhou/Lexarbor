@@ -34,7 +34,7 @@ public sealed class AudioRecordExistenceRepositoryTests
             // Defensive read of any operation, even if an external database writer
             // bypassed FK enforcement. The supported application never does this.
             await db.Database.OpenConnectionAsync(AudioTestDatabase.Token);
-            await db.Database.ExecuteSqlRawAsync("PRAGMA foreign_keys=OFF", AudioTestDatabase.Token);
+            await db.Database.ExecuteSqlRawAsync("SET session_replication_role = replica", AudioTestDatabase.Token);
             await db.AudioAssets.ExecuteDeleteAsync(AudioTestDatabase.Token);
             Assert.True(await query.HasAnyAsync(AudioTestDatabase.Token));
             Assert.Equal(state.Value, (await db.AudioUploadOperations.SingleAsync(AudioTestDatabase.Token)).State);

@@ -5,42 +5,38 @@ using Lexarbor.Database;
 using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Services;
-using Microsoft.Data.Sqlite;
+using Lexarbor.Tests.Shared;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 
 namespace Lexarbor.Domain.Tests;
 
 /// <summary>
-/// Covers the display-spelling rule against SQLite rows written by an earlier
+/// Covers the display-spelling rule against rows written by an earlier
 /// release, which lower-cased every word on import: those values keep their
 /// spelling, later equivalent imports reuse their rows without rewriting them,
 /// and only newly created words carry the imported casing. Concurrent
 /// equivalent imports are covered by
-/// <see cref="SqliteConcurrencyTests.ConcurrentEquivalentImports_AreIdempotent"/>,
+/// <see cref="WriteSerializationTests.ConcurrentEquivalentImports_AreIdempotent"/>,
 /// which imports " Apple " against "APPLE".
 /// </summary>
-public sealed class VocabularyWordDisplayCasingSqliteTests : IDisposable
+public sealed class VocabularyWordDisplayCasingTests : IDisposable
 {
-    private readonly string _temporaryDirectory = Path.Combine(
-        Path.GetTempPath(),
-        $"lexarbor-tests-{Guid.NewGuid():N}");
+    private readonly PostgreSqlTestDatabase _database = new();
 
     [Fact]
     public async Task LegacyLowercaseRows_KeepTheirValueWhileNewWordsKeepImportedCasing()
     {
-        Directory.CreateDirectory(_temporaryDirectory);
-        var databasePath = Path.Combine(_temporaryDirectory, "legacy-casing.db");
+        var databasePath = _database.ConnectionString;
 
         // Rows the previous release would have written: every word lower-cased.
         await using (var setup = CreateContext(databasePath))
         {
-            await setup.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
             await setup.Database.ExecuteSqlRawAsync(
                 """
                 INSERT INTO vocabulary_book (id, book_name, description, publisher, education_level, grade,
                                              category, display_order, status, icon_url, created_at, updated_at)
-                VALUES ('book', 'Book', null, null, null, null, null, 0, 1, null,
+                VALUES ('book', 'Book', null, null, null, null, null, 0, true, null,
                         '2026-01-01 00:00:00.0000000+00:00', '2026-01-01 00:00:00.0000000+00:00')
                 """,
                 TestContext.Current.CancellationToken);
@@ -124,24 +120,8 @@ public sealed class VocabularyWordDisplayCasingSqliteTests : IDisposable
             new UnitOfWork(context));
     }
 
-    private static VocabularyDbContext CreateContext(string databasePath)
-    {
-        return new VocabularyDbContext(
-            new DbContextOptionsBuilder<VocabularyDbContext>()
-                .UseSqlite($"Data Source={databasePath};Pooling=False")
-                .Options);
-    }
+    private static VocabularyDbContext CreateContext(string connectionString) =>
+        new(PostgreSqlTestServer.Options(connectionString).Options);
 
-    public void Dispose()
-    {
-        var resolvedTemporaryDirectory = Path.GetFullPath(_temporaryDirectory);
-        var resolvedSystemTemporaryDirectory = Path.GetFullPath(Path.GetTempPath());
-        if (resolvedTemporaryDirectory.StartsWith(
-                resolvedSystemTemporaryDirectory,
-                StringComparison.OrdinalIgnoreCase) &&
-            Directory.Exists(resolvedTemporaryDirectory))
-        {
-            Directory.Delete(resolvedTemporaryDirectory, recursive: true);
-        }
-    }
+    public void Dispose() => _database.Dispose();
 }

@@ -5,7 +5,6 @@ using Lexarbor.Database.Entities;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 using Lexarbor.Domain.Services;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 namespace Lexarbor.Database.Repositories;
@@ -508,8 +507,7 @@ public sealed partial class EnrichmentTaskRepository(VocabularyDbContext context
         await context.Database.OpenConnectionAsync(token);
         try
         {
-            await using var transaction = ((SqliteConnection)context.Database.GetDbConnection()).BeginTransaction(deferred: true);
-            await using var enlisted = await context.Database.UseTransactionAsync(transaction, token);
+            await using var transaction = await ReadSnapshot.BeginAsync(context, token);
             var result = await action(); await transaction.CommitAsync(token); return result;
         }
         finally { await context.Database.CloseConnectionAsync(); }

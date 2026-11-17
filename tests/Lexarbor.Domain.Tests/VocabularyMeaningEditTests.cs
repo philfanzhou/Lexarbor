@@ -6,6 +6,7 @@ using Lexarbor.Domain.Exceptions;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Services;
 using Microsoft.EntityFrameworkCore;
+using Lexarbor.Tests.Shared;
 using Xunit;
 
 namespace Lexarbor.Domain.Tests;
@@ -84,7 +85,7 @@ public class VocabularyMeaningEditTests : TestBase
         await Assert.ThrowsAsync<ConflictException>(() => Service(_dbContext).ReplaceAsync("A", "w", "a", " N. ", " meaning-other ", "changed", TestContext.Current.CancellationToken));
         using var cancelled = new CancellationTokenSource(); cancelled.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Service(_dbContext).ReplaceAsync("A", "w", "a", null, "changed", null, cancelled.Token));
-        await _dbContext.Database.ExecuteSqlRawAsync("CREATE TRIGGER reject_meaning BEFORE UPDATE ON vocabulary_meaning BEGIN SELECT RAISE(ABORT,'synthetic'); END;", TestContext.Current.CancellationToken);
+        await _dbContext.Database.ExecuteSqlRawAsync(Lexarbor.Tests.Shared.PostgreSqlTestServer.RejectingTriggerSql("reject_meaning", "BEFORE UPDATE", "vocabulary_meaning"), TestContext.Current.CancellationToken);
         await Assert.ThrowsAsync<ConflictException>(() => Service(_dbContext).ReplaceAsync("A", "w", "a", null, "changed", null, TestContext.Current.CancellationToken));
         Assert.Equal(before, JsonSerializer.Serialize(await _dbContext.VocabularyMeanings.AsNoTracking().ToListAsync(TestContext.Current.CancellationToken)));
     }
@@ -95,13 +96,11 @@ public class VocabularyMeaningEditTests : TestBase
     [InlineData("edit", "import")]
     public async Task IndependentContexts_SerializeEditsAndImports(string firstKind, string secondKind)
     {
-        var path = Path.Combine(Path.GetTempPath(), $"lexarbor-meaning-edit-{Guid.NewGuid():N}.db");
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         try
         {
-            var options = new DbContextOptionsBuilder<VocabularyDbContext>().UseSqlite($"Data Source={path};Pooling=False;Default Timeout=1").Options;
+            var options = PostgreSqlTestServer.Options(ConnectionString).Options;
             await using var first = new VocabularyDbContext(options);
-            await first.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
             await SeedAsync(first);
             await using var second = new VocabularyDbContext(options);
             if (secondKind == "edit") await second.VocabularyMeanings.FindAsync(["a"], TestContext.Current.CancellationToken);
@@ -122,7 +121,7 @@ public class VocabularyMeaningEditTests : TestBase
             Assert.Equal("second", stored.Example);
             Assert.Equal(3, await verify.VocabularyMeanings.CountAsync(TestContext.Current.CancellationToken));
         }
-        finally { release.TrySetResult(); foreach (var suffix in new[] { "", "-wal", "-shm" }) File.Delete(path + suffix); }
+        finally { release.TrySetResult(); }
     }
 
     private static async Task WriteAsync(VocabularyDbContext db, string kind, string value, CancellationToken cancellationToken)

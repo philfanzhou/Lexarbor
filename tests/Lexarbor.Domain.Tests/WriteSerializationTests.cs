@@ -5,22 +5,26 @@ using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Exceptions;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Services;
+using Lexarbor.Tests.Shared;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using Xunit;
 
 namespace Lexarbor.Domain.Tests;
 
-public sealed class SqliteConcurrencyTests : IDisposable
+/// <summary>
+/// The process write lock in <see cref="UnitOfWork"/>, which the move to
+/// PostgreSQL keeps unchanged, and the busy answer for a lock wait that runs
+/// past the bounded timeout.
+/// </summary>
+public sealed class WriteSerializationTests : IDisposable
 {
-    private readonly string _temporaryDirectory = Path.Combine(
-        Path.GetTempPath(),
-        $"lexarbor-concurrency-{Guid.NewGuid():N}");
+    private readonly PostgreSqlTestDatabase _database = new();
 
     [Fact]
     public async Task ConcurrentEquivalentImports_AreIdempotent()
     {
-        Directory.CreateDirectory(_temporaryDirectory);
-        var databasePath = Path.Combine(_temporaryDirectory, "concurrency.db");
+        var databasePath = _database.ConnectionString;
         await using (var setupContext = CreateContext(databasePath))
         {
             await setupContext.Database.MigrateAsync(TestContext.Current.CancellationToken);
@@ -73,8 +77,7 @@ public sealed class SqliteConcurrencyTests : IDisposable
     [Fact]
     public async Task ConcurrentIdenticalBatches_AreSerializedAndIdempotent()
     {
-        Directory.CreateDirectory(_temporaryDirectory);
-        var databasePath = Path.Combine(_temporaryDirectory, "batch-concurrency.db");
+        var databasePath = _database.ConnectionString;
         await using (var setupContext = CreateContext(databasePath))
         {
             await setupContext.Database.MigrateAsync(TestContext.Current.CancellationToken);
@@ -116,8 +119,7 @@ public sealed class SqliteConcurrencyTests : IDisposable
     [Fact]
     public async Task BookWrite_WhileAnotherConnectionHoldsTheDatabase_ReportsStorageBusy()
     {
-        Directory.CreateDirectory(_temporaryDirectory);
-        var databasePath = Path.Combine(_temporaryDirectory, "busy.db");
+        var databasePath = _database.ConnectionString;
         await using (var setupContext = CreateContext(databasePath))
         {
             await setupContext.Database.MigrateAsync(TestContext.Current.CancellationToken);
@@ -133,14 +135,14 @@ public sealed class SqliteConcurrencyTests : IDisposable
             await setupContext.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
-        // BEGIN IMMEDIATE takes the database's write lock and holds it, which is
-        // what a long import on another connection does. The in-process write
-        // lock cannot help here: this connection never goes through UnitOfWork,
+        // Another connection holds the book's row lock, which is what a long
+        // write from outside this process does. The in-process write lock
+        // cannot help here: this connection never goes through UnitOfWork,
         // which is exactly the situation the error mapping exists for.
         await using var blockingContext = CreateContext(databasePath);
         await blockingContext.Database.OpenConnectionAsync(TestContext.Current.CancellationToken);
         await blockingContext.Database.ExecuteSqlRawAsync(
-            "BEGIN IMMEDIATE;", TestContext.Current.CancellationToken);
+            "BEGIN; SELECT 1 FROM vocabulary_book WHERE id = 'busy-book' FOR UPDATE;", TestContext.Current.CancellationToken);
 
         try
         {
@@ -173,8 +175,7 @@ public sealed class SqliteConcurrencyTests : IDisposable
     [Fact]
     public async Task BookWrite_WaitsForAnInFlightImport_InsteadOfCollidingWithIt()
     {
-        Directory.CreateDirectory(_temporaryDirectory);
-        var databasePath = Path.Combine(_temporaryDirectory, "serialized.db");
+        var databasePath = _database.ConnectionString;
         await using (var setupContext = CreateContext(databasePath))
         {
             await setupContext.Database.MigrateAsync(TestContext.Current.CancellationToken);
@@ -224,11 +225,9 @@ public sealed class SqliteConcurrencyTests : IDisposable
 
         try
         {
-            // The book write must be waiting on the process write lock. Before
-            // this change it took no lock at all, went straight to a database
-            // another connection was holding, and would have failed inside its
-            // one-second driver timeout -- so settling here at all is the
-            // failure.
+            // The book write must be waiting on the process write lock. Without
+            // it the write would go straight to the database and commit beside
+            // the import, so settling here at all is the failure.
             var firstToSettle = await Task.WhenAny(
                 bookWrite,
                 Task.Delay(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken));
@@ -262,8 +261,7 @@ public sealed class SqliteConcurrencyTests : IDisposable
     [Fact]
     public async Task ImportWrite_NestsSaveChangesInsideItsTransaction_WithoutDeadlocking()
     {
-        Directory.CreateDirectory(_temporaryDirectory);
-        var databasePath = Path.Combine(_temporaryDirectory, "reentrancy.db");
+        var databasePath = _database.ConnectionString;
         await using var context = CreateContext(databasePath);
         await context.Database.MigrateAsync(TestContext.Current.CancellationToken);
         var now = DateTimeOffset.UtcNow;
@@ -293,18 +291,7 @@ public sealed class SqliteConcurrencyTests : IDisposable
         Assert.Equal("fruit", meaning.Meaning);
     }
 
-    public void Dispose()
-    {
-        var resolvedTemporaryDirectory = Path.GetFullPath(_temporaryDirectory);
-        var resolvedSystemTemporaryDirectory = Path.GetFullPath(Path.GetTempPath());
-        if (resolvedTemporaryDirectory.StartsWith(
-                resolvedSystemTemporaryDirectory,
-                StringComparison.OrdinalIgnoreCase) &&
-            Directory.Exists(resolvedTemporaryDirectory))
-        {
-            Directory.Delete(resolvedTemporaryDirectory, recursive: true);
-        }
-    }
+    public void Dispose() => _database.Dispose();
 
     private static VocabularyDomainService CreateService(VocabularyDbContext context)
     {
@@ -318,18 +305,17 @@ public sealed class SqliteConcurrencyTests : IDisposable
     }
 
     private static VocabularyDbContext CreateContext(
-        string databasePath,
+        string connectionString,
         int? timeoutSeconds = null)
     {
-        var connectionString = $"Data Source={databasePath};Pooling=False";
         if (timeoutSeconds != null)
         {
-            connectionString += $";Default Timeout={timeoutSeconds}";
+            connectionString = new NpgsqlConnectionStringBuilder(connectionString)
+            {
+                Options = $"-c lock_timeout={timeoutSeconds}s"
+            }.ConnectionString;
         }
 
-        var options = new DbContextOptionsBuilder<VocabularyDbContext>()
-            .UseSqlite(connectionString)
-            .Options;
-        return new VocabularyDbContext(options);
+        return new VocabularyDbContext(PostgreSqlTestServer.Options(connectionString).Options);
     }
 }

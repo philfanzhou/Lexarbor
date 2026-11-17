@@ -104,7 +104,7 @@ internal static class EnrichmentRecoveryProbe
         public override async ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command, CommandEventData data,
             InterceptionResult<int> result, CancellationToken token = default)
         {
-            if (command.CommandText.StartsWith("UPDATE \"enrichment_call\"", StringComparison.Ordinal))
+            if (command.CommandText.StartsWith("UPDATE enrichment_call", StringComparison.Ordinal))
             {
                 using var read = command.Connection!.CreateCommand(); read.Transaction = command.Transaction;
                 read.CommandText = "SELECT c.target_id FROM enrichment_call c JOIN audio_upload_operation u ON u.idempotency_key=c.upload_idempotency_key WHERE u.receipt_status_code=200 AND c.result='Started' LIMIT 1";

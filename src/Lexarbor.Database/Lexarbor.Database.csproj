@@ -1,9 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
-    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
     <PackageReference Include="Mapster" />
-    <PackageReference Include="ServiceMantle.Database.Sqlite" />
+    <PackageReference Include="ServiceMantle.Database.PostgreSql" />
     <PackageReference Include="ServiceMantle.Persistence.Relational" />
     <!-- Set the security floor for ServiceMantle's transitive cryptography dependencies. -->
     <PackageReference Include="System.Security.Cryptography.Xml" />
