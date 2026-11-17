@@ -5,8 +5,8 @@ using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Exceptions;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Services;
-using Microsoft.EntityFrameworkCore;
 using Lexarbor.Tests.Shared;
+using Microsoft.EntityFrameworkCore;
 using Xunit;
 
 namespace Lexarbor.Domain.Tests;

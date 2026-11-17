@@ -1,4 +1,3 @@
-using Lexarbor.Tests.Shared;
 using System.Data.Common;
 using System.Net;
 using System.Net.Http.Json;
@@ -9,15 +8,16 @@ using Lexarbor.Database;
 using Lexarbor.Database.Repositories;
 using Lexarbor.Host.Authentication;
 using Lexarbor.Service.Tests.TestInfrastructure;
+using Lexarbor.Tests.Shared;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Npgsql;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
+using Npgsql;
 using ServiceMantle.Web.Management;
 
 namespace Lexarbor.Service.Tests;

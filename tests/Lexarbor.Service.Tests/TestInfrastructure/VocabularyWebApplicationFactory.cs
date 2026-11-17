@@ -1,4 +1,3 @@
-using Lexarbor.Tests.Shared;
 using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Security.Claims;
@@ -6,6 +5,7 @@ using System.Text;
 using Lexarbor.Database;
 using Lexarbor.Host;
 using Lexarbor.Host.Authentication;
+using Lexarbor.Tests.Shared;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;

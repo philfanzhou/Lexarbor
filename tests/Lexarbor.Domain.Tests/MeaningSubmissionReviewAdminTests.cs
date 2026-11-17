@@ -4,9 +4,9 @@ using Lexarbor.Database;
 using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Exceptions;
 using Lexarbor.Domain.Models;
+using Lexarbor.Tests.Shared;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
-using Lexarbor.Tests.Shared;
 using Npgsql;
 using Xunit;
 

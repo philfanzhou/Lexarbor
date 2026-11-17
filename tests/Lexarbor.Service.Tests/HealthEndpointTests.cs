@@ -1,15 +1,15 @@
-using Lexarbor.Tests.Shared;
 using System.Data.Common;
 using System.Net;
 using System.Text.Json;
 using Lexarbor.Database;
 using Lexarbor.Service.Tests.TestInfrastructure;
+using Lexarbor.Tests.Shared;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Npgsql;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Npgsql;
 
 namespace Lexarbor.Service.Tests;
 

@@ -1,4 +1,3 @@
-using Lexarbor.Tests.Shared;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
@@ -6,6 +5,7 @@ using System.Text.Json;
 using Lexarbor.Database;
 using Lexarbor.Database.Entities;
 using Lexarbor.Service.Tests.TestInfrastructure;
+using Lexarbor.Tests.Shared;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;

@@ -1,4 +1,3 @@
-using Lexarbor.Tests.Shared;
 using System.Data.Common;
 using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Exceptions;
@@ -6,9 +5,10 @@ using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 using Lexarbor.Host;
 using Lexarbor.Host.Integration;
-using Npgsql;
+using Lexarbor.Tests.Shared;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Npgsql;
 
 namespace Lexarbor.Service.Tests;
 

@@ -1,4 +1,3 @@
-using Lexarbor.Tests.Shared;
 using System.Data.Common;
 using System.Net;
 using System.Text.Json;
@@ -13,6 +12,7 @@ using Lexarbor.Host.Audio;
 using Lexarbor.Host.Configuration;
 using Lexarbor.Host.Integration;
 using Lexarbor.Service.Tests.TestInfrastructure;
+using Lexarbor.Tests.Shared;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
