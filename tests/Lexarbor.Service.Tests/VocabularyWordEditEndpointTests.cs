@@ -126,30 +126,26 @@ public class VocabularyWordEditEndpointTests
         var path = Path.Combine(
             VocabularyWebApplicationFactory.CreateGateSafeDirectory($"lexarbor-word-http-{Guid.NewGuid():N}"),
             "vocabulary.db");
-        try
+        await using var factory = new VocabularyWebApplicationFactory();
+        await using var fileFactory = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
         {
-            await using var factory = new VocabularyWebApplicationFactory();
-            await using var fileFactory = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
-            {
-                services.RemoveAll<DbContextOptions<VocabularyDbContext>>();
-                services.RemoveAll<VocabularyDbContext>();
-                services.AddDbContext<VocabularyDbContext>(options => options.UseNpgsql(SharedTestDatabases.WithLockTimeout(SharedTestDatabases.ConnectionString(path), "1s")));
-            }));
-            using var client = fileFactory.CreateClient();
-            await SeedAsync(fileFactory.Services);
-            Authenticate(client, factory, false, "admin");
-            using var scope = fileFactory.Services.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
-            await using (var transaction = await db.Database.BeginTransactionAsync(TestContext.Current.CancellationToken))
-            {
-                await db.Database.ExecuteSqlRawAsync(SyntheticStorageErrors.CatalogWriterLockSql, TestContext.Current.CancellationToken);
-                using var response = await PutAsync(client, Body);
-                await FailureAsync(response, HttpStatusCode.ServiceUnavailable);
-                Assert.Equal("1", response.Headers.GetValues("Retry-After").Single());
-            }
-            Assert.Equal("original|uk|us", await StateAsync(fileFactory.Services));
+            services.RemoveAll<DbContextOptions<VocabularyDbContext>>();
+            services.RemoveAll<VocabularyDbContext>();
+            services.AddDbContext<VocabularyDbContext>(options => options.UseNpgsql(SharedTestDatabases.WithLockTimeout(SharedTestDatabases.ConnectionString(path), "1s")));
+        }));
+        using var client = fileFactory.CreateClient();
+        await SeedAsync(fileFactory.Services);
+        Authenticate(client, factory, false, "admin");
+        using var scope = fileFactory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+        await using (var transaction = await db.Database.BeginTransactionAsync(TestContext.Current.CancellationToken))
+        {
+            await db.Database.ExecuteSqlRawAsync(SyntheticStorageErrors.CatalogWriterLockSql, TestContext.Current.CancellationToken);
+            using var response = await PutAsync(client, Body);
+            await FailureAsync(response, HttpStatusCode.ServiceUnavailable);
+            Assert.Equal("1", response.Headers.GetValues("Retry-After").Single());
         }
-        finally { }
+        Assert.Equal("original|uk|us", await StateAsync(fileFactory.Services));
     }
 
     [Fact]

@@ -237,33 +237,29 @@ public class VocabularyBookUnitEndpointTests
         var path = Path.Combine(
             VocabularyWebApplicationFactory.CreateGateSafeDirectory($"lexarbor-units-http-{Guid.NewGuid():N}"),
             "vocabulary.db");
-        try
+        await using var factory = new VocabularyWebApplicationFactory();
+        await using var fileFactory = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
         {
-            await using var factory = new VocabularyWebApplicationFactory();
-            await using var fileFactory = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
-            {
-                services.RemoveAll<DbContextOptions<VocabularyDbContext>>();
-                services.RemoveAll<VocabularyDbContext>();
-                services.AddDbContext<VocabularyDbContext>(options => options.UseNpgsql(SharedTestDatabases.WithLockTimeout(SharedTestDatabases.ConnectionString(path), "1s")));
-            }));
-            using var client = fileFactory.CreateClient();
-            await SeedAsync(fileFactory.Services);
-            Authenticate(client, factory, false, "admin");
-            AdminTestAntiforgery.Attach(client, factory);
-            using var scope = fileFactory.Services.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
-            await using (var transaction = await db.Database.BeginTransactionAsync(TestContext.Current.CancellationToken))
-            {
-                await db.Database.ExecuteSqlRawAsync(SyntheticStorageErrors.CatalogWriterLockSql, TestContext.Current.CancellationToken);
-                // Unit 2 already exists, and PostgreSQL lets the request read past the
-                // lock and answer that conflict; a new number has to reach the write.
-                using var response = await PostAsync(client, """{"number":3,"title":"Unit 3"}""");
-                await FailureAsync(response, HttpStatusCode.ServiceUnavailable);
-                Assert.Equal("1", response.Headers.GetValues("Retry-After").Single());
-            }
-            Assert.Equal("A:2:", await StateAsync(fileFactory.Services));
+            services.RemoveAll<DbContextOptions<VocabularyDbContext>>();
+            services.RemoveAll<VocabularyDbContext>();
+            services.AddDbContext<VocabularyDbContext>(options => options.UseNpgsql(SharedTestDatabases.WithLockTimeout(SharedTestDatabases.ConnectionString(path), "1s")));
+        }));
+        using var client = fileFactory.CreateClient();
+        await SeedAsync(fileFactory.Services);
+        Authenticate(client, factory, false, "admin");
+        AdminTestAntiforgery.Attach(client, factory);
+        using var scope = fileFactory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+        await using (var transaction = await db.Database.BeginTransactionAsync(TestContext.Current.CancellationToken))
+        {
+            await db.Database.ExecuteSqlRawAsync(SyntheticStorageErrors.CatalogWriterLockSql, TestContext.Current.CancellationToken);
+            // Unit 2 already exists, and PostgreSQL lets the request read past the
+            // lock and answer that conflict; a new number has to reach the write.
+            using var response = await PostAsync(client, """{"number":3,"title":"Unit 3"}""");
+            await FailureAsync(response, HttpStatusCode.ServiceUnavailable);
+            Assert.Equal("1", response.Headers.GetValues("Retry-After").Single());
         }
-        finally { }
+        Assert.Equal("A:2:", await StateAsync(fileFactory.Services));
     }
 
     private sealed record UnitDto(string Id, string BookId, int Number, string? Title, int MeaningCount);

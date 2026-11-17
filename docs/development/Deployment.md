@@ -304,6 +304,15 @@ baseline replaces that history, so a PostgreSQL installation has none of these
 migrations to apply, and "back up SQLite" there reads as "back up the database"
 under [Backups](#backups).
 
+### Rollback journal
+
+The SQLite releases ran the database under SQLite's rollback journal, where a
+committing write waited for every open reader and a write waited up to five
+seconds for the database before answering `503`. PostgreSQL has no journal
+mode to configure: readers and writers do not block each other, and the
+five-second bound now applies to row and table lock waits through
+`lock_timeout` (see [PostgreSQL configuration](#postgresql-configuration)).
+
 ### Meaning-specific phonetic upgrade
 
 `AddMeaningPhonetics` adds nullable UK/US phonetics to each meaning. Existing

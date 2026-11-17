@@ -49,20 +49,7 @@ if (args.Contains(HealthCheckCommand.Argument))
 // with the runtime's default abort, so an unhandled exception would leave the
 // container running without serving. Every such diagnostic is a fixed message
 // that carries no connection string, path, or SQL.
-AppDomain.CurrentDomain.UnhandledException += (_, eventArgs) =>
-{
-    if (eventArgs.ExceptionObject is InvalidOperationException exception)
-    {
-        Console.Error.WriteLine($"Lexarbor startup failed: {exception.Message}");
-    }
-    else
-    {
-        // The type only: an arbitrary exception's message may carry values.
-        Console.Error.WriteLine($"Lexarbor stopped after an unhandled {eventArgs.ExceptionObject.GetType().FullName}.");
-    }
-
-    Environment.Exit(1);
-};
+StartupFailureExit.Register();
 
 var builder = WebApplication.CreateBuilder(args);
 
