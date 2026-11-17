@@ -182,7 +182,7 @@ public sealed class VocabularyMeaningLookupEndpointTests
         public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command,
             CommandEventData eventData, InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
         {
-            if (command.CommandText.Contains("\"vocabulary_meaning\"", StringComparison.Ordinal))
+            if (command.CommandText.Contains("vocabulary_meaning AS", StringComparison.Ordinal))
             {
                 Commands.Add(command.CommandText);
                 if (Fail) throw new InvalidOperationException("Synthetic lookup failure.");

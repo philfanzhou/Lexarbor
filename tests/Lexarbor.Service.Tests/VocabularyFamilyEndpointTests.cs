@@ -365,7 +365,8 @@ public sealed class VocabularyFamilyEndpointTests
         public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command,
             CommandEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
         {
-            if (Record) Commands.Add(command.CommandText);
+            // The read snapshot's own READ ONLY marker is not a write.
+            if (Record && command.CommandText != "SET TRANSACTION READ ONLY") Commands.Add(command.CommandText);
             return base.NonQueryExecutingAsync(command, eventData, result, cancellationToken);
         }
 

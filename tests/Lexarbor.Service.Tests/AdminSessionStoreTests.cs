@@ -101,7 +101,8 @@ public sealed class AdminSessionStoreTests : IDisposable
         services.AddSingleton<TimeProvider>(_clock);
         services.AddDbContextFactory<VocabularyDbContext>(options =>
         {
-            options.UseNpgsql(SharedTestDatabases.WithLockTimeout(SharedTestDatabases.ConnectionString(DatabasePath), "1s"));
+            // Unmigrated until a test migrates it, as the SQLite file was.
+            options.UseNpgsql(SharedTestDatabases.WithLockTimeout(SharedTestDatabases.ConnectionString(DatabasePath, migrated: false), "1s"));
             if (interceptor is not null) options.AddInterceptors(interceptor);
         });
         services.AddScoped(serviceProvider =>
@@ -162,7 +163,7 @@ public sealed class AdminSessionStoreTests : IDisposable
         Assert.NotNull(recovered);
         Assert.True(recovered.AccessToken == Session().AccessToken && recovered.Subject == Session().Subject);
         // Check bytes and values without printing the markers, handle or ciphertext on failure.
-        var database = Encoding.UTF8.GetString(await File.ReadAllBytesAsync(DatabasePath, Ct));
+        var database = await PostgreSqlTestServer.AllRowsTextAsync(SharedTestDatabases.ConnectionString(DatabasePath));
         Assert.True(!database.Contains(handle, StringComparison.Ordinal));
         foreach (var marker in new[] { Session().AccessToken, Session().IdToken!, Session().Issuer,
                      Session().Subject, Session().DisplayName!, Session().Roles[0] })
@@ -528,8 +529,13 @@ public sealed class AdminSessionStoreTests : IDisposable
         using (var setup = provider.CreateScope()) await Db(setup).Database.MigrateAsync(Ct);
         cleanup.RemoveExpired(CancellationToken.None);
         Assert.Single(logger.Messages);
+        await using var unmigrated = new PostgreSqlTestDatabase(migrated: false);
         using var host = new VocabularyWebApplicationFactory("Testing", true,
-            extraConfiguration: new Dictionary<string, string?> { ["Database:InitializeOnStartup"] = "false" });
+            extraConfiguration: new Dictionary<string, string?>
+            {
+                ["Database:InitializeOnStartup"] = "false",
+                ["ConnectionStrings:Default"] = unmigrated.ConnectionString
+            });
         using var client = host.CreateClient();
         host.Services.GetRequiredService<AdminSessionTicketStore>().RemoveExpired(CancellationToken.None);
         // With initialization disabled and the shared database still unmigrated,
@@ -576,7 +582,7 @@ public sealed class AdminSessionStoreTests : IDisposable
             InterceptionResult<int> result,
             CancellationToken cancellationToken = default)
         {
-            if (command.CommandText.StartsWith("DELETE FROM admin_session", StringComparison.Ordinal))
+            if (command.CommandText.Contains("DELETE FROM admin_session", StringComparison.Ordinal))
             {
                 throw SyntheticStorageErrors.Failure("synthetic-cleanup-failure");
             }
@@ -638,7 +644,7 @@ public sealed class AdminSessionStoreTests : IDisposable
         public override ValueTask<int> NonQueryExecutedAsync(DbCommand command, CommandExecutedEventData eventData,
             int result, CancellationToken cancellationToken = default)
         {
-            if (command.CommandText.StartsWith("INSERT INTO admin_session", StringComparison.Ordinal)) afterInsert();
+            if (command.CommandText.Contains("INSERT INTO admin_session", StringComparison.Ordinal)) afterInsert();
             return ValueTask.FromResult(result);
         }
     }

@@ -255,7 +255,9 @@ public class VocabularyBookUnitEndpointTests
             await using (var transaction = await db.Database.BeginTransactionAsync(TestContext.Current.CancellationToken))
             {
                 await db.Database.ExecuteSqlRawAsync(SyntheticStorageErrors.CatalogWriterLockSql, TestContext.Current.CancellationToken);
-                using var response = await PostAsync(client, Body);
+                // Unit 2 already exists, and PostgreSQL lets the request read past the
+                // lock and answer that conflict; a new number has to reach the write.
+                using var response = await PostAsync(client, """{"number":3,"title":"Unit 3"}""");
                 await FailureAsync(response, HttpStatusCode.ServiceUnavailable);
                 Assert.Equal("1", response.Headers.GetValues("Retry-After").Single());
             }

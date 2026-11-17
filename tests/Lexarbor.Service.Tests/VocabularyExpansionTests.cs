@@ -175,7 +175,7 @@ public sealed partial class EnrichmentTargetExecutorTests
         Assert.Equal(1, await restarted.VocabularyMeanings.CountAsync(Ct));
         Assert.Empty(await restarted.VocabularyRelations.ToListAsync(Ct));
         Assert.Empty(await restarted.EnrichmentGeneratedWords.ToListAsync(Ct));
-        await restarted.Database.ExecuteSqlRawAsync("DROP TRIGGER expansion_test_failure", Ct);
+        await restarted.Database.ExecuteSqlRawAsync("DROP TRIGGER expansion_test_failure ON vocabulary_relation", Ct);
         f.Clock.Now += 900_001;
         var result = (await Expansion(f, restarted, http).ExecuteAsync(task, "restart", Ct))!;
         Assert.Equal(EnrichmentState.Succeeded, Round(result).State);

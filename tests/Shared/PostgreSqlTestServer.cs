@@ -116,6 +116,28 @@ public static class PostgreSqlTestServer
         CREATE TRIGGER {name} {timing} ON {table} FOR EACH ROW EXECUTE FUNCTION {name}();
         """;
 
+    /// <summary>
+    /// Every row of every application table as text — what reading a SQLite
+    /// file's bytes showed: a test can assert a secret appears nowhere.
+    /// </summary>
+    public static async Task<string> AllRowsTextAsync(string connectionString)
+    {
+        await using var connection = new NpgsqlConnection(connectionString);
+        await connection.OpenAsync();
+        var tables = new List<string>();
+        await using (var list = new NpgsqlCommand("SELECT tablename FROM pg_tables WHERE schemaname = 'public'", connection))
+        await using (var reader = await list.ExecuteReaderAsync())
+            while (await reader.ReadAsync()) tables.Add(reader.GetString(0));
+        var text = new System.Text.StringBuilder();
+        foreach (var table in tables)
+        {
+            await using var rows = new NpgsqlCommand($"SELECT coalesce(string_agg(t::text, E'\\n'), '') FROM \"{table}\" t", connection);
+            text.AppendLine((string)(await rows.ExecuteScalarAsync())!);
+        }
+
+        return text.ToString();
+    }
+
     public static async Task ExecuteAdministrativeAsync(string sql)
     {
         await using var connection = new NpgsqlConnection(await AdministrativeConnectionStringAsync());
@@ -223,9 +245,13 @@ public static class SharedTestDatabases
     public static string WithLockTimeout(string connectionString, string timeout) =>
         new NpgsqlConnectionStringBuilder(connectionString) { Options = $"-c lock_timeout={timeout}" }.ConnectionString;
 
-    public static string ConnectionString(string name) =>
+    /// <summary>
+    /// The database named <paramref name="name"/>. Whether it starts migrated
+    /// is decided by whichever caller asks first; later callers share it.
+    /// </summary>
+    public static string ConnectionString(string name, bool migrated = true) =>
         Databases.GetOrAdd(name, _ => new Lazy<string>(() =>
-            PostgreSqlTestServer.CreateDatabaseAsync().GetAwaiter().GetResult())).Value;
+            PostgreSqlTestServer.CreateDatabaseAsync(migrated).GetAwaiter().GetResult())).Value;
 }
 
 /// <summary>

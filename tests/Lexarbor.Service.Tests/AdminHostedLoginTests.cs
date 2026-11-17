@@ -686,7 +686,7 @@ public class AdminHostedLoginTests
         public bool Enabled { get; set; }
         public override ValueTask<int> NonQueryExecutedAsync(DbCommand command, CommandExecutedEventData eventData, int result, CancellationToken cancellationToken = default)
         {
-            if (Enabled && command.CommandText.StartsWith("INSERT INTO admin_session", StringComparison.Ordinal))
+            if (Enabled && command.CommandText.Contains("INSERT INTO admin_session", StringComparison.Ordinal))
             {
                 if (mode == "cancel") throw new OperationCanceledException("synthetic-storage-secret-marker");
                 if (mode is "failure" or "busy") throw (mode == "busy" ? SyntheticStorageErrors.Busy("synthetic-storage-secret-marker") : SyntheticStorageErrors.Failure("synthetic-storage-secret-marker"));
