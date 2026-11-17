@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Npgsql;
 using ServiceMantle.Migration;
 
 namespace Lexarbor.Database;
@@ -46,16 +45,13 @@ public sealed class LexarborMigrationExecutor : IDatabaseMigrationExecutor
     {
         cancellationToken.ThrowIfCancellationRequested();
         var known = context.Database.GetMigrations().Order(StringComparer.Ordinal).ToArray();
-        List<string> applied;
-        try
+        // No history table at all: an empty database — the startup gate just
+        // created it, or an operator created an empty one — is adoptable. The
+        // table is looked up rather than read and caught, so a first start does
+        // not log a failed command.
+        var applied = await ReadAppliedMigrationsAsync(cancellationToken);
+        if (applied is null)
         {
-            applied = await ReadAppliedMigrationsAsync(cancellationToken);
-        }
-        catch (PostgresException exception)
-            when (exception.SqlState == PostgresErrorCodes.UndefinedTable)
-        {
-            // No history table at all: an empty database — the startup gate just
-            // created it, or an operator created an empty one — is adoptable.
             return MigrationObservationState.Empty;
         }
 
@@ -91,12 +87,21 @@ public sealed class LexarborMigrationExecutor : IDatabaseMigrationExecutor
         cancellationToken.ThrowIfCancellationRequested();
     }
 
-    private async Task<List<string>> ReadAppliedMigrationsAsync(CancellationToken cancellationToken)
+    private async Task<List<string>?> ReadAppliedMigrationsAsync(CancellationToken cancellationToken)
     {
         await context.Database.OpenConnectionAsync(cancellationToken);
         try
         {
             var connection = context.Database.GetDbConnection();
+            await using (var exists = connection.CreateCommand())
+            {
+                exists.CommandText = $"SELECT to_regclass('\"{HistoryTable}\"') IS NOT NULL";
+                if (await exists.ExecuteScalarAsync(cancellationToken) is not true)
+                {
+                    return null;
+                }
+            }
+
             await using var command = connection.CreateCommand();
             command.CommandText = $"SELECT \"MigrationId\" FROM \"{HistoryTable}\" ORDER BY \"MigrationId\"";
             var applied = new List<string>();

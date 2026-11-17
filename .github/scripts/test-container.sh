@@ -25,7 +25,7 @@ POSTGRES_CONTAINER="lexarbor-ci-postgres-${RUN_SUFFIX}"
 POSTGRES_IMAGE="${LEXARBOR_TEST_POSTGRES_IMAGE:-postgres:16-alpine}"
 DB_PASSWORD="synthetic-db-$(od -An -N12 -tx1 /dev/urandom | tr -d ' \n')"
 COMPOSE_PROJECT="lexarbor-ci-$(printf '%s' "$RUN_SUFFIX" | tr -c 'a-z0-9-' '-')"
-TEST_ROOT="$(mktemp -d)"
+TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/lexarbor-container.XXXXXX")"
 readonly KEY_REPOSITORY_DIAGNOSTIC='The Data Protection key repository is unavailable or invalid'
 
 cleanup() {
@@ -43,7 +43,7 @@ cleanup() {
   docker volume rm "$NAMED_VOLUME" >/dev/null 2>&1 || true
   docker network rm "$NETWORK_NAME" >/dev/null 2>&1 || true
   case "$TEST_ROOT" in
-    /tmp/*|/var/folders/*) rm -rf -- "$TEST_ROOT" ;;
+    /tmp/*|"${TMPDIR:-/tmp}"/*) rm -rf -- "$TEST_ROOT" ;;
     *) echo "Refusing to remove unexpected temporary path: $TEST_ROOT" >&2 ;;
   esac
 }
@@ -419,9 +419,11 @@ grep -qi '^Referrer-Policy: no-referrer' "$TEST_ROOT/code-return-headers"
 docker rm -f -v "$CODE_CONTAINER" >/dev/null
 
 echo "Checking a removed password provider value refuses startup"
+# A database of its own: another container's key rows would not match this
+# container's new root key, and the key check would fail first.
 docker run --detach --name "$PROVIDER_FAILURE_CONTAINER" \
   --network "$NETWORK_NAME" \
-  --env "ConnectionStrings__Default=$(connection_string lexarbor_code)" \
+  --env "ConnectionStrings__Default=$(connection_string lexarbor_provider)" \
   --env AdminAuthentication__Provider=Oidc \
   "$IMAGE_NAME" >/dev/null
 expect_startup_failure "$PROVIDER_FAILURE_CONTAINER" "$TEST_ROOT/provider-rejected.log"
@@ -624,7 +626,7 @@ for probe_mode in file environment arguments; do
     docker run --detach --name "$EXISTING_CONTAINER" \
       --network "$NETWORK_NAME" --env "ConnectionStrings__Default=$(connection_string lexarbor_rate)" \
       --user "$(id -u):$(id -g)" --volume "$rate_data:/app/data" \
-      --publish 127.0.0.1::5008 "${probe_env[@]}" "$IMAGE_NAME" "${probe_args[@]}" >/dev/null
+      --publish 127.0.0.1::5008 ${probe_env[@]+"${probe_env[@]}"} "$IMAGE_NAME" ${probe_args[@]+"${probe_args[@]}"} >/dev/null
     wait_for_health "$EXISTING_CONTAINER"
     probe_port="$(docker port "$EXISTING_CONTAINER" 5008/tcp | head -n 1 | awk -F: '{print $NF}')"
     for attempt in 1 2; do
@@ -738,7 +740,7 @@ LEXARBOR_IMAGE="$IMAGE_NAME" docker compose -f scripts/compose.yaml -p "$COMPOSE
 wait_for_health "$compose_container"
 check_root_key_file "$compose_container"
 check_no_database_file "$compose_container"
-docker compose -f scripts/compose.yaml -p "$COMPOSE_PROJECT" down --volumes >/dev/null
+docker compose -f scripts/compose.yaml -p "$COMPOSE_PROJECT" down --volumes >/dev/null 2>&1
 unset LEXARBOR_DB_PASSWORD
 
 echo "Container startup and persistence checks passed"

@@ -99,10 +99,10 @@ try
     using var publicRange = await http.SendAsync(publicRangeRequest);
     Require(publicRange.StatusCode == HttpStatusCode.PartialContent && (await publicRange.Content.ReadAsByteArrayAsync()).SequenceEqual(bytes[10..42]),
         "The public endpoint signed URL must support real MP3 Range.");
-    await db.Database.ExecuteSqlRawAsync("UPDATE vocabulary_book SET status=0 WHERE id='probe-book'");
+    await db.Database.ExecuteSqlRawAsync("UPDATE vocabulary_book SET status=false WHERE id='probe-book'");
     await playbackHost.RequireDisabledBookAsync();
     Require((await http.GetAsync(publicLink.Url)).StatusCode == HttpStatusCode.OK, "Disabling a book must not revoke an already signed URL.");
-    await db.Database.ExecuteSqlRawAsync("UPDATE vocabulary_book SET status=1 WHERE id='probe-book'");
+    await db.Database.ExecuteSqlRawAsync("UPDATE vocabulary_book SET status=true WHERE id='probe-book'");
     using var download = await http.GetAsync(link.Url);
     Require(download.StatusCode == HttpStatusCode.OK && download.Content.Headers.ContentType?.MediaType == "audio/mpeg", "Signed GET MIME must match.");
     Require((await download.Content.ReadAsByteArrayAsync()).SequenceEqual(bytes), "Signed download must match bytes.");
@@ -447,7 +447,9 @@ static async Task VerifyRecoveryAsync(VocabularyDbContext db, string databasePat
     var candidate = (await liveRepository.ReserveAsync(request, "crashed-upload", created, created + 300000, default)).Upload!;
     await liveRepository.BeginTransferAsync(request.IdempotencyKey, candidate.Operation.UploadLease, created, default);
     using (var stream = new MemoryStream(bytes)) await store.PutAsync(candidate.Asset.Location, stream, bytes.Length, "audio/mpeg", default);
-    var clock = new RecoveryProbeClock { Now = created + 86400001 };
+    // The repository stamps the row with the later of the supplied and the
+    // current time, so age the clock from the stored creation time.
+    var clock = new RecoveryProbeClock { Now = candidate.Operation.CreatedAtUnixMs + 86400001 };
     // A fresh context/coordinator models restart: no upload process memory is reused.
     await using var restarted = new VocabularyDbContext(new DbContextOptionsBuilder<VocabularyDbContext>()
         .UseNpgsql(databasePath).Options);

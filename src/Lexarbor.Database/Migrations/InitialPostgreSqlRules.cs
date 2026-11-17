@@ -1,8 +1,9 @@
 namespace Lexarbor.Database.Migrations;
 
 /// <summary>
-/// The rules the SQLite schema enforced with triggers, carried over one for
-/// one into the PostgreSQL baseline.
+/// The rules the SQLite schema enforced with triggers, and the column defaults
+/// its migrations added outside the EF model, carried over one for one into
+/// the PostgreSQL baseline.
 /// </summary>
 /// <remarks>
 /// A refusal raises SQLSTATE 23000 (integrity constraint violation), the class
@@ -16,6 +17,15 @@ namespace Lexarbor.Database.Migrations;
 internal static class InitialPostgreSqlRules
 {
     internal const string Up = """
+        -- Column defaults the SQLite migrations added with the columns; the EF
+        -- model always writes these values, but rows written by other tools
+        -- (and copied rows) rely on them.
+        ALTER TABLE enrichment_discovery ALTER COLUMN initial_completed SET DEFAULT false;
+        ALTER TABLE enrichment_discovery ALTER COLUMN initial_scanned SET DEFAULT 0;
+        ALTER TABLE enrichment_discovery ALTER COLUMN initial_total SET DEFAULT 0;
+        ALTER TABLE enrichment_round ALTER COLUMN fields_not_required SET DEFAULT false;
+        ALTER TABLE enrichment_round ALTER COLUMN force_single SET DEFAULT false;
+
         CREATE FUNCTION lexarbor_now_unix_ms() RETURNS bigint LANGUAGE sql STABLE AS $$
             SELECT floor(extract(epoch FROM statement_timestamp()) * 1000)::bigint
         $$;

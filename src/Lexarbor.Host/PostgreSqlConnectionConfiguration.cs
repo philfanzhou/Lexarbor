@@ -86,6 +86,15 @@ internal static class PostgreSqlConnectionConfiguration
                 : $"{options} -c lock_timeout={DefaultLockTimeout}";
         }
 
+        // Npgsql otherwise opens every connection by offering GSS encryption,
+        // which needs the Kerberos libraries the runtime image does not ship
+        // and logs a load failure on each start. A deployment that does use
+        // GSS sets the mode explicitly.
+        if (!generic.ContainsKey("Gss Encryption Mode") && !generic.ContainsKey("GssEncryptionMode"))
+        {
+            builder.GssEncryptionMode = GssEncryptionMode.Disable;
+        }
+
         return builder.ConnectionString;
     }
 }
