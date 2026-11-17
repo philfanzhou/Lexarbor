@@ -14,9 +14,37 @@ This document describes the structure, coverage, and conventions of the `Lexarbo
 - xUnit.net v3 4.0.0 (assertions always use xUnit's built-in `Assert.*`; no third-party assertion library)
 - Moq 4.20.72
 - Microsoft.AspNetCore.Mvc.Testing 10.0.11 (WebApplicationFactory integration tests)
-- Microsoft.EntityFrameworkCore.Sqlite 10.0.11 (both domain and HTTP tests run against real SQLite)
+- Npgsql.EntityFrameworkCore.PostgreSQL 10.0.3 and Testcontainers.PostgreSql 4.16.0 (both domain and HTTP tests run against a real PostgreSQL server; see [Test database](#test-database))
 - Mapster 10.0.12 (dependency of the DTO mapping extensions)
 - Microsoft.Testing.Extensions.CodeCoverage 18.10.0
+
+## Test database
+
+Domain and HTTP tests run against a real PostgreSQL server, never an in-memory
+or file-database substitute, so tests and production share one provider,
+one schema and one set of migrations ([ADR-011](../adr/ADR-011-postgresql-only-storage.md)).
+`tests/Shared/PostgreSqlTestServer.cs` starts one disposable server per test run
+in a container through Testcontainers, migrates a template database once, and
+gives each test its own database copied from that template, dropped when the
+test ends. Docker must be available wherever `dotnet test` runs; the tests do
+not fall back to anything else when it is missing.
+
+- The default image is `postgres:16-alpine`, the oldest supported server.
+  Set `LEXARBOR_TEST_POSTGRES_IMAGE` to run against another one.
+- The server keeps its default linguistic database collation on purpose: byte
+  ordering and ASCII-only folding must hold because every text column is
+  declared `COLLATE "C"`, not because the database was created with it.
+- Durability settings are relaxed (`fsync=off`) because the server is
+  discarded with the run.
+- Hosts that must share data across a restart name it through `databasePath`
+  on `VocabularyWebApplicationFactory`, which maps the name to one database for
+  the run (`SharedTestDatabases`).
+- Query-plan tests read `EXPLAIN` with sequential scans disabled
+  (`PostgreSqlPlan`): with the handful of rows a test holds, a plan that still
+  scans the table has no index able to answer the predicate.
+- On a VM-based Docker (Colima, Docker Desktop) every connection crosses the
+  VM's port forwarder. The shared helpers keep per-database pools small and
+  close idle connections after two seconds for that reason.
 
 ## How tests are executed
 
@@ -154,61 +182,9 @@ checks them in real container logs while retaining health, non-root, and persist
 | Distribution | The database assembly embeds no vocabulary data resource |
 | Phonetics | The DTO, the model, and the database all keep separate British and American columns |
 
-`DatabaseStartupGateTests` pins the startup shapes of the rollback-journal switch through the real host and the SIGKILL crash simulator. A first start creates the database already in the rollback journal (header 1/1) and a later start crosses the pre-gate normalization as a no-op; a database switched back to the WAL shape — clean, or carrying a crash-leftover `-wal` sidecar from a SIGKILLed committing child — is converted before the gate observes it, with every committed row intact; a rollback crash's hot `-journal` file (an IMMEDIATE transaction killed before commit) is rolled back natively; sidecars without the main file keep failing closed; a read-only database file keeps failing startup without serving — the refusal the WAL mode used to produce implicitly through its shared-memory file; and a file that is not a database stops at the normalization with its bytes unchanged and no path in the diagnostic. `RollbackJournalBatchImportConcurrencyTests` pins the accepted cost end to end: a full 500-entry batch import with concurrent authenticated catalog reads queues every read to success — never 5xx, never a timeout failure.
+`PostgreSqlSchemaTests` checks the baseline schema itself: no pending model changes, every text column `COLLATE "C"`, normalized columns folding A–Z only (`CAFÉ` and `Café` stay distinct keys), byte-wise `Word` ordering and paging, the indexed `insertion_order` column, unique violations reported as the existing conflict, lock waits past the timeout reported as busy, read snapshots refusing writes, and the check constraints and triggers carried over from the SQLite schema. `DatabaseStartupGateTests` drives the real host through the ServiceMantle PostgreSQL startup gate: a missing database is created and migrated, an empty one is migrated, a second start skips the executor and keeps data, two hosts starting together migrate once under the advisory lock, a newer schema and a failing migration stop startup with fixed diagnostics, an unreachable server fails without echoing the connection string, and disabled initialization keeps the host alive but not ready. `PostgreSqlConnectionConfigurationTests` covers the required connection string, the SQLite-format refusal, and the default lock timeout. `BatchImportConcurrentReadTests` checks that catalog reads during a full 500-entry batch import succeed.
 
-### HTTP authentication and envelopes
-
-| Scenario | Expectation |
-|------|------|
-| Anonymous administration request | 401 envelope |
-| Ordinary user JWT | 403 envelope |
-| Administrator login through fake Identity | Sets an HttpOnly cookie |
-| Wrong credentials | 401, no cookie set |
-| OIDC provider refuses the client (`invalid_client`, `invalid_scope`, …) | 502, no cookie set |
-| SignaCore-shaped token with per-application audience and no scope requested | Login succeeds; a shared-audience token gives 502 |
-| Identity returns an invalid JWT | 502, no cookie set |
-| Administrator cookie or bearer | Can reach the administration endpoints |
-| Logout | Responds with an expired cookie, and later administration requests get 401 |
-| Identity unreachable or configuration missing | 502 / 503 |
-| Cookie administration write without the same-origin header | 403 |
-| Business `/api/*` and `/integration/*` | Valid API key with the required scope. Missing, invalid or revoked key returns 401, wrong scope returns 403 |
-| Unknown route | `/api/*` gives 404; anonymous `/admin/*` gives 401; administrator `/admin/*` gives 404 |
-| Unexpected exception | 500 with the generic message, leaking no internal exception |
-| Batch import, every row of the ADR-005 model | The documented status, envelope, and `errors`, with the database unchanged on every rejection |
-| Batch import body over 1 MiB | 413 envelope on a Kestrel-hosted factory, with `Content-Length` and chunked; TestServer does not enforce the limit |
-| Batch question generation | Mixed valid, blank-field, 404, and 422 items answer 200 with one per-item result in request order, each error carrying the status and message the single endpoint answers the same request with |
-| Batch question body ceilings | An empty or missing `items` array and more than 50 items answer 400; a body that is not JSON answers 400; a body over 1 MiB answers 413 on a Kestrel-hosted factory, with the at-limit body still answering per item |
-
-`BusinessApiKeyEndpointTests` covers all business routes, malformed and duplicate
-headers, administrator and legacy JWT isolation, session-antiforgery protected
-management, and persisted issuance and revocation across restart. It uses a
-historical submission source when testing rotation. The container smoke provisions
-an ephemeral test key and checks the authenticated empty catalog after recreation.
-
-### Rate limiting
-
-| Scenario | Expectation |
-|------|------|
-| Login beyond the permit limit with the policy explicitly enabled | 429 Problem Details with fixed title/code, correlation id and positive `Retry-After` |
-| One address exhausts the login limit | Another address is still admitted |
-| Legacy `RateLimits:PublicApi` settings | Ignored. Authorized catalog requests continue beyond the prior quota |
-| Administration endpoints | Never rate limited |
-| `X-Forwarded-For` with no trusted proxy | Ignored, so a caller cannot mint its own partition |
-| `X-Forwarded-For` from a trusted proxy | Partitions on the real client address |
-| Built-in/type defaults, missing section or missing `Enabled` | Login limiter is disabled. Requests beyond its default quota have no policy 429 or `Retry-After` |
-| A policy disabled by configuration | Every request is admitted |
-| New container, existing file, environment and command-line overrides | Disabled first-start defaults; explicit true/false overrides respected without rewriting an existing file |
-| Enabled permits outside 1..10000 or seconds outside 10..600 | Startup fails rather than the limit being clamped or dropped |
-
-Additional rate-limit regressions cover numeric boundary acceptance, disabled
-invalid values, explicitly enabled login quotas reaching the shared startup
-snapshot after late test-host configuration, per-address buckets,
-IPv4-mapped and unknown-address buckets, concurrent admission without queueing,
-and shared rejection-write cancellation. The header adapter preserves an existing
-shared `Retry-After` and touches only product-policy 429 responses. Existing
-trusted-proxy, hosted-start route-equivalence and six-security-header guards remain.
-Browser coverage reads a 429 Problem Details title and keeps the current session
-and page, without a login/forbidden redirect.
+The SQLite-era migration tests (`*MigrationTests`, `ReleaseUpgradeMigrationTests`) were removed with the SQLite migration history; the PostgreSQL baseline starts a new one.
 
 ## How to run
 
@@ -300,7 +276,7 @@ diagnostic, and its automated coverage lives in
 ## Conventions
 
 - DTO mapping extension tests verify field mapping through the public `ToEntity()` and `ToDto()` extension methods.
-- Domain layer tests use the real DomainService, real repositories, and a SQLite in-memory or temporary file database.
+- Domain layer tests use the real DomainService, real repositories, and a disposable PostgreSQL database of their own.
 - DTO mapping extension tests require `InternalsVisibleTo`, which is configured in the Service project's `.csproj`.
 - Assertions always use xUnit's built-in `Assert.*`; no third-party assertion library such as
   FluentAssertions is introduced. This is the same rule as the test framework section above,
@@ -313,21 +289,21 @@ diagnostic, and its automated coverage lives in
 
 ## Shared word replacement verification
 
-`VocabularyWordEditTests` covers trim normalization with the submitted casing stored as the display value (a casing-only change applies while the normalized key is unchanged), both nullable phonetics, shared enabled/disabled memberships without any meaning changes, unassigned words, historical duplicate normalized spellings (including non-ASCII uppercase, tabs/newlines, and Unicode whitespace), self-exclusion and distinct Unicode spellings, missing/invalid/cancelled requests, and rollback after a SQLite trigger rejects an update. File-rollback-journal tests use independent contexts and a controlled transaction barrier for edit/edit and both edit/import orders; the later successful operation wins and cancellation after admission does not undo the transaction.
+`VocabularyWordEditTests` covers trim normalization with the submitted casing stored as the display value (a casing-only change applies while the normalized key is unchanged), both nullable phonetics, shared enabled/disabled memberships without any meaning changes, unassigned words, historical duplicate normalized spellings (including non-ASCII uppercase, tabs/newlines, and Unicode whitespace), self-exclusion and distinct Unicode spellings, missing/invalid/cancelled requests, and rollback after a PL/pgSQL trigger rejects an update. Independent-context tests use independent contexts and a controlled transaction barrier for edit/edit and both edit/import orders; the later successful operation wins and cancellation after admission does not undo the transaction.
 
-`VocabularyWordEditEndpointTests` verifies all required fields and JSON types, unknown fields, preserved values, Cookie/Bearer and custom roles, missing CSRF/401/403, 404/409 without partial writes, and a real external SQLite write lock producing 503 plus `Retry-After: 1`. Run the Release .NET suite and Docker persistence smoke; existing import/public tests must remain green.
+`VocabularyWordEditEndpointTests` verifies all required fields and JSON types, unknown fields, preserved values, Cookie/Bearer and custom roles, missing CSRF/401/403, 404/409 without partial writes, and a real external writer holding the catalog tables locked, producing 503 plus `Retry-After: 1`. Run the Release .NET suite and Docker persistence smoke; existing import/public tests must remain green.
 
 Historical Unicode conflict regressions also exercise the administrator word PUT through HTTP: conflicts return 409 and leave spelling and both phonetics unchanged. Domain snapshots verify that timestamps, other words, and meanings remain unchanged.
 
 ## Meaning replacement verification
 
-`VocabularyMeaningEditTests` verifies nullable/blank part of speech and example, trimmed definitions, disabled-book editing, multi-meaning/shared-word isolation, 404 resource checks, 409 ownership/equivalence checks, cancellation without writes and rollback of a SQLite constraint failure. File-rollback-journal tests hold a controlled transaction barrier between independent contexts for edit/edit and both edit/import orders, checking the last successful update and completion after cancellation inside the transaction.
+`VocabularyMeaningEditTests` verifies nullable/blank part of speech and example, trimmed definitions, disabled-book editing, multi-meaning/shared-word isolation, 404 resource checks, 409 ownership/equivalence checks, cancellation without writes and rollback of a database constraint failure. Independent-context tests hold a controlled transaction barrier between independent contexts for edit/edit and both edit/import orders, checking the last successful update and completion after cancellation inside the transaction.
 
-`VocabularyMeaningEditEndpointTests` covers three-field presence/types, unknown IDs/fields, Cookie/Bearer and custom roles, 401/403/missing CSRF, all path resource/ownership failures, unchanged data after rejection and an external SQLite write lock returning 503 with `Retry-After: 1`. The full Release suite retains import equivalence/example updates and public detail ordering coverage. Run Docker persistence smoke as well. Combining word/meaning editing with cleanup is covered by `VocabularyEditCleanupCombinationTests` and its endpoint counterpart, described under "Editing combined with cleanup verification".
+`VocabularyMeaningEditEndpointTests` covers three-field presence/types, unknown IDs/fields, Cookie/Bearer and custom roles, 401/403/missing CSRF, all path resource/ownership failures, unchanged data after rejection and an external writer holding the catalog tables locked, returning 503 with `Retry-After: 1`. The full Release suite retains import equivalence/example updates and public detail ordering coverage. Run Docker persistence smoke as well. Combining word/meaning editing with cleanup is covered by `VocabularyEditCleanupCombinationTests` and its endpoint counterpart, described under "Editing combined with cleanup verification".
 
 ## Specific-phonetic administration verification
 
-`MeaningPhoneticAdminEndpointTests` exercises real HTTP/SQLite detail projections,
+`MeaningPhoneticAdminEndpointTests` exercises real HTTP/PostgreSQL detail projections,
 old three-field omission, two-accent assignment, null/blank clear, representation
 same-value idempotence, invalid value/condition shapes, stale/ABA conflicts,
 immutable ownership and phrase boundaries. Persisted work versions are compared
@@ -355,13 +331,13 @@ separate.
 
 ## Administrator vocabulary query verification
 
-`VocabularyAdminQueryTests` uses real SQLite with enabled A, disabled B, shared polysemy, B-only vocabulary, historical orphans and an empty book. Assertions cover membership completeness, meaning isolation, independent whole-book/matched counts, stable pagination, literal LIKE metacharacters, missing resources and cancellation without writes. A file-rollback-journal test pauses the first read with a command interceptor, starts another context's deletion, releases the reader, and verifies that the full response still sees the original snapshot while the writer's commit queues behind it.
+`VocabularyAdminQueryTests` uses real PostgreSQL with enabled A, disabled B, shared polysemy, B-only vocabulary, historical orphans and an empty book. Assertions cover membership completeness, meaning isolation, independent whole-book/matched counts, stable pagination, literal LIKE metacharacters, missing resources and cancellation without writes. A file-rollback-journal test pauses the first read with a command interceptor, starts another context's deletion, releases the reader, and verifies that the full response still sees the original snapshot while the writer's commit queues behind it.
 
 The 20,000-word fixture captures actual EF SQL and EXPLAIN output in test output. A 20-item content page executes seven SELECTs and materializes one book, 20 words and 20 meanings; projected memberships are limited to those page IDs. The plan must use the existing word and book/word indexes. This verifies bounded association loading and no per-word query loop, not a latency SLA. HTTP tests cover all three routes with Cookie/Bearer and custom roles, exact DTO fields, 401/403, pagination/404 failures, public disabled-book filtering and the unchanged legacy words endpoint. Run the standard Release .NET suite and container persistence smoke for this database query change.
 
 ## Public book browsing verification
 
-`PublicBookBrowseEndpointTests` covers the two authenticated catalog browse routes against real SQLite: the unit list comes back ordered by unit number with per-distinct-meaning and per-distinct-word counts that match the administration unit-content route (a meaning holding Section A under both entry kinds, or Section B and no section, counts once), a book without units answers an empty array, and the entries route's total order — smallest place in scope by unit number then Section A/B/none, then normalized spelling and ids, unplaced meanings last — is verified by walking a multi-page traversal of cross-unit, cross-section, and same-spelling-polysemy data and matching the concatenation against the unpaginated order with no overlap or gap. Whole-book scope includes an unassigned meaning with empty `positions` last; unit scope lists only that unit's meanings and only its places; empty-string section and entry-kind sentinels serialize as null; `normalizedWord` and `meaningKey` fold case and trim the ends while `word` and `meaning` stay as stored. Failures answer through the shared mapping: missing book 404, disabled book 422 on both routes, a unit of another book the same 404 as a missing one, invalid paging 400, defaults 1/20. `PublicApiCompatibilityTests` pins the authenticated envelope shape of both routes.
+`PublicBookBrowseEndpointTests` covers the two authenticated catalog browse routes against real PostgreSQL: the unit list comes back ordered by unit number with per-distinct-meaning and per-distinct-word counts that match the administration unit-content route (a meaning holding Section A under both entry kinds, or Section B and no section, counts once), a book without units answers an empty array, and the entries route's total order — smallest place in scope by unit number then Section A/B/none, then normalized spelling and ids, unplaced meanings last — is verified by walking a multi-page traversal of cross-unit, cross-section, and same-spelling-polysemy data and matching the concatenation against the unpaginated order with no overlap or gap. Whole-book scope includes an unassigned meaning with empty `positions` last; unit scope lists only that unit's meanings and only its places; empty-string section and entry-kind sentinels serialize as null; `normalizedWord` and `meaningKey` fold case and trim the ends while `word` and `meaning` stay as stored. Failures answer through the shared mapping: missing book 404, disabled book 422 on both routes, a unit of another book the same 404 as a missing one, invalid paging 400, defaults 1/20. `PublicApiCompatibilityTests` pins the authenticated envelope shape of both routes.
 
 ## Batch question generation verification
 
@@ -371,13 +347,13 @@ The 20,000-word fixture captures actual EF SQL and EXPLAIN output in test output
 
 `VocabularyCleanupTests` exercises all four actions against a synthetic legacy book, shared multi-meaning words, a disabled referencing book, exclusive words and unrelated historical orphans. Preview counts must equal static commit results; clear retains all book properties, delete removes the book, other meanings remain byte-for-byte equivalent, and `PRAGMA foreign_key_check` is empty. Empty scopes, replay rules, changed preview data/name, wrong ownership, stale batch membership, pre-entry cancellation and the legacy DELETE 409 are checked.
 
-Command interceptors inject exceptions immediately after deleting meanings, orphan words, or the book; each must restore all business rows, leave no temporary work set and allow connection reuse. A SQLite trigger verifies constraint rollback. Independent-context file-rollback-journal tests use transaction barriers for import/cleanup and existing single-edit/cleanup in both orders, duplicate cleanups, cancellation between deletion stages, post-clear/post-delete imports and read-only preview during a held writer. A second preview test pauses after the first read, starts a deletion on another context, releases the reader, and checks that later preview counts still use the original snapshot with the commit queuing behind it.
+Command interceptors inject exceptions immediately after deleting meanings, orphan words, or the book; each must restore all business rows, leave no temporary work set and allow connection reuse. A PL/pgSQL trigger verifies constraint rollback. Independent-context file-rollback-journal tests use transaction barriers for import/cleanup and existing single-edit/cleanup in both orders, duplicate cleanups, cancellation between deletion stages, post-clear/post-delete imports and read-only preview during a held writer. A second preview test pauses after the first read, starts a deletion on another context, releases the reader, and checks that later preview counts still use the original snapshot with the commit queuing behind it.
 
-The 20,000-word file-rollback-journal test verifies real preview/commit counts, FK integrity, preservation of unrelated rows, five set-operation commands for clear, and only two materialized book entities across preview and commit (no materialized words/meanings). It prints the actual cleanup SQL; no timing is an SLA. HTTP tests cover exact success/failure fields, Cookie/Bearer/custom roles, CSRF/401/403 before parsing, all action shapes and selection limits, fixed-length/chunked 1 MiB boundaries, resource/name conflicts, constraints and an external writer's 503 plus Retry-After. Run the Release .NET suite and Docker build/persistence smoke. Composition of the W/M replacement edits with these cleanup commands is covered by the dedicated combination tests below.
+The 20,000-word cleanup test verifies real preview/commit counts, FK integrity, preservation of unrelated rows, five set-operation commands for clear, and only two materialized book entities across preview and commit (no materialized words/meanings). It prints the actual cleanup SQL; no timing is an SLA. HTTP tests cover exact success/failure fields, Cookie/Bearer/custom roles, CSRF/401/403 before parsing, all action shapes and selection limits, fixed-length/chunked 1 MiB boundaries, resource/name conflicts, constraints and an external writer's 503 plus Retry-After. Run the Release .NET suite and Docker build/persistence smoke. Composition of the W/M replacement edits with these cleanup commands is covered by the dedicated combination tests below.
 
 ## Editing combined with cleanup verification
 
-`VocabularyEditCleanupCombinationTests` drives the W/M full-replacement edits and the C cleanup commands over one shared file-rollback-journal dataset in both orders, per the parent model's end-to-end scenario 6. A meaning edit followed by any of the four actions deletes the current edited row — the preview and the commit both resolve R against it — while the disabled book's rows stay byte-for-byte, the shared word survives through B, the historical orphan is untouched, and `PRAGMA foreign_key_check` ends empty. Cleanup first makes the later meaning/word edit 404 on the removed ids with no revival and no partial write, and the surviving ownership rules (409 on another book's meaning) stay intact. A word edit followed by removeWords still counts and deletes the current collections; removing a word's last reference makes the later word edit 404, and the still-referenced shared word stays editable. Independent-context tests hold one write inside its transaction while the other operation waits on the shared write lock, checking that either order converges on the same terminal state with no partial write, no dangling reference, and no other book's data touched.
+`VocabularyEditCleanupCombinationTests` drives the W/M full-replacement edits and the C cleanup commands over one shared dataset in both orders, per the parent model's end-to-end scenario 6. A meaning edit followed by any of the four actions deletes the current edited row — the preview and the commit both resolve R against it — while the disabled book's rows stay byte-for-byte, the shared word survives through B, the historical orphan is untouched, and `PRAGMA foreign_key_check` ends empty. Cleanup first makes the later meaning/word edit 404 on the removed ids with no revival and no partial write, and the surviving ownership rules (409 on another book's meaning) stay intact. A word edit followed by removeWords still counts and deletes the current collections; removing a word's last reference makes the later word edit 404, and the still-referenced shared word stays editable. Independent-context tests hold one write inside its transaction while the other operation waits on the shared write lock, checking that either order converges on the same terminal state with no partial write, no dangling reference, and no other book's data touched.
 
 `VocabularyEditCleanupCombinationEndpointTests` repeats the combination on one real pipeline instance with bearer administration auth: a meaning PUT followed by preview and commit removes the edited row and answers 404 on the removed id; cleanup first refuses later meaning/word PUTs without writes; a word PUT followed by clear keeps the disabled book's reference and the edited shared fields while the exclusive word goes; clear first leaves the still-referenced shared word editable. The cleanup browser specification adds the frontend leg: one meaning is edited as a full replacement and then deleted through the same drawer, with the deletion request carrying the same book, word, and meaning ids and the detail and list refreshing after each commit.
 
@@ -393,7 +369,7 @@ npm ci --prefix frontend
 bash .github/scripts/test-audio-storage.sh
 ```
 
-The script uses SeaweedFS 4.00 and Minio .NET 7.0.0, a new private test bucket, synthetic bucket-scoped and denied credentials, a unique disposable container, and dynamic loopback ports. The setup identity exists only in this test container to provision its bucket; the application does not create or list buckets. A local proxy preserves signed Host and strips `/s3/`. The real host adapter uploads a generated MP3 tone. An isolated HTTP host maps the administrator playback endpoint using the actual SQLite read repository and S3 adapter; it checks no-store links, UTC expiry, original download bytes, MIME, 206 Range, expired and renewed signatures, and fixed 503 for real storage denial or a lost object. The probe also checks unsigned and denied adapter access, cancellation and controlled deletion. Production authentication, roles, Cookie/Bearer priority, ownership, missing/stale selection, cancellation during Stat/signing and concurrent SQLite writes are covered by `AudioAdminPlaybackEndpointTests`. An offset test clock produces an actually expired signature without an idle wait; S3 validates it. Chromium decodes the downloaded file, rather than treating arbitrary bytes as playable audio. No ffmpeg or TTS tool is needed. CI runs this as `Private audio storage integration`.
+The script uses SeaweedFS 4.00 and Minio .NET 7.0.0, a new private test bucket, synthetic bucket-scoped and denied credentials, a unique disposable container, and dynamic loopback ports. The setup identity exists only in this test container to provision its bucket; the application does not create or list buckets. A local proxy preserves signed Host and strips `/s3/`. The real host adapter uploads a generated MP3 tone. An isolated HTTP host maps the administrator playback endpoint using the actual database read repository and S3 adapter; it checks no-store links, UTC expiry, original download bytes, MIME, 206 Range, expired and renewed signatures, and fixed 503 for real storage denial or a lost object. The probe also checks unsigned and denied adapter access, cancellation and controlled deletion. Production authentication, roles, Cookie/Bearer priority, ownership, missing/stale selection, cancellation during Stat/signing and concurrent database writes are covered by `AudioAdminPlaybackEndpointTests`. An offset test clock produces an actually expired signature without an idle wait; S3 validates it. Chromium decodes the downloaded file, rather than treating arbitrary bytes as playable audio. No ffmpeg or TTS tool is needed. CI runs this as `Private audio storage integration`.
 
 The script removes only its own container/anonymous volumes, proxy process and temporary files. It needs Docker, Python 3, .NET 10, Node.js and Chromium; it never accesses production S3, image buckets or shared data directories. It does not certify all browsers, arbitrary proxy configurations, or future audio HTTP routes. Container/startup changes also require the standard image build and `test-container.sh` checks.
 
@@ -456,7 +432,7 @@ files and generations. The database query also defensively detects operation-onl
 records; no migration or production FK behavior changes.
 
 `test-audio-storage.sh` additionally pauses an old real S3 Put while a new credential
-generation uploads concurrently in an independent SQLite database. Actual Stat and
+generation uploads concurrently in an independent PostgreSQL database. Actual Stat and
 signed GET verify both database locations contain the complete MP3; destination
 changes fail while operations or history exist, and retired client disposal waits
 for completion. It also pauses administrator signing and the second public accent,
@@ -500,7 +476,7 @@ Delete/Stat and releases its client only after completion. Uncooperative Delete
 and Stat tests cover both timeout and shutdown, with safe persistent retry codes
 and delayed disposal. Invalid and discarded candidates leave the disabled worker
 unchanged; existing coordinator write/replace failure tests remain applicable.
-`AudioRecoveryTests` retains the SQLite lease/fence, backoff, batch bound, published
+`AudioRecoveryTests` retains the database lease/fence, backoff, batch bound, published
 history preservation and concurrent writer regressions. The private S3 script
 also starts disabled, cleans a paused two-object old-client batch across credential
 rotation/disablement, then re-enables using a second synthetic identity to clean
@@ -557,7 +533,7 @@ without replay; read-only file 503 with the business route still available;
 actual MP3 upload → administrator word-drawer playback → public signed MP3 decoded
 by Chromium; historical destination 409; browser disable/re-enable followed by
 real recovery; restart → browser read and both playback paths; command-line source
-locked with its reason. The fixture uses an isolated content root, SQLite file,
+locked with its reason. The fixture uses an isolated content root, PostgreSQL database,
 dynamic loopback Kestrel/S3/proxy ports and synthetic secrets only. It serves the
 compiled production Vue app; authentication is deliberately supplied by the
 disposable test harness and separately covered by full-Host tests. No secret
@@ -583,7 +559,7 @@ smoke test also checks startup removal of retired tables and the external
 publication trigger while retaining vocabulary and shared asset rows.
 
 
-`AudioInvalidationTests` uses real temporary SQLite files and a simulated object
+`AudioInvalidationTests` uses real disposable PostgreSQL databases and a simulated object
 store to verify exact published-specific authority, reference protection,
 transaction rollback, replay without rebinding, persistent tombstones, dual
 connection claim/reference ordering, unknown Delete/Stat outcomes, retries beyond
@@ -597,7 +573,7 @@ waiting and claimed authority and verifies every field survives disabled storage
 
 ## Administrator enrichment observation and retry
 
-`EnrichmentAdminEndpointTests` exercises the real Host, temporary SQLite,
+`EnrichmentAdminEndpointTests` exercises the real Host, a disposable PostgreSQL database,
 administrator Bearer/custom-role and Cookie+CSRF checks, explicit Bearer priority,
 ordinary-token denial, strict query/retry bounds, history paging, replay/conflict,
 and a safe response allowlist. Meaning-submission integration-token tests reject
@@ -606,7 +582,7 @@ fixture) compares every persisted table value before/after GET-equivalent reads,
 checks unqueued disabled requirements, partial success, seven throttles with zero
 consumed failures, exhaustion after independent service recovery, own-binding
 requirements despite same-IPA playback fallback, and cleanup failure alongside
-successful replacement or cleared inheritance. A concurrent WAL writer changes
+successful replacement or cleared inheritance. A concurrent writer changes
 tasks between count and page to verify one read snapshot. Two connections race
 same/different retry keys and preserve old history after reopening; dependency
 refresh and injected failure/cancellation prove atomic rollback. Providers and
@@ -648,7 +624,7 @@ they do not claim that the container contacted a supplier.
 
 ## Submission review outcome verification
 
-`MeaningSubmissionAiReviewTests` runs the real SQLite repositories and serialized
+`MeaningSubmissionAiReviewTests` runs the real PostgreSQL repositories and serialized
 UnitOfWork across reopenings. It checks accept/revise/reject fields and timestamps,
 same/different-payload replay, explicit POS-only/phonetic-only revise semantics,
 reuse/questions, latest manual phonetic defaults winning over AI accept, manual
@@ -673,7 +649,7 @@ cross-component regression coverage.
 ## Automatic submission review verification
 
 `AutomaticMeaningSubmissionReviewTests` drives the real independent client,
-SQLite repository, result service and hosted worker with synthetic HTTP responses
+PostgreSQL repository, result service and hosted worker with synthetic HTTP responses
 and a controlled TimeProvider. It covers default-off/missing settings and manual
 advice compatibility; accept/revise/reject and spelling-reason instructions;
 POS-only/IPA-only revise, original word/example and captured-model retention;
@@ -698,12 +674,12 @@ supplier credentials or listening claims.
 
 ## Administrator AI history verification
 
-`MeaningSubmissionReviewAdminTests` uses file SQLite for exact original/AI fields,
+`MeaningSubmissionReviewAdminTests` uses a disposable PostgreSQL database for exact original/AI fields,
 POS-only/IPA-only revision filters, unapplied records, stable time/ID pagination,
 read-only snapshots, concurrent idempotent checks, missing IDs, cancellation,
 reopening after catalog correction/deletion and later conclusions, and Up/Down
 preserving previous data/schema/triggers. An interceptor appends through another
-WAL connection between count and page to prove both reads share one snapshot.
+writer connection between count and page to prove both reads share one snapshot.
 `MeaningSubmissionEndpointTests` verifies the DTO allowlist, filters/400/404,
 empty-body writes, original first-check time, Cookie+CSRF/Bearer and anonymous/
 ordinary/integration isolation. The real worker tests now read and check each
@@ -716,7 +692,7 @@ lost responses with record-ID confirmation, failed confirmation without replay,
 logout/new sessions, hostile text, no storage/external requests, keyboard and axe.
 The existing submissions spec covers optional manual explanations, retained drafts,
 bodyless rejection, cancellation and stale advice. Browser API interception proves
-frontend behavior; SQLite/HTTP/worker tests prove real server contracts. Run full
+frontend behavior; PostgreSQL/HTTP/worker tests prove real server contracts. Run full
 Release, types/lint/build and full Playwright; persistence changes require a fresh
 Docker build and container smoke. Its two recreations now compare check facts
 alongside permanent results/retry state. Audio regressions remain active; synthetic
@@ -730,7 +706,7 @@ all type-availability subsets, proves bounded attempts and new-only direction,
 and rejects fault/cancellation fallback. `LetterHidingTests` migrates the Study
 Unicode/segment/count/subset tests at the source revision recorded in the
 [shared contract](../api/LearningQuestions.md#letter-hiding).
-`LearningQuestionServiceTests` uses real SQLite and forbids distractor reads in
+`LearningQuestionServiceTests` uses real PostgreSQL and forbids distractor reads in
 FillLetters, verifies zero writes, partial direction availability and pending/
 approved-kept/AI-revise gates. HTTP tests cover both adapters, exclusive JSON,
 explicit booleans/scalars, local error status/code pairs, real integration-token
@@ -750,14 +726,14 @@ and both audio bindings without changing the source book.
 
 `VocabularyExpansionMigrationTests` checks upgrade/downgrade preservation of
 pronunciation history, expansion uniqueness and nullable locale, deletion triggers
-and SQLite foreign-key integrity. Enrichment browser tests cover the removed enable
+and foreign-key integrity. Enrichment browser tests cover the removed enable
 switches and expansion rows/details with no accent. These tests use synthetic model
 responses; they do not establish linguistic accuracy or real-provider audio quality.
 
 `ReleaseUpgradeMigrationTests` pins `v0.1.8` at migration
 `20261102063605_AddMeaningSubmissionReviewChecks`. It fills all 24 application
 tables, compares every column/row after upgrade and repeat startup, and checks
-SQLite integrity and foreign keys. Fault injection after the target rebuild and
+integrity and foreign keys. Fault injection after the target rebuild and
 before EF writes the migration-history record proves rollback and successful retry.
 Historical migration files through that boundary match release commit
 `55ab685939b065eaa4b8940a7f96ceb78bdd3a5b`; fixture values are entirely synthetic.
@@ -814,7 +790,7 @@ after recovery stops, unnecessary phrase fields and compatibility with absent
 additive metadata.
 
 The automatic recovery writer rechecks demand for one indexed word, verified with
-SQLite query plans; whole-catalog recovery selection stays outside that writer.
+PostgreSQL query plans; whole-catalog recovery selection stays outside that writer.
 
 ### Preventive enrichment requests
 
