@@ -341,7 +341,7 @@ public class DataProtectionKeyRepositoryTests : IDisposable
             AccessTokenExpiresAt = DateTimeOffset.UtcNow.AddMinutes(10)
         }, Ct);
 
-        var rows = await SqliteRowsAsync(database,
+        var rows = await DatabaseRowsAsync(database,
             "SELECT service_id, key_id, encrypted_xml FROM service_data_protection_keys");
         Assert.NotEmpty(rows);
         foreach (var (serviceId, encryptedXml) in rows)
@@ -377,11 +377,10 @@ public class DataProtectionKeyRepositoryTests : IDisposable
         Assert.NotNull(failure);
     }
 
-    private static async Task<List<(string ServiceId, string EncryptedXml)>> SqliteRowsAsync(
+    private static async Task<List<(string ServiceId, string EncryptedXml)>> DatabaseRowsAsync(
         string database, string sql)
     {
-        await using var connection = new Microsoft.Data.Sqlite.SqliteConnection(
-            $"Data Source={database};Mode=ReadOnly");
+        await using var connection = new Npgsql.NpgsqlConnection(Lexarbor.Tests.Shared.SharedTestDatabases.ConnectionString(database));
         await connection.OpenAsync(Ct);
         var results = new List<(string, string)>();
         await using (var command = connection.CreateCommand())

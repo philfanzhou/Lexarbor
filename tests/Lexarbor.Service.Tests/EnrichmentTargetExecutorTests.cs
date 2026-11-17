@@ -1,3 +1,4 @@
+using Lexarbor.Tests.Shared;
 using System.Data.Common;
 using System.Net;
 using System.Text.Json;
@@ -681,7 +682,7 @@ public sealed partial class EnrichmentTargetExecutorTests
             await f.Db.SaveChangesAsync(Ct); f.Db.ChangeTracker.Clear(); return f;
         }
         public VocabularyDbContext Open(params IInterceptor[] interceptors) => new(new DbContextOptionsBuilder<VocabularyDbContext>()
-            .UseSqlite($"Data Source={Path.Combine(_root, "fixture.db")};Pooling=False").AddInterceptors(interceptors).Options);
+            .UseNpgsql(SharedTestDatabases.ConnectionString(Path.Combine(_root, "fixture.db"))).AddInterceptors(interceptors).Options);
         public EnrichmentTargetExecutor ExecutorFor(VocabularyDbContext db, EnrichmentTaskRepository tasks,
             IAudioUploadOperationFactory? operations = null, VocabularyExpansionExecutor? expansion = null) => new(tasks,
             new EnrichmentExecutionRepository(db, tasks, Clock), new AudioUploadRepository(db, Clock),

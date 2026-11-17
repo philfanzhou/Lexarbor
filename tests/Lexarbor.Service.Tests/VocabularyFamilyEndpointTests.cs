@@ -151,7 +151,7 @@ public sealed class VocabularyFamilyEndpointTests
             if (sessionCleanup != null) services.Remove(sessionCleanup);
             services.RemoveAll<VocabularyDbContext>();
             services.AddScoped(_ => new VocabularyDbContext(new DbContextOptionsBuilder<VocabularyDbContext>()
-                .UseSqlite(connectionString).AddInterceptors(probe).Options));
+                .UseNpgsql(connectionString).AddInterceptors(probe).Options));
         }));
         using var client = configured.CreateClient();
         await Seed(configured.Services);

@@ -1,10 +1,11 @@
+using Lexarbor.Tests.Shared;
 using System.Data.Common;
 using System.Net;
 using System.Text.Json;
 using Lexarbor.Database;
 using Lexarbor.Service.Tests.TestInfrastructure;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Data.Sqlite;
+using Npgsql;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
@@ -141,7 +142,7 @@ public class HealthEndpointTests
             // literal; match the probe's distinctive alias.
             if (command.CommandText.Contains("1 AS", StringComparison.Ordinal))
             {
-                throw new SqliteException("synthetic-storage-secret", 1);
+                throw SyntheticStorageErrors.Failure("synthetic-storage-secret");
             }
 
             return ValueTask.FromResult(result);

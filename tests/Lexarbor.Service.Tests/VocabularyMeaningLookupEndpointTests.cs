@@ -77,7 +77,7 @@ public sealed class VocabularyMeaningLookupEndpointTests
         {
             services.RemoveAll<VocabularyDbContext>();
             services.AddScoped(_ => new VocabularyDbContext(new DbContextOptionsBuilder<VocabularyDbContext>()
-                .UseSqlite(connectionString).AddInterceptors(probe).Options));
+                .UseNpgsql(connectionString).AddInterceptors(probe).Options));
         }));
         using var client = configured.CreateClient();
         await client.UseCatalogKeyAsync(configured);

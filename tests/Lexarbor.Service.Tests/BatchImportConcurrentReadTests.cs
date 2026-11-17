@@ -11,14 +11,12 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Lexarbor.Service.Tests;
 
 /// <summary>
-/// The rollback journal's accepted cost, pinned end to end against the real
-/// host: a full 500-entry batch import runs in one write transaction, and the
-/// catalog reads that arrive while it runs queue inside their bounded wait
-/// and succeed — briefly blocked at most, never failed — which is exactly the
-/// observable behavior the journal rollback documents as "not guaranteed to be
-/// uninterrupted, guaranteed to succeed within the timeout".
+/// Pinned end to end against the real host: a full 500-entry batch import
+/// runs in one write transaction, and the catalog reads that arrive while it
+/// runs succeed. Under SQLite's rollback journal they queued behind the
+/// import; PostgreSQL serves them from their own snapshots beside it.
 /// </summary>
-public class RollbackJournalBatchImportConcurrencyTests
+public class BatchImportConcurrentReadTests
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -29,7 +27,7 @@ public class RollbackJournalBatchImportConcurrencyTests
     };
 
     [Fact]
-    public async Task FullBatchImport_WithConcurrentCatalogReads_QueuesReadsToSuccess()
+    public async Task FullBatchImport_WithConcurrentCatalogReads_ReadsSucceed()
     {
         var directory = VocabularyWebApplicationFactory.CreateGateSafeDirectory(
             $"lexarbor-rollback-read-{Guid.NewGuid():N}");

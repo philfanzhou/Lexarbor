@@ -166,7 +166,7 @@ public sealed partial class EnrichmentTargetExecutorTests
     public async Task Expansion_PublicationFailureRollsBackWordsMeaningsRelationsAndOrigin_ThenReplaysStagedPlan()
     {
         await using var f = await Fixture.Create(); await Supplement(f);
-        await f.Db.Database.ExecuteSqlRawAsync("CREATE TRIGGER expansion_test_failure BEFORE INSERT ON vocabulary_relation BEGIN SELECT RAISE(ABORT,'fixture'); END;", Ct);
+        await f.Db.Database.ExecuteSqlRawAsync(Lexarbor.Tests.Shared.PostgreSqlTestServer.RejectingTriggerSql("expansion_test_failure", "BEFORE INSERT", "vocabulary_relation"), Ct);
         var handler = new ExpansionHandler([Candidate()]); using var http = new HttpFactory(handler);
         var task = await f.Ensure(ExpansionKey);
         await Assert.ThrowsAsync<Lexarbor.Domain.Exceptions.ConflictException>(() => Expansion(f, f.Db, http).ExecuteAsync(task, "worker", Ct));

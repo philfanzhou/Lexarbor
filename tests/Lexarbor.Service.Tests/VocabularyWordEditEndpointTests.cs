@@ -1,3 +1,4 @@
+using Lexarbor.Tests.Shared;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
@@ -120,7 +121,7 @@ public class VocabularyWordEditEndpointTests
     }
 
     [Fact]
-    public async Task ExternalSqliteWriter_Returns503WithRetryAfter()
+    public async Task ExternalWriter_Returns503WithRetryAfter()
     {
         var path = Path.Combine(
             VocabularyWebApplicationFactory.CreateGateSafeDirectory($"lexarbor-word-http-{Guid.NewGuid():N}"),
@@ -132,7 +133,7 @@ public class VocabularyWordEditEndpointTests
             {
                 services.RemoveAll<DbContextOptions<VocabularyDbContext>>();
                 services.RemoveAll<VocabularyDbContext>();
-                services.AddDbContext<VocabularyDbContext>(options => options.UseSqlite($"Data Source={path};Pooling=False;Default Timeout=1"));
+                services.AddDbContext<VocabularyDbContext>(options => options.UseNpgsql(SharedTestDatabases.WithLockTimeout(SharedTestDatabases.ConnectionString(path), "1s")));
             }));
             using var client = fileFactory.CreateClient();
             await SeedAsync(fileFactory.Services);
@@ -141,13 +142,14 @@ public class VocabularyWordEditEndpointTests
             var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
             await using (var transaction = await db.Database.BeginTransactionAsync(TestContext.Current.CancellationToken))
             {
+                await db.Database.ExecuteSqlRawAsync(SyntheticStorageErrors.CatalogWriterLockSql, TestContext.Current.CancellationToken);
                 using var response = await PutAsync(client, Body);
                 await FailureAsync(response, HttpStatusCode.ServiceUnavailable);
                 Assert.Equal("1", response.Headers.GetValues("Retry-After").Single());
             }
             Assert.Equal("original|uk|us", await StateAsync(fileFactory.Services));
         }
-        finally { foreach (var suffix in new[] { "", "-wal", "-shm" }) File.Delete(path + suffix); }
+        finally { }
     }
 
     [Fact]

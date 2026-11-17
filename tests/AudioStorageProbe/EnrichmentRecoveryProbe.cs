@@ -163,7 +163,7 @@ internal static class EnrichmentRecoveryProbe
                 var saved = await coordinator.SaveAsync(read.Revision, new Dictionary<string, JsonNode?> { ["Enrichment:AudioEnabled"] = JsonValue.Create(true) }, runtime.PrepareAsync, default);
                 Check(saved.Status == ConfigurationSaveStatus.Success, "The disposable probe must persist actual configuration versions.");
             }
-            var db = new VocabularyDbContext(new DbContextOptionsBuilder<VocabularyDbContext>().UseSqlite($"Data Source={Path.Combine(root, "probe.db")};Pooling=False").AddInterceptors(interceptors).Options);
+            var db = new VocabularyDbContext(new DbContextOptionsBuilder<VocabularyDbContext>().UseNpgsql(ProbeDatabase.For(root)).AddInterceptors(interceptors).Options);
             await db.Database.MigrateAsync();
             return new(db, runtime, config, options);
         }

@@ -1,3 +1,4 @@
+using Lexarbor.Tests.Shared;
 using System.Data.Common;
 using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Exceptions;
@@ -5,7 +6,7 @@ using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 using Lexarbor.Host;
 using Lexarbor.Host.Integration;
-using Microsoft.Data.Sqlite;
+using Npgsql;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 
@@ -145,7 +146,7 @@ public sealed partial class EnrichmentTargetExecutorTests
         public override ValueTask<InterceptionResult> TransactionCommittingAsync(DbTransaction transaction, TransactionEventData eventData,
             InterceptionResult result, CancellationToken cancellationToken = default)
         {
-            if (Remaining-- > 0) throw new SqliteException("Synthetic busy commit.", 5);
+            if (Remaining-- > 0) throw SyntheticStorageErrors.Busy("Synthetic busy commit.");
             return ValueTask.FromResult(result);
         }
     }

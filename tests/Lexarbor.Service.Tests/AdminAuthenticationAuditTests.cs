@@ -1,3 +1,4 @@
+using Lexarbor.Tests.Shared;
 using System.Collections.Concurrent;
 using System.Data.Common;
 using System.Globalization;
@@ -10,7 +11,7 @@ using Lexarbor.Service.Tests.TestInfrastructure;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.WebUtilities;
-using Microsoft.Data.Sqlite;
+using Npgsql;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -299,7 +300,7 @@ public class AdminAuthenticationAuditTests
             if (Enabled
                 && command.CommandText.StartsWith("INSERT INTO ", StringComparison.Ordinal)
                 && command.CommandText[12..].TrimStart('"').StartsWith(table, StringComparison.Ordinal))
-                throw new SqliteException("synthetic-storage-secret-marker", errorCode);
+                throw errorCode == 5 ? SyntheticStorageErrors.Busy("synthetic-storage-secret-marker") : SyntheticStorageErrors.Failure("synthetic-storage-secret-marker");
         }
     }
 
@@ -445,14 +446,16 @@ public class AdminAuthenticationAuditTests
         public async Task<List<AuditRow>> AuditAsync()
         {
             var rows = new List<AuditRow>();
-            await using var connection = new SqliteConnection($"Data Source={_databasePath};Pooling=False");
+            // The audit table is append-only in these tests, so physical row
+            // order is insertion order — what SQLite's rowid order expressed.
+            await using var connection = new NpgsqlConnection(SharedTestDatabases.ConnectionString(_databasePath));
             await connection.OpenAsync(Ct);
             await using var command = connection.CreateCommand();
             command.CommandText =
                 """
                 SELECT action, operator_source, operator_id, operator_display_name, target_type, target_id,
                        outcome, client_ip, correlation_id, security_description, metadata_json, occurred_at_utc
-                FROM service_audit_logs ORDER BY rowid
+                FROM service_audit_logs ORDER BY ctid
                 """;
             await using var reader = await command.ExecuteReaderAsync(Ct);
             while (await reader.ReadAsync(Ct))
@@ -469,8 +472,7 @@ public class AdminAuthenticationAuditTests
                     reader.IsDBNull(8) ? null : reader.GetString(8),
                     reader.IsDBNull(9) ? null : reader.GetString(9),
                     reader.IsDBNull(10) ? null : reader.GetString(10),
-                    DateTimeOffset.Parse(reader.GetString(11), CultureInfo.InvariantCulture,
-                        DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal)));
+                    new DateTimeOffset(DateTime.SpecifyKind(reader.GetFieldValue<DateTime>(11), DateTimeKind.Utc))));
             }
 
             return rows;
@@ -485,7 +487,7 @@ public class AdminAuthenticationAuditTests
 
         public async Task<int> SessionCountAsync()
         {
-            await using var connection = new SqliteConnection($"Data Source={_databasePath};Pooling=False");
+            await using var connection = new NpgsqlConnection(SharedTestDatabases.ConnectionString(_databasePath));
             await connection.OpenAsync(Ct);
             await using var command = connection.CreateCommand();
             command.CommandText = "SELECT COUNT(*) FROM admin_session";
@@ -494,11 +496,11 @@ public class AdminAuthenticationAuditTests
 
         public async Task<int> AuditCountAsync(string action)
         {
-            await using var connection = new SqliteConnection($"Data Source={_databasePath};Pooling=False");
+            await using var connection = new NpgsqlConnection(SharedTestDatabases.ConnectionString(_databasePath));
             await connection.OpenAsync(Ct);
             await using var command = connection.CreateCommand();
-            command.CommandText = "SELECT COUNT(*) FROM service_audit_logs WHERE action = $action";
-            command.Parameters.AddWithValue("$action", action);
+            command.CommandText = "SELECT COUNT(*) FROM service_audit_logs WHERE action = @action";
+            command.Parameters.AddWithValue("action", action);
             return Convert.ToInt32(await command.ExecuteScalarAsync(Ct));
         }
 

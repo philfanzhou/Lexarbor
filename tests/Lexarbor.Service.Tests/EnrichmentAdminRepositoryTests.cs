@@ -179,7 +179,6 @@ public sealed partial class EnrichmentTargetExecutorTests
     {
         await using var f = await Fixture.Create(fields: false);
         await f.Ensure(Key()); await f.Ensure(Key(locale: AudioLocale.EnUs));
-        await f.Db.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL", Ct);
         var c = await AdminConfig(f); var fired = false;
         await using var reading = f.Open(new AfterAdminCount(async () =>
         {
@@ -275,7 +274,7 @@ public sealed partial class EnrichmentTargetExecutorTests
             var names = new List<string>();
             await using (var cmd = connection.CreateCommand())
             {
-                cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name";
+                cmd.CommandText = "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE' ORDER BY table_name";
                 await using var r = await cmd.ExecuteReaderAsync(Ct); while (await r.ReadAsync(Ct)) names.Add(r.GetString(0));
             }
             var data = new List<object>();

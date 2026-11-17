@@ -1,3 +1,4 @@
+using Lexarbor.Tests.Shared;
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Json;
@@ -28,18 +29,18 @@ public sealed class EnrichmentEndToEndTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task LegacyDatabase_AutomaticallyPreparesDestination_ExpandsAndFillsAudio_AndRestartDoesNotRepeat(bool existingSupplement)
+    public async Task ExistingCatalog_AutomaticallyPreparesDestination_ExpandsAndFillsAudio_AndRestartDoesNotRepeat(bool existingSupplement)
     {
         var root = VocabularyWebApplicationFactory.CreateGateSafeDirectory("expansion-e2e-" + Guid.NewGuid().ToString("N"));
         File.WriteAllText(Path.Combine(root, "appsettings.json"), "{}");
         using var network = new Network(false); var store = new Objects();
         try
         {
-            // Persist real pre-expansion schema and catalog before the new Host takes over.
+            // Persist a catalog before the Host takes over.
             await using (var old = new VocabularyDbContext(new DbContextOptionsBuilder<VocabularyDbContext>()
-                .UseSqlite($"Data Source={Path.Combine(root, "vocabulary.db")};Pooling=False").Options))
+                .UseNpgsql(SharedTestDatabases.ConnectionString(Path.Combine(root, "vocabulary.db"))).Options))
             {
-                await old.GetService<IMigrator>().MigrateAsync("20261102063605_AddMeaningSubmissionReviewChecks", Ct);
+                await old.Database.MigrateAsync(Ct);
                 old.VocabularyBooks.Add(new() { Id = "book", BookName = "Fixture", Status = true });
                 if (existingSupplement) old.VocabularyBooks.Add(new() { Id = "supplement", BookName = "Submission supplement", Status = true });
                 old.Vocabularies.Add(new() { Id = "word", Word = "lead" });

@@ -1,3 +1,4 @@
+using Lexarbor.Tests.Shared;
 using System.Collections.Concurrent;
 using System.Data.Common;
 using System.Net;
@@ -15,7 +16,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.WebUtilities;
-using Microsoft.Data.Sqlite;
+using Npgsql;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
@@ -688,7 +689,7 @@ public class AdminHostedLoginTests
             if (Enabled && command.CommandText.StartsWith("INSERT INTO admin_session", StringComparison.Ordinal))
             {
                 if (mode == "cancel") throw new OperationCanceledException("synthetic-storage-secret-marker");
-                if (mode is "failure" or "busy") throw new SqliteException("synthetic-storage-secret-marker", mode == "busy" ? 5 : 1);
+                if (mode is "failure" or "busy") throw (mode == "busy" ? SyntheticStorageErrors.Busy("synthetic-storage-secret-marker") : SyntheticStorageErrors.Failure("synthetic-storage-secret-marker"));
             }
             return ValueTask.FromResult(result);
         }
@@ -697,7 +698,7 @@ public class AdminHostedLoginTests
     {
         public override Task TransactionCommittedAsync(DbTransaction transaction, TransactionEndEventData eventData, CancellationToken cancellationToken = default)
         {
-            if (fault.Enabled && mode == "lost-commit") throw new SqliteException("synthetic-storage-secret-marker", 1);
+            if (fault.Enabled && mode == "lost-commit") throw SyntheticStorageErrors.Failure("synthetic-storage-secret-marker");
             return Task.CompletedTask;
         }
     }

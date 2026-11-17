@@ -16,7 +16,8 @@ namespace Lexarbor.Tests.Shared;
 /// Lexarbor's ordering and normalization must hold because every text column
 /// is declared <c>COLLATE "C"</c>, not because the database happens to have
 /// been created with it. Durability settings are relaxed because the data
-/// directory is thrown away with the container.
+/// directory is thrown away with the container. Each per-test database is a
+/// template copy of roughly 8 MB and is dropped when its test ends.
 /// </remarks>
 public static class PostgreSqlTestServer
 {
@@ -35,7 +36,6 @@ public static class PostgreSqlTestServer
             .WithDatabase("postgres")
             .WithUsername("lexarbor")
             .WithPassword("lexarbor-test")
-            .WithTmpfsMount("/var/lib/postgresql/data")
             .WithCommand("-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off",
                 "-c", "max_connections=1000")
             .Build();
@@ -47,7 +47,16 @@ public static class PostgreSqlTestServer
     public static async Task<string> ConnectionStringAsync(string database)
     {
         var server = await Server.Value;
-        return new NpgsqlConnectionStringBuilder(server.GetConnectionString()) { Database = database }.ConnectionString;
+        // Hundreds of short-lived databases each get a pool of their own. Small
+        // pools that close idle connections quickly keep the server's (and a
+        // VM-based Docker's port forwarder's) connection count bounded.
+        return new NpgsqlConnectionStringBuilder(server.GetConnectionString())
+        {
+            Database = database,
+            MaxPoolSize = 10,
+            ConnectionIdleLifetime = 2,
+            ConnectionPruningInterval = 1
+        }.ConnectionString;
     }
 
     /// <summary>The administrative connection string (the <c>postgres</c> database).</summary>
@@ -198,4 +207,44 @@ public static class PostgreSqlChangeCounter
         await using var read = new NpgsqlCommand("SELECT total FROM lexarbor_test_changes WHERE id = 1", connection);
         return (long)(await read.ExecuteScalarAsync())!;
     }
+}
+
+/// <summary>
+/// Databases shared by several hosts of one test under a name of the test's
+/// choosing — a restart, a second host on the same data — the way two hosts
+/// used to share one SQLite file path. Each name maps to one migrated
+/// database for the rest of the run; the container is discarded afterwards.
+/// </summary>
+public static class SharedTestDatabases
+{
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<string>> Databases = new(StringComparer.Ordinal);
+
+    /// <summary>The same database with a bounded lock wait, as the host's own configuration adds.</summary>
+    public static string WithLockTimeout(string connectionString, string timeout) =>
+        new NpgsqlConnectionStringBuilder(connectionString) { Options = $"-c lock_timeout={timeout}" }.ConnectionString;
+
+    public static string ConnectionString(string name) =>
+        Databases.GetOrAdd(name, _ => new Lazy<string>(() =>
+            PostgreSqlTestServer.CreateDatabaseAsync().GetAwaiter().GetResult())).Value;
+}
+
+/// <summary>
+/// Storage failures a test injects where the provider would raise them: a
+/// lock wait past its timeout (busy) and an unclassified server error.
+/// </summary>
+public static class SyntheticStorageErrors
+{
+    /// <summary>
+    /// What another writer holding the catalog looks like: inside an open
+    /// transaction, every catalog table is locked against writes while plain
+    /// reads continue. (SQLite's equivalent was a held BEGIN IMMEDIATE.)
+    /// </summary>
+    public const string CatalogWriterLockSql =
+        "LOCK TABLE vocabulary_book, vocabulary, vocabulary_meaning, vocabulary_book_unit, vocabulary_meaning_unit, vocabulary_relation IN EXCLUSIVE MODE";
+
+    public static PostgresException Busy(string message) =>
+        new(message, "ERROR", "ERROR", PostgresErrorCodes.LockNotAvailable);
+
+    public static PostgresException Failure(string message) =>
+        new(message, "ERROR", "ERROR", PostgresErrorCodes.InternalError);
 }

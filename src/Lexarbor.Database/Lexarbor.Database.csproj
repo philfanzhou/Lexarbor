@@ -1,5 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
+    <!-- Npgsql's EF provider accepts any EF Core 10 patch; pin the one the
+         design-time package and the rest of the solution are built against. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
     <PackageReference Include="Mapster" />
     <PackageReference Include="ServiceMantle.Database.PostgreSql" />

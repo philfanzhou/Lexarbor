@@ -1,7 +1,7 @@
 using System.Data.Common;
 using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Models;
-using Microsoft.Data.Sqlite;
+using Lexarbor.Tests.Shared;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 
@@ -22,19 +22,12 @@ public sealed partial class EnrichmentTargetExecutorTests
         // Both the state totals and the activity totals must avoid probing all
         // NULL-meaning targets for each word. A small fixture can hide that cost.
         Assert.Equal(2, capture.Commands.Count);
-        await db.Database.OpenConnectionAsync(Ct);
         foreach (var (sql, parameters) in capture.Commands)
         {
-            await using var command = db.Database.GetDbConnection().CreateCommand();
-            command.CommandText = "EXPLAIN QUERY PLAN " + sql;
-            command.Parameters.AddRange(parameters);
-            await using var reader = await command.ExecuteReaderAsync(Ct);
-            var plan = new List<string>();
-            while (await reader.ReadAsync(Ct)) plan.Add(reader.GetString(3));
-            Assert.Contains(plan, p => p.Contains("USING INDEX IX_enrichment_target_word_id_locale_step (word_id=? AND locale=? AND step=?)", StringComparison.Ordinal));
-            Assert.Contains(plan, p => p.Contains("USING INDEX IX_enrichment_target_word_id_meaning_id_locale_step (word_id=? AND meaning_id=? AND locale=? AND step=?)", StringComparison.Ordinal));
-            Assert.DoesNotContain(plan, p => p.Contains("SCAN matched", StringComparison.Ordinal)
-                || p.Contains("SEARCH matched USING AUTOMATIC", StringComparison.Ordinal));
+            var plan = await PostgreSqlPlan.ExplainAsync(db.Database.GetConnectionString()!, sql, parameters);
+            Assert.Contains("IX_enrichment_target_word_id_locale_step", plan, StringComparison.Ordinal);
+            Assert.Contains("IX_enrichment_target_word_id_meaning_id_locale_step", plan, StringComparison.Ordinal);
+            Assert.DoesNotContain("Seq Scan on enrichment_target matched", plan, StringComparison.Ordinal);
         }
     }
 
@@ -95,27 +88,21 @@ public sealed partial class EnrichmentTargetExecutorTests
         Assert.Equal(1, await new EnrichmentTaskRepository(db, f.Clock).RecoverAsync(5, [], await AdminConfig(f), f.Clock.Now, Ct));
         var (sql, parameters) = Assert.Single(capture.Commands);
         Assert.Contains(parameters, p => p.ParameterName == "@demandWord" && Equals(p.Value, "word"));
-        await db.Database.OpenConnectionAsync(Ct);
-        await using var command = db.Database.GetDbConnection().CreateCommand();
-        command.CommandText = "EXPLAIN QUERY PLAN " + sql; command.Parameters.AddRange(parameters);
-        await using var reader = await command.ExecuteReaderAsync(Ct);
-        var plan = new List<string>();
-        while (await reader.ReadAsync(Ct)) plan.Add(reader.GetString(3));
-        Assert.Contains(plan, p => p.Contains("SEARCH w USING INDEX", StringComparison.Ordinal));
-        Assert.DoesNotContain(plan, p => p.StartsWith("SCAN w", StringComparison.Ordinal));
+        var plan = await PostgreSqlPlan.ExplainAsync(db.Database.GetConnectionString()!, sql, parameters);
+        Assert.Contains("on vocabulary w", plan, StringComparison.Ordinal);
+        Assert.DoesNotContain("Seq Scan on vocabulary w", plan, StringComparison.Ordinal);
     }
 
     private sealed class SummaryQueryCapture : DbCommandInterceptor
     {
         public bool RecoveryOnly;
-        public List<(string Sql, SqliteParameter[] Parameters)> Commands { get; } = [];
+        public List<(string Sql, DbParameter[] Parameters)> Commands { get; } = [];
         public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command,
             CommandEventData eventData, InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
         {
             if (command.CommandText.Contains("WITH locales", StringComparison.Ordinal)
                 && (RecoveryOnly ? eventData.Context?.Database.CurrentTransaction != null : command.CommandText.Contains("GROUP BY", StringComparison.Ordinal)))
-                Commands.Add((command.CommandText, command.Parameters.Cast<DbParameter>()
-                    .Select(p => new SqliteParameter(p.ParameterName, p.Value)).ToArray()));
+                Commands.Add((command.CommandText, command.Parameters.Cast<DbParameter>().ToArray()));
             return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
         }
     }

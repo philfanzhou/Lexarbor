@@ -289,7 +289,7 @@ public sealed class AudioPublicPlaybackEndpointTests
             {
                 called = true;
                 using var scope = host.App.Services.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
-                await db.Database.ExecuteSqlRawAsync("UPDATE vocabulary_book SET status=0 WHERE id='enabled'", token).WaitAsync(TimeSpan.FromSeconds(5), token);
+                await db.Database.ExecuteSqlRawAsync("UPDATE vocabulary_book SET status=false WHERE id='enabled'", token).WaitAsync(TimeSpan.FromSeconds(5), token);
             }
             return new AudioObjectInfo(128, "audio/mpeg");
         };
@@ -299,7 +299,7 @@ public sealed class AudioPublicPlaybackEndpointTests
         using (var scope = host.App.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
-            await db.Database.ExecuteSqlRawAsync("UPDATE vocabulary_book SET status=1 WHERE id='enabled'", Ct);
+            await db.Database.ExecuteSqlRawAsync("UPDATE vocabulary_book SET status=true WHERE id='enabled'", Ct);
             await scope.ServiceProvider.GetRequiredService<VocabularyWordEditService>().ReplaceAsync("w", "take off", "new-uk", "us", Ct);
         }
         using var stale = await host.Client.GetAsync(Route(), Ct); using var changed = await Read(stale);

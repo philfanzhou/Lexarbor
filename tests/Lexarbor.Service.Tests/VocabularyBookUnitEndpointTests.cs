@@ -1,3 +1,4 @@
+using Lexarbor.Tests.Shared;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
@@ -231,7 +232,7 @@ public class VocabularyBookUnitEndpointTests
     }
 
     [Fact]
-    public async Task ExternalSqliteWriter_Returns503WithRetryAfter()
+    public async Task ExternalWriter_Returns503WithRetryAfter()
     {
         var path = Path.Combine(
             VocabularyWebApplicationFactory.CreateGateSafeDirectory($"lexarbor-units-http-{Guid.NewGuid():N}"),
@@ -243,7 +244,7 @@ public class VocabularyBookUnitEndpointTests
             {
                 services.RemoveAll<DbContextOptions<VocabularyDbContext>>();
                 services.RemoveAll<VocabularyDbContext>();
-                services.AddDbContext<VocabularyDbContext>(options => options.UseSqlite($"Data Source={path};Pooling=False;Default Timeout=1"));
+                services.AddDbContext<VocabularyDbContext>(options => options.UseNpgsql(SharedTestDatabases.WithLockTimeout(SharedTestDatabases.ConnectionString(path), "1s")));
             }));
             using var client = fileFactory.CreateClient();
             await SeedAsync(fileFactory.Services);
@@ -253,13 +254,14 @@ public class VocabularyBookUnitEndpointTests
             var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
             await using (var transaction = await db.Database.BeginTransactionAsync(TestContext.Current.CancellationToken))
             {
+                await db.Database.ExecuteSqlRawAsync(SyntheticStorageErrors.CatalogWriterLockSql, TestContext.Current.CancellationToken);
                 using var response = await PostAsync(client, Body);
                 await FailureAsync(response, HttpStatusCode.ServiceUnavailable);
                 Assert.Equal("1", response.Headers.GetValues("Retry-After").Single());
             }
             Assert.Equal("A:2:", await StateAsync(fileFactory.Services));
         }
-        finally { foreach (var suffix in new[] { "", "-wal", "-shm" }) File.Delete(path + suffix); }
+        finally { }
     }
 
     private sealed record UnitDto(string Id, string BookId, int Number, string? Title, int MeaningCount);
