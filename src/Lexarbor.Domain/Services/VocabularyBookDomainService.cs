@@ -40,7 +40,7 @@ public class VocabularyBookDomainService
         return _bookRepository.SearchAsync(keyword, page, size);
     }
 
-    public async Task<VocabularyBookModel> AddOrUpdateAsync(VocabularyBookModel book)
+    public Task<VocabularyBookModel> AddOrUpdateAsync(VocabularyBookModel book) => _unitOfWork.ExecuteBookWriteAsync(book.Id, async () =>
     {
         VocabularyBookModel existing;
         if (!string.IsNullOrWhiteSpace(book.Id))
@@ -72,9 +72,9 @@ public class VocabularyBookDomainService
 
         await _unitOfWork.SaveChangesAsync();
         return existing;
-    }
+    });
 
-    public Task DeleteAsync(string id) => _unitOfWork.ExecuteInTransactionAsync(async () =>
+    public Task DeleteAsync(string id) => _unitOfWork.ExecuteCatalogWriteAsync(async () =>
     {
         _ = await _bookRepository.GetByIdAsync(id)
             ?? throw new ResourceNotFoundException("Vocabulary book was not found.");

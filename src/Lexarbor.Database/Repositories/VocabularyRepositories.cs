@@ -403,7 +403,10 @@ public class VocabularyBookRepository : IVocabularyBookRepository
 
     public async Task<VocabularyBookModel?> GetByIdAsync(string id, CancellationToken cancellationToken)
     {
-        var entity = await _context.VocabularyBooks
+        var books = UnitOfWork.OwnsWriteContext(_context)
+            ? _context.VocabularyBooks.FromSqlInterpolated($"SELECT * FROM vocabulary_book WHERE id = {id} FOR SHARE")
+            : _context.VocabularyBooks;
+        var entity = await books
             .AsNoTracking()
             .FirstOrDefaultAsync(book => book.Id == id, cancellationToken);
         return entity?.Adapt<VocabularyBookModel>();

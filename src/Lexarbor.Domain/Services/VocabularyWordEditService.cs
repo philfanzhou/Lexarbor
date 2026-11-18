@@ -15,7 +15,7 @@ public sealed class VocabularyWordEditService(IVocabularyRepository words,
         cancellationToken.ThrowIfCancellationRequested();
         // Once admitted, finish the existing non-cancellable transaction. A lost
         // HTTP response cannot promise that a successful commit was undone.
-        await unitOfWork.ExecuteInTransactionAsync(async () =>
+        await unitOfWork.ExecuteWordWriteAsync(wordId, [normalized], async () =>
         {
             var current = await edits.GetCurrentAsync(wordId)
                 ?? throw new ResourceNotFoundException("Vocabulary word was not found.");

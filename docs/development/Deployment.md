@@ -67,7 +67,7 @@ bash scripts/start.sh
 | `LEXARBOR_PORT` | `5008` | Host port mapped to container port 5008 |
 | `LEXARBOR_DATA_DIR` | `<repository>/data` | Host directory mounted at `/app/data` |
 
-The deployment is single-instance only: writes are serialized inside one process, so do not run more than one serving container against the same database. `LEXARBOR_DATABASE_CONNECTION_STRING` is required; see [PostgreSQL configuration](#postgresql-configuration).
+Run one serving container per deployment. Rate limiting and background scheduling still use process-local state. PostgreSQL coordinates concurrent writes from independent requests. `LEXARBOR_DATABASE_CONNECTION_STRING` is required; see [PostgreSQL configuration](#postgresql-configuration).
 
 ### Container user and file ownership
 
@@ -244,8 +244,7 @@ Startup runs the ServiceMantle PostgreSQL startup gate:
   privilege, and an existing database is only observed, never repaired.
 - **Migrations run once.** The orchestration takes a PostgreSQL advisory lock
   derived from the service id, so two containers starting together migrate the
-  database once. This coordinates the startup migration only: writes are still
-  serialized inside one process, so run a single serving instance.
+  database once. This lock covers startup migrations. The supported deployment has one serving instance.
 - **The upgrade check refuses newer schemas.** A database whose
   `__EFMigrationsHistory` records a migration the running build does not know
   stops startup with `migration.version_too_new` instead of being rewritten.

@@ -21,7 +21,7 @@ public sealed partial class EnrichmentTaskRepository
                 throw;
             }
             finally { _batchWrite = false; }
-        }, token);
+        }, token, ct => WriteLocks.CatalogAsync(context, ct));
 
     internal async Task ReleaseBatchAsync(EnrichmentExecutionGuard guard, long now, CancellationToken token)
     {

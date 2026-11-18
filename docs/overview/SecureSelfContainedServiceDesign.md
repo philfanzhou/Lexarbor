@@ -1,5 +1,7 @@
 # Lexarbor secure self-contained service design
 
+This design records the original SQLite implementation. For current PostgreSQL storage and concurrency behavior, see the [database guide](../database/README.md).
+
 ## 1. Background
 
 Lexarbor uses .NET 10, ASP.NET Core Minimal APIs, EF Core 10, SQLite, Vue 3, TypeScript, Element Plus, and Vite. The backend hosts the frontend's static files, and the Docker image produces both at build time.

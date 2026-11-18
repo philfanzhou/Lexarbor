@@ -101,7 +101,7 @@ public sealed partial class EnrichmentTaskRepository
                     foreach (var dependent in dependents) await Renew(Key(dependent));
                 }
                 return true;
-            }, token)) recovered++;
+            }, token, ct => WriteLocks.WordsAsync(context, item.WordId, [], ct))) recovered++;
         }
         return recovered;
     }

@@ -29,9 +29,7 @@ namespace Lexarbor.Database;
 /// </para>
 /// <para>
 /// The advisory lock is the gate's <c>MultiInstance</c> orchestration. It
-/// coordinates only the startup migration: Lexarbor still serializes its own
-/// writes through the in-process lock in <c>UnitOfWork</c>, so serving
-/// requests from more than one instance remains unsupported.
+/// coordinates startup migrations. Lexarbor supports one serving instance.
 /// </para>
 /// <para>
 /// The migration orchestration inspects the EF history through
