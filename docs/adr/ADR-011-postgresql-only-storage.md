@@ -1,8 +1,8 @@
 # ADR-011 PostgreSQL as the only supported storage
 
-- **Status**: proposed
-- **Date**: 2026-11-17
-- **Supersedes**: [ADR-003 SQLite as the only supported storage](./ADR-003-sqlite-only-storage.md), once accepted
+- **Status**: accepted
+- **Date**: 2026-11-17 (proposed), 2026-11-18 (accepted)
+- **Supersedes**: [ADR-003 SQLite as the only supported storage](./ADR-003-sqlite-only-storage.md)
 - **Scope**: Lexarbor's database provider, startup database gate, upgrade path from SQLite, write concurrency strategy, migration history, deployment shape, and backups. Public HTTP routes and JSON fields are unchanged
 
 ## Context

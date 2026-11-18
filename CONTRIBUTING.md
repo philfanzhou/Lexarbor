@@ -11,12 +11,12 @@ Thank you for improving Lexarbor. Keep changes focused, preserve the public API 
 
 ## Local verification
 
-Run the checks relevant to your change; run all of them before requesting merge for cross-cutting changes.
+Run the checks relevant to your change; run all of them before requesting merge for cross-cutting changes. Backend tests start a disposable PostgreSQL server through Testcontainers, so Docker must be available (see [Testing](docs/development/Testing.md#test-database)). PostgreSQL is the only supported storage ([ADR-011](docs/adr/ADR-011-postgresql-only-storage.md)); do not add runtime support for another database.
 
 ```bash
 dotnet restore Lexarbor.sln
 dotnet build Lexarbor.sln --configuration Release --no-restore
-dotnet test --solution Lexarbor.sln --configuration Release --no-build
+dotnet test --solution Lexarbor.sln --configuration Release --no-build  # requires Docker
 
 cd frontend
 npm ci
