@@ -107,7 +107,7 @@ jobs:
         run: npm ci
 
       - name: Audit dependencies
-        run: npm audit --audit-level=moderate --registry=https://registry.npmjs.org/
+        run: node ../.github/scripts/check-npm-audit.mjs
 
       - name: Lint
         run: npm run lint
