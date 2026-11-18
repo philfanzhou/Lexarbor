@@ -32,7 +32,7 @@ public sealed class AudioUploadRepository(VocabularyDbContext context, TimeProvi
             throw new ArgumentException("Audio key prefix is invalid.", nameof(request));
         if (!Guid.TryParseExact(request.IdempotencyKey, "D", out var uuid) || uuid.ToString() != request.IdempotencyKey)
             throw new ArgumentException("Idempotency key must be a canonical UUID.", nameof(request));
-        return WriteAsync<AudioReservation>(async () =>
+        return WriteAsync<AudioReservation>(request.IdempotencyKey, async () =>
         {
             ValidateLease(owner, now, leaseExpiresAt);
             var existing = await GetAsync(request.IdempotencyKey, CancellationToken.None);
@@ -77,17 +77,17 @@ public sealed class AudioUploadRepository(VocabularyDbContext context, TimeProvi
             try { await context.SaveChangesAsync(); }
             finally { context.Entry(asset).State = EntityState.Detached; context.Entry(op).State = EntityState.Detached; }
             return new(AudioReservationDisposition.Created, new(Map(op), Map(asset)));
-        }, cancellationToken, () => now = EffectiveNow(now));
+        }, cancellationToken, () => now = EffectiveNow(now), request.WordId);
     }
 
-    public Task<bool> BeginTransferAsync(string key, AudioLease lease, long now, CancellationToken cancellationToken) => WriteAsync(async () =>
+    public Task<bool> BeginTransferAsync(string key, AudioLease lease, long now, CancellationToken cancellationToken) => WriteAsync(key, async () =>
         await OwnedUpload(key, lease, now).Where(op => op.State == AudioUploadState.Reserved)
             .ExecuteUpdateAsync(set => set.SetProperty(op => op.State, AudioUploadState.Transferring).SetProperty(op => op.UpdatedAtUnixMs, now)) == 1, cancellationToken, () => now = EffectiveNow(now));
 
     public Task<bool> RenewAsync(string key, AudioLease lease, long now, long leaseExpiresAt, CancellationToken cancellationToken)
     {
         if (now < 0 || leaseExpiresAt <= now) throw new ArgumentOutOfRangeException(nameof(leaseExpiresAt));
-        return WriteAsync(async () => await OwnedUpload(key, lease, now).Where(op => op.UploadLeaseExpiresAtUnixMs < leaseExpiresAt)
+        return WriteAsync(key, async () => await OwnedUpload(key, lease, now).Where(op => op.UploadLeaseExpiresAtUnixMs < leaseExpiresAt)
             .ExecuteUpdateAsync(set => set.SetProperty(op => op.UploadLeaseExpiresAtUnixMs, leaseExpiresAt).SetProperty(op => op.UpdatedAtUnixMs, now)) == 1, cancellationToken, () => now = EffectiveNow(now));
     }
 
@@ -102,7 +102,7 @@ public sealed class AudioUploadRepository(VocabularyDbContext context, TimeProvi
     }
 
     private Task<AudioUploadOperation?> CompleteCoreAsync(string key, AudioLease lease, EnrichmentExecutionGuard? guard,
-        long now, CancellationToken cancellationToken) => WriteAsync(async () =>
+        long now, CancellationToken cancellationToken) => WriteAsync(key, async () =>
     {
         var op = await OwnedUpload(key, lease, now).SingleOrDefaultAsync(row => row.State == AudioUploadState.Transferring);
         if (op == null) return null;
@@ -161,17 +161,17 @@ public sealed class AudioUploadRepository(VocabularyDbContext context, TimeProvi
     public Task<bool> AbandonAsync(string key, AudioLease lease, long now, int statusCode, string errorCode, CancellationToken cancellationToken)
     {
         ValidateFailure(statusCode, errorCode);
-        return WriteAsync(async () => await FailAsync(OwnedUpload(key, lease, now), now, statusCode, errorCode) == 1, cancellationToken, () => now = EffectiveNow(now));
+        return WriteAsync(key, async () => await FailAsync(OwnedUpload(key, lease, now), now, statusCode, errorCode) == 1, cancellationToken, () => now = EffectiveNow(now));
     }
 
-    public Task<bool> ExpireAsync(string key, long now, CancellationToken cancellationToken) => WriteAsync(async () =>
+    public Task<bool> ExpireAsync(string key, long now, CancellationToken cancellationToken) => WriteAsync(key, async () =>
         await FailAsync(Operations.Where(op => op.IdempotencyKey == key && (op.State == AudioUploadState.Reserved || op.State == AudioUploadState.Transferring)
             && op.UploadLeaseExpiresAtUnixMs <= now), now, 503, "audio.upload_expired") == 1, cancellationToken, () => now = EffectiveNow(now));
 
     public Task<AudioStoredUpload?> ClaimCleanupAsync(string key, string owner, long now, long leaseExpiresAt, CancellationToken cancellationToken)
     {
         ValidateLease(owner, now, leaseExpiresAt);
-        return WriteAsync(async () =>
+        return WriteAsync(key, async () =>
         {
             if (leaseExpiresAt <= now) return null;
             var eligible = Operations.Where(op => op.IdempotencyKey == key
@@ -193,13 +193,13 @@ public sealed class AudioUploadRepository(VocabularyDbContext context, TimeProvi
     {
         ValidateRetry(now, nextAttemptAt);
         ArgumentException.ThrowIfNullOrWhiteSpace(errorCode);
-        return WriteAsync(async () => await ReturnCleanupAsync(OwnedCleanup(key, lease, now), now, nextAttemptAt, errorCode) == 1, cancellationToken, () => now = EffectiveNow(now));
+        return WriteAsync(key, async () => await ReturnCleanupAsync(OwnedCleanup(key, lease, now), now, nextAttemptAt, errorCode) == 1, cancellationToken, () => now = EffectiveNow(now));
     }
 
     public Task<bool> ObserveCleanupAsync(string key, AudioLease lease, long now, long nextAttemptAt, CancellationToken cancellationToken)
     {
         ValidateRetry(now, nextAttemptAt);
-        return WriteAsync(async () => await OwnedCleanup(key, lease, now).ExecuteUpdateAsync(set =>
+        return WriteAsync(key, async () => await OwnedCleanup(key, lease, now).ExecuteUpdateAsync(set =>
             set.SetProperty(op => op.State, AudioUploadState.CleanupObserved).SetProperty(op => op.CleanupLeaseOwner, (string?)null)
                 .SetProperty(op => op.CleanupLeaseExpiresAtUnixMs, (long?)null).SetProperty(op => op.CleanupReturnState, (AudioUploadState?)null)
                 .SetProperty(op => op.CleanupObservedAtUnixMs, now).SetProperty(op => op.CleanupNextAttemptAtUnixMs, nextAttemptAt)
@@ -209,7 +209,7 @@ public sealed class AudioUploadRepository(VocabularyDbContext context, TimeProvi
     public Task<bool> ExpireCleanupAsync(string key, long now, long nextAttemptAt, CancellationToken cancellationToken)
     {
         ValidateRetry(now, nextAttemptAt);
-        return WriteAsync(async () => await ReturnCleanupAsync(Operations.Where(op => op.IdempotencyKey == key
+        return WriteAsync(key, async () => await ReturnCleanupAsync(Operations.Where(op => op.IdempotencyKey == key
             && op.State == AudioUploadState.CleanupClaimed && op.CleanupLeaseExpiresAtUnixMs <= now), now, nextAttemptAt, "audio.cleanup_expired") == 1, cancellationToken, () => now = EffectiveNow(now));
     }
 
@@ -230,7 +230,7 @@ public sealed class AudioUploadRepository(VocabularyDbContext context, TimeProvi
     }
 
     public Task<AudioUnbindDisposition> UnbindAsync(string wordId, string? meaningId, AudioLocale locale, string expectedAssetId,
-        CancellationToken cancellationToken) => WriteAsync(async () =>
+        CancellationToken cancellationToken) => WriteAsync(null, async () =>
     {
         var target = await TargetAsync(wordId, meaningId, locale);
         if (target == null || target.Value.AssetId == null) return AudioUnbindDisposition.NotFound;
@@ -239,7 +239,7 @@ public sealed class AudioUploadRepository(VocabularyDbContext context, TimeProvi
             && row.AssetId == expectedAssetId).ExecuteDeleteAsync();
         context.EnrichmentAudioUnbound(wordId, meaningId, locale);
         return AudioUnbindDisposition.Removed;
-    }, cancellationToken);
+    }, cancellationToken, wordId: wordId);
 
     private IQueryable<AudioUploadOperationEntity> Operations => context.AudioUploadOperations.AsNoTracking();
     private IQueryable<AudioUploadOperationEntity> OwnedUpload(string key, AudioLease lease, long now) => Operations.Where(op =>
@@ -258,10 +258,11 @@ public sealed class AudioUploadRepository(VocabularyDbContext context, TimeProvi
             .SetProperty(op => op.CleanupNextAttemptAtUnixMs, next).SetProperty(op => op.CleanupLastErrorCode, error).SetProperty(op => op.UpdatedAtUnixMs, now));
 
     private long EffectiveNow(long supplied) => Math.Max(supplied, _clock.GetUtcNow().ToUnixTimeMilliseconds());
-    private Task<T> WriteAsync<T>(Func<Task<T>> action, CancellationToken token, Action? admitted = null)
+    private Task<T> WriteAsync<T>(string? key, Func<Task<T>> action, CancellationToken token, Action? admitted = null, string? wordId = null)
     {
         if (UnitOfWork.IsWriteInProgress) throw new InvalidOperationException("Audio operations must own their short database transaction.");
-        return _unitOfWork.ExecuteAdmittedTransactionAsync(() => { admitted?.Invoke(); return action(); }, token);
+        return _unitOfWork.ExecuteAdmittedTransactionAsync(() => { admitted?.Invoke(); return action(); }, token,
+            ct => key is null ? WriteLocks.WordsAsync(context, wordId, [], ct) : WriteLocks.AudioAsync(context, key, wordId, ct));
     }
     private async Task<(string Revision, string? AssetId, long Epoch)?> TargetAsync(string wordId, string? meaningId, AudioLocale locale)
     {

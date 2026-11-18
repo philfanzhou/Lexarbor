@@ -137,7 +137,7 @@ public sealed class AdminAuthenticationAudit(
     {
         // Inside the caller's session transaction SaveChangesAsync is a re-entrant pass-through
         // on the same scoped context, so the audit row joins that transaction; standalone, the
-        // shared write lock serializes the save.
+        // save opens its own transaction.
         await auditWriter.RecordAsync(auditEvent, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
     }

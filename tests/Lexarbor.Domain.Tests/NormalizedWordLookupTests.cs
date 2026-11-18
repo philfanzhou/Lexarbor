@@ -34,7 +34,7 @@ public sealed class NormalizedWordLookupTests : IDisposable
         // A predicate written as lower(trim(word)), a function around the
         // column, can only be answered by reading every row: the cost of
         // resolving one imported word would grow with the size of the
-        // vocabulary, and it is paid while the process-wide write lock is held.
+        // vocabulary while the import holds its transaction open.
         Assert.Contains("IX_vocabulary_normalized_word", plan, StringComparison.Ordinal);
         Assert.DoesNotContain("Seq Scan on vocabulary", plan, StringComparison.Ordinal);
     }

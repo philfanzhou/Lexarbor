@@ -49,8 +49,8 @@ public class VocabularyCleanupScaleTests
         public object InitializedInstance(MaterializationInterceptionData data, object entity) { Materialized++; return entity; }
         public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command, CommandEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
         {
-            // The preview's read-only snapshot marker is not a data statement.
-            if (command.CommandText != "SET TRANSACTION READ ONLY") Statements.Add(command.CommandText);
+            // Count cleanup work separately from transaction admission.
+            if (command.CommandText is not ("SET TRANSACTION READ ONLY" or "LOCK TABLE vocabulary IN SHARE ROW EXCLUSIVE MODE")) Statements.Add(command.CommandText);
             return ValueTask.FromResult(result);
         }
     }

@@ -105,7 +105,7 @@ public sealed class EnrichmentExecutionRepository(VocabularyDbContext context, I
                 await context.EnrichmentRounds.Where(row => row.TargetId == guard.TargetId && row.Number == guard.Round)
                     .ExecuteUpdateAsync(set => set.SetProperty(row => row.PlanJson, json));
                 return new(advanced, stored, conflicts);
-            }, token);
+            }, token, ct => WriteLocks.EnrichmentTargetAsync(context, guard.TargetId, ct));
         }
         catch (LostExecutionException) { return null; }
     }

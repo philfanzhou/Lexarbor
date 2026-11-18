@@ -13,9 +13,7 @@ namespace Lexarbor.Database.Repositories;
 /// <c>REPEATABLE READ</c> takes its snapshot at the first statement and keeps
 /// it for the whole transaction. <c>READ ONLY</c> makes the read's intent a
 /// database rule: a write attempted inside it fails instead of committing
-/// outside the serialized write path. It never takes the process write lock
-/// in <see cref="UnitOfWork"/>, and under PostgreSQL's multiversion
-/// concurrency it neither blocks nor is blocked by a writer.
+/// outside the transaction. Concurrent data changes remain invisible to this snapshot.
 /// </remarks>
 internal static class ReadSnapshot
 {

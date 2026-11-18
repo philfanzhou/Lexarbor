@@ -22,6 +22,7 @@ public sealed class AudioInvalidationRepository(VocabularyDbContext context, Tim
         ArgumentException.ThrowIfNullOrWhiteSpace(authorization.AssetId);
         _ = authorization.Locale.ToCode();
         if (authorization.Epoch <= 0) throw new ArgumentOutOfRangeException(nameof(authorization));
+        await WriteLocks.KeyAsync(context, "invalidation:" + authorization.AssetId, token);
         now = Now(now);
         var existing = await Rows.SingleOrDefaultAsync(row => row.AssetId == authorization.AssetId, token);
         if (existing != null && existing.WordId == authorization.WordId && existing.MeaningId == authorization.MeaningId
@@ -125,7 +126,7 @@ public sealed class AudioInvalidationRepository(VocabularyDbContext context, Tim
     {
         if (UnitOfWork.IsWriteInProgress || context.Database.CurrentTransaction != null)
             throw new InvalidOperationException("Audio invalidation recovery must own its short writer transaction.");
-        return _unitOfWork.ExecuteAdmittedTransactionAsync(action, token);
+        return _unitOfWork.ExecuteAdmittedTransactionAsync(action, token, ct => WriteLocks.CatalogAsync(context, ct));
     }
     private long Now(long supplied)
     { if (supplied < 0) throw new ArgumentOutOfRangeException(nameof(supplied)); return Math.Max(supplied, _clock.GetUtcNow().ToUnixTimeMilliseconds()); }

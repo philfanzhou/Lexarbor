@@ -51,7 +51,7 @@ public class VocabularyBookUnitDomainService
 
         var normalizedTitle = string.IsNullOrWhiteSpace(title) ? null : title.Trim();
 
-        return await _unitOfWork.ExecuteInTransactionAsync(async () =>
+        return await _unitOfWork.ExecuteBookWriteAsync(normalizedBookId, async () =>
         {
             _ = await _bookRepository.GetByIdAsync(normalizedBookId)
                 ?? throw new ResourceNotFoundException("Vocabulary book was not found.");
@@ -133,7 +133,7 @@ public class VocabularyBookUnitDomainService
 
         var normalizedTitle = string.IsNullOrWhiteSpace(title) ? null : title.Trim();
 
-        return await _unitOfWork.ExecuteInTransactionAsync(async () =>
+        return await _unitOfWork.ExecuteBookWriteAsync(normalizedBookId, async () =>
         {
             _ = await _bookRepository.GetByIdAsync(normalizedBookId)
                 ?? throw new ResourceNotFoundException("Vocabulary book was not found.");
@@ -179,7 +179,7 @@ public class VocabularyBookUnitDomainService
         var normalizedBookId = NormalizeRequired(bookId, "BookId is required.");
         var normalizedUnitId = NormalizeRequired(unitId, "Unit ID is required.");
 
-        await _unitOfWork.ExecuteInTransactionAsync(async () =>
+        await _unitOfWork.ExecuteCatalogWriteAsync(async () =>
         {
             _ = await _bookRepository.GetByIdAsync(normalizedBookId)
                 ?? throw new ResourceNotFoundException("Vocabulary book was not found.");
@@ -220,7 +220,7 @@ public class VocabularyBookUnitDomainService
         var normalizedSection = NormalizeSection(section);
         var normalizedEntryKind = NormalizeEntryKind(entryKind);
 
-        await _unitOfWork.ExecuteInTransactionAsync(async () =>
+        await _unitOfWork.ExecuteMeaningWriteAsync(normalizedMeaningId, async () =>
         {
             var unit = await _unitRepository.GetByIdAsync(normalizedUnitId)
                 ?? throw new ResourceNotFoundException("Vocabulary book unit was not found.");
@@ -265,7 +265,7 @@ public class VocabularyBookUnitDomainService
         var normalizedSection = NormalizeSection(section);
         var normalizedEntryKind = NormalizeEntryKind(entryKind);
 
-        await _unitOfWork.ExecuteInTransactionAsync(async () =>
+        await _unitOfWork.ExecuteMeaningWriteAsync(normalizedMeaningId, async () =>
         {
             if (!await _membershipRepository.ExistsAsync(normalizedUnitId, normalizedMeaningId, normalizedSection, normalizedEntryKind))
             {
@@ -294,7 +294,7 @@ public class VocabularyBookUnitDomainService
         var targetKind = NormalizeEntryKind(toEntryKind);
         cancellationToken.ThrowIfCancellationRequested();
 
-        await _unitOfWork.ExecuteInTransactionAsync(async () =>
+        await _unitOfWork.ExecuteMeaningWriteAsync(meaning, async () =>
         {
             await VerifyPositionOwnershipAsync(book, meaning, sourceUnit, targetUnit);
             if (!await _membershipRepository.ExistsAsync(sourceUnit, meaning, sourceSection, sourceKind))
@@ -334,7 +334,7 @@ public class VocabularyBookUnitDomainService
         var normalizedKind = NormalizeEntryKind(entryKind);
         cancellationToken.ThrowIfCancellationRequested();
 
-        await _unitOfWork.ExecuteInTransactionAsync(async () =>
+        await _unitOfWork.ExecuteMeaningWriteAsync(meaning, async () =>
         {
             await VerifyPositionOwnershipAsync(book, meaning, unit, unit);
             if (!await _membershipRepository.ExistsAsync(unit, meaning, normalizedSection, normalizedKind))

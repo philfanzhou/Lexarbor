@@ -24,6 +24,7 @@ public sealed class BusinessApiKeyRepository(VocabularyDbContext context, IUnitO
     {
         // Submissions share one catalog-wide workflow and historically trusted
         // one caller. Overlapping keys are allowed for that caller's rotation.
+        if (key.MeaningSubmissions) await WriteLocks.KeyAsync(context, "business-api:submission-caller", token);
         if (key.MeaningSubmissions && await context.BusinessApiKeys.AnyAsync(existing =>
             existing.MeaningSubmissions && existing.RevokedAtUnixMs == null && existing.CallerId != key.CallerId, token))
             return false;

@@ -248,7 +248,7 @@ Audio disabled returns fixed 503. Deletion makes no S3 calls and retains all ass
 
 An administrator can listen to words in disabled books and words with no book. `meaningId`, when supplied, must belong to the requested word; wrong ownership or an absent target returns 404. The locale must be exactly `en-GB` or `en-US`; invalid locale or blank meaning ID returns 400. The existing administrator role and Bearer-over-cookie priority apply. GET requires no CSRF token and keeps existing rate-limit policies. Audio disabled returns `503` with `Audio storage is disabled.`.
 
-Selection uses one completed database read snapshot and the [meaning-specific rules](#meaning-specific-pronunciation-selection). Storage Stat and signing run after that snapshot has ended, with request cancellation and a bounded combined deadline (`Audio:OperationTimeoutSeconds`, default 60 seconds). They hold no SQLite write transaction or global write lock. A concurrent replacement can leave the link pointing to the snapshot's retained old asset, which is valid until its expiry.
+Selection uses one completed database read snapshot and the [meaning-specific rules](#meaning-specific-pronunciation-selection). Storage Stat and signing run after that snapshot has ended, with request cancellation and a bounded combined deadline (`Audio:OperationTimeoutSeconds`, default 60 seconds). These calls run outside database transactions. A concurrent replacement can leave the link pointing to the snapshot's retained old asset, which is valid until its expiry.
 
 A successful response is `{success:true,data:...}` with these fields:
 
