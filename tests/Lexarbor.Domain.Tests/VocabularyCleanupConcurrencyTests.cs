@@ -13,6 +13,7 @@ using static Lexarbor.Domain.Tests.VocabularyCleanupTests;
 
 namespace Lexarbor.Domain.Tests;
 
+[Collection(ProcessWriteLockCollection.Name)]
 public class VocabularyCleanupConcurrencyTests
 {
     [Theory]
