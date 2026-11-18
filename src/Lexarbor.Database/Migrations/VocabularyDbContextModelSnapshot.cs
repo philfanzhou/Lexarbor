@@ -1136,6 +1136,47 @@ namespace Lexarbor.Database.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Lexarbor.Database.Entities.LegacySqliteImportEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    b.Property<long>("CompletedAtUnixMs")
+                        .HasColumnType("bigint")
+                        .HasColumnName("completed_at_unix_ms");
+
+                    b.Property<long>("CopiedRows")
+                        .HasColumnType("bigint")
+                        .HasColumnName("copied_rows");
+
+                    b.Property<int>("CopiedTables")
+                        .HasColumnType("integer")
+                        .HasColumnName("copied_tables");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("outcome")
+                        .UseCollation("C");
+
+                    b.Property<string>("SourceSchemaVersion")
+                        .HasColumnType("text")
+                        .HasColumnName("source_schema_version")
+                        .UseCollation("C");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("legacy_sqlite_import", t =>
+                        {
+                            t.HasCheckConstraint("CK_legacy_sqlite_import_counts", "copied_tables >= 0 AND copied_rows >= 0");
+
+                            t.HasCheckConstraint("CK_legacy_sqlite_import_outcome", "outcome IN ('imported', 'none')");
+
+                            t.HasCheckConstraint("CK_legacy_sqlite_import_singleton", "id = 1");
+                        });
+                });
+
             modelBuilder.Entity("Lexarbor.Database.Entities.MeaningPhoneticEpochEntity", b =>
                 {
                     b.Property<string>("MeaningId")

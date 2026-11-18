@@ -1,5 +1,7 @@
+using Lexarbor.Database.LegacySqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using ServiceMantle;
 using ServiceMantle.Bootstrap;
@@ -43,6 +45,11 @@ namespace Lexarbor.Database;
 /// </remarks>
 public static class LexarborDatabaseStartup
 {
+    /// <remarks>
+    /// The legacy SQLite source defaults to none; the host registers its own
+    /// <see cref="LegacySqliteImportOptions"/> after this call to name one
+    /// (ADR-011 transition release).
+    /// </remarks>
     public static IServiceCollection AddLexarborDatabaseStartup(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -58,6 +65,8 @@ public static class LexarborDatabaseStartup
         services.AddServiceMantlePostgreSqlDeploymentCapability();
         services.AddSingleton<IDatabaseMigrationLockProvider, PostgreSqlMigrationLockProvider>();
 
+        services.TryAddSingleton(new LegacySqliteImportOptions(null));
+        services.AddScoped<LegacySqliteImporter>();
         services.AddScoped<IDatabaseMigrationExecutor, LexarborMigrationExecutor>();
         return services;
     }

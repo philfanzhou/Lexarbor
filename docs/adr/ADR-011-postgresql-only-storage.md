@@ -67,26 +67,28 @@ Before the startup gate reports ready, the transition release decides from two f
 
 | PostgreSQL marker | SQLite file | Action |
 |---|---|---|
-| present | any | Serve from PostgreSQL. The SQLite file is not opened. |
-| absent | present | Copy, verify, and mark, then serve from PostgreSQL. |
-| absent | absent | New installation. Create an empty PostgreSQL schema and serve. |
+| `imported` | any | Serve from PostgreSQL. The SQLite file is not opened. |
+| `none` | absent | Serve from PostgreSQL. |
+| `none` | present | Refuse to start: the database was initialized without the file, and two histories are never merged. |
+| absent | present | Copy, verify, and mark `imported`, then serve from PostgreSQL. A target that already holds data is refused instead. |
+| absent | absent | New installation. Mark `none` and serve. |
 
 The copy proceeds as follows:
 
-1. Acquire the ServiceMantle migration lock, so that only one process copies.
-2. Apply the release's bundled SQLite migrations to the source, so that it reaches the last SQLite schema, then open it read-only.
-3. In **one PostgreSQL transaction**:
-   1. create the schema;
-   2. copy every table in foreign-key order, without generated columns;
+1. Run inside the migration executor, under the ServiceMantle migration lock, so that only one process copies. A schema whose history is current but has no marker inspects as pending, so the step runs, and is retried after a failure.
+2. Back the source up, read-only, to a private working copy beside it, and apply the release's bundled SQLite migrations to that copy, so that it reaches the last SQLite schema. The source itself is never opened for writing, so the previous release can still run on it.
+3. After the PostgreSQL schema migrations, in **one PostgreSQL transaction**:
+   1. check that every table is empty;
+   2. copy every table in foreign-key order, without generated columns, with user triggers disabled and enabled again before commit;
    3. advance the identity sequences;
-   4. verify, per table, the row count and an ordered per-row hash computed over primary-key order from the converted values, including the generated columns that PostgreSQL recomputed;
+   4. verify, per table, the row count and an order-independent sum of per-row SHA-256 digests computed from the converted values, including the generated columns that PostgreSQL recomputed, so that the comparison does not depend on either database's ordering;
    5. write the completed-copy marker, recording the source schema version, the row counts, and the verification result;
    6. commit.
-4. Leave the SQLite file in place, unmodified, as the rollback snapshot.
+4. Delete the working copy and leave the SQLite file in place, unmodified, as the rollback snapshot. A database recorded as initialized without a source (`none`) refuses a SQLite file that appears later instead of merging two histories.
 
-Any failure, including a verification mismatch, rolls back the transaction. PostgreSQL stays empty, the SQLite file stays untouched, startup fails with a fixed diagnostic code, as the startup gate does today, and the next start retries from the beginning. Verification and the switch are atomic: an installation either has a verified copy and serves from PostgreSQL, or has no copy at all.
+Any failure, including a verification mismatch, rolls back the transaction. PostgreSQL keeps its migrated schema but no copied row and no marker, the SQLite file stays untouched, startup fails with a fixed diagnostic code, as the startup gate does today, and the next start retries from the beginning. Verification and the switch are atomic: an installation either has a verified copy and serves from PostgreSQL, or has no copy at all.
 
-While copying, `/health/live` reports alive and `/health/ready` reports not ready. The copy has its own time budget, separate from the 30-second gate budget, and the deployment guide tells operators to allow for it in container health checks.
+The copy runs, like every startup migration, before the HTTP server starts, so neither health endpoint answers until it finishes. Its duration is not capped beyond the cancellation of startup; the 30-second gate budget covers only target preparation and waiting for the lock, and the deployment guide tells operators to allow for the copy in container health checks.
 
 Data Protection key envelopes, API key hashes, and administrator sessions are copied as they are. The keys do not change, so existing sessions stay valid.
 

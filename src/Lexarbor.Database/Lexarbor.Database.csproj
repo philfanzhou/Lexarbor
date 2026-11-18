@@ -4,6 +4,10 @@
          design-time package and the rest of the solution are built against. -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <!-- Transition release only: read a SQLite database of an earlier release
+         once, to copy it into PostgreSQL (ADR-011). Removed with the copy. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" />
     <PackageReference Include="Mapster" />
     <PackageReference Include="ServiceMantle.Database.PostgreSql" />
     <PackageReference Include="ServiceMantle.Persistence.Relational" />
@@ -15,5 +19,6 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Lexarbor.Domain.Tests" />
+    <InternalsVisibleTo Include="Lexarbor.Service.Tests" />
   </ItemGroup>
 </Project>

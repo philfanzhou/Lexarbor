@@ -324,6 +324,10 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
                 // Each test factory instance owns its root-key file, isolating
                 // the ServiceMantle key repository per test.
                 ["DataProtection:RootKeyFile"] = Path.Combine(_keyContentRoot, "root-key"),
+                // A legacy SQLite source the test owns, absent unless the test
+                // creates it, so a developer's old src/Lexarbor.Host/data
+                // database never reaches a test host.
+                ["Database:LegacySqlitePath"] = Path.Combine(_keyContentRoot, "vocabulary.db"),
                 ["IdentityService:Authority"] = "http://127.0.0.1:8080",
                 ["IdentityService:Issuer"] = Issuer,
                 ["IdentityService:Audience"] = Audience,
