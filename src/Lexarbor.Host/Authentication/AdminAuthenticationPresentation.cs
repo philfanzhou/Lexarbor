@@ -13,7 +13,7 @@ public static class AdminAuthenticationSource
     public const string PresentationScheme = "AdminAuthentication.Presentation";
 
     /// <summary>
-    /// The cookie scheme holding the SQLite-backed server-side session: its opaque,
+    /// The cookie scheme holding the PostgreSQL-backed server-side session: its opaque,
     /// data-protected cookie references a row in the administrator session store. Named after
     /// the public cookie it owns; replaces the SignaCore package's session scheme.
     /// </summary>

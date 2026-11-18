@@ -423,7 +423,7 @@ static async Task VerifyInvalidationAsync(AudioOptions options, byte[] bytes)
         clock.Now = (await authority.GetAsync(old.Asset.Id, default))!.NextAttemptAtUnixMs;
         await using var afterLostResult = new VocabularyDbContext(dbOptions);
         Require((await new AudioInvalidationRecoveryService(new AudioInvalidationRepository(afterLostResult, clock), store, settings, clock).RunBatchAsync(default)).Observed == 1,
-            "Reopening SQLite after a lost Delete result must safely observe the already absent object.");
+            "Reopening PostgreSQL after a lost Delete result must safely observe the already absent object.");
         var replay = await new AudioUploadRepository(restarted, clock).ReserveAsync(request, "retry", clock.Now, clock.Now + 300000, default);
         Require(replay.Disposition == AudioReservationDisposition.Replay && replay.Upload?.Operation.Receipt?.StatusCode == 200
             && !await restarted.VocabularyAudioBindings.AnyAsync(), "Permanent receipt must replay without resurrecting deleted audio.");
@@ -515,7 +515,7 @@ static async Task CrashUploadAsync(string databasePath, string markerPath, strin
     }
     if (stage == "response-lost") await repo.CompleteAsync(request.IdempotencyKey, upload.Operation.UploadLease, now, default);
     await File.WriteAllTextAsync(markerPath, request.IdempotencyKey);
-    await Task.Delay(Timeout.InfiniteTimeSpan); // The parent kills this process without disposing SQLite/S3.
+    await Task.Delay(Timeout.InfiniteTimeSpan); // The parent kills this process without disposing PostgreSQL/S3.
 }
 static async Task VerifyProcessCrashesAsync(string databasePath, IAudioObjectStore store, string bucket)
 {

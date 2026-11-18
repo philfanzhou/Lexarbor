@@ -20,7 +20,7 @@ public static partial class VocabularyHttpEndpoints
 
     /// <summary>
     /// The most questions one batch request may ask for. Every item runs its
-    /// own queries against the one SQLite connection, so this is what bounds
+    /// own queries through the request context, so this bounds
     /// how long a single request holds the database busy.
     /// </summary>
     public const int MaxQuestionBatchItems = 50;
@@ -327,7 +327,7 @@ public static partial class VocabularyHttpEndpoints
         var results = new List<QuestionBatchResultDto>(request.Items.Count);
         for (var index = 0; index < request.Items.Count; index++)
         {
-            // SQLite serves one connection, so the items run one after another;
+            // The request uses one context and processes items in order;
             // a cancelled request stops here rather than answering the
             // remaining items nobody will read.
             httpRequest.HttpContext.RequestAborted.ThrowIfCancellationRequested();

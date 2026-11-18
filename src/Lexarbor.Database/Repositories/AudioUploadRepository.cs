@@ -125,7 +125,7 @@ public sealed class AudioUploadRepository(VocabularyDbContext context, TimeProvi
                 await FailAsync(OwnedUpload(key, lease, now), now, 409, "audio.target_conflict");
                 return Map(await Operations.SingleAsync(row => row.IdempotencyKey == key));
             }
-            // The transaction owns SQLite's writer reservation. Every condition
+            // Within the publication transaction, every condition
             // is re-read here, not from tracked pre-Put target instances.
             var bindings = context.VocabularyAudioBindings.Where(row => row.WordId == op.WordId
                 && row.MeaningId == op.MeaningId && row.Locale == op.Locale);

@@ -20,7 +20,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Lexarbor.Service.Tests;
 
-/// <summary>Real Host, hosted discovery/execution/recovery and SQLite; only network ports are substituted.</summary>
+/// <summary>Real Host, hosted discovery/execution/recovery and PostgreSQL; only network ports are substituted.</summary>
 public sealed class EnrichmentEndToEndTests
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

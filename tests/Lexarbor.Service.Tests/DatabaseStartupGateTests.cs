@@ -103,6 +103,49 @@ public class DatabaseStartupGateTests
         Assert.Equal(KnownMigrations(), await AppliedMigrationsAsync(database.ConnectionString));
     }
 
+    [Theory]
+    [InlineData(false, null, true)]
+    [InlineData(true, null, true)]
+    [InlineData(true, "none", true)]
+    [InlineData(true, null, false)]
+    [InlineData(true, "imported", true)]
+    [InlineData(true, "imported", false)]
+    public async Task LegacyFile_RequiresACompletedTransition(bool migrated, string? outcome, bool initialize)
+    {
+        await using var database = new PostgreSqlTestDatabase(migrated);
+        var root = CreateSharedKeyRoot("transition");
+        try
+        {
+            var source = Path.Combine(root, "vocabulary.db");
+            await File.WriteAllTextAsync(source, "opaque legacy file", Ct);
+            if (outcome is not null)
+            {
+                await using var context = database.Open();
+                context.LegacySqliteImports.Add(new LegacySqliteImportEntity { Outcome = outcome });
+                await context.SaveChangesAsync(Ct);
+            }
+
+            await using var factory = CreateHost(database.ConnectionString, root,
+                new Dictionary<string, string?> { ["Database:InitializeOnStartup"] = initialize.ToString() });
+            if (outcome == LegacySqliteImportEntity.Imported)
+            {
+                using var client = factory.CreateClient();
+                using var ready = await client.GetAsync("/health/ready", Ct);
+                Assert.Equal(HttpStatusCode.OK, ready.StatusCode);
+            }
+            else
+            {
+                var failure = Assert.Throws<InvalidOperationException>(() => factory.CreateClient());
+                Assert.Equal("A legacy database requires migration. Upgrade through v0.2.0-rc.2 before starting this release.", failure.Message);
+            }
+            Assert.Equal("opaque legacy file", await File.ReadAllTextAsync(source, Ct));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task SecondStart_OnMigratedDatabase_SkipsTheExecutorAndKeepsData()
     {

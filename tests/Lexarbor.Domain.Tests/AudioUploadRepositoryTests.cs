@@ -365,7 +365,7 @@ public sealed class AudioUploadRepositoryTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task ConditionalDeleteAndPublishCompeteOnRealSqlite(bool publishFirst)
+    public async Task ConditionalDeleteAndPublishCompeteOnPostgreSql(bool publishFirst)
     {
         using var file = new AudioTestDatabase(); await using var db = file.Open(); await InitAsync(db);
         var repo = new AudioUploadRepository(db, new ManualClock()); var first = await ReserveAsync(repo, Request()); await PublishAsync(repo, first);
