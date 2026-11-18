@@ -295,11 +295,12 @@ Before upgrading:
 1. Stop the running release cleanly and back up `data/vocabulary.db` together
    with the Data Protection root key (the injected value or
    `data/data-protection-root-key`).
-2. Provide an **empty** PostgreSQL 16 or later database and set
-   `LEXARBOR_DATABASE_CONNECTION_STRING`. A persistent `appsettings.json` that
-   still holds the old `Data Source=data/vocabulary.db` connection string is
-   overridden by that variable; without it, startup fails with the SQLite
-   diagnostic.
+2. Provide an **empty** PostgreSQL 16 or later database. For Docker or Compose,
+   set `ConnectionStrings__Default` in the application container's environment.
+   If you run `scripts/start.sh`, set `LEXARBOR_DATABASE_CONNECTION_STRING`
+   in the shell that runs the script. The script passes it to the container as
+   `ConnectionStrings__Default`. This overrides the old SQLite connection string
+   in a persistent `appsettings.json`.
 3. Keep the same data directory mounted at `/app/data`. The source defaults to
    `data/vocabulary.db` under the content root (`/app/data/vocabulary.db` in the
    container); `LEXARBOR_LEGACY_SQLITE_PATH` (`Database:LegacySqlitePath`)

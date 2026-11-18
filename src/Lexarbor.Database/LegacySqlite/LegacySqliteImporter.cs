@@ -357,8 +357,7 @@ public sealed class LegacySqliteImporter(
             var columns = entityType.GetProperties()
                 .Select(property => new ColumnPlan(
                     property.GetColumnName(store)!,
-                    Nullable.GetUnderlyingType(property.GetProviderClrType() ?? property.ClrType)
-                        ?? property.GetProviderClrType() ?? property.ClrType,
+                    ProviderTypeFor(property),
                     DbTypeFor(property.GetColumnType()),
                     property.GetComputedColumnSql() is not null))
                 .OrderBy(column => column.Name, StringComparer.Ordinal)
@@ -381,6 +380,12 @@ public sealed class LegacySqliteImporter(
         }
 
         return ordered;
+    }
+
+    private static Type ProviderTypeFor(IProperty property)
+    {
+        var type = property.GetProviderClrType() ?? property.GetValueConverter()?.ProviderClrType ?? property.ClrType;
+        return Nullable.GetUnderlyingType(type) ?? type;
     }
 
     private static NpgsqlDbType DbTypeFor(string columnType) => columnType switch

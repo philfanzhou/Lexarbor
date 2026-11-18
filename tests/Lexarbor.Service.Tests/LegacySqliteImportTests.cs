@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using Lexarbor.Database;
 using Lexarbor.Database.Entities;
 using Lexarbor.Database.LegacySqlite;
+using Lexarbor.Domain.Models;
 using Lexarbor.Service.Tests.TestInfrastructure;
 using Lexarbor.Tests.Shared;
 using Microsoft.AspNetCore.Hosting;
@@ -101,6 +102,49 @@ public class LegacySqliteImportTests
         await using var triggers = new NpgsqlCommand(
             "SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND tgenabled <> 'O'", connection);
         Assert.Equal(0L, await triggers.ExecuteScalarAsync(Ct));
+    }
+
+    [Fact]
+    public async Task FirstStart_PreservesAudioUploadAndBindingEnums()
+    {
+        await using var database = new PostgreSqlTestDatabase(migrated: false);
+        using var data = new DataDirectory();
+        var hash = new string('a', 64);
+        await CreateSourceAsync(data.Source, seed: sqlite => ExecuteAsync(sqlite, $"""
+            INSERT INTO vocabulary (id, word, created_at, updated_at)
+                VALUES ('word', 'apple', '{Created}', '{Created}');
+            INSERT INTO audio_asset (id, bucket, object_key, sha256, byte_length, content_type, created_at_unix_ms)
+                VALUES ('published', 'audio', 'gb.mp3', '{hash}', 100, 'audio/mpeg', 1),
+                       ('discarded', 'audio', 'us.mp3', '{hash}', 100, 'audio/mpeg', 1);
+            INSERT INTO vocabulary_audio_binding (id, word_id, locale, asset_id, source_revision)
+                VALUES ('binding', 'word', 'en-GB', 'published', '{hash}');
+            INSERT INTO audio_upload_operation
+                (idempotency_key, request_fingerprint, word_id, locale, source_revision, asset_id, state,
+                 created_at_unix_ms, updated_at_unix_ms, upload_lease_fence, cleanup_lease_fence, cleanup_attempts,
+                 receipt_status_code, receipt_asset_id, receipt_source_revision, receipt_error_code, completed_at_unix_ms,
+                 cleanup_lease_owner, cleanup_lease_expires_at_unix_ms, cleanup_return_state)
+                VALUES ('00000000-0000-0000-0000-000000000001', '{hash}', 'word', 'en-GB', '{hash}', 'published', 'Succeeded',
+                        1, 2, 1, 0, 0, 200, 'published', '{hash}', NULL, 2, NULL, NULL, NULL),
+                       ('00000000-0000-0000-0000-000000000002', '{hash}', 'word', 'en-US', '{hash}', 'discarded', 'CleanupClaimed',
+                        1, 3, 1, 1, 1, 409, NULL, NULL, 'stale', 2, 'worker', 4, 'Abandoned');
+            """));
+
+        await using var host = CreateHost(database.ConnectionString, data.Root);
+        using var client = host.CreateClient();
+        using var ready = await client.GetAsync("/health/ready", Ct);
+        Assert.Equal(HttpStatusCode.OK, ready.StatusCode);
+
+        await using var context = database.Open();
+        var binding = await context.VocabularyAudioBindings.SingleAsync(Ct);
+        Assert.Equal(AudioLocale.EnGb, binding.Locale);
+        var published = await context.AudioUploadOperations.SingleAsync(row => row.AssetId == binding.AssetId, Ct);
+        Assert.Equal(AudioLocale.EnGb, published.Locale);
+        Assert.Equal(AudioUploadState.Succeeded, published.State);
+        Assert.Null(published.CleanupReturnState);
+        var discarded = await context.AudioUploadOperations.SingleAsync(row => row.AssetId == "discarded", Ct);
+        Assert.Equal(AudioLocale.EnUs, discarded.Locale);
+        Assert.Equal(AudioUploadState.CleanupClaimed, discarded.State);
+        Assert.Equal(AudioUploadState.Abandoned, discarded.CleanupReturnState);
     }
 
     [Fact]
