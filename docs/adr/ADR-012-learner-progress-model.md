@@ -79,7 +79,7 @@ The unit of memory is the learner and a **meaning** (a word's definition within 
 
 ## Consequences
 
-- A new API key scope, `learning`, and new routes under `/api/learners/{learnerRef}/...`. The exact route and JSON contract is specified with the first implementation issue and documented in `docs/api/`.
+- A new API key scope, `learning`, and new routes under `/api/learners/{learnerRef}/...`. Scopes are stored as one boolean column per scope on `business_api_key`, so the scope adds a column, widens the at-least-one-scope check, and extends key issuance and the administration UI. The exact route and JSON contract is specified with the first implementation issue and documented in `docs/api/`.
 - Three new tables, one of them partitioned by month, and a background maintenance task for partitions and retention.
 - Learner data is personal data of the calling service's users even when pseudonymous. `SECURITY.md` and the deployment guide gain a section on learner data, deletion, and backups.
 - Learner features depend on the removal of the process-wide write lock (ADR-011) and land after it.
