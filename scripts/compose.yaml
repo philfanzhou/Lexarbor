@@ -1,0 +1,48 @@
+# Lexarbor and the PostgreSQL server it stores its data in.
+#
+#   export LEXARBOR_DB_PASSWORD='<a long random value>'
+#   docker compose -f scripts/compose.yaml up -d
+#
+# The password is required and is never stored here. It ends up inside a
+# connection string, so it must not contain a semicolon. The database lives on
+# the named volume `postgres-data`; back it up with pg_dump (see
+# docs/development/Deployment.md). `lexarbor-data` keeps the persistent
+# appsettings.json and, unless a root key is injected through
+# DataProtection__RootKey, the Data Protection root-key file. Other settings,
+# such as administrator login, are added to the lexarbor service's environment
+# in the same way as ConnectionStrings__Default below; see the Deployment guide.
+name: lexarbor
+
+services:
+  postgres:
+    image: ${LEXARBOR_POSTGRES_IMAGE:-postgres:16}
+    environment:
+      POSTGRES_DB: lexarbor
+      POSTGRES_USER: lexarbor
+      POSTGRES_PASSWORD: ${LEXARBOR_DB_PASSWORD:?Set LEXARBOR_DB_PASSWORD to the database password}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready --username lexarbor --dbname lexarbor"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  lexarbor:
+    image: ${LEXARBOR_IMAGE:-lexarbor:latest}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ConnectionStrings__Default: "Host=postgres;Port=5432;Database=lexarbor;Username=lexarbor;Password=${LEXARBOR_DB_PASSWORD:?Set LEXARBOR_DB_PASSWORD to the database password}"
+      TZ: ${TZ:-UTC}
+    ports:
+      - "${LEXARBOR_PORT:-5008}:5008"
+    volumes:
+      - lexarbor-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  lexarbor-data:

@@ -42,7 +42,7 @@ internal static class SettingsApiProbe
         var stage = "database initialization";
         try
         {
-            var dbOptions = new DbContextOptionsBuilder<VocabularyDbContext>().UseSqlite($"Data Source={root}/probe.db;Pooling=False").Options;
+            var dbOptions = new DbContextOptionsBuilder<VocabularyDbContext>().UseNpgsql(ProbeDatabase.For(root)).Options;
             await using (var db = new VocabularyDbContext(dbOptions))
             {
                 await db.Database.MigrateAsync();

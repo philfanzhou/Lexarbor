@@ -23,12 +23,12 @@ public sealed class AudioPublicReadRepositoryTests
             await seed.Database.MigrateAsync(Ct); await AudioTestDatabase.SeedAsync(seed);
             seed.AudioAssets.Add(AudioTestDatabase.Asset("original"));
             seed.VocabularyAudioBindings.Add(AudioTestDatabase.Binding("original", AudioLocale.EnGb, null, AudioTestDatabase.Revision(AudioLocale.EnGb)));
-            await seed.SaveChangesAsync(Ct); await seed.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL", Ct);
+            await seed.SaveChangesAsync(Ct);
         }
         var interceptor = new AfterBookRead(async () =>
         {
             await using var writer = file.Open();
-            await writer.Database.ExecuteSqlRawAsync("UPDATE vocabulary_book SET status=0 WHERE id='book'; DELETE FROM vocabulary_meaning WHERE id='meaning'; UPDATE vocabulary SET phonetic_uk='new' WHERE id='word'", Ct);
+            await writer.Database.ExecuteSqlRawAsync("UPDATE vocabulary_book SET status=false WHERE id='book'; DELETE FROM vocabulary_meaning WHERE id='meaning'; UPDATE vocabulary SET phonetic_uk='new' WHERE id='word'", Ct);
         });
         await using var db = file.Open(interceptor);
         var repository = new AudioReadRepository(db);
@@ -37,7 +37,7 @@ public sealed class AudioPublicReadRepositoryTests
         Assert.Equal("uk", snapshot.Word.PhoneticUk); Assert.Equal("original", Assert.Single(snapshot.Bindings).Asset.Id);
         Assert.Null(db.Database.CurrentTransaction);
         await Assert.ThrowsAsync<BusinessRuleException>(() => repository.GetPublicSnapshotAsync("book", "word", "meaning", Ct));
-        await db.Database.ExecuteSqlRawAsync("UPDATE vocabulary_book SET status=1 WHERE id='book'", Ct);
+        await db.Database.ExecuteSqlRawAsync("UPDATE vocabulary_book SET status=true WHERE id='book'", Ct);
         await Assert.ThrowsAsync<ResourceNotFoundException>(() => repository.GetPublicSnapshotAsync("book", "word", null, Ct));
     }
 
@@ -62,7 +62,7 @@ public sealed class AudioPublicReadRepositoryTests
         public override async ValueTask<DbDataReader> ReaderExecutedAsync(DbCommand command, CommandExecutedEventData eventData,
             DbDataReader result, CancellationToken cancellationToken = default)
         {
-            if (!Fired && command.CommandText.Contains("FROM \"vocabulary_book\"", StringComparison.Ordinal))
+            if (!Fired && command.CommandText.Contains("FROM vocabulary_book", StringComparison.Ordinal))
             {
                 Fired = true; await action();
             }

@@ -12,15 +12,16 @@ using Lexarbor.Domain.Repositories;
 using Lexarbor.Host;
 using Lexarbor.Host.Authentication;
 using Lexarbor.Service.Tests.TestInfrastructure;
+using Lexarbor.Tests.Shared;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
+using Npgsql;
 using ServiceMantle.Persistence.Relational.DataProtection;
 
 namespace Lexarbor.Service.Tests;
@@ -100,7 +101,8 @@ public sealed class AdminSessionStoreTests : IDisposable
         services.AddSingleton<TimeProvider>(_clock);
         services.AddDbContextFactory<VocabularyDbContext>(options =>
         {
-            options.UseSqlite($"Data Source={DatabasePath};Pooling=False;Default Timeout=1");
+            // Unmigrated until a test migrates it, as the SQLite file was.
+            options.UseNpgsql(SharedTestDatabases.WithLockTimeout(SharedTestDatabases.ConnectionString(DatabasePath, migrated: false), "1s"));
             if (interceptor is not null) options.AddInterceptors(interceptor);
         });
         services.AddScoped(serviceProvider =>
@@ -161,7 +163,7 @@ public sealed class AdminSessionStoreTests : IDisposable
         Assert.NotNull(recovered);
         Assert.True(recovered.AccessToken == Session().AccessToken && recovered.Subject == Session().Subject);
         // Check bytes and values without printing the markers, handle or ciphertext on failure.
-        var database = Encoding.UTF8.GetString(await File.ReadAllBytesAsync(DatabasePath, Ct));
+        var database = await PostgreSqlTestServer.AllRowsTextAsync(SharedTestDatabases.ConnectionString(DatabasePath));
         Assert.True(!database.Contains(handle, StringComparison.Ordinal));
         foreach (var marker in new[] { Session().AccessToken, Session().IdToken!, Session().Issuer,
                      Session().Subject, Session().DisplayName!, Session().Roles[0] })
@@ -389,7 +391,7 @@ public sealed class AdminSessionStoreTests : IDisposable
         using var failingProvider = Build(interceptor: new AfterInsert(() =>
         {
             if (cancel) cancellation.Cancel();
-            else throw new SqliteException("synthetic-storage-secret", 1);
+            else throw SyntheticStorageErrors.Failure("synthetic-storage-secret");
         }));
         using var failed = failingProvider.CreateScope();
         if (cancel) await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Store(failed).ReplaceAsync(old, Session(), cancellation.Token));
@@ -482,9 +484,11 @@ public sealed class AdminSessionStoreTests : IDisposable
         using var provider = Build();
         using var scope = provider.CreateScope();
         var handle = await Store(scope).CreateAsync(Session(), Ct);
-        await using var blocker = new SqliteConnection($"Data Source={DatabasePath};Pooling=False");
+        await using var blocker = new NpgsqlConnection(SharedTestDatabases.ConnectionString(DatabasePath));
         await blocker.OpenAsync(Ct);
         using var transaction = blocker.BeginTransaction();
+        await using (var hold = new NpgsqlCommand("LOCK TABLE admin_session IN ACCESS EXCLUSIVE MODE", blocker, transaction))
+            await hold.ExecuteNonQueryAsync(Ct);
         using var failed = provider.CreateScope();
         var busy = await Assert.ThrowsAsync<StorageBusyException>(() => Store(failed).RevokeAndReadAsync(handle, Ct));
         Assert.Equal(AdminSessionRepository.StorageFailureMessage, busy.Message);
@@ -525,8 +529,13 @@ public sealed class AdminSessionStoreTests : IDisposable
         using (var setup = provider.CreateScope()) await Db(setup).Database.MigrateAsync(Ct);
         cleanup.RemoveExpired(CancellationToken.None);
         Assert.Single(logger.Messages);
+        await using var unmigrated = new PostgreSqlTestDatabase(migrated: false);
         using var host = new VocabularyWebApplicationFactory("Testing", true,
-            extraConfiguration: new Dictionary<string, string?> { ["Database:InitializeOnStartup"] = "false" });
+            extraConfiguration: new Dictionary<string, string?>
+            {
+                ["Database:InitializeOnStartup"] = "false",
+                ["ConnectionStrings:Default"] = unmigrated.ConnectionString
+            });
         using var client = host.CreateClient();
         host.Services.GetRequiredService<AdminSessionTicketStore>().RemoveExpired(CancellationToken.None);
         // With initialization disabled and the shared database still unmigrated,
@@ -573,9 +582,9 @@ public sealed class AdminSessionStoreTests : IDisposable
             InterceptionResult<int> result,
             CancellationToken cancellationToken = default)
         {
-            if (command.CommandText.StartsWith("DELETE FROM admin_session", StringComparison.Ordinal))
+            if (command.CommandText.Contains("DELETE FROM admin_session", StringComparison.Ordinal))
             {
-                throw new SqliteException("synthetic-cleanup-failure", 1);
+                throw SyntheticStorageErrors.Failure("synthetic-cleanup-failure");
             }
 
             return ValueTask.FromResult(result);
@@ -635,7 +644,7 @@ public sealed class AdminSessionStoreTests : IDisposable
         public override ValueTask<int> NonQueryExecutedAsync(DbCommand command, CommandExecutedEventData eventData,
             int result, CancellationToken cancellationToken = default)
         {
-            if (command.CommandText.StartsWith("INSERT INTO admin_session", StringComparison.Ordinal)) afterInsert();
+            if (command.CommandText.Contains("INSERT INTO admin_session", StringComparison.Ordinal)) afterInsert();
             return ValueTask.FromResult(result);
         }
     }
@@ -643,7 +652,7 @@ public sealed class AdminSessionStoreTests : IDisposable
     private sealed class AfterCommit : DbTransactionInterceptor
     {
         public override Task TransactionCommittedAsync(DbTransaction transaction, TransactionEndEventData eventData,
-            CancellationToken cancellationToken = default) => throw new SqliteException("synthetic-lost-result", 1);
+            CancellationToken cancellationToken = default) => throw SyntheticStorageErrors.Failure("synthetic-lost-result");
     }
 
     private sealed class CapturingLogger : ILogger<AdminSessionTicketStore>

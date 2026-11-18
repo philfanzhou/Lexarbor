@@ -5,6 +5,7 @@ using System.Text.Json;
 using Lexarbor.Database;
 using Lexarbor.Database.Entities;
 using Lexarbor.Service.Tests.TestInfrastructure;
+using Lexarbor.Tests.Shared;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -146,36 +147,33 @@ public class VocabularyCleanupEndpointTests
         using var client = factory.CreateClient(); await SeedAsync(factory.Services); Authenticate(client, factory, false, "admin");
         var before = await StateAsync(factory.Services);
         using (var scope = factory.Services.CreateScope()) await scope.ServiceProvider.GetRequiredService<VocabularyDbContext>().Database.ExecuteSqlRawAsync(
-            "CREATE TRIGGER reject_delete BEFORE DELETE ON vocabulary BEGIN SELECT RAISE(ABORT,'synthetic'); END;", TestContext.Current.CancellationToken);
+            PostgreSqlTestServer.RejectingTriggerSql("reject_delete", "BEFORE DELETE", "vocabulary"), TestContext.Current.CancellationToken);
         using var response = await PostAsync(client, """{"action":"clear"}"""); await FailureAsync(response, 409);
         Assert.Equal(before, await StateAsync(factory.Services));
     }
 
     [Fact]
-    public async Task ExternalSqliteWriter_Returns503AndRetryAfterWithoutWrites()
+    public async Task ExternalWriter_Returns503AndRetryAfterWithoutWrites()
     {
         var path = System.IO.Path.Combine(
             VocabularyWebApplicationFactory.CreateGateSafeDirectory($"lexarbor-cleanup-http-{Guid.NewGuid():N}"),
             "vocabulary.db");
-        try
+        await using var factory = new VocabularyWebApplicationFactory();
+        await using var fileFactory = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
         {
-            await using var factory = new VocabularyWebApplicationFactory();
-            await using var fileFactory = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
-            {
-                services.RemoveAll<DbContextOptions<VocabularyDbContext>>(); services.RemoveAll<VocabularyDbContext>();
-                services.AddDbContext<VocabularyDbContext>(options => options.UseSqlite($"Data Source={path};Pooling=False;Default Timeout=1"));
-            }));
-            using var client = fileFactory.CreateClient(); await SeedAsync(fileFactory.Services); Authenticate(client, factory, false, "admin");
-            var before = await StateAsync(fileFactory.Services);
-            using var scope = fileFactory.Services.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
-            await using (var transaction = await db.Database.BeginTransactionAsync(TestContext.Current.CancellationToken))
-            {
-                using var response = await PostAsync(client, """{"action":"clear"}"""); await FailureAsync(response, 503);
-                Assert.Equal("1", response.Headers.GetValues("Retry-After").Single());
-            }
-            Assert.Equal(before, await StateAsync(fileFactory.Services));
+            services.RemoveAll<DbContextOptions<VocabularyDbContext>>(); services.RemoveAll<VocabularyDbContext>();
+            services.AddDbContext<VocabularyDbContext>(options => options.UseNpgsql(SharedTestDatabases.WithLockTimeout(SharedTestDatabases.ConnectionString(path), "1s")));
+        }));
+        using var client = fileFactory.CreateClient(); await SeedAsync(fileFactory.Services); Authenticate(client, factory, false, "admin");
+        var before = await StateAsync(fileFactory.Services);
+        using var scope = fileFactory.Services.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+        await using (var transaction = await db.Database.BeginTransactionAsync(TestContext.Current.CancellationToken))
+        {
+            await db.Database.ExecuteSqlRawAsync(SyntheticStorageErrors.CatalogWriterLockSql, TestContext.Current.CancellationToken);
+            using var response = await PostAsync(client, """{"action":"clear"}"""); await FailureAsync(response, 503);
+            Assert.Equal("1", response.Headers.GetValues("Retry-After").Single());
         }
-        finally { foreach (var suffix in new[] { "", "-wal", "-shm" }) File.Delete(path + suffix); }
+        Assert.Equal(before, await StateAsync(fileFactory.Services));
     }
 
     private static string Path(bool preview) => "/admin/vocabulary-books/A/cleanup" + (preview ? "/preview" : "");

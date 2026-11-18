@@ -10,12 +10,12 @@ using Lexarbor.Database;
 using Lexarbor.Database.Repositories;
 using Lexarbor.Host.Authentication;
 using Lexarbor.Service.Tests.TestInfrastructure;
+using Lexarbor.Tests.Shared;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.WebUtilities;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
@@ -23,6 +23,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using Npgsql;
 
 namespace Lexarbor.Service.Tests;
 
@@ -685,10 +686,10 @@ public class AdminHostedLoginTests
         public bool Enabled { get; set; }
         public override ValueTask<int> NonQueryExecutedAsync(DbCommand command, CommandExecutedEventData eventData, int result, CancellationToken cancellationToken = default)
         {
-            if (Enabled && command.CommandText.StartsWith("INSERT INTO admin_session", StringComparison.Ordinal))
+            if (Enabled && command.CommandText.Contains("INSERT INTO admin_session", StringComparison.Ordinal))
             {
                 if (mode == "cancel") throw new OperationCanceledException("synthetic-storage-secret-marker");
-                if (mode is "failure" or "busy") throw new SqliteException("synthetic-storage-secret-marker", mode == "busy" ? 5 : 1);
+                if (mode is "failure" or "busy") throw (mode == "busy" ? SyntheticStorageErrors.Busy("synthetic-storage-secret-marker") : SyntheticStorageErrors.Failure("synthetic-storage-secret-marker"));
             }
             return ValueTask.FromResult(result);
         }
@@ -697,7 +698,7 @@ public class AdminHostedLoginTests
     {
         public override Task TransactionCommittedAsync(DbTransaction transaction, TransactionEndEventData eventData, CancellationToken cancellationToken = default)
         {
-            if (fault.Enabled && mode == "lost-commit") throw new SqliteException("synthetic-storage-secret-marker", 1);
+            if (fault.Enabled && mode == "lost-commit") throw SyntheticStorageErrors.Failure("synthetic-storage-secret-marker");
             return Task.CompletedTask;
         }
     }

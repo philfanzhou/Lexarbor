@@ -12,6 +12,7 @@ using Lexarbor.Host.Audio;
 using Lexarbor.Host.Configuration;
 using Lexarbor.Host.Integration;
 using Lexarbor.Service.Tests.TestInfrastructure;
+using Lexarbor.Tests.Shared;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
@@ -681,7 +682,7 @@ public sealed partial class EnrichmentTargetExecutorTests
             await f.Db.SaveChangesAsync(Ct); f.Db.ChangeTracker.Clear(); return f;
         }
         public VocabularyDbContext Open(params IInterceptor[] interceptors) => new(new DbContextOptionsBuilder<VocabularyDbContext>()
-            .UseSqlite($"Data Source={Path.Combine(_root, "fixture.db")};Pooling=False").AddInterceptors(interceptors).Options);
+            .UseNpgsql(SharedTestDatabases.ConnectionString(Path.Combine(_root, "fixture.db"))).AddInterceptors(interceptors).Options);
         public EnrichmentTargetExecutor ExecutorFor(VocabularyDbContext db, EnrichmentTaskRepository tasks,
             IAudioUploadOperationFactory? operations = null, VocabularyExpansionExecutor? expansion = null) => new(tasks,
             new EnrichmentExecutionRepository(db, tasks, Clock), new AudioUploadRepository(db, Clock),
@@ -747,7 +748,7 @@ public sealed partial class EnrichmentTargetExecutorTests
         public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command, CommandEventData eventData,
             InterceptionResult<int> result, CancellationToken cancellationToken = default)
         {
-            if (Enabled && command.CommandText.StartsWith("UPDATE \"enrichment_round\"", StringComparison.Ordinal)
+            if (Enabled && command.CommandText.Contains("UPDATE enrichment_round", StringComparison.Ordinal)
                 && command.CommandText.Contains("plan_json", StringComparison.Ordinal)) throw new InvalidOperationException("Synthetic plan commit failure.");
             return ValueTask.FromResult(result);
         }

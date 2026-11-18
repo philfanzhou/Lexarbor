@@ -1,4 +1,3 @@
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using ServiceMantle.Migration;
 
@@ -14,18 +13,15 @@ namespace Lexarbor.Database;
 /// The inspection never creates, writes, or repairs anything. It proves the
 /// finite states it can read from the <c>__EFMigrationsHistory</c> table; a
 /// database whose history cannot be read — the table is absent, which is the
-/// normal state of a freshly published empty file — is empty, and any other
+/// normal state of a freshly created database — is empty, and any other
 /// read failure stays an exception for the orchestrator to classify as
 /// <see cref="MigrationObservationState.InspectionFailed"/>. A history row this
 /// build does not know is a newer schema and is refused rather than adopted.
 /// </para>
 /// <para>
 /// Execution runs <c>MigrateAsync</c> on the application's own context and
-/// nothing else: the database runs under the rollback journal, and the journal
-/// mode is normalized by the startup gate before this executor is ever
-/// reached — see <see cref="LexarborDatabaseStartup"/>. The normalization runs
-/// on every start rather than only on upgrades so that a database restored
-/// from a backup taken elsewhere is converted too.
+/// nothing else, under the startup gate's advisory migration lock — see
+/// <see cref="LexarborDatabaseStartup"/>.
 /// </para>
 /// </remarks>
 public sealed class LexarborMigrationExecutor : IDatabaseMigrationExecutor
@@ -49,17 +45,13 @@ public sealed class LexarborMigrationExecutor : IDatabaseMigrationExecutor
     {
         cancellationToken.ThrowIfCancellationRequested();
         var known = context.Database.GetMigrations().Order(StringComparer.Ordinal).ToArray();
-        List<string> applied;
-        try
+        // No history table at all: an empty database — the startup gate just
+        // created it, or an operator created an empty one — is adoptable. The
+        // table is looked up rather than read and caught, so a first start does
+        // not log a failed command.
+        var applied = await ReadAppliedMigrationsAsync(cancellationToken);
+        if (applied is null)
         {
-            applied = await ReadAppliedMigrationsAsync(cancellationToken);
-        }
-        catch (SqliteException exception)
-            when (exception.SqliteErrorCode == 1
-                && exception.Message.Contains("no such table", StringComparison.Ordinal))
-        {
-            // No history table at all: an empty database — the startup gate just
-            // published it, or an operator created an empty file — is adoptable.
             return MigrationObservationState.Empty;
         }
 
@@ -95,12 +87,21 @@ public sealed class LexarborMigrationExecutor : IDatabaseMigrationExecutor
         cancellationToken.ThrowIfCancellationRequested();
     }
 
-    private async Task<List<string>> ReadAppliedMigrationsAsync(CancellationToken cancellationToken)
+    private async Task<List<string>?> ReadAppliedMigrationsAsync(CancellationToken cancellationToken)
     {
         await context.Database.OpenConnectionAsync(cancellationToken);
         try
         {
             var connection = context.Database.GetDbConnection();
+            await using (var exists = connection.CreateCommand())
+            {
+                exists.CommandText = $"SELECT to_regclass('\"{HistoryTable}\"') IS NOT NULL";
+                if (await exists.ExecuteScalarAsync(cancellationToken) is not true)
+                {
+                    return null;
+                }
+            }
+
             await using var command = connection.CreateCommand();
             command.CommandText = $"SELECT \"MigrationId\" FROM \"{HistoryTable}\" ORDER BY \"MigrationId\"";
             var applied = new List<string>();

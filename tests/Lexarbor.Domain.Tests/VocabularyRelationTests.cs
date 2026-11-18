@@ -4,6 +4,7 @@ using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Exceptions;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Services;
+using Lexarbor.Tests.Shared;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 
@@ -116,7 +117,7 @@ public sealed class VocabularyRelationTests : TestBase
             Assert.Equal(original.LastConfirmedAtUnixMs, changed.LastConfirmedAtUnixMs);
         }
         await Assert.ThrowsAsync<ConflictException>(() => service.ReplaceAsync(outgoing.Id, Input(confirm: true), 1, Ct));
-        await _dbContext.Database.ExecuteSqlRawAsync("CREATE TRIGGER reject_relation BEFORE UPDATE ON vocabulary_relation BEGIN SELECT RAISE(ABORT,'synthetic'); END;", Ct);
+        await _dbContext.Database.ExecuteSqlRawAsync(Lexarbor.Tests.Shared.PostgreSqlTestServer.RejectingTriggerSql("reject_relation", "BEFORE UPDATE", "vocabulary_relation"), Ct);
         await Assert.ThrowsAsync<ConflictException>(() => edit.ReplaceAsync("write", "another", null, null, Ct));
         Assert.Equal("rewrite", (await _dbContext.Vocabularies.AsNoTracking().SingleAsync(w => w.Id == "write", Ct)).Word);
         Assert.Equal(2, (await service.GetAsync(self.Id, Ct)).Version);
@@ -150,13 +151,11 @@ public sealed class VocabularyRelationTests : TestBase
     [Fact]
     public async Task SeparateContextsSerializeDuplicateCreatesAndRejectOneConcurrentStaleUpdate()
     {
-        var path = Path.Combine(Path.GetTempPath(), $"lexarbor-relations-{Guid.NewGuid():N}.db");
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         try
         {
-            var options = new DbContextOptionsBuilder<VocabularyDbContext>().UseSqlite($"Data Source={path};Pooling=False").Options;
+            var options = PostgreSqlTestServer.Options(ConnectionString).Options;
             await using var first = new VocabularyDbContext(options);
-            await first.Database.EnsureCreatedAsync(Ct);
             await SeedAsync(first, Ct);
             await using var second = new VocabularyDbContext(options);
             var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -186,7 +185,6 @@ public sealed class VocabularyRelationTests : TestBase
         finally
         {
             release.TrySetResult();
-            foreach (var suffix in new[] { "", "-wal", "-shm" }) File.Delete(path + suffix);
         }
     }
 

@@ -166,7 +166,7 @@ public sealed partial class EnrichmentTargetExecutorTests
     public async Task Expansion_PublicationFailureRollsBackWordsMeaningsRelationsAndOrigin_ThenReplaysStagedPlan()
     {
         await using var f = await Fixture.Create(); await Supplement(f);
-        await f.Db.Database.ExecuteSqlRawAsync("CREATE TRIGGER expansion_test_failure BEFORE INSERT ON vocabulary_relation BEGIN SELECT RAISE(ABORT,'fixture'); END;", Ct);
+        await f.Db.Database.ExecuteSqlRawAsync(Lexarbor.Tests.Shared.PostgreSqlTestServer.RejectingTriggerSql("expansion_test_failure", "BEFORE INSERT", "vocabulary_relation"), Ct);
         var handler = new ExpansionHandler([Candidate()]); using var http = new HttpFactory(handler);
         var task = await f.Ensure(ExpansionKey);
         await Assert.ThrowsAsync<Lexarbor.Domain.Exceptions.ConflictException>(() => Expansion(f, f.Db, http).ExecuteAsync(task, "worker", Ct));
@@ -175,7 +175,7 @@ public sealed partial class EnrichmentTargetExecutorTests
         Assert.Equal(1, await restarted.VocabularyMeanings.CountAsync(Ct));
         Assert.Empty(await restarted.VocabularyRelations.ToListAsync(Ct));
         Assert.Empty(await restarted.EnrichmentGeneratedWords.ToListAsync(Ct));
-        await restarted.Database.ExecuteSqlRawAsync("DROP TRIGGER expansion_test_failure", Ct);
+        await restarted.Database.ExecuteSqlRawAsync("DROP TRIGGER expansion_test_failure ON vocabulary_relation", Ct);
         f.Clock.Now += 900_001;
         var result = (await Expansion(f, restarted, http).ExecuteAsync(task, "restart", Ct))!;
         Assert.Equal(EnrichmentState.Succeeded, Round(result).State);

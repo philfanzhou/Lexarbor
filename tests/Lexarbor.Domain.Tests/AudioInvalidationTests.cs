@@ -5,9 +5,9 @@ using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 using Lexarbor.Domain.Services;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Npgsql;
 using Xunit;
 
 namespace Lexarbor.Domain.Tests;
@@ -199,28 +199,28 @@ public sealed class AudioInvalidationTests
         using var f = new Fixture(); await using var db = f.File.Open(); await Init(db);
         var old = await Publish(db, f.Clock, "meaning"); await AuthorizeAndUnbind(db, f.Clock, old.Asset.Id);
         await using var external = f.File.Open(); var repo = new AudioInvalidationRepository(db, f.Clock);
-        async Task Reference() => await external.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO vocabulary_audio_binding VALUES ('reference','word',NULL,'en-GB',{old.Asset.Id},{AudioTestDatabase.Hash})", Token);
+        async Task Reference() => await external.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO vocabulary_audio_binding (id, word_id, meaning_id, locale, asset_id, source_revision) VALUES ('reference','word',NULL,'en-GB',{old.Asset.Id},{AudioTestDatabase.Hash})", Token);
         if (referenceFirst)
         {
             await Reference(); Assert.Null(await repo.ClaimAsync(old.Asset.Id, "cleaner", 10, 1000, 100, Token));
             // Raw SQL cannot bypass the no-reference condition either.
-            await Assert.ThrowsAsync<SqliteException>(() => db.Database.ExecuteSqlInterpolatedAsync($"UPDATE audio_invalidation SET state='Claimed',lease_owner='bypass',lease_fence=1,lease_expires_at_unix_ms=1000,delete_started_at_unix_ms=10 WHERE asset_id={old.Asset.Id}", Token));
+            await Assert.ThrowsAsync<PostgresException>(() => db.Database.ExecuteSqlInterpolatedAsync($"UPDATE audio_invalidation SET state='Claimed',lease_owner='bypass',lease_fence=1,lease_expires_at_unix_ms=1000,delete_started_at_unix_ms=10 WHERE asset_id={old.Asset.Id}", Token));
             await external.VocabularyAudioBindings.Where(row => row.Id == "reference").ExecuteDeleteAsync(Token);
             f.Clock.Now = 100;
         }
         var claim = (await repo.ClaimAsync(old.Asset.Id, "cleaner", f.Clock.Now, 1000, 200, Token))!;
         Assert.NotNull(claim);
-        Assert.Equal(19, (await Assert.ThrowsAsync<SqliteException>(Reference)).SqliteErrorCode);
+        Assert.StartsWith("23", (await Assert.ThrowsAsync<PostgresException>(Reference)).SqlState, StringComparison.Ordinal);
         var replacement = await Publish(external, f.Clock, null, AudioLocale.EnUs);
-        await Assert.ThrowsAsync<SqliteException>(() => external.Database.ExecuteSqlInterpolatedAsync($"UPDATE vocabulary_audio_binding SET asset_id={old.Asset.Id} WHERE asset_id={replacement.Asset.Id}", Token));
+        await Assert.ThrowsAsync<PostgresException>(() => external.Database.ExecuteSqlInterpolatedAsync($"UPDATE vocabulary_audio_binding SET asset_id={old.Asset.Id} WHERE asset_id={replacement.Asset.Id}", Token));
         Assert.True(await repo.ReleaseAsync(old.Asset.Id, claim.Lease, f.Clock.Now, 500, Token));
-        await Assert.ThrowsAsync<SqliteException>(Reference); // failed delete does not release the permanent tombstone
+        await Assert.ThrowsAsync<PostgresException>(Reference); // failed delete does not release the permanent tombstone
         foreach (var sql in new[] { "DELETE FROM audio_invalidation", "UPDATE audio_invalidation SET delete_started_at_unix_ms=NULL", "UPDATE audio_invalidation SET authorization_epoch=2", "UPDATE audio_asset SET object_key='changed' WHERE id='" + old.Asset.Id + "'" })
-            await Assert.ThrowsAsync<SqliteException>(() => external.Database.ExecuteSqlRawAsync(sql, Token));
+            await Assert.ThrowsAsync<PostgresException>(() => external.Database.ExecuteSqlRawAsync(sql, Token));
     }
 
     [Fact]
-    public async Task ClaimChecksReferencesUnderActualSqliteWriterReservation()
+    public async Task Claim_RefusesAReferenceCommittedByAWriterOutsideTheProcess()
     {
         using var f = new Fixture(); AudioStoredUpload old;
         await using (var seed = f.File.Open())
@@ -229,9 +229,8 @@ public sealed class AudioInvalidationTests
         await using var db = f.File.Open(race);
         var repo = new AudioInvalidationRepository(db, f.Clock);
         var claim = await repo.ClaimAsync(old.Asset.Id, "cleaner", 10, 1000, 100, Token);
-        Assert.NotNull(claim); Assert.True(race.BlockedBySqlite);
-        Assert.False(await repo.ObserveAsync(old.Asset.Id, claim.Lease with { Owner = "other" }, 10, 100, Token));
-        Assert.False(await repo.ReleaseAsync(old.Asset.Id, claim.Lease with { Fence = claim.Lease.Fence + 1 }, 10, 100, Token));
+        Assert.Null(claim); Assert.True(race.ExternalWriteCommitted);
+        Assert.Equal(1, await db.VocabularyAudioBindings.CountAsync(row => row.Id == "racer", Token));
     }
 
     [Fact]
@@ -282,18 +281,20 @@ public sealed class AudioInvalidationTests
     });
     private sealed class AttemptExternalReference(AudioTestDatabase file, string assetId) : DbCommandInterceptor
     {
-        public bool BlockedBySqlite;
+        public bool ExternalWriteCommitted;
         public override async ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command, CommandEventData eventData,
             InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
         {
-            if (!BlockedBySqlite && command.CommandText.Contains("FROM \"vocabulary_audio_binding\"", StringComparison.Ordinal))
+            if (!ExternalWriteCommitted && command.CommandText.Contains("FROM vocabulary_audio_binding", StringComparison.Ordinal))
             {
-                await using var external = new SqliteConnection($"Data Source={file.PathName};Pooling=False;Default Timeout=1");
-                await external.OpenAsync(cancellationToken); await using var insert = external.CreateCommand(); insert.CommandTimeout = 1;
-                insert.CommandText = "INSERT INTO vocabulary_audio_binding VALUES ('racer','word',NULL,'en-GB',$asset,$revision)";
-                insert.Parameters.AddWithValue("$asset", assetId); insert.Parameters.AddWithValue("$revision", AudioTestDatabase.Hash);
-                try { await insert.ExecuteNonQueryAsync(cancellationToken); }
-                catch (SqliteException error) when (error.SqliteErrorCode == 5) { BlockedBySqlite = true; }
+                // A writer outside the process: SQLite's single writer refused
+                // it, PostgreSQL lets it commit before the claim's check reads.
+                await using var external = new NpgsqlConnection(file.ConnectionString);
+                await external.OpenAsync(cancellationToken); await using var insert = external.CreateCommand();
+                insert.CommandText = "INSERT INTO vocabulary_audio_binding (id, word_id, meaning_id, locale, asset_id, source_revision) VALUES ('racer','word',NULL,'en-GB',@asset,@revision)";
+                insert.Parameters.AddWithValue("asset", assetId); insert.Parameters.AddWithValue("revision", AudioTestDatabase.Hash);
+                await insert.ExecuteNonQueryAsync(cancellationToken);
+                ExternalWriteCommitted = true;
             }
             return result;
         }

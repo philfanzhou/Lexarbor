@@ -208,12 +208,12 @@ public sealed class MeaningPhoneticEditTests
     }
 
     [Theory]
-    [InlineData("INSERT INTO \"audio_invalidation\"")]
-    [InlineData("INSERT INTO \"meaning_phonetic_epoch\"")]
-    [InlineData("UPDATE \"vocabulary_meaning\"")]
-    [InlineData("DELETE FROM \"vocabulary_audio_binding\"")]
-    [InlineData("INSERT INTO \"enrichment_target\"")]
-    [InlineData("INSERT INTO \"enrichment_round\"")]
+    [InlineData("INSERT INTO audio_invalidation")]
+    [InlineData("INSERT INTO meaning_phonetic_epoch")]
+    [InlineData("UPDATE vocabulary_meaning")]
+    [InlineData("DELETE FROM vocabulary_audio_binding")]
+    [InlineData("INSERT INTO enrichment_target")]
+    [InlineData("INSERT INTO enrichment_round")]
     public async Task FailureAtEachMutation_RollsBackAllStateAndRetryUsesFreshConditions(string command)
     {
         using var file = new AudioTestDatabase(); var fault = new Failure(command); var clock = new Clock();
@@ -225,8 +225,8 @@ public sealed class MeaningPhoneticEditTests
     }
 
     [Theory]
-    [InlineData("UPDATE \"enrichment_round\"", 0)]
-    [InlineData("INSERT INTO \"enrichment_round\"", 1)]
+    [InlineData("UPDATE enrichment_round", 0)]
+    [InlineData("INSERT INTO enrichment_round", 1)]
     public async Task FailedInvalidation_RestoresOldPlansGuardsAndEpochAfterEarlierStepWrites(string pattern, int skip)
     {
         using var file = new AudioTestDatabase(); var clock = new Clock(); var fault = new Failure(pattern, skip);
@@ -317,14 +317,14 @@ public sealed class MeaningPhoneticEditTests
     }
 
     [Theory]
-    [InlineData("INSERT INTO \"audio_invalidation\"", 0)]
-    [InlineData("INSERT INTO \"meaning_phonetic_epoch\"", 0)]
-    [InlineData("UPDATE \"vocabulary_meaning\"", 0)]
-    [InlineData("DELETE FROM \"vocabulary_audio_binding\"", 0)]
-    [InlineData("INSERT INTO \"enrichment_target\"", 0)]
-    [InlineData("INSERT INTO \"enrichment_round\"", 0)]
-    [InlineData("UPDATE \"vocabulary_meaning\"", 1)]
-    [InlineData("UPDATE \"vocabulary_meaning\"", 2)]
+    [InlineData("INSERT INTO audio_invalidation", 0)]
+    [InlineData("INSERT INTO meaning_phonetic_epoch", 0)]
+    [InlineData("UPDATE vocabulary_meaning", 0)]
+    [InlineData("DELETE FROM vocabulary_audio_binding", 0)]
+    [InlineData("INSERT INTO enrichment_target", 0)]
+    [InlineData("INSERT INTO enrichment_round", 0)]
+    [InlineData("UPDATE vocabulary_meaning", 1)]
+    [InlineData("UPDATE vocabulary_meaning", 2)]
     public async Task CombinedEdit_FailureAtEveryStageIncludingSecondAccentAndFinalText_RollsBack(string pattern, int skip)
     {
         using var file = new AudioTestDatabase(); var fault = new Failure(pattern, skip); var clock = new Clock();
@@ -340,7 +340,7 @@ public sealed class MeaningPhoneticEditTests
     public async Task CombinedEdit_CancellationAfterBothAccents_RollsBackPendingWorkAndText()
     {
         using var file = new AudioTestDatabase(); using var cancelled = new CancellationTokenSource();
-        var fault = new Failure("UPDATE \"vocabulary_meaning\"", 2, cancelled.Cancel); var clock = new Clock();
+        var fault = new Failure("UPDATE vocabulary_meaning", 2, cancelled.Cancel); var clock = new Clock();
         await using var db = file.Open(fault); await Init(db);
         var uk = await Edit(db, clock, "B"); var us = await Edit(db, clock, "new-us", AudioLocale.EnUs); var before = await Rows(file);
         fault.Armed = true;

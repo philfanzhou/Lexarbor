@@ -4,6 +4,7 @@ using Lexarbor.Database;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
 
@@ -15,22 +16,28 @@ namespace Lexarbor.Database.Migrations
         protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
-            modelBuilder.HasAnnotation("ProductVersion", "10.0.14");
+            modelBuilder
+                .HasAnnotation("ProductVersion", "10.0.14")
+                .HasAnnotation("Relational:MaxIdentifierLength", 63);
+
+            NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
             modelBuilder.Entity("Lexarbor.Database.Entities.AdminSessionEntity", b =>
                 {
                     b.Property<string>("HandleHash")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("handle_hash");
+                        .HasColumnType("text")
+                        .HasColumnName("handle_hash")
+                        .UseCollation("C");
 
                     b.Property<long>("ExpiresAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("expires_at_unix_ms");
 
                     b.Property<string>("ProtectedPayload")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("protected_payload");
+                        .HasColumnType("text")
+                        .HasColumnName("protected_payload")
+                        .UseCollation("C");
 
                     b.HasKey("HandleHash");
 
@@ -42,34 +49,38 @@ namespace Lexarbor.Database.Migrations
             modelBuilder.Entity("Lexarbor.Database.Entities.AiRequestBatchEntity", b =>
                 {
                     b.Property<string>("Id")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("id");
+                        .HasColumnType("text")
+                        .HasColumnName("id")
+                        .UseCollation("C");
 
                     b.Property<string>("ConfigurationVersion")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("configuration_version");
+                        .HasColumnType("text")
+                        .HasColumnName("configuration_version")
+                        .UseCollation("C");
 
                     b.Property<long?>("FinishedAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("finished_at_unix_ms");
 
                     b.Property<string>("Kind")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("kind");
+                        .HasColumnType("text")
+                        .HasColumnName("kind")
+                        .UseCollation("C");
 
                     b.Property<int>("NextSize")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("integer")
                         .HasColumnName("next_size");
 
                     b.Property<string>("Outcome")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("outcome");
+                        .HasColumnType("text")
+                        .HasColumnName("outcome")
+                        .UseCollation("C");
 
                     b.Property<long>("StartedAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("started_at_unix_ms");
 
                     b.HasKey("Id");
@@ -84,23 +95,27 @@ namespace Lexarbor.Database.Migrations
             modelBuilder.Entity("Lexarbor.Database.Entities.AiRequestBatchMemberEntity", b =>
                 {
                     b.Property<string>("Id")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("id");
+                        .HasColumnType("text")
+                        .HasColumnName("id")
+                        .UseCollation("C");
 
                     b.Property<string>("BatchId")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("batch_id");
+                        .HasColumnType("text")
+                        .HasColumnName("batch_id")
+                        .UseCollation("C");
 
                     b.Property<string>("Outcome")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("outcome");
+                        .HasColumnType("text")
+                        .HasColumnName("outcome")
+                        .UseCollation("C");
 
                     b.Property<string>("TargetId")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("target_id");
+                        .HasColumnType("text")
+                        .HasColumnName("target_id")
+                        .UseCollation("C");
 
                     b.HasKey("Id");
 
@@ -114,23 +129,25 @@ namespace Lexarbor.Database.Migrations
             modelBuilder.Entity("Lexarbor.Database.Entities.AiRequestBatchPolicyEntity", b =>
                 {
                     b.Property<string>("Kind")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("kind");
+                        .HasColumnType("text")
+                        .HasColumnName("kind")
+                        .UseCollation("C");
 
                     b.Property<string>("ConfigurationVersion")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("configuration_version");
+                        .HasColumnType("text")
+                        .HasColumnName("configuration_version")
+                        .UseCollation("C");
 
                     b.Property<int>("FastSuccesses")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("integer")
                         .HasColumnName("fast_successes");
 
                     b.Property<long>("LastFailureAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("last_failure_at_unix_ms");
 
                     b.Property<int>("Size")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("integer")
                         .HasColumnName("size");
 
                     b.HasKey("Kind", "ConfigurationVersion");
@@ -141,40 +158,45 @@ namespace Lexarbor.Database.Migrations
             modelBuilder.Entity("Lexarbor.Database.Entities.AudioAssetEntity", b =>
                 {
                     b.Property<string>("Id")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("id");
+                        .HasColumnType("text")
+                        .HasColumnName("id")
+                        .UseCollation("C");
 
                     b.Property<string>("Bucket")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("bucket");
+                        .HasColumnType("text")
+                        .HasColumnName("bucket")
+                        .UseCollation("C");
 
                     b.Property<long>("ByteLength")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("byte_length");
 
                     b.Property<string>("ContentType")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("content_type");
+                        .HasColumnType("text")
+                        .HasColumnName("content_type")
+                        .UseCollation("C");
 
                     b.Property<long>("CreatedAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("created_at_unix_ms");
 
                     b.Property<long?>("FirstPublishedAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("first_published_at_unix_ms");
 
                     b.Property<string>("ObjectKey")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("object_key");
+                        .HasColumnType("text")
+                        .HasColumnName("object_key")
+                        .UseCollation("C");
 
                     b.Property<string>("Sha256")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("sha256");
+                        .HasColumnType("text")
+                        .HasColumnName("sha256")
+                        .UseCollation("C");
 
                     b.HasKey("Id");
 
@@ -187,7 +209,7 @@ namespace Lexarbor.Database.Migrations
 
                             t.HasCheckConstraint("CK_audio_asset_location", "length(bucket) > 0 AND length(object_key) > 0");
 
-                            t.HasCheckConstraint("CK_audio_asset_sha256", "length(sha256) = 64 AND sha256 NOT GLOB '*[^0-9a-f]*'");
+                            t.HasCheckConstraint("CK_audio_asset_sha256", "length(sha256) = 64 AND sha256 !~ '[^0-9a-f]'");
 
                             t.HasCheckConstraint("CK_audio_asset_size", "byte_length > 0");
 
@@ -198,87 +220,97 @@ namespace Lexarbor.Database.Migrations
             modelBuilder.Entity("Lexarbor.Database.Entities.AudioInvalidationEntity", b =>
                 {
                     b.Property<string>("AssetId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("asset_id");
+                        .HasColumnType("text")
+                        .HasColumnName("asset_id")
+                        .UseCollation("C");
 
                     b.Property<int>("Attempts")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("integer")
                         .HasColumnName("attempts");
 
                     b.Property<long>("AuthorizationEpoch")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("authorization_epoch");
 
                     b.Property<string>("Bucket")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("bucket");
+                        .HasColumnType("text")
+                        .HasColumnName("bucket")
+                        .UseCollation("C");
 
                     b.Property<long>("CreatedAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("created_at_unix_ms");
 
                     b.Property<long?>("DeleteStartedAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("delete_started_at_unix_ms");
 
                     b.Property<string>("ErrorCode")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("error_code");
+                        .HasColumnType("text")
+                        .HasColumnName("error_code")
+                        .UseCollation("C");
 
                     b.Property<long?>("LeaseExpiresAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("lease_expires_at_unix_ms");
 
                     b.Property<long>("LeaseFence")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("lease_fence");
 
                     b.Property<string>("LeaseOwner")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("lease_owner");
+                        .HasColumnType("text")
+                        .HasColumnName("lease_owner")
+                        .UseCollation("C");
 
                     b.Property<string>("Locale")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("locale");
+                        .HasColumnType("text")
+                        .HasColumnName("locale")
+                        .UseCollation("C");
 
                     b.Property<string>("MeaningId")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("meaning_id");
+                        .HasColumnType("text")
+                        .HasColumnName("meaning_id")
+                        .UseCollation("C");
 
                     b.Property<long>("NextAttemptAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("next_attempt_at_unix_ms");
 
                     b.Property<string>("ObjectKey")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("object_key");
+                        .HasColumnType("text")
+                        .HasColumnName("object_key")
+                        .UseCollation("C");
 
                     b.Property<long?>("ObservedAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("observed_at_unix_ms");
 
                     b.Property<string>("Reason")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("reason");
+                        .HasColumnType("text")
+                        .HasColumnName("reason")
+                        .UseCollation("C");
 
                     b.Property<string>("State")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("state");
+                        .HasColumnType("text")
+                        .HasColumnName("state")
+                        .UseCollation("C");
 
                     b.Property<long>("UpdatedAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("updated_at_unix_ms");
 
                     b.Property<string>("WordId")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("word_id");
+                        .HasColumnType("text")
+                        .HasColumnName("word_id")
+                        .UseCollation("C");
 
                     b.HasKey("AssetId");
 
@@ -303,132 +335,150 @@ namespace Lexarbor.Database.Migrations
             modelBuilder.Entity("Lexarbor.Database.Entities.AudioUploadOperationEntity", b =>
                 {
                     b.Property<string>("IdempotencyKey")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("idempotency_key");
+                        .HasColumnType("text")
+                        .HasColumnName("idempotency_key")
+                        .UseCollation("C");
 
                     b.Property<string>("AssetId")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("asset_id");
+                        .HasColumnType("text")
+                        .HasColumnName("asset_id")
+                        .UseCollation("C");
 
                     b.Property<int>("CleanupAttempts")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("integer")
                         .HasColumnName("cleanup_attempts");
 
                     b.Property<string>("CleanupLastErrorCode")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("cleanup_last_error_code");
+                        .HasColumnType("text")
+                        .HasColumnName("cleanup_last_error_code")
+                        .UseCollation("C");
 
                     b.Property<long?>("CleanupLeaseExpiresAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("cleanup_lease_expires_at_unix_ms");
 
                     b.Property<long>("CleanupLeaseFence")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("cleanup_lease_fence");
 
                     b.Property<string>("CleanupLeaseOwner")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("cleanup_lease_owner");
+                        .HasColumnType("text")
+                        .HasColumnName("cleanup_lease_owner")
+                        .UseCollation("C");
 
                     b.Property<long?>("CleanupNextAttemptAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("cleanup_next_attempt_at_unix_ms");
 
                     b.Property<long?>("CleanupObservedAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("cleanup_observed_at_unix_ms");
 
                     b.Property<string>("CleanupReturnState")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("cleanup_return_state");
+                        .HasColumnType("text")
+                        .HasColumnName("cleanup_return_state")
+                        .UseCollation("C");
 
                     b.Property<long?>("CompletedAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("completed_at_unix_ms");
 
                     b.Property<long>("CreatedAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("created_at_unix_ms");
 
                     b.Property<string>("ExpectedAssetId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("expected_asset_id");
+                        .HasColumnType("text")
+                        .HasColumnName("expected_asset_id")
+                        .UseCollation("C");
 
                     b.Property<string>("Locale")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("locale");
+                        .HasColumnType("text")
+                        .HasColumnName("locale")
+                        .UseCollation("C");
 
                     b.Property<string>("MeaningId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("meaning_id");
+                        .HasColumnType("text")
+                        .HasColumnName("meaning_id")
+                        .UseCollation("C");
 
                     b.Property<long>("MeaningPhoneticEpoch")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasDefaultValue(0L)
                         .HasColumnName("meaning_phonetic_epoch");
 
                     b.Property<string>("Producer")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("producer");
+                        .HasColumnType("text")
+                        .HasColumnName("producer")
+                        .UseCollation("C");
 
                     b.Property<string>("ReceiptAssetId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("receipt_asset_id");
+                        .HasColumnType("text")
+                        .HasColumnName("receipt_asset_id")
+                        .UseCollation("C");
 
                     b.Property<string>("ReceiptErrorCode")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("receipt_error_code");
+                        .HasColumnType("text")
+                        .HasColumnName("receipt_error_code")
+                        .UseCollation("C");
 
                     b.Property<string>("ReceiptSourceRevision")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("receipt_source_revision");
+                        .HasColumnType("text")
+                        .HasColumnName("receipt_source_revision")
+                        .UseCollation("C");
 
                     b.Property<int?>("ReceiptStatusCode")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("integer")
                         .HasColumnName("receipt_status_code");
 
                     b.Property<string>("RequestFingerprint")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("request_fingerprint");
+                        .HasColumnType("text")
+                        .HasColumnName("request_fingerprint")
+                        .UseCollation("C");
 
                     b.Property<string>("SourceRevision")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("source_revision");
+                        .HasColumnType("text")
+                        .HasColumnName("source_revision")
+                        .UseCollation("C");
 
                     b.Property<string>("State")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("state");
+                        .HasColumnType("text")
+                        .HasColumnName("state")
+                        .UseCollation("C");
 
                     b.Property<long>("UpdatedAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("updated_at_unix_ms");
 
                     b.Property<long?>("UploadLeaseExpiresAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("upload_lease_expires_at_unix_ms");
 
                     b.Property<long>("UploadLeaseFence")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("upload_lease_fence");
 
                     b.Property<string>("UploadLeaseOwner")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("upload_lease_owner");
+                        .HasColumnType("text")
+                        .HasColumnName("upload_lease_owner")
+                        .UseCollation("C");
 
                     b.Property<string>("Voice")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("voice");
+                        .HasColumnType("text")
+                        .HasColumnName("voice")
+                        .UseCollation("C");
 
                     b.Property<string>("WordId")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("word_id");
+                        .HasColumnType("text")
+                        .HasColumnName("word_id")
+                        .UseCollation("C");
 
                     b.HasKey("IdempotencyKey");
 
@@ -447,15 +497,15 @@ namespace Lexarbor.Database.Migrations
 
                             t.HasCheckConstraint("CK_audio_upload_operation_fences", "upload_lease_fence >= 0 AND cleanup_lease_fence >= 0 AND cleanup_attempts >= 0");
 
-                            t.HasCheckConstraint("CK_audio_upload_operation_fingerprint", "length(request_fingerprint) = 64 AND request_fingerprint NOT GLOB '*[^0-9a-f]*'");
+                            t.HasCheckConstraint("CK_audio_upload_operation_fingerprint", "length(request_fingerprint) = 64 AND request_fingerprint !~ '[^0-9a-f]'");
 
-                            t.HasCheckConstraint("CK_audio_upload_operation_key", "length(idempotency_key) = 36 AND substr(idempotency_key, 9, 1) = '-' AND substr(idempotency_key, 14, 1) = '-' AND substr(idempotency_key, 19, 1) = '-' AND substr(idempotency_key, 24, 1) = '-' AND length(replace(idempotency_key, '-', '')) = 32 AND replace(idempotency_key, '-', '') NOT GLOB '*[^0-9a-f]*'");
+                            t.HasCheckConstraint("CK_audio_upload_operation_key", "length(idempotency_key) = 36 AND substr(idempotency_key, 9, 1) = '-' AND substr(idempotency_key, 14, 1) = '-' AND substr(idempotency_key, 19, 1) = '-' AND substr(idempotency_key, 24, 1) = '-' AND length(replace(idempotency_key, '-', '')) = 32 AND replace(idempotency_key, '-', '') !~ '[^0-9a-f]'");
 
                             t.HasCheckConstraint("CK_audio_upload_operation_locale", "locale IN ('en-GB', 'en-US')");
 
                             t.HasCheckConstraint("CK_audio_upload_operation_receipt", "(state IN ('Reserved', 'Transferring') AND receipt_status_code IS NULL AND receipt_asset_id IS NULL AND receipt_source_revision IS NULL AND receipt_error_code IS NULL AND completed_at_unix_ms IS NULL) OR (state = 'Succeeded' AND receipt_status_code IS NOT NULL AND receipt_status_code = 200 AND receipt_asset_id IS NOT NULL AND receipt_source_revision IS NOT NULL AND completed_at_unix_ms IS NOT NULL AND receipt_asset_id = asset_id AND receipt_source_revision = source_revision AND receipt_error_code IS NULL) OR (state IN ('Abandoned', 'CleanupClaimed', 'CleanupObserved') AND receipt_status_code IS NOT NULL AND receipt_status_code IN (404, 409, 503) AND receipt_asset_id IS NULL AND receipt_source_revision IS NULL AND completed_at_unix_ms IS NOT NULL AND receipt_error_code IS NOT NULL)");
 
-                            t.HasCheckConstraint("CK_audio_upload_operation_revision", "length(source_revision) = 64 AND source_revision NOT GLOB '*[^0-9a-f]*'");
+                            t.HasCheckConstraint("CK_audio_upload_operation_revision", "length(source_revision) = 64 AND source_revision !~ '[^0-9a-f]'");
 
                             t.HasCheckConstraint("CK_audio_upload_operation_state", "state IN ('Reserved', 'Transferring', 'Succeeded', 'Abandoned', 'CleanupClaimed', 'CleanupObserved')");
 
@@ -468,34 +518,37 @@ namespace Lexarbor.Database.Migrations
             modelBuilder.Entity("Lexarbor.Database.Entities.BusinessApiKeyEntity", b =>
                 {
                     b.Property<string>("Id")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("id");
+                        .HasColumnType("text")
+                        .HasColumnName("id")
+                        .UseCollation("C");
 
                     b.Property<string>("CallerId")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("caller_id");
+                        .HasColumnType("text")
+                        .HasColumnName("caller_id")
+                        .UseCollation("C");
 
                     b.Property<bool>("Catalog")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("boolean")
                         .HasColumnName("catalog");
 
                     b.Property<long>("CreatedAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("created_at_unix_ms");
 
                     b.Property<bool>("MeaningSubmissions")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("boolean")
                         .HasColumnName("meaning_submissions");
 
                     b.Property<long?>("RevokedAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("revoked_at_unix_ms");
 
                     b.Property<string>("SecretHash")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("secret_hash");
+                        .HasColumnType("text")
+                        .HasColumnName("secret_hash")
+                        .UseCollation("C");
 
                     b.HasKey("Id");
 
@@ -506,9 +559,9 @@ namespace Lexarbor.Database.Migrations
                         {
                             t.HasCheckConstraint("CK_business_api_key_caller", "length(caller_id) BETWEEN 1 AND 2048");
 
-                            t.HasCheckConstraint("CK_business_api_key_hash", "length(secret_hash) = 64 AND secret_hash NOT GLOB '*[^0-9a-f]*'");
+                            t.HasCheckConstraint("CK_business_api_key_hash", "length(secret_hash) = 64 AND secret_hash !~ '[^0-9a-f]'");
 
-                            t.HasCheckConstraint("CK_business_api_key_scopes", "catalog IN (0, 1) AND meaning_submissions IN (0, 1) AND (catalog = 1 OR meaning_submissions = 1)");
+                            t.HasCheckConstraint("CK_business_api_key_scopes", "catalog OR meaning_submissions");
 
                             t.HasCheckConstraint("CK_business_api_key_times", "created_at_unix_ms >= 0 AND (revoked_at_unix_ms IS NULL OR revoked_at_unix_ms >= created_at_unix_ms)");
                         });
@@ -517,43 +570,49 @@ namespace Lexarbor.Database.Migrations
             modelBuilder.Entity("Lexarbor.Database.Entities.EnrichmentCallEntity", b =>
                 {
                     b.Property<string>("Id")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("id");
+                        .HasColumnType("text")
+                        .HasColumnName("id")
+                        .UseCollation("C");
 
                     b.Property<string>("ErrorCode")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("error_code");
+                        .HasColumnType("text")
+                        .HasColumnName("error_code")
+                        .UseCollation("C");
 
                     b.Property<long?>("FinishedAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("finished_at_unix_ms");
 
                     b.Property<string>("Result")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("result");
+                        .HasColumnType("text")
+                        .HasColumnName("result")
+                        .UseCollation("C");
 
                     b.Property<int>("Round")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("integer")
                         .HasColumnName("round");
 
                     b.Property<string>("Service")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("service");
+                        .HasColumnType("text")
+                        .HasColumnName("service")
+                        .UseCollation("C");
 
                     b.Property<long>("StartedAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("started_at_unix_ms");
 
                     b.Property<string>("TargetId")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("target_id");
+                        .HasColumnType("text")
+                        .HasColumnName("target_id")
+                        .UseCollation("C");
 
                     b.Property<string>("UploadIdempotencyKey")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("upload_idempotency_key");
+                        .HasColumnType("text")
+                        .HasColumnName("upload_idempotency_key")
+                        .UseCollation("C");
 
                     b.HasKey("Id");
 
@@ -582,12 +641,14 @@ namespace Lexarbor.Database.Migrations
             modelBuilder.Entity("Lexarbor.Database.Entities.EnrichmentDestinationEntity", b =>
                 {
                     b.Property<string>("Id")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("id");
+                        .HasColumnType("text")
+                        .HasColumnName("id")
+                        .UseCollation("C");
 
                     b.Property<string>("BookId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("book_id");
+                        .HasColumnType("text")
+                        .HasColumnName("book_id")
+                        .UseCollation("C");
 
                     b.HasKey("Id");
 
@@ -599,30 +660,33 @@ namespace Lexarbor.Database.Migrations
             modelBuilder.Entity("Lexarbor.Database.Entities.EnrichmentDiscoveryEntity", b =>
                 {
                     b.Property<string>("Id")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("id");
+                        .HasColumnType("text")
+                        .HasColumnName("id")
+                        .UseCollation("C");
 
                     b.Property<string>("Cursor")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("cursor");
+                        .HasColumnType("text")
+                        .HasColumnName("cursor")
+                        .UseCollation("C");
 
                     b.Property<bool>("InitialCompleted")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("boolean")
                         .HasColumnName("initial_completed");
 
                     b.Property<int>("InitialScanned")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("integer")
                         .HasColumnName("initial_scanned");
 
                     b.Property<int>("InitialTotal")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("integer")
                         .HasColumnName("initial_total");
 
                     b.Property<string>("UpperBound")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("upper_bound");
+                        .HasColumnType("text")
+                        .HasColumnName("upper_bound")
+                        .UseCollation("C");
 
                     b.HasKey("Id");
 
@@ -632,13 +696,15 @@ namespace Lexarbor.Database.Migrations
             modelBuilder.Entity("Lexarbor.Database.Entities.EnrichmentGeneratedWordEntity", b =>
                 {
                     b.Property<string>("WordId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("word_id");
+                        .HasColumnType("text")
+                        .HasColumnName("word_id")
+                        .UseCollation("C");
 
                     b.Property<string>("TaskId")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("task_id");
+                        .HasColumnType("text")
+                        .HasColumnName("task_id")
+                        .UseCollation("C");
 
                     b.HasKey("WordId");
 
@@ -648,36 +714,41 @@ namespace Lexarbor.Database.Migrations
             modelBuilder.Entity("Lexarbor.Database.Entities.EnrichmentRecoveryEntity", b =>
                 {
                     b.Property<string>("Id")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("id");
+                        .HasColumnType("text")
+                        .HasColumnName("id")
+                        .UseCollation("C");
 
                     b.Property<string>("ConfigurationVersion")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("configuration_version");
+                        .HasColumnType("text")
+                        .HasColumnName("configuration_version")
+                        .UseCollation("C");
 
                     b.Property<long>("CreatedAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("created_at_unix_ms");
 
                     b.Property<string>("InputRevision")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("input_revision");
+                        .HasColumnType("text")
+                        .HasColumnName("input_revision")
+                        .UseCollation("C");
 
                     b.Property<string>("Reason")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("reason");
+                        .HasColumnType("text")
+                        .HasColumnName("reason")
+                        .UseCollation("C");
 
                     b.Property<int>("SourceRound")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("integer")
                         .HasColumnName("source_round");
 
                     b.Property<string>("TargetId")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("target_id");
+                        .HasColumnType("text")
+                        .HasColumnName("target_id")
+                        .UseCollation("C");
 
                     b.HasKey("Id");
 
@@ -690,100 +761,112 @@ namespace Lexarbor.Database.Migrations
             modelBuilder.Entity("Lexarbor.Database.Entities.EnrichmentRoundEntity", b =>
                 {
                     b.Property<string>("TargetId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("target_id");
+                        .HasColumnType("text")
+                        .HasColumnName("target_id")
+                        .UseCollation("C");
 
                     b.Property<int>("Number")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("integer")
                         .HasColumnName("number");
 
                     b.Property<string>("ConfigurationVersion")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("configuration_version");
+                        .HasColumnType("text")
+                        .HasColumnName("configuration_version")
+                        .UseCollation("C");
 
                     b.Property<int>("ConsumedFailures")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("integer")
                         .HasColumnName("consumed_failures");
 
                     b.Property<long>("CreatedAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("created_at_unix_ms");
 
                     b.Property<string>("ErrorCode")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("error_code");
+                        .HasColumnType("text")
+                        .HasColumnName("error_code")
+                        .UseCollation("C");
 
                     b.Property<int>("FailureBudget")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("integer")
                         .HasColumnName("failure_budget");
 
                     b.Property<bool>("FieldsNotRequired")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("boolean")
                         .HasColumnName("fields_not_required");
 
                     b.Property<bool>("ForceSingle")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("boolean")
                         .HasColumnName("force_single");
 
                     b.Property<string>("InputRevision")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("input_revision");
+                        .HasColumnType("text")
+                        .HasColumnName("input_revision")
+                        .UseCollation("C");
 
                     b.Property<long?>("LeaseExpiresAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("lease_expires_at_unix_ms");
 
                     b.Property<long>("LeaseFence")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("lease_fence");
 
                     b.Property<string>("LeaseOwner")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("lease_owner");
+                        .HasColumnType("text")
+                        .HasColumnName("lease_owner")
+                        .UseCollation("C");
 
                     b.Property<long?>("NextAttemptAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("next_attempt_at_unix_ms");
 
                     b.Property<string>("OwnAssetId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("own_asset_id");
+                        .HasColumnType("text")
+                        .HasColumnName("own_asset_id")
+                        .UseCollation("C");
 
                     b.Property<string>("PlanJson")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("plan_json");
+                        .HasColumnType("text")
+                        .HasColumnName("plan_json")
+                        .UseCollation("C");
 
                     b.Property<string>("RecoveryId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("recovery_id");
+                        .HasColumnType("text")
+                        .HasColumnName("recovery_id")
+                        .UseCollation("C");
 
                     b.Property<int>("RequestCount")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("integer")
                         .HasColumnName("request_count");
 
                     b.Property<string>("RetryKey")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("retry_key");
+                        .HasColumnType("text")
+                        .HasColumnName("retry_key")
+                        .UseCollation("C");
 
                     b.Property<string>("SourceRevision")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("source_revision");
+                        .HasColumnType("text")
+                        .HasColumnName("source_revision")
+                        .UseCollation("C");
 
                     b.Property<string>("State")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("state");
+                        .HasColumnType("text")
+                        .HasColumnName("state")
+                        .UseCollation("C");
 
                     b.Property<long>("UpdatedAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("updated_at_unix_ms");
 
                     b.Property<string>("WaitReason")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("wait_reason");
+                        .HasColumnType("text")
+                        .HasColumnName("wait_reason")
+                        .UseCollation("C");
 
                     b.HasKey("TargetId", "Number");
 
@@ -799,7 +882,7 @@ namespace Lexarbor.Database.Migrations
 
                             t.HasCheckConstraint("CK_enrichment_round_counts", "failure_budget BETWEEN 1 AND 20 AND consumed_failures BETWEEN 0 AND failure_budget AND request_count >= consumed_failures AND lease_fence >= 0");
 
-                            t.HasCheckConstraint("CK_enrichment_round_input", "length(input_revision) = 64 AND input_revision NOT GLOB '*[^0-9a-f]*' AND length(source_revision) = 64 AND source_revision NOT GLOB '*[^0-9a-f]*'");
+                            t.HasCheckConstraint("CK_enrichment_round_input", "length(input_revision) = 64 AND input_revision !~ '[^0-9a-f]' AND length(source_revision) = 64 AND source_revision !~ '[^0-9a-f]'");
 
                             t.HasCheckConstraint("CK_enrichment_round_lease", "(state = 'Running' AND lease_owner IS NOT NULL AND lease_fence > 0 AND lease_expires_at_unix_ms IS NOT NULL) OR (state != 'Running' AND lease_owner IS NULL AND lease_expires_at_unix_ms IS NULL)");
 
@@ -816,44 +899,47 @@ namespace Lexarbor.Database.Migrations
             modelBuilder.Entity("Lexarbor.Database.Entities.EnrichmentServiceEntity", b =>
                 {
                     b.Property<string>("Id")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("id");
+                        .HasColumnType("text")
+                        .HasColumnName("id")
+                        .UseCollation("C");
 
                     b.Property<bool>("Blocked")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("boolean")
                         .HasColumnName("blocked");
 
                     b.Property<string>("ConfigurationVersion")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("configuration_version");
+                        .HasColumnType("text")
+                        .HasColumnName("configuration_version")
+                        .UseCollation("C");
 
                     b.Property<int>("ConsecutiveFailures")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("integer")
                         .HasColumnName("consecutive_failures");
 
                     b.Property<long?>("LeaseExpiresAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("lease_expires_at_unix_ms");
 
                     b.Property<string>("LeaseId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("lease_id");
+                        .HasColumnType("text")
+                        .HasColumnName("lease_id")
+                        .UseCollation("C");
 
                     b.Property<long>("NextAttemptAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("next_attempt_at_unix_ms");
 
                     b.Property<int>("PauseSeconds")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("integer")
                         .HasColumnName("pause_seconds");
 
                     b.Property<bool>("Paused")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("boolean")
                         .HasColumnName("paused");
 
                     b.Property<int>("ThrottleSeconds")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("integer")
                         .HasColumnName("throttle_seconds");
 
                     b.HasKey("Id");
@@ -869,22 +955,25 @@ namespace Lexarbor.Database.Migrations
             modelBuilder.Entity("Lexarbor.Database.Entities.EnrichmentServiceLeaseEntity", b =>
                 {
                     b.Property<string>("Id")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("id");
+                        .HasColumnType("text")
+                        .HasColumnName("id")
+                        .UseCollation("C");
 
                     b.Property<string>("ConfigurationVersion")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("configuration_version");
+                        .HasColumnType("text")
+                        .HasColumnName("configuration_version")
+                        .UseCollation("C");
 
                     b.Property<long>("ExpiresAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("expires_at_unix_ms");
 
                     b.Property<string>("ServiceId")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("service_id");
+                        .HasColumnType("text")
+                        .HasColumnName("service_id")
+                        .UseCollation("C");
 
                     b.HasKey("Id");
 
@@ -896,29 +985,32 @@ namespace Lexarbor.Database.Migrations
             modelBuilder.Entity("Lexarbor.Database.Entities.EnrichmentServiceProbeEntity", b =>
                 {
                     b.Property<string>("Id")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("id");
+                        .HasColumnType("text")
+                        .HasColumnName("id")
+                        .UseCollation("C");
 
                     b.Property<long?>("FinishedAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("finished_at_unix_ms");
 
                     b.Property<bool>("RequestMade")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("boolean")
                         .HasColumnName("request_made");
 
                     b.Property<string>("Result")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("result");
+                        .HasColumnType("text")
+                        .HasColumnName("result")
+                        .UseCollation("C");
 
                     b.Property<string>("ServiceId")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("service_id");
+                        .HasColumnType("text")
+                        .HasColumnName("service_id")
+                        .UseCollation("C");
 
                     b.Property<long>("StartedAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("started_at_unix_ms");
 
                     b.HasKey("Id");
@@ -934,38 +1026,43 @@ namespace Lexarbor.Database.Migrations
             modelBuilder.Entity("Lexarbor.Database.Entities.EnrichmentTargetEntity", b =>
                 {
                     b.Property<string>("Id")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("id");
+                        .HasColumnType("text")
+                        .HasColumnName("id")
+                        .UseCollation("C");
 
                     b.Property<int>("CurrentRound")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("integer")
                         .HasColumnName("current_round");
 
                     b.Property<bool>("Deleted")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("boolean")
                         .HasColumnName("deleted");
 
                     b.Property<long>("Epoch")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("epoch");
 
                     b.Property<string>("Locale")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("locale");
+                        .HasColumnType("text")
+                        .HasColumnName("locale")
+                        .UseCollation("C");
 
                     b.Property<string>("MeaningId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("meaning_id");
+                        .HasColumnType("text")
+                        .HasColumnName("meaning_id")
+                        .UseCollation("C");
 
                     b.Property<string>("Step")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("step");
+                        .HasColumnType("text")
+                        .HasColumnName("step")
+                        .UseCollation("C");
 
                     b.Property<string>("WordId")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("word_id");
+                        .HasColumnType("text")
+                        .HasColumnName("word_id")
+                        .UseCollation("C");
 
                     b.HasKey("Id");
 
@@ -994,34 +1091,38 @@ namespace Lexarbor.Database.Migrations
             modelBuilder.Entity("Lexarbor.Database.Entities.EnrichmentWaitEntity", b =>
                 {
                     b.Property<string>("Id")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("id");
+                        .HasColumnType("text")
+                        .HasColumnName("id")
+                        .UseCollation("C");
 
                     b.Property<string>("ErrorCode")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("error_code");
+                        .HasColumnType("text")
+                        .HasColumnName("error_code")
+                        .UseCollation("C");
 
                     b.Property<long>("NextAttemptAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("next_attempt_at_unix_ms");
 
                     b.Property<string>("Reason")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("reason");
+                        .HasColumnType("text")
+                        .HasColumnName("reason")
+                        .UseCollation("C");
 
                     b.Property<long>("RecordedAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("recorded_at_unix_ms");
 
                     b.Property<int>("Round")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("integer")
                         .HasColumnName("round");
 
                     b.Property<string>("TargetId")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("target_id");
+                        .HasColumnType("text")
+                        .HasColumnName("target_id")
+                        .UseCollation("C");
 
                     b.HasKey("Id");
 
@@ -1038,21 +1139,24 @@ namespace Lexarbor.Database.Migrations
             modelBuilder.Entity("Lexarbor.Database.Entities.MeaningPhoneticEpochEntity", b =>
                 {
                     b.Property<string>("MeaningId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("meaning_id");
+                        .HasColumnType("text")
+                        .HasColumnName("meaning_id")
+                        .UseCollation("C");
 
                     b.Property<string>("Locale")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("locale");
+                        .HasColumnType("text")
+                        .HasColumnName("locale")
+                        .UseCollation("C");
 
                     b.Property<long>("Epoch")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("epoch");
 
                     b.Property<string>("WordId")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("word_id");
+                        .HasColumnType("text")
+                        .HasColumnName("word_id")
+                        .UseCollation("C");
 
                     b.HasKey("MeaningId", "Locale");
 
@@ -1067,56 +1171,66 @@ namespace Lexarbor.Database.Migrations
             modelBuilder.Entity("Lexarbor.Database.Entities.MeaningSubmissionAiReviewEntity", b =>
                 {
                     b.Property<string>("Id")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("id");
+                        .HasColumnType("text")
+                        .HasColumnName("id")
+                        .UseCollation("C");
 
                     b.Property<bool>("Applied")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("boolean")
                         .HasColumnName("applied");
 
                     b.Property<string>("AttemptId")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("attempt_id");
+                        .HasColumnType("text")
+                        .HasColumnName("attempt_id")
+                        .UseCollation("C");
 
                     b.Property<string>("Comment")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("comment");
+                        .HasColumnType("text")
+                        .HasColumnName("comment")
+                        .UseCollation("C");
 
                     b.Property<string>("Meaning")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("meaning");
+                        .HasColumnType("text")
+                        .HasColumnName("meaning")
+                        .UseCollation("C");
 
                     b.Property<string>("Model")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("model");
+                        .HasColumnType("text")
+                        .HasColumnName("model")
+                        .UseCollation("C");
 
                     b.Property<string>("PartOfSpeech")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("part_of_speech");
+                        .HasColumnType("text")
+                        .HasColumnName("part_of_speech")
+                        .UseCollation("C");
 
                     b.Property<string>("PhoneticUk")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("phonetic_uk");
+                        .HasColumnType("text")
+                        .HasColumnName("phonetic_uk")
+                        .UseCollation("C");
 
                     b.Property<string>("PhoneticUs")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("phonetic_us");
+                        .HasColumnType("text")
+                        .HasColumnName("phonetic_us")
+                        .UseCollation("C");
 
                     b.Property<long>("ReviewedAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("reviewed_at_unix_ms");
 
                     b.Property<string>("SubmissionId")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("submission_id");
+                        .HasColumnType("text")
+                        .HasColumnName("submission_id")
+                        .UseCollation("C");
 
                     b.Property<string>("Verdict")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("verdict");
+                        .HasColumnType("text")
+                        .HasColumnName("verdict")
+                        .UseCollation("C");
 
                     b.HasKey("Id");
 
@@ -1135,48 +1249,53 @@ namespace Lexarbor.Database.Migrations
                 {
                     b.Property<string>("SubmissionId")
                         .HasMaxLength(100)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("submission_id");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("submission_id")
+                        .UseCollation("C");
 
                     b.Property<string>("AttemptId")
                         .IsRequired()
                         .HasMaxLength(100)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("attempt_id");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("attempt_id")
+                        .UseCollation("C");
 
                     b.Property<int>("ConsecutiveFailures")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("integer")
                         .HasColumnName("consecutive_failures");
 
                     b.Property<long>("Epoch")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("epoch");
 
                     b.Property<long?>("LastFailureAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("last_failure_at_unix_ms");
 
                     b.Property<string>("LastFailureCode")
                         .HasMaxLength(40)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("last_failure_code");
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("last_failure_code")
+                        .UseCollation("C");
 
                     b.Property<long>("LeaseUntilUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("lease_until_unix_ms");
 
                     b.Property<long>("NextAttemptAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("next_attempt_at_unix_ms");
 
                     b.Property<string>("Owner")
                         .HasMaxLength(100)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("owner");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("owner")
+                        .UseCollation("C");
 
                     b.Property<string>("ValidatedReviewJson")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("validated_review_json");
+                        .HasColumnType("text")
+                        .HasColumnName("validated_review_json")
+                        .UseCollation("C");
 
                     b.HasKey("SubmissionId");
 
@@ -1188,104 +1307,122 @@ namespace Lexarbor.Database.Migrations
             modelBuilder.Entity("Lexarbor.Database.Entities.MeaningSubmissionEntity", b =>
                 {
                     b.Property<string>("Id")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("id");
+                        .HasColumnType("text")
+                        .HasColumnName("id")
+                        .UseCollation("C");
 
                     b.Property<string>("AiReviewVerdict")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("ai_review_verdict");
+                        .HasColumnType("text")
+                        .HasColumnName("ai_review_verdict")
+                        .UseCollation("C");
 
                     b.Property<long>("CreatedAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("created_at_unix_ms");
 
                     b.Property<string>("Example")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("example");
+                        .HasColumnType("text")
+                        .HasColumnName("example")
+                        .UseCollation("C");
 
                     b.Property<string>("Meaning")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("meaning");
+                        .HasColumnType("text")
+                        .HasColumnName("meaning")
+                        .UseCollation("C");
 
                     b.Property<string>("NormalizedMeaning")
                         .IsRequired()
                         .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("TEXT")
+                        .HasColumnType("text")
                         .HasColumnName("normalized_meaning")
-                        .HasComputedColumnSql("trim(meaning)", true);
+                        .HasComputedColumnSql("trim(meaning)", true)
+                        .UseCollation("C");
 
                     b.Property<string>("NormalizedPartOfSpeech")
                         .IsRequired()
                         .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("TEXT")
+                        .HasColumnType("text")
                         .HasColumnName("normalized_part_of_speech")
-                        .HasComputedColumnSql("lower(trim(coalesce(part_of_speech, '')))", true);
+                        .HasComputedColumnSql("translate(trim(coalesce(part_of_speech, '')), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')", true)
+                        .UseCollation("C");
 
                     b.Property<string>("NormalizedWord")
                         .IsRequired()
                         .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("TEXT")
+                        .HasColumnType("text")
                         .HasColumnName("normalized_word")
-                        .HasComputedColumnSql("lower(trim(word))", true);
+                        .HasComputedColumnSql("translate(trim(word), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')", true)
+                        .UseCollation("C");
 
                     b.Property<string>("PartOfSpeech")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("part_of_speech");
+                        .HasColumnType("text")
+                        .HasColumnName("part_of_speech")
+                        .UseCollation("C");
 
                     b.Property<string>("ResultBookId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("result_book_id");
+                        .HasColumnType("text")
+                        .HasColumnName("result_book_id")
+                        .UseCollation("C");
 
                     b.Property<string>("ResultMeaning")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("result_meaning");
+                        .HasColumnType("text")
+                        .HasColumnName("result_meaning")
+                        .UseCollation("C");
 
                     b.Property<string>("ResultMeaningId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("result_meaning_id");
+                        .HasColumnType("text")
+                        .HasColumnName("result_meaning_id")
+                        .UseCollation("C");
 
                     b.Property<string>("ResultPartOfSpeech")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("result_part_of_speech");
+                        .HasColumnType("text")
+                        .HasColumnName("result_part_of_speech")
+                        .UseCollation("C");
 
                     b.Property<string>("ResultWord")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("result_word");
+                        .HasColumnType("text")
+                        .HasColumnName("result_word")
+                        .UseCollation("C");
 
                     b.Property<string>("ResultWordId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("result_word_id");
+                        .HasColumnType("text")
+                        .HasColumnName("result_word_id")
+                        .UseCollation("C");
 
                     b.Property<string>("ReviewComment")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("review_comment");
+                        .HasColumnType("text")
+                        .HasColumnName("review_comment")
+                        .UseCollation("C");
 
                     b.Property<long?>("ReviewedAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("reviewed_at_unix_ms");
 
                     b.Property<string>("ReviewerKind")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("reviewer_kind");
+                        .HasColumnType("text")
+                        .HasColumnName("reviewer_kind")
+                        .UseCollation("C");
 
                     b.Property<string>("Source")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("source");
+                        .HasColumnType("text")
+                        .HasColumnName("source")
+                        .UseCollation("C");
 
                     b.Property<int>("Status")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("integer")
                         .HasColumnName("status");
 
                     b.Property<long>("UpdatedAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("updated_at_unix_ms");
 
                     b.Property<string>("Word")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("word");
+                        .HasColumnType("text")
+                        .HasColumnName("word")
+                        .UseCollation("C");
 
                     b.HasKey("Id");
 
@@ -1306,11 +1443,12 @@ namespace Lexarbor.Database.Migrations
             modelBuilder.Entity("Lexarbor.Database.Entities.MeaningSubmissionReviewCheckEntity", b =>
                 {
                     b.Property<string>("RecordId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("record_id");
+                        .HasColumnType("text")
+                        .HasColumnName("record_id")
+                        .UseCollation("C");
 
                     b.Property<long>("CheckedAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("checked_at_unix_ms");
 
                     b.HasKey("RecordId");
@@ -1321,32 +1459,38 @@ namespace Lexarbor.Database.Migrations
             modelBuilder.Entity("Lexarbor.Database.Entities.VocabularyAudioBindingEntity", b =>
                 {
                     b.Property<string>("Id")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("id");
+                        .HasColumnType("text")
+                        .HasColumnName("id")
+                        .UseCollation("C");
 
                     b.Property<string>("AssetId")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("asset_id");
+                        .HasColumnType("text")
+                        .HasColumnName("asset_id")
+                        .UseCollation("C");
 
                     b.Property<string>("Locale")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("locale");
+                        .HasColumnType("text")
+                        .HasColumnName("locale")
+                        .UseCollation("C");
 
                     b.Property<string>("MeaningId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("meaning_id");
+                        .HasColumnType("text")
+                        .HasColumnName("meaning_id")
+                        .UseCollation("C");
 
                     b.Property<string>("SourceRevision")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("source_revision");
+                        .HasColumnType("text")
+                        .HasColumnName("source_revision")
+                        .UseCollation("C");
 
                     b.Property<string>("WordId")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("word_id");
+                        .HasColumnType("text")
+                        .HasColumnName("word_id")
+                        .UseCollation("C");
 
                     b.HasKey("Id");
 
@@ -1366,59 +1510,67 @@ namespace Lexarbor.Database.Migrations
                         {
                             t.HasCheckConstraint("CK_vocabulary_audio_binding_locale", "locale IN ('en-GB', 'en-US')");
 
-                            t.HasCheckConstraint("CK_vocabulary_audio_binding_revision", "length(source_revision) = 64 AND source_revision NOT GLOB '*[^0-9a-f]*'");
+                            t.HasCheckConstraint("CK_vocabulary_audio_binding_revision", "length(source_revision) = 64 AND source_revision !~ '[^0-9a-f]'");
                         });
                 });
 
             modelBuilder.Entity("Lexarbor.Database.Entities.VocabularyBookEntity", b =>
                 {
                     b.Property<string>("Id")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("id");
+                        .HasColumnType("text")
+                        .HasColumnName("id")
+                        .UseCollation("C");
 
                     b.Property<string>("BookName")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("book_name");
+                        .HasColumnType("text")
+                        .HasColumnName("book_name")
+                        .UseCollation("C");
 
                     b.Property<string>("Category")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("category");
+                        .HasColumnType("text")
+                        .HasColumnName("category")
+                        .UseCollation("C");
 
                     b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT")
+                        .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
                     b.Property<string>("Description")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("description");
+                        .HasColumnType("text")
+                        .HasColumnName("description")
+                        .UseCollation("C");
 
                     b.Property<int>("DisplayOrder")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("integer")
                         .HasColumnName("display_order");
 
                     b.Property<string>("EducationLevel")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("education_level");
+                        .HasColumnType("text")
+                        .HasColumnName("education_level")
+                        .UseCollation("C");
 
                     b.Property<string>("Grade")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("grade");
+                        .HasColumnType("text")
+                        .HasColumnName("grade")
+                        .UseCollation("C");
 
                     b.Property<string>("IconUrl")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("icon_url");
+                        .HasColumnType("text")
+                        .HasColumnName("icon_url")
+                        .UseCollation("C");
 
                     b.Property<string>("Publisher")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("publisher");
+                        .HasColumnType("text")
+                        .HasColumnName("publisher")
+                        .UseCollation("C");
 
                     b.Property<bool>("Status")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("boolean")
                         .HasColumnName("status");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("TEXT")
+                        .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
 
                     b.HasKey("Id");
@@ -1429,28 +1581,31 @@ namespace Lexarbor.Database.Migrations
             modelBuilder.Entity("Lexarbor.Database.Entities.VocabularyBookUnitEntity", b =>
                 {
                     b.Property<string>("Id")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("id");
+                        .HasColumnType("text")
+                        .HasColumnName("id")
+                        .UseCollation("C");
 
                     b.Property<string>("BookId")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("book_id");
+                        .HasColumnType("text")
+                        .HasColumnName("book_id")
+                        .UseCollation("C");
 
                     b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT")
+                        .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
                     b.Property<int>("Number")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("integer")
                         .HasColumnName("number");
 
                     b.Property<string>("Title")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("title");
+                        .HasColumnType("text")
+                        .HasColumnName("title")
+                        .UseCollation("C");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("TEXT")
+                        .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
 
                     b.HasKey("Id");
@@ -1467,38 +1622,52 @@ namespace Lexarbor.Database.Migrations
             modelBuilder.Entity("Lexarbor.Database.Entities.VocabularyEntity", b =>
                 {
                     b.Property<string>("Id")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("id");
+                        .HasColumnType("text")
+                        .HasColumnName("id")
+                        .UseCollation("C");
 
                     b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT")
+                        .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
+
+                    b.Property<long>("InsertionOrder")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("insertion_order");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("InsertionOrder"));
 
                     b.Property<string>("NormalizedWord")
                         .IsRequired()
                         .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("TEXT")
+                        .HasColumnType("text")
                         .HasColumnName("normalized_word")
-                        .HasComputedColumnSql("lower(trim(word))", false);
+                        .HasComputedColumnSql("translate(trim(word), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')", true)
+                        .UseCollation("C");
 
                     b.Property<string>("PhoneticUk")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("phonetic_uk");
+                        .HasColumnType("text")
+                        .HasColumnName("phonetic_uk")
+                        .UseCollation("C");
 
                     b.Property<string>("PhoneticUs")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("phonetic_us");
+                        .HasColumnType("text")
+                        .HasColumnName("phonetic_us")
+                        .UseCollation("C");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("TEXT")
+                        .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
 
                     b.Property<string>("Word")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("word");
+                        .HasColumnType("text")
+                        .HasColumnName("word")
+                        .UseCollation("C");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("InsertionOrder");
 
                     b.HasIndex("NormalizedWord");
 
@@ -1511,63 +1680,82 @@ namespace Lexarbor.Database.Migrations
             modelBuilder.Entity("Lexarbor.Database.Entities.VocabularyMeaningEntity", b =>
                 {
                     b.Property<string>("Id")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("id");
+                        .HasColumnType("text")
+                        .HasColumnName("id")
+                        .UseCollation("C");
 
                     b.Property<string>("BookId")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("book_id");
+                        .HasColumnType("text")
+                        .HasColumnName("book_id")
+                        .UseCollation("C");
 
                     b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT")
+                        .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
                     b.Property<string>("Example")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("example");
+                        .HasColumnType("text")
+                        .HasColumnName("example")
+                        .UseCollation("C");
+
+                    b.Property<long>("InsertionOrder")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("insertion_order");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("InsertionOrder"));
 
                     b.Property<string>("Meaning")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("meaning");
+                        .HasColumnType("text")
+                        .HasColumnName("meaning")
+                        .UseCollation("C");
 
                     b.Property<string>("NormalizedMeaning")
                         .IsRequired()
                         .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("TEXT")
+                        .HasColumnType("text")
                         .HasColumnName("normalized_meaning")
-                        .HasComputedColumnSql("trim(meaning)", true);
+                        .HasComputedColumnSql("trim(meaning)", true)
+                        .UseCollation("C");
 
                     b.Property<string>("NormalizedPartOfSpeech")
                         .IsRequired()
                         .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("TEXT")
+                        .HasColumnType("text")
                         .HasColumnName("normalized_part_of_speech")
-                        .HasComputedColumnSql("lower(trim(coalesce(part_of_speech, '')))", true);
+                        .HasComputedColumnSql("translate(trim(coalesce(part_of_speech, '')), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')", true)
+                        .UseCollation("C");
 
                     b.Property<string>("PartOfSpeech")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("part_of_speech");
+                        .HasColumnType("text")
+                        .HasColumnName("part_of_speech")
+                        .UseCollation("C");
 
                     b.Property<string>("PhoneticUk")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("phonetic_uk");
+                        .HasColumnType("text")
+                        .HasColumnName("phonetic_uk")
+                        .UseCollation("C");
 
                     b.Property<string>("PhoneticUs")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("phonetic_us");
+                        .HasColumnType("text")
+                        .HasColumnName("phonetic_us")
+                        .UseCollation("C");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("TEXT")
+                        .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
 
                     b.Property<string>("VocabularyId")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("vocabulary_id");
+                        .HasColumnType("text")
+                        .HasColumnName("vocabulary_id")
+                        .UseCollation("C");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("InsertionOrder");
 
                     b.HasIndex("VocabularyId");
 
@@ -1588,27 +1776,32 @@ namespace Lexarbor.Database.Migrations
             modelBuilder.Entity("Lexarbor.Database.Entities.VocabularyMeaningUnitEntity", b =>
                 {
                     b.Property<string>("UnitId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("unit_id");
+                        .HasColumnType("text")
+                        .HasColumnName("unit_id")
+                        .UseCollation("C");
 
                     b.Property<string>("MeaningId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("meaning_id");
+                        .HasColumnType("text")
+                        .HasColumnName("meaning_id")
+                        .UseCollation("C");
 
                     b.Property<string>("Section")
-                        .HasColumnType("TEXT")
+                        .HasColumnType("text")
                         .HasDefaultValue("")
-                        .HasColumnName("section");
+                        .HasColumnName("section")
+                        .UseCollation("C");
 
                     b.Property<string>("EntryKind")
-                        .HasColumnType("TEXT")
+                        .HasColumnType("text")
                         .HasDefaultValue("")
-                        .HasColumnName("entry_kind");
+                        .HasColumnName("entry_kind")
+                        .UseCollation("C");
 
                     b.Property<string>("BookId")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("book_id");
+                        .HasColumnType("text")
+                        .HasColumnName("book_id")
+                        .UseCollation("C");
 
                     b.HasKey("UnitId", "MeaningId", "Section", "EntryKind");
 
@@ -1627,65 +1820,74 @@ namespace Lexarbor.Database.Migrations
             modelBuilder.Entity("Lexarbor.Database.Entities.VocabularyRelationEntity", b =>
                 {
                     b.Property<string>("Id")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("id");
+                        .HasColumnType("text")
+                        .HasColumnName("id")
+                        .UseCollation("C");
 
                     b.Property<long>("CreatedAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("created_at_unix_ms");
 
                     b.Property<long?>("LastConfirmedAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("last_confirmed_at_unix_ms");
 
                     b.Property<string>("OriginKind")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("origin_kind");
+                        .HasColumnType("text")
+                        .HasColumnName("origin_kind")
+                        .UseCollation("C");
 
                     b.Property<string>("OriginReference")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("origin_reference");
+                        .HasColumnType("text")
+                        .HasColumnName("origin_reference")
+                        .UseCollation("C");
 
                     b.Property<string>("ReviewReason")
-                        .HasColumnType("TEXT")
+                        .HasColumnType("text")
                         .HasDefaultValue("new_relation")
-                        .HasColumnName("review_reason");
+                        .HasColumnName("review_reason")
+                        .UseCollation("C");
 
                     b.Property<string>("SourceWordId")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("source_word_id");
+                        .HasColumnType("text")
+                        .HasColumnName("source_word_id")
+                        .UseCollation("C");
 
                     b.Property<string>("Status")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT")
+                        .HasColumnType("text")
                         .HasDefaultValue("needs_review")
-                        .HasColumnName("status");
+                        .HasColumnName("status")
+                        .UseCollation("C");
 
                     b.Property<string>("TargetWordId")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("target_word_id");
+                        .HasColumnType("text")
+                        .HasColumnName("target_word_id")
+                        .UseCollation("C");
 
                     b.Property<string>("Type")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("type");
+                        .HasColumnType("text")
+                        .HasColumnName("type")
+                        .UseCollation("C");
 
                     b.Property<long>("UpdatedAtUnixMs")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasColumnName("updated_at_unix_ms");
 
                     b.Property<string>("UsageNote")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("usage_note");
+                        .HasColumnType("text")
+                        .HasColumnName("usage_note")
+                        .UseCollation("C");
 
                     b.Property<long>("Version")
                         .IsConcurrencyToken()
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("bigint")
                         .HasDefaultValue(1L)
                         .HasColumnName("version");
 
@@ -1719,29 +1921,32 @@ namespace Lexarbor.Database.Migrations
 
                             t.HasCheckConstraint("CK_vocabulary_relation_status", "status IN ('confirmed', 'needs_review')");
 
-                            t.HasCheckConstraint("CK_vocabulary_relation_times", "typeof(created_at_unix_ms) = 'integer' AND created_at_unix_ms >= 0 AND typeof(updated_at_unix_ms) = 'integer' AND updated_at_unix_ms >= created_at_unix_ms AND (last_confirmed_at_unix_ms IS NULL OR (typeof(last_confirmed_at_unix_ms) = 'integer' AND last_confirmed_at_unix_ms >= created_at_unix_ms AND last_confirmed_at_unix_ms <= updated_at_unix_ms))");
+                            t.HasCheckConstraint("CK_vocabulary_relation_times", "created_at_unix_ms >= 0 AND updated_at_unix_ms >= created_at_unix_ms AND (last_confirmed_at_unix_ms IS NULL OR (last_confirmed_at_unix_ms >= created_at_unix_ms AND last_confirmed_at_unix_ms <= updated_at_unix_ms))");
 
                             t.HasCheckConstraint("CK_vocabulary_relation_type", "type IN ('past_tense', 'past_participle', 'ing_form', 'third_person_singular', 'plural', 'comparative', 'superlative', 'derived_noun', 'derived_verb', 'derived_adjective', 'derived_adverb')");
 
                             t.HasCheckConstraint("CK_vocabulary_relation_usage_note", "usage_note IS NULL OR (length(usage_note) BETWEEN 1 AND 2000 AND usage_note = trim(usage_note))");
 
-                            t.HasCheckConstraint("CK_vocabulary_relation_version", "typeof(version) = 'integer' AND version >= 1");
+                            t.HasCheckConstraint("CK_vocabulary_relation_version", "version >= 1");
                         });
                 });
 
             modelBuilder.Entity("Lexarbor.Database.Entities.VocabularyRelationMeaningEntity", b =>
                 {
                     b.Property<string>("RelationId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("relation_id");
+                        .HasColumnType("text")
+                        .HasColumnName("relation_id")
+                        .UseCollation("C");
 
                     b.Property<string>("SourceMeaningId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("source_meaning_id");
+                        .HasColumnType("text")
+                        .HasColumnName("source_meaning_id")
+                        .UseCollation("C");
 
                     b.Property<string>("TargetMeaningId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("target_meaning_id");
+                        .HasColumnType("text")
+                        .HasColumnName("target_meaning_id")
+                        .UseCollation("C");
 
                     b.HasKey("RelationId", "SourceMeaningId", "TargetMeaningId");
 
@@ -1756,18 +1961,21 @@ namespace Lexarbor.Database.Migrations
                 {
                     b.Property<string>("ServiceId")
                         .HasMaxLength(128)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("service_id");
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("service_id")
+                        .UseCollation("C");
 
                     b.Property<string>("KeyId")
                         .HasMaxLength(64)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("key_id");
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("key_id")
+                        .UseCollation("C");
 
                     b.Property<string>("EncryptedXml")
                         .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("encrypted_xml");
+                        .HasColumnType("text")
+                        .HasColumnName("encrypted_xml")
+                        .UseCollation("C");
 
                     b.HasKey("ServiceId", "KeyId");
 
@@ -1778,70 +1986,81 @@ namespace Lexarbor.Database.Migrations
                 {
                     b.Property<string>("Id")
                         .HasMaxLength(36)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("id");
+                        .HasColumnType("character varying(36)")
+                        .HasColumnName("id")
+                        .UseCollation("C");
 
                     b.Property<string>("Action")
                         .IsRequired()
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("action");
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("action")
+                        .UseCollation("C");
 
                     b.Property<string>("ClientIp")
                         .HasMaxLength(64)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("client_ip");
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("client_ip")
+                        .UseCollation("C");
 
                     b.Property<string>("CorrelationId")
                         .HasMaxLength(128)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("correlation_id");
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("correlation_id")
+                        .UseCollation("C");
 
                     b.Property<string>("MetadataJson")
                         .HasMaxLength(262144)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("metadata_json");
+                        .HasColumnType("character varying(262144)")
+                        .HasColumnName("metadata_json")
+                        .UseCollation("C");
 
                     b.Property<DateTime>("OccurredAtUtc")
-                        .HasColumnType("TEXT")
+                        .HasColumnType("timestamp with time zone")
                         .HasColumnName("occurred_at_utc");
 
                     b.Property<string>("OperatorDisplayName")
                         .HasMaxLength(256)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("operator_display_name");
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("operator_display_name")
+                        .UseCollation("C");
 
                     b.Property<string>("OperatorId")
                         .HasMaxLength(256)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("operator_id");
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("operator_id")
+                        .UseCollation("C");
 
                     b.Property<string>("OperatorSource")
                         .IsRequired()
                         .HasMaxLength(100)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("operator_source");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("operator_source")
+                        .UseCollation("C");
 
                     b.Property<int>("Outcome")
-                        .HasColumnType("INTEGER")
+                        .HasColumnType("integer")
                         .HasColumnName("outcome");
 
                     b.Property<string>("SecurityDescription")
                         .HasMaxLength(4000)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("security_description");
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("security_description")
+                        .UseCollation("C");
 
                     b.Property<string>("TargetId")
                         .IsRequired()
                         .HasMaxLength(256)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("target_id");
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("target_id")
+                        .UseCollation("C");
 
                     b.Property<string>("TargetType")
                         .IsRequired()
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("target_type");
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("target_type")
+                        .UseCollation("C");
 
                     b.HasKey("Id");
 

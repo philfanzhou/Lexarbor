@@ -209,12 +209,7 @@ public sealed class LearningQuestionServiceTests : TestBase
         }
     }
 
-    private async Task<long> Changes()
-    {
-        using var command = _dbContext.Database.GetDbConnection().CreateCommand();
-        command.CommandText = "SELECT total_changes()";
-        return Convert.ToInt64(await command.ExecuteScalarAsync(Ct));
-    }
+    private Task<long> Changes() => Lexarbor.Tests.Shared.PostgreSqlChangeCounter.ReadAsync(ConnectionString);
 
     private static T Probe<T>(T inner, Func<string, bool> forbidden) where T : class
     {

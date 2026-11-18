@@ -127,11 +127,32 @@ def verify_startup(output, expected, environment, log, token):
             stop(process)
 
 
+def start_database():
+    """A disposable PostgreSQL server for the published Hosts; the password is synthetic."""
+    name = f"lexarbor-build-identity-{os.getpid()}"
+    password = "synthetic-" + os.urandom(12).hex()
+    image = os.environ.get("LEXARBOR_TEST_POSTGRES_IMAGE", "postgres:16-alpine")
+    subprocess.run(["docker", "run", "--detach", "--name", name, "--publish", "127.0.0.1::5432",
+                    "--env", "POSTGRES_USER=lexarbor", "--env", f"POSTGRES_PASSWORD={password}",
+                    image], check=True, stdout=subprocess.DEVNULL)
+    deadline = time.monotonic() + 60
+    while subprocess.run(["docker", "exec", name, "pg_isready", "--username", "lexarbor", "--dbname", "postgres"],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0:
+        if time.monotonic() > deadline:
+            raise RuntimeError("The test PostgreSQL server did not start")
+        time.sleep(1)
+    port = subprocess.run(["docker", "port", name, "5432/tcp"], check=True, capture_output=True,
+                          text=True).stdout.splitlines()[0].rsplit(":", 1)[1]
+    return name, f"Host=127.0.0.1;Port={port};Username=lexarbor;Password={password}"
+
+
 def main():
     root = Path(tempfile.mkdtemp(prefix="lexarbor-build-identity-"))
     print(f"Build identity artifacts: {root}", flush=True)
     fixture_process = None
+    database_container = None
     try:
+        database_container, database_server = start_database()
         probe = root / "probe"
         probe.mkdir()
         (probe / "Probe.csproj").write_text(PROBE_PROJECT)
@@ -189,8 +210,12 @@ def main():
             settings.update({"Version": "8.8.8-config", "BuildRevision": "e" * 40,
                              "BuildChannel": "release" if channel != "release" else "edge"})
             settings_path.write_text(json.dumps(settings))
+            # Each row gets a database of its own: its fresh root key cannot read
+            # another row's key rows. The startup gate creates the database.
+            database = "lexarbor_identity_" + name.replace("-", "_")
             environment.update({"IdentityService__Authority": identity["issuer"],
-                "IdentityService__Issuer": identity["issuer"], "IdentityService__Audience": "lexarbor"})
+                "IdentityService__Issuer": identity["issuer"], "IdentityService__Audience": "lexarbor",
+                "ConnectionStrings__Default": f"{database_server};Database={database}"})
             verify_startup(output, expected, environment, row / "startup.log", identity["token"])
             print(f"PASS {name}: {json.dumps(expected)}; authorized HTTP and exact health envelope", flush=True)
     except BaseException:
@@ -202,6 +227,9 @@ def main():
     finally:
         if fixture_process is not None:
             stop(fixture_process)
+        if database_container is not None:
+            subprocess.run(["docker", "rm", "-f", "-v", database_container],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def interrupted(_signum, _frame):

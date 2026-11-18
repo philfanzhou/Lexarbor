@@ -4,7 +4,6 @@ using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 using Lexarbor.Domain.Services;
 using Mapster;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 namespace Lexarbor.Database.Repositories;
@@ -106,9 +105,9 @@ public sealed class VocabularyAdminQueryRepository(VocabularyDbContext context) 
                         select new { position, unit, meaning, word };
             if (!string.IsNullOrWhiteSpace(keyword))
             {
-                var pattern = SqliteSearchPattern.Contains(keyword);
-                query = query.Where(row => EF.Functions.Like(row.word.Word, pattern,
-                    SqliteSearchPattern.EscapeCharacter.ToString()));
+                var pattern = SearchPattern.Contains(keyword);
+                query = query.Where(row => EF.Functions.ILike(row.word.Word, pattern,
+                    SearchPattern.EscapeCharacter.ToString()));
             }
             var count = await query.CountAsync(cancellationToken);
             var rows = await query.OrderBy(row => row.unit.Number).ThenBy(row => row.position.Section)
@@ -152,8 +151,8 @@ public sealed class VocabularyAdminQueryRepository(VocabularyDbContext context) 
             query = query.Where(v => context.VocabularyMeanings.Any(m => m.BookId == bookId && m.VocabularyId == v.Id));
         if (!string.IsNullOrWhiteSpace(keyword))
         {
-            var pattern = SqliteSearchPattern.Contains(keyword);
-            query = query.Where(v => EF.Functions.Like(v.Word, pattern, SqliteSearchPattern.EscapeCharacter.ToString()));
+            var pattern = SearchPattern.Contains(keyword);
+            query = query.Where(v => EF.Functions.ILike(v.Word, pattern, SearchPattern.EscapeCharacter.ToString()));
         }
         var count = await query.CountAsync(cancellationToken);
         var words = await query.OrderBy(v => v.Word).ThenBy(v => v.Id).Skip((page - 1) * size).Take(size).ToListAsync(cancellationToken);
@@ -178,8 +177,8 @@ public sealed class VocabularyAdminQueryRepository(VocabularyDbContext context) 
                     && (entryKind == null || mu.EntryKind == entryKind))));
         if (!string.IsNullOrWhiteSpace(keyword))
         {
-            var pattern = SqliteSearchPattern.Contains(keyword);
-            query = query.Where(v => EF.Functions.Like(v.Word, pattern, SqliteSearchPattern.EscapeCharacter.ToString()));
+            var pattern = SearchPattern.Contains(keyword);
+            query = query.Where(v => EF.Functions.ILike(v.Word, pattern, SearchPattern.EscapeCharacter.ToString()));
         }
         var count = await query.CountAsync(cancellationToken);
         var words = await query.OrderBy(v => v.Word).ThenBy(v => v.Id).Skip((page - 1) * size).Take(size).ToListAsync(cancellationToken);
@@ -266,8 +265,7 @@ public sealed class VocabularyAdminQueryRepository(VocabularyDbContext context) 
         try
         {
             // BEGIN (deferred), not UnitOfWork's serialized BEGIN IMMEDIATE.
-            await using var transaction = ((SqliteConnection)context.Database.GetDbConnection()).BeginTransaction(deferred: true);
-            await using var enlisted = await context.Database.UseTransactionAsync(transaction, cancellationToken);
+            await using var transaction = await ReadSnapshot.BeginAsync(context, cancellationToken);
             var result = await read();
             await transaction.CommitAsync(cancellationToken);
             return result;

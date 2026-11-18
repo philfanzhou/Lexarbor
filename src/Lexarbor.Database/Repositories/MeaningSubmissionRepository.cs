@@ -172,7 +172,7 @@ public sealed class MeaningSubmissionRepository : IMeaningSubmissionRepository
                       SELECT 1
                       FROM vocabulary_meaning AS m
                       INNER JOIN vocabulary_book AS b ON b.id = m.book_id
-                      WHERE m.vocabulary_id = v.id AND b.status = 1)
+                      WHERE m.vocabulary_id = v.id AND b.status)
                   AND NOT EXISTS (
                       SELECT 1
                       FROM vocabulary_meaning AS same
@@ -204,11 +204,11 @@ public sealed class MeaningSubmissionRepository : IMeaningSubmissionRepository
                     FROM vocabulary_meaning AS m
                     INNER JOIN vocabulary_book AS b ON b.id = m.book_id
                     INNER JOIN vocabulary AS v ON v.id = m.vocabulary_id
-                    WHERE b.status = 1
+                    WHERE b.status
                       AND lower(trim(v.word)) <> {excludeNormalizedWord}
                       AND lower(trim(m.meaning)) <> {excludeNormalizedMeaning})
                 SELECT id, vocabulary_id, book_id, part_of_speech, phonetic_uk, phonetic_us, meaning,
-                       normalized_part_of_speech, normalized_meaning, example, created_at, updated_at
+                       normalized_part_of_speech, normalized_meaning, example, created_at, updated_at, insertion_order
                 FROM per_word
                 WHERE word_rank = 1
                 ORDER BY random()

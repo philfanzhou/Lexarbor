@@ -3,9 +3,9 @@ using Lexarbor.Database;
 using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Npgsql;
 using Xunit;
 
 namespace Lexarbor.Domain.Tests;
@@ -240,7 +240,6 @@ public sealed class EnrichmentTaskRepositoryTests
         Assert.False(await repo.CompleteAsync(guard, 4, Token)); Assert.Null(await repo.ClaimAsync(task.Id, "worker", 4, 100, Token));
         Assert.Equal(task.Id, (await EnsureAsync(repo, key, "corrected", 5)).Id);
         Assert.False(await new UnitOfWork(db).ExecuteInTransactionAsync(() => repo.ValidateInTransactionAsync(guard, 5, Token), Token));
-        Assert.Empty(await file.RowsAsync("PRAGMA foreign_key_check"));
     }
 
     [Fact]
@@ -281,8 +280,7 @@ public sealed class EnrichmentTaskRepositoryTests
         await using var differentContext = file.Open(); var wrongRepo = new EnrichmentTaskRepository(differentContext, new Clock());
         await Assert.ThrowsAsync<InvalidOperationException>(() => new UnitOfWork(db).ExecuteInTransactionAsync(() => wrongRepo.ValidateInTransactionAsync(current, 6, Token), Token));
         await differentContext.Database.OpenConnectionAsync(Token);
-        await using (var foreignTransaction = ((SqliteConnection)differentContext.Database.GetDbConnection()).BeginTransaction(deferred: true))
-        await using (await differentContext.Database.UseTransactionAsync(foreignTransaction, Token))
+        await using (await differentContext.Database.BeginTransactionAsync(Token))
             await Assert.ThrowsAsync<InvalidOperationException>(() => new UnitOfWork(db).ExecuteInTransactionAsync(() => wrongRepo.ValidateInTransactionAsync(current, 6, Token), Token));
         await differentContext.Database.CloseConnectionAsync();
         await db.Database.BeginTransactionAsync(Token);
@@ -321,7 +319,7 @@ public sealed class EnrichmentTaskRepositoryTests
         public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command, CommandEventData eventData,
             InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
         {
-            if (command.CommandText.StartsWith("INSERT INTO \"enrichment_target\"", StringComparison.Ordinal)) source.Cancel();
+            if (command.CommandText.StartsWith("INSERT INTO enrichment_target", StringComparison.Ordinal)) source.Cancel();
             return ValueTask.FromResult(result);
         }
     }

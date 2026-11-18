@@ -13,8 +13,7 @@ namespace Lexarbor.Domain.Tests;
 
 public sealed class MeaningSubmissionAiReviewTests : IDisposable
 {
-    private readonly string _root = Directory.CreateTempSubdirectory("lexarbor-review-").FullName;
-    private string DatabasePath => Path.Combine(_root, "review.db");
+    private readonly Lexarbor.Tests.Shared.PostgreSqlTestDatabase _database = new();
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
     private static readonly DateTimeOffset Reviewed = DateTimeOffset.FromUnixTimeMilliseconds(1793577000123);
     private static MeaningSubmissionAiReview Review(string id, string verdict = "accept", string? attempt = null) =>
@@ -58,8 +57,8 @@ public sealed class MeaningSubmissionAiReviewTests : IDisposable
         var record = await reopened.Submissions.GetReviewByAttemptIdAsync(saved.Review.AttemptId, Ct);
         Assert.Equal(saved, record);
         Assert.Equal("ai", (await reopened.Submissions.GetByIdAsync(id, Ct))!.ReviewerKind);
-        await Assert.ThrowsAsync<Microsoft.Data.Sqlite.SqliteException>(() => reopened.Db.Database.ExecuteSqlRawAsync("UPDATE meaning_submission_ai_review SET model='changed'", Ct));
-        await Assert.ThrowsAsync<Microsoft.Data.Sqlite.SqliteException>(() => reopened.Db.Database.ExecuteSqlRawAsync("DELETE FROM meaning_submission_ai_review", Ct));
+        await Assert.ThrowsAsync<Npgsql.PostgresException>(() => reopened.Db.Database.ExecuteSqlRawAsync("UPDATE meaning_submission_ai_review SET model='changed'", Ct));
+        await Assert.ThrowsAsync<Npgsql.PostgresException>(() => reopened.Db.Database.ExecuteSqlRawAsync("DELETE FROM meaning_submission_ai_review", Ct));
         var row = await reopened.Db.MeaningSubmissionAiReviews.SingleAsync(Ct);
         row.Comment = "cannot overwrite";
         await Assert.ThrowsAsync<InvalidOperationException>(() => reopened.Db.SaveChangesAsync(Ct));
@@ -183,8 +182,7 @@ public sealed class MeaningSubmissionAiReviewTests : IDisposable
 
     private async Task<Engine> Open(params IInterceptor[] interceptors)
     {
-        var db = new VocabularyDbContext(new DbContextOptionsBuilder<VocabularyDbContext>().UseSqlite($"Data Source={DatabasePath};Pooling=False").AddInterceptors(interceptors).Options);
-        await db.Database.MigrateAsync(Ct);
+        var db = _database.Open(interceptors);
         if (!await db.VocabularyBooks.AnyAsync(Ct)) { db.VocabularyBooks.Add(new() { Id = "book", BookName = "Fixture", Status = true }); await db.SaveChangesAsync(Ct); }
         return new(db);
     }
@@ -213,10 +211,10 @@ public sealed class MeaningSubmissionAiReviewTests : IDisposable
     {
         public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
         {
-            if (command.CommandText.StartsWith("INSERT INTO \"meaning_submission_ai_review\"", StringComparison.Ordinal))
+            if (command.CommandText.Contains("INSERT INTO meaning_submission_ai_review", StringComparison.Ordinal))
             { if (cancel != null) { cancel.Cancel(); cancellationToken.ThrowIfCancellationRequested(); } throw new InvalidOperationException("Synthetic record failure."); }
             return ValueTask.FromResult(result);
         }
     }
-    public void Dispose() => Directory.Delete(_root, true);
+    public void Dispose() => _database.Dispose();
 }

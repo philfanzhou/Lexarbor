@@ -3,12 +3,13 @@ using System.Net;
 using System.Text.Json;
 using Lexarbor.Database;
 using Lexarbor.Service.Tests.TestInfrastructure;
+using Lexarbor.Tests.Shared;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Npgsql;
 
 namespace Lexarbor.Service.Tests;
 
@@ -85,12 +86,14 @@ public class HealthEndpointTests
     [Fact]
     public async Task DisabledInitializationWithPendingMigrations_IsNotReady()
     {
+        await using var database = new Lexarbor.Tests.Shared.PostgreSqlTestDatabase(migrated: false);
         await using var factory = new VocabularyWebApplicationFactory(
             environment: "Testing",
             includeAppCredentials: true,
             extraConfiguration: new Dictionary<string, string?>
             {
-                ["Database:InitializeOnStartup"] = "false"
+                ["Database:InitializeOnStartup"] = "false",
+                ["ConnectionStrings:Default"] = database.ConnectionString
             });
         using var client = factory.CreateClient();
 
@@ -135,13 +138,11 @@ public class HealthEndpointTests
             InterceptionResult<DbDataReader> result,
             CancellationToken cancellationToken = default)
         {
-            // EF composes the raw probe SQL, so the exact stored text differs;
-            // match the probe's distinctive alias instead of exact equality.
             // EF composes the raw probe SQL, so the stored text differs from the
-            // literal; match the probe's distinctive alias.
-            if (command.CommandText.Contains("1 AS", StringComparison.Ordinal))
+            // literal; match the probe's distinctive select list.
+            if (command.CommandText.Contains("1::bigint AS", StringComparison.Ordinal))
             {
-                throw new SqliteException("synthetic-storage-secret", 1);
+                throw SyntheticStorageErrors.Failure("synthetic-storage-secret");
             }
 
             return ValueTask.FromResult(result);

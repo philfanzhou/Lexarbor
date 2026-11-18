@@ -17,7 +17,15 @@ FAILURE_CONTAINER="lexarbor-failure-${RUN_SUFFIX}"
 CODE_CONTAINER="lexarbor-code-${RUN_SUFFIX}"
 PROVIDER_FAILURE_CONTAINER="lexarbor-provider-failure-${RUN_SUFFIX}"
 NAMED_VOLUME="lexarbor-data-${RUN_SUFFIX}"
-TEST_ROOT="$(mktemp -d)"
+# The application and its database server share one disposable network; the
+# server is reachable only from it. The password is synthetic and exists for
+# this run only.
+NETWORK_NAME="lexarbor-ci-net-${RUN_SUFFIX}"
+POSTGRES_CONTAINER="lexarbor-ci-postgres-${RUN_SUFFIX}"
+POSTGRES_IMAGE="${LEXARBOR_TEST_POSTGRES_IMAGE:-postgres:16-alpine}"
+DB_PASSWORD="synthetic-db-$(od -An -N12 -tx1 /dev/urandom | tr -d ' \n')"
+COMPOSE_PROJECT="lexarbor-ci-$(printf '%s' "$RUN_SUFFIX" | tr -c 'a-z0-9-' '-')"
+TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/lexarbor-container.XXXXXX")"
 readonly KEY_REPOSITORY_DIAGNOSTIC='The Data Protection key repository is unavailable or invalid'
 
 cleanup() {
@@ -28,14 +36,59 @@ cleanup() {
     "$NAMED_CONTAINER" \
     "$FAILURE_CONTAINER" \
     "$CODE_CONTAINER" \
-    "$PROVIDER_FAILURE_CONTAINER" >/dev/null 2>&1 || true
+    "$PROVIDER_FAILURE_CONTAINER" \
+    "$POSTGRES_CONTAINER" >/dev/null 2>&1 || true
+  LEXARBOR_DB_PASSWORD="$DB_PASSWORD" docker compose -f scripts/compose.yaml -p "$COMPOSE_PROJECT" \
+    down --volumes --remove-orphans >/dev/null 2>&1 || true
   docker volume rm "$NAMED_VOLUME" >/dev/null 2>&1 || true
+  docker network rm "$NETWORK_NAME" >/dev/null 2>&1 || true
   case "$TEST_ROOT" in
-    /tmp/*) rm -rf -- "$TEST_ROOT" ;;
+    /tmp/*|"${TMPDIR:-/tmp}"/*) rm -rf -- "$TEST_ROOT" ;;
     *) echo "Refusing to remove unexpected temporary path: $TEST_ROOT" >&2 ;;
   esac
 }
 trap cleanup EXIT
+
+# --- PostgreSQL --------------------------------------------------------------
+
+start_database_server() {
+  docker network create "$NETWORK_NAME" >/dev/null
+  docker run --detach --name "$POSTGRES_CONTAINER" --network "$NETWORK_NAME" \
+    --env POSTGRES_USER=lexarbor --env POSTGRES_PASSWORD="$DB_PASSWORD" --env POSTGRES_DB=postgres \
+    "$POSTGRES_IMAGE" >/dev/null
+  for _ in $(seq 1 60); do
+    if docker exec "$POSTGRES_CONTAINER" pg_isready --username lexarbor --dbname postgres >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  docker logs "$POSTGRES_CONTAINER" >&2 || true
+  echo "The test PostgreSQL server did not start" >&2
+  return 1
+}
+
+# Runs SQL from stdin (or the given arguments) against one database and prints
+# unaligned rows. Only synthetic rows are ever read back.
+psql_db() {
+  local database="$1"
+  shift
+  docker exec -i "$POSTGRES_CONTAINER" psql --no-psqlrc --quiet --tuples-only --no-align \
+    --set ON_ERROR_STOP=1 --username lexarbor --dbname "$database" "$@"
+}
+
+create_database() {
+  docker exec "$POSTGRES_CONTAINER" createdb --username lexarbor "$1"
+}
+
+clone_database() {
+  docker exec "$POSTGRES_CONTAINER" createdb --username lexarbor --template "$1" "$2"
+}
+
+connection_string() {
+  printf 'Host=%s;Database=%s;Username=lexarbor;Password=%s' "$POSTGRES_CONTAINER" "$1" "$DB_PASSWORD"
+}
+
+# --- Container helpers --------------------------------------------------------
 
 wait_for_health() {
   local container_name="$1"
@@ -113,10 +166,13 @@ check_reported_version() {
 # fail, because the anonymous volume belongs to the image's user.
 start_container() {
   local container_name="$1"
-  shift
+  local database="$2"
+  shift 2
   docker run --detach \
     --name "$container_name" \
+    --network "$NETWORK_NAME" \
     --publish 127.0.0.1::5008 \
+    --env "ConnectionStrings__Default=$(connection_string "$database")" \
     --env APP_VERSION=9.9.9-runtime \
     --env APP_REVISION=ffffffffffffffffffffffffffffffffffffffff \
     --env APP_CHANNEL=edge \
@@ -129,11 +185,33 @@ start_container() {
 
 start_bind_mounted_container() {
   local container_name="$1"
-  local host_directory="$2"
-  shift 2
-  start_container "$container_name" \
+  local database="$2"
+  local host_directory="$3"
+  shift 3
+  start_container "$container_name" "$database" \
     --user "$(id -u):$(id -g)" \
     --volume "$host_directory:/app/data" "$@"
+}
+
+# Waits for a container that must refuse to start and leaves its log in the
+# given file.
+expect_startup_failure() {
+  local container_name="$1"
+  local log_file="$2"
+  for _ in $(seq 1 30); do
+    if [[ "$(docker inspect --format '{{.State.Running}}' "$container_name")" != "true" ]]; then
+      break
+    fi
+    sleep 1
+  done
+  if [[ "$(docker inspect --format '{{.State.Running}}' "$container_name")" != "false" ]]; then
+    echo "Container $container_name was still running: $(docker inspect --format '{{json .State}}' "$container_name")" >&2
+    docker logs --tail 20 "$container_name" >&2 || true
+  fi
+  test "$(docker inspect --format '{{.State.Running}}' "$container_name")" = false
+  test "$(docker inspect --format '{{.State.ExitCode}}' "$container_name")" != 0
+  docker logs "$container_name" >"$log_file" 2>&1
+  docker rm -f "$container_name" >/dev/null
 }
 
 check_runs_unprivileged() {
@@ -173,8 +251,8 @@ check_healthcheck_reports_healthy() {
   return 1
 }
 
-# The test database is provisioned offline with a random synthetic catalog key.
-# Send the header on stdin so the key never appears in process arguments or logs.
+# The catalog key is generated here and only its hash is stored. Send the
+# header on stdin so the key never appears in process arguments or logs.
 check_catalog_is_empty() {
   local container_name="$1"
   local mapped_port response unauthenticated
@@ -205,27 +283,24 @@ check_root_key_file() {
   '
 }
 
+# The image keeps no database: /app/data holds only the persistent
+# configuration and the root-key file.
+check_no_database_file() {
+  local container_name="$1"
+  docker exec "$container_name" sh -ec 'test -z "$(find /app/data -name "*.db*" -print -quit)"'
+}
+
 check_key_startup_rejected() {
-  local host_directory="$1"
-  local mount_options="${2:-rw}"
+  local database="$1"
+  local host_directory="$2"
   docker run --detach --name "$FAILURE_CONTAINER" \
+    --network "$NETWORK_NAME" \
+    --env "ConnectionStrings__Default=$(connection_string "$database")" \
     --user "$(id -u):$(id -g)" \
-    --volume "$host_directory:/app/data:$mount_options" \
+    --volume "$host_directory:/app/data" \
     "$IMAGE_NAME" >/dev/null
-  for _ in $(seq 1 30); do
-    if [[ "$(docker inspect --format '{{.State.Running}}' "$FAILURE_CONTAINER")" != "true" ]]; then
-      break
-    fi
-    sleep 1
-  done
-  if [[ "$(docker inspect --format '{{.State.Running}}' "$FAILURE_CONTAINER")" != "false" ]]; then
-    echo "Container $FAILURE_CONTAINER was still running: $(docker inspect --format '{{json .State}}' "$FAILURE_CONTAINER")" >&2
-    docker logs --tail 20 "$FAILURE_CONTAINER" >&2 || true
-  fi
-  test "$(docker inspect --format '{{.State.Running}}' "$FAILURE_CONTAINER")" = false
-  test "$(docker inspect --format '{{.State.ExitCode}}' "$FAILURE_CONTAINER")" != 0
-  docker logs "$FAILURE_CONTAINER" >"$TEST_ROOT/rejected.log" 2>&1
-  grep -q 'The Data Protection key repository is unavailable or invalid' "$TEST_ROOT/rejected.log"
+  expect_startup_failure "$FAILURE_CONTAINER" "$TEST_ROOT/rejected.log"
+  grep -q "$KEY_REPOSITORY_DIAGNOSTIC" "$TEST_ROOT/rejected.log"
   if grep -q 'synthetic-secret-marker' "$TEST_ROOT/rejected.log"; then
     echo "Key material appeared in startup diagnostics" >&2
     return 1
@@ -234,7 +309,6 @@ check_key_startup_rejected() {
     echo "The root-key file name appeared in startup diagnostics" >&2
     return 1
   fi
-  docker rm -f "$FAILURE_CONTAINER" >/dev/null
 }
 
 # The method probe was deleted with the password form: the route now answers
@@ -248,23 +322,62 @@ check_method_route_deleted() {
   jq --exit-status '. == {success:false,message:"Authentication is required."}' "$TEST_ROOT/method-body" >/dev/null
 }
 
+# Every row of the given tables, ordered by the first column.
+snapshot_tables() {
+  local database="$1"
+  shift
+  local table
+  for table in "$@"; do
+    printf '== %s\n' "$table"
+    psql_db "$database" --command "SELECT * FROM ${table} ORDER BY 1"
+  done
+}
+
 bash .github/scripts/test-start-configuration.sh
 
-echo "Checking startup without an explicit host mount"
-start_container "$UNMOUNTED_CONTAINER"
+start_database_server
+
+echo "Checking a missing connection string refuses startup"
+docker run --detach --name "$FAILURE_CONTAINER" "$IMAGE_NAME" >/dev/null
+expect_startup_failure "$FAILURE_CONTAINER" "$TEST_ROOT/missing-connection.log"
+grep -q 'ConnectionStrings:Default is required and must be a PostgreSQL connection string.' "$TEST_ROOT/missing-connection.log"
+
+echo "Checking a SQLite connection string refuses startup without echoing it"
+docker run --detach --name "$FAILURE_CONTAINER" \
+  --env 'ConnectionStrings__Default=Data Source=/app/data/synthetic-sensitive-marker.db' \
+  "$IMAGE_NAME" >/dev/null
+expect_startup_failure "$FAILURE_CONTAINER" "$TEST_ROOT/sqlite-connection.log"
+grep -q 'ConnectionStrings:Default is a SQLite connection string' "$TEST_ROOT/sqlite-connection.log"
+! grep -q 'synthetic-sensitive-marker' "$TEST_ROOT/sqlite-connection.log"
+
+echo "Checking an unreachable database refuses startup without echoing the connection string"
+docker run --detach --name "$FAILURE_CONTAINER" --network "$NETWORK_NAME" \
+  --env 'ConnectionStrings__Default=Host=lexarbor-no-such-host;Database=lexarbor;Username=lexarbor;Password=synthetic-sensitive-marker;Timeout=3' \
+  "$IMAGE_NAME" >/dev/null
+expect_startup_failure "$FAILURE_CONTAINER" "$TEST_ROOT/unreachable.log"
+grep -q 'The database startup migration was refused' "$TEST_ROOT/unreachable.log"
+! grep -q 'synthetic-sensitive-marker' "$TEST_ROOT/unreachable.log"
+! grep -q 'lexarbor-no-such-host' "$TEST_ROOT/unreachable.log"
+
+echo "Checking startup without an explicit host mount creates the database"
+start_container "$UNMOUNTED_CONTAINER" lexarbor_unmounted
 check_reported_version "$UNMOUNTED_CONTAINER"
 check_runs_unprivileged "$UNMOUNTED_CONTAINER"
 check_root_key_file "$UNMOUNTED_CONTAINER"
+check_no_database_file "$UNMOUNTED_CONTAINER"
 check_method_route_deleted "$UNMOUNTED_CONTAINER"
 check_healthcheck_reports_healthy "$UNMOUNTED_CONTAINER"
+test "$(psql_db lexarbor_unmounted --command 'SELECT count(*) FROM "__EFMigrationsHistory"')" -gt 0
 docker rm -f -v "$UNMOUNTED_CONTAINER" >/dev/null
 
 echo "Checking explicit Code mode with missing configuration fails safely"
-# The docker bridge network (172.16.0.0/12) is trusted for forwarded headers so
-# the logout smoke below can speak to the container the way production traffic
-# arrives: behind an SSL-terminating proxy. The official antiforgery boundary
-# added with B6 (CookieSecurePolicy.Always) rejects a plain-HTTP direct hit.
-start_container "$CODE_CONTAINER" --env AdminAuthentication__Provider=OidcCode \
+# The docker bridge networks (172.16.0.0/12) are trusted for forwarded headers
+# so the logout smoke below can speak to the container the way production
+# traffic arrives: behind an SSL-terminating proxy. The official antiforgery
+# boundary added with B6 (CookieSecurePolicy.Always) rejects a plain-HTTP
+# direct hit.
+create_database lexarbor_code
+start_container "$CODE_CONTAINER" lexarbor_code --env AdminAuthentication__Provider=OidcCode \
   --env Network__TrustedNetworks__0=172.16.0.0/12
 check_method_route_deleted "$CODE_CONTAINER"
 code_port="$(docker port "$CODE_CONTAINER" 5008/tcp | head -n 1 | awk -F: '{print $NF}')"
@@ -306,25 +419,20 @@ grep -qi '^Referrer-Policy: no-referrer' "$TEST_ROOT/code-return-headers"
 docker rm -f -v "$CODE_CONTAINER" >/dev/null
 
 echo "Checking a removed password provider value refuses startup"
+# A database of its own: another container's key rows would not match this
+# container's new root key, and the key check would fail first.
 docker run --detach --name "$PROVIDER_FAILURE_CONTAINER" \
+  --network "$NETWORK_NAME" \
+  --env "ConnectionStrings__Default=$(connection_string lexarbor_provider)" \
   --env AdminAuthentication__Provider=Oidc \
   "$IMAGE_NAME" >/dev/null
-for _ in $(seq 1 30); do
-  if [[ "$(docker inspect --format '{{.State.Running}}' "$PROVIDER_FAILURE_CONTAINER")" != "true" ]]; then
-    break
-  fi
-  sleep 1
-done
-test "$(docker inspect --format '{{.State.Running}}' "$PROVIDER_FAILURE_CONTAINER")" = false
-test "$(docker inspect --format '{{.State.ExitCode}}' "$PROVIDER_FAILURE_CONTAINER")" != 0
-docker logs "$PROVIDER_FAILURE_CONTAINER" >"$TEST_ROOT/provider-rejected.log" 2>&1
+expect_startup_failure "$PROVIDER_FAILURE_CONTAINER" "$TEST_ROOT/provider-rejected.log"
 grep -q 'AdminAuthentication:Provider' "$TEST_ROOT/provider-rejected.log"
 grep -q 'HostedLoginReleaseNotes' "$TEST_ROOT/provider-rejected.log"
-docker rm -f "$PROVIDER_FAILURE_CONTAINER" >/dev/null
 
 echo "Checking named-volume key storage as the image user"
 docker volume create "$NAMED_VOLUME" >/dev/null
-start_container "$NAMED_CONTAINER" --volume "$NAMED_VOLUME:/app/data"
+start_container "$NAMED_CONTAINER" lexarbor_named --volume "$NAMED_VOLUME:/app/data"
 check_runs_unprivileged "$NAMED_CONTAINER"
 check_root_key_file "$NAMED_CONTAINER"
 docker rm -f "$NAMED_CONTAINER" >/dev/null
@@ -334,13 +442,14 @@ mkdir -p "$fresh_data"
 chmod 700 "$fresh_data"
 
 echo "Checking first-start configuration and database creation"
-start_bind_mounted_container "$FRESH_CONTAINER" "$fresh_data"
+start_bind_mounted_container "$FRESH_CONTAINER" lexarbor_fresh "$fresh_data"
 check_runs_unprivileged "$FRESH_CONTAINER"
 check_root_key_file "$FRESH_CONTAINER"
+check_no_database_file "$FRESH_CONTAINER"
 test -s "$fresh_data/appsettings.json"
 test "$(docker exec "$FRESH_CONTAINER" stat -c '%a' /app/data/appsettings.json)" = 600
-test -s "$fresh_data/vocabulary.db"
 cmp --silent src/Lexarbor.Host/appsettings.json "$fresh_data/appsettings.json"
+! grep -q 'ConnectionStrings' "$fresh_data/appsettings.json"
 docker exec "$FRESH_CONTAINER" sh -c 'sha256sum /app/data/data-protection-root-key' >"$TEST_ROOT/original-key-hashes"
 
 echo "Checking new-container login limit defaults to disabled"
@@ -354,22 +463,13 @@ for _ in $(seq 1 11); do
   ! grep -qi '^Retry-After:' "$TEST_ROOT/rate-headers"
 done
 docker rm -f "$FRESH_CONTAINER" >/dev/null
-catalog_key="$(python3 - "$fresh_data/vocabulary.db" <<'PYKEY'
-import hashlib
-import secrets
-import sqlite3
-import sys
-import uuid
-
-key = "lxk_" + secrets.token_hex(32)
-with sqlite3.connect(sys.argv[1]) as connection:
-    connection.execute(
-        "INSERT INTO business_api_key (id,secret_hash,caller_id,catalog,meaning_submissions,created_at_unix_ms) VALUES (?,?,?,?,?,?)",
-        (str(uuid.uuid4()), hashlib.sha256(key.encode("ascii")).hexdigest(), "container-smoke", 1, 0, 1))
-print(key)
-PYKEY
-)"
-start_bind_mounted_container "$FRESH_CONTAINER" "$fresh_data"
+catalog_key="lxk_$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
+catalog_hash="$(printf '%s' "$catalog_key" | sha256sum | cut -d ' ' -f 1)"
+psql_db lexarbor_fresh <<SQL
+INSERT INTO business_api_key (id, secret_hash, caller_id, catalog, meaning_submissions, created_at_unix_ms)
+VALUES ('$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen | tr 'A-Z' 'a-z')', '${catalog_hash}', 'container-smoke', true, false, 1);
+SQL
+start_bind_mounted_container "$FRESH_CONTAINER" lexarbor_fresh "$fresh_data"
 check_catalog_is_empty "$FRESH_CONTAINER"
 docker rm -f "$FRESH_CONTAINER" >/dev/null
 
@@ -377,88 +477,91 @@ echo "Checking specific-audio edits and enrichment discovery/service state survi
 invalidation_data="$TEST_ROOT/audio-invalidation"
 mkdir -p "$invalidation_data"
 chmod 700 "$invalidation_data"
-cp "$fresh_data/appsettings.json" "$fresh_data/vocabulary.db" "$fresh_data/data-protection-root-key" "$invalidation_data/"
+cp "$fresh_data/appsettings.json" "$fresh_data/data-protection-root-key" "$invalidation_data/"
 cp "$invalidation_data/appsettings.json" "$TEST_ROOT/invalidation-settings-before.json"
-python3 - "$invalidation_data/vocabulary.db" "$TEST_ROOT/invalidation-before.json" <<'PYSQL'
-import json
-import sqlite3
-import sys
-
-with sqlite3.connect(sys.argv[1]) as connection:
-    connection.execute("PRAGMA foreign_keys=ON")
-    connection.execute("INSERT INTO vocabulary_book (id,book_name,display_order,status,created_at,updated_at) VALUES ('cleanup-book','Cleanup probe',0,1,'2026-01-01','2026-01-01')")
-    connection.execute("INSERT INTO vocabulary (id,word,created_at,updated_at) VALUES ('cleanup-word','Cleanup probe','2026-01-01','2026-01-01')")
-    connection.execute("INSERT INTO vocabulary_meaning (id,vocabulary_id,book_id,meaning,created_at,updated_at) VALUES ('cleanup-meaning','cleanup-word','cleanup-book','Synthetic cleanup meaning','2026-01-01','2026-01-01')")
-    for index, state in enumerate(('Waiting', 'Claimed', 'Observed'), 1):
-        asset = f'cleanup-{index}'
-        key = f'audio/{index:032x}.mp3'
-        connection.execute("INSERT INTO audio_asset VALUES (?,?,?, ?,128,'audio/mpeg',1,2)", (asset, 'test-audio', key, '0' * 64))
-        connection.execute("INSERT INTO vocabulary_audio_binding VALUES (?,'cleanup-word','cleanup-meaning','en-GB',?,?)", (asset, asset, '0' * 64))
-        connection.execute("INSERT INTO audio_upload_operation (idempotency_key,request_fingerprint,word_id,meaning_id,locale,source_revision,asset_id,state,created_at_unix_ms,updated_at_unix_ms,upload_lease_fence,receipt_status_code,receipt_asset_id,receipt_source_revision,completed_at_unix_ms,cleanup_lease_fence,cleanup_attempts) VALUES (?,?,'cleanup-word','cleanup-meaning','en-GB',?,?,'Succeeded',1,2,1,200,?,?,2,0,0)", (f'00000000-0000-0000-0000-{index:012x}', '0' * 64, '0' * 64, asset, asset, '0' * 64))
-        connection.execute("INSERT INTO audio_invalidation (asset_id,bucket,object_key,word_id,meaning_id,locale,authorization_epoch,reason,state,created_at_unix_ms,updated_at_unix_ms,lease_fence,attempts,next_attempt_at_unix_ms) VALUES (?,'test-audio',?,'cleanup-word','cleanup-meaning','en-GB',7,'specific_phonetic_changed','Waiting',3,3,0,0,4)", (asset, key))
-        connection.execute("DELETE FROM vocabulary_audio_binding WHERE asset_id=?", (asset,))
-        if state != 'Waiting':
-            connection.execute("UPDATE audio_invalidation SET state='Claimed',delete_started_at_unix_ms=4,updated_at_unix_ms=4,lease_owner='interrupted',lease_fence=2,lease_expires_at_unix_ms=5,attempts=6 WHERE asset_id=?", (asset,))
-        if state == 'Observed':
-            connection.execute("UPDATE audio_invalidation SET state='Observed',observed_at_unix_ms=5,updated_at_unix_ms=5,lease_owner=NULL,lease_expires_at_unix_ms=NULL,next_attempt_at_unix_ms=6 WHERE asset_id=?", (asset,))
-    connection.execute("UPDATE vocabulary_meaning SET phonetic_uk='edited-specific' WHERE id='cleanup-meaning'")
-    connection.execute("INSERT INTO meaning_phonetic_epoch (meaning_id,word_id,locale,epoch) VALUES ('cleanup-meaning','cleanup-word','en-GB',7)")
-    connection.execute("UPDATE audio_upload_operation SET meaning_phonetic_epoch=6")
-    for step in ('Prepare', 'Audio'):
-        target = f'edit-{step}'
-        connection.execute("INSERT INTO enrichment_target (id,word_id,meaning_id,locale,step,current_round,epoch,deleted) VALUES (?,'cleanup-word','cleanup-meaning','en-GB',?,1,7,0)", (target, step))
-        connection.execute("INSERT INTO enrichment_round (target_id,number,state,input_revision,source_revision,configuration_version,failure_budget,request_count,consumed_failures,lease_fence,created_at_unix_ms,updated_at_unix_ms) VALUES (?,1,'Pending',?,?,'persisted-edit-config',5,0,0,0,3,3)", (target, '0' * 64, '0' * 64))
-    # Synthetic persisted outcomes: this checks exact retention, not provider execution.
-    for target, step, state, requests, failures, reason in (
-        ('saved-prepare', 'Prepare', 'Succeeded', 1, 0, None),
-        ('throttled-audio', 'Audio', 'Waiting', 7, 0, 'Throttled'),
-        ('exhausted-audio', 'Audio', 'Failed', 5, 5, None)):
-        locale = 'en-US' if target != 'saved-prepare' else 'en-GB'
-        meaning = None if target != 'exhausted-audio' else 'cleanup-meaning'
-        connection.execute("INSERT INTO enrichment_target (id,word_id,meaning_id,locale,step,current_round,epoch,deleted) VALUES (?,'cleanup-word',?,?,?,1,1,0)", (target, meaning, locale, step))
-        plan = json.dumps({'SpokenText':'Cleanup probe','PronunciationHint':'Synthetic saved plan','Phonetic':None,'PartsOfSpeech':[],'InferredEntryKind':None,'Preparation':None})
-        connection.execute("INSERT INTO enrichment_round (target_id,number,state,input_revision,source_revision,configuration_version,failure_budget,request_count,consumed_failures,plan_json,wait_reason,next_attempt_at_unix_ms,lease_fence,created_at_unix_ms,updated_at_unix_ms) VALUES (?,1,?,?,?,'persisted-step-config',5,?,?,?,?,?,0,3,9)",
-            (target, state, '0' * 64, '0' * 64, requests, failures, plan, reason, 123456 if reason else None))
-        for index in range(requests):
-            result = 'Throttled' if reason else 'TransientFailure' if failures else 'Succeeded'
-            connection.execute("INSERT INTO enrichment_call (id,target_id,round,service,result,error_code,started_at_unix_ms,finished_at_unix_ms) VALUES (?,?,1,?,?,?,3,9)",
-                (f'{target}-{index}', target, 'text' if step == 'Prepare' else 'tts', result, 'tts.rate_limited' if reason else 'tts.service_unavailable' if failures else None))
-        if reason:
-            connection.execute("INSERT INTO enrichment_wait (id,target_id,round,reason,error_code,recorded_at_unix_ms,next_attempt_at_unix_ms) VALUES ('saved-wait',?,1,'Throttled','tts.rate_limited',9,123456)", (target,))
-    connection.execute("INSERT INTO enrichment_discovery (id,cursor,upper_bound) VALUES ('words','cleanup-word','retained-word'),('meanings','cleanup-meaning','retained-meaning')")
-    connection.execute("INSERT INTO enrichment_service (id,configuration_version,consecutive_failures,throttle_seconds,paused,blocked,pause_seconds,next_attempt_at_unix_ms,lease_id,lease_expires_at_unix_ms) VALUES ('synthetic-tts-service','synthetic-config',5,120,1,0,600,123456,'interrupted-probe',234567)")
-    connection.execute("INSERT INTO enrichment_service_probe (id,service_id,result,request_made,started_at_unix_ms) VALUES ('interrupted-probe','synthetic-tts-service','Started',1,12)")
-    snapshot = {table: connection.execute(f"SELECT * FROM {table} ORDER BY 1").fetchall() for table in ('audio_asset', 'audio_upload_operation', 'audio_invalidation', 'meaning_phonetic_epoch', 'enrichment_target', 'enrichment_round', 'enrichment_call', 'enrichment_wait', 'enrichment_discovery', 'enrichment_service', 'enrichment_service_probe')}
-    with open(sys.argv[2], 'w', encoding='utf-8') as output:
-        json.dump(snapshot, output)
-PYSQL
+clone_database lexarbor_fresh lexarbor_invalidation
+zero_hash="$(printf '0%.0s' $(seq 1 64))"
+plan_json='{"SpokenText":"Cleanup probe","PronunciationHint":"Synthetic saved plan","Phonetic":null,"PartsOfSpeech":[],"InferredEntryKind":null,"Preparation":null}'
+psql_db lexarbor_invalidation <<SQL
+INSERT INTO vocabulary_book (id, book_name, display_order, status, created_at, updated_at) VALUES ('cleanup-book', 'Cleanup probe', 0, true, '2026-01-01', '2026-01-01');
+INSERT INTO vocabulary (id, word, created_at, updated_at) VALUES ('cleanup-word', 'Cleanup probe', '2026-01-01', '2026-01-01');
+INSERT INTO vocabulary_meaning (id, vocabulary_id, book_id, meaning, created_at, updated_at) VALUES ('cleanup-meaning', 'cleanup-word', 'cleanup-book', 'Synthetic cleanup meaning', '2026-01-01', '2026-01-01');
+DO \$\$
+DECLARE i int; asset text; object text; state text;
+BEGIN
+  FOR i IN 1..3 LOOP
+    asset := 'cleanup-' || i;
+    object := 'audio/' || lpad(to_hex(i), 32, '0') || '.mp3';
+    state := (ARRAY['Waiting', 'Claimed', 'Observed'])[i];
+    INSERT INTO audio_asset (id, bucket, object_key, sha256, byte_length, content_type, created_at_unix_ms, first_published_at_unix_ms)
+      VALUES (asset, 'test-audio', object, '${zero_hash}', 128, 'audio/mpeg', 1, 2);
+    INSERT INTO vocabulary_audio_binding (id, word_id, meaning_id, locale, asset_id, source_revision)
+      VALUES (asset, 'cleanup-word', 'cleanup-meaning', 'en-GB', asset, '${zero_hash}');
+    INSERT INTO audio_upload_operation (idempotency_key, request_fingerprint, word_id, meaning_id, locale, source_revision, asset_id, state,
+        created_at_unix_ms, updated_at_unix_ms, upload_lease_fence, receipt_status_code, receipt_asset_id, receipt_source_revision,
+        completed_at_unix_ms, cleanup_lease_fence, cleanup_attempts)
+      VALUES ('00000000-0000-0000-0000-' || lpad(to_hex(i), 12, '0'), '${zero_hash}', 'cleanup-word', 'cleanup-meaning', 'en-GB', '${zero_hash}', asset,
+        'Succeeded', 1, 2, 1, 200, asset, '${zero_hash}', 2, 0, 0);
+    INSERT INTO audio_invalidation (asset_id, bucket, object_key, word_id, meaning_id, locale, authorization_epoch, reason, state,
+        created_at_unix_ms, updated_at_unix_ms, lease_fence, attempts, next_attempt_at_unix_ms)
+      VALUES (asset, 'test-audio', object, 'cleanup-word', 'cleanup-meaning', 'en-GB', 7, 'specific_phonetic_changed', 'Waiting', 3, 3, 0, 0, 4);
+    DELETE FROM vocabulary_audio_binding WHERE asset_id = asset;
+    IF state <> 'Waiting' THEN
+      UPDATE audio_invalidation SET state = 'Claimed', delete_started_at_unix_ms = 4, updated_at_unix_ms = 4, lease_owner = 'interrupted',
+        lease_fence = 2, lease_expires_at_unix_ms = 5, attempts = 6 WHERE asset_id = asset;
+    END IF;
+    IF state = 'Observed' THEN
+      UPDATE audio_invalidation SET state = 'Observed', observed_at_unix_ms = 5, updated_at_unix_ms = 5, lease_owner = NULL,
+        lease_expires_at_unix_ms = NULL, next_attempt_at_unix_ms = 6 WHERE asset_id = asset;
+    END IF;
+  END LOOP;
+END \$\$;
+UPDATE vocabulary_meaning SET phonetic_uk = 'edited-specific' WHERE id = 'cleanup-meaning';
+INSERT INTO meaning_phonetic_epoch (meaning_id, word_id, locale, epoch) VALUES ('cleanup-meaning', 'cleanup-word', 'en-GB', 7);
+UPDATE audio_upload_operation SET meaning_phonetic_epoch = 6;
+INSERT INTO enrichment_target (id, word_id, meaning_id, locale, step, current_round, epoch, deleted) VALUES
+  ('edit-Prepare', 'cleanup-word', 'cleanup-meaning', 'en-GB', 'Prepare', 1, 7, false),
+  ('edit-Audio', 'cleanup-word', 'cleanup-meaning', 'en-GB', 'Audio', 1, 7, false);
+INSERT INTO enrichment_round (target_id, number, state, input_revision, source_revision, configuration_version, failure_budget,
+    request_count, consumed_failures, lease_fence, created_at_unix_ms, updated_at_unix_ms) VALUES
+  ('edit-Prepare', 1, 'Pending', '${zero_hash}', '${zero_hash}', 'persisted-edit-config', 5, 0, 0, 0, 3, 3),
+  ('edit-Audio', 1, 'Pending', '${zero_hash}', '${zero_hash}', 'persisted-edit-config', 5, 0, 0, 0, 3, 3);
+-- Synthetic persisted outcomes: this checks exact retention, not provider execution.
+INSERT INTO enrichment_target (id, word_id, meaning_id, locale, step, current_round, epoch, deleted) VALUES
+  ('saved-prepare', 'cleanup-word', NULL, 'en-GB', 'Prepare', 1, 1, false),
+  ('throttled-audio', 'cleanup-word', NULL, 'en-US', 'Audio', 1, 1, false),
+  ('exhausted-audio', 'cleanup-word', 'cleanup-meaning', 'en-US', 'Audio', 1, 1, false);
+INSERT INTO enrichment_round (target_id, number, state, input_revision, source_revision, configuration_version, failure_budget,
+    request_count, consumed_failures, plan_json, wait_reason, next_attempt_at_unix_ms, lease_fence, created_at_unix_ms, updated_at_unix_ms) VALUES
+  ('saved-prepare', 1, 'Succeeded', '${zero_hash}', '${zero_hash}', 'persisted-step-config', 5, 1, 0, '${plan_json}', NULL, NULL, 0, 3, 9),
+  ('throttled-audio', 1, 'Waiting', '${zero_hash}', '${zero_hash}', 'persisted-step-config', 5, 7, 0, '${plan_json}', 'Throttled', 123456, 0, 3, 9),
+  ('exhausted-audio', 1, 'Failed', '${zero_hash}', '${zero_hash}', 'persisted-step-config', 5, 5, 5, '${plan_json}', NULL, NULL, 0, 3, 9);
+INSERT INTO enrichment_call (id, target_id, round, service, result, error_code, started_at_unix_ms, finished_at_unix_ms)
+  SELECT 'saved-prepare-0', 'saved-prepare', 1, 'text', 'Succeeded', NULL, 3, 9
+  UNION ALL SELECT 'throttled-audio-' || i, 'throttled-audio', 1, 'tts', 'Throttled', 'tts.rate_limited', 3, 9 FROM generate_series(0, 6) AS i
+  UNION ALL SELECT 'exhausted-audio-' || i, 'exhausted-audio', 1, 'tts', 'TransientFailure', 'tts.service_unavailable', 3, 9 FROM generate_series(0, 4) AS i;
+INSERT INTO enrichment_wait (id, target_id, round, reason, error_code, recorded_at_unix_ms, next_attempt_at_unix_ms)
+  VALUES ('saved-wait', 'throttled-audio', 1, 'Throttled', 'tts.rate_limited', 9, 123456);
+INSERT INTO enrichment_discovery (id, cursor, upper_bound) VALUES ('words', 'cleanup-word', 'retained-word'), ('meanings', 'cleanup-meaning', 'retained-meaning');
+INSERT INTO enrichment_service (id, configuration_version, consecutive_failures, throttle_seconds, paused, blocked, pause_seconds,
+    next_attempt_at_unix_ms, lease_id, lease_expires_at_unix_ms)
+  VALUES ('synthetic-tts-service', 'synthetic-config', 5, 120, true, false, 600, 123456, 'interrupted-probe', 234567);
+INSERT INTO enrichment_service_probe (id, service_id, result, request_made, started_at_unix_ms)
+  VALUES ('interrupted-probe', 'synthetic-tts-service', 'Started', true, 12);
+SQL
+invalidation_tables=(audio_asset audio_upload_operation audio_invalidation meaning_phonetic_epoch enrichment_target enrichment_round
+  enrichment_call enrichment_wait enrichment_discovery enrichment_service enrichment_service_probe)
+snapshot_tables lexarbor_invalidation "${invalidation_tables[@]}" >"$TEST_ROOT/invalidation-before.txt"
 for recreation in 1 2; do
-  start_bind_mounted_container "$EXISTING_CONTAINER" "$invalidation_data"
+  start_bind_mounted_container "$EXISTING_CONTAINER" lexarbor_invalidation "$invalidation_data"
   docker rm -f "$EXISTING_CONTAINER" >/dev/null
   cmp "$TEST_ROOT/invalidation-settings-before.json" "$invalidation_data/appsettings.json"
-  python3 - "$invalidation_data/vocabulary.db" "$TEST_ROOT/invalidation-before.json" <<'PYSQL'
-import json
-import sqlite3
-import sys
-with open(sys.argv[2], encoding='utf-8') as source:
-    before = json.load(source)
-with sqlite3.connect(sys.argv[1]) as connection:
-    for table, rows in before.items():
-        assert [list(row) for row in connection.execute(f"SELECT * FROM {table} ORDER BY 1")] == rows
-    assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
-    assert connection.execute("SELECT COUNT(*) FROM vocabulary_audio_binding").fetchone()[0] == 0
-    assert connection.execute("SELECT COUNT(*) FROM audio_invalidation WHERE delete_started_at_unix_ms IS NOT NULL").fetchone()[0] == 2
-    assert connection.execute("SELECT epoch FROM meaning_phonetic_epoch").fetchone()[0] == 7
-    assert connection.execute("SELECT COUNT(*) FROM enrichment_round WHERE state='Pending'").fetchone()[0] == 2
-    assert connection.execute("SELECT request_count,consumed_failures,wait_reason,next_attempt_at_unix_ms FROM enrichment_round WHERE target_id='throttled-audio'").fetchone() == (7,0,'Throttled',123456)
-    assert connection.execute("SELECT state,request_count,consumed_failures,failure_budget FROM enrichment_round WHERE target_id='exhausted-audio'").fetchone() == ('Failed',5,5,5)
-    assert connection.execute("SELECT state,plan_json IS NOT NULL FROM enrichment_round WHERE target_id='saved-prepare'").fetchone() == ('Succeeded',1)
-    assert connection.execute("SELECT COUNT(*) FROM enrichment_call").fetchone()[0] == 13
-    assert connection.execute("SELECT reason,next_attempt_at_unix_ms FROM enrichment_wait WHERE id='saved-wait'").fetchone() == ('Throttled',123456)
-    assert connection.execute("SELECT COUNT(*) FROM audio_upload_operation WHERE meaning_phonetic_epoch=6").fetchone()[0] == 3
-    assert connection.execute("SELECT consecutive_failures,throttle_seconds,paused,pause_seconds FROM enrichment_service").fetchone() == (5,120,1,600)
-    assert connection.execute("SELECT result,request_made FROM enrichment_service_probe").fetchone() == ('Started',1)
-PYSQL
+  snapshot_tables lexarbor_invalidation "${invalidation_tables[@]}" >"$TEST_ROOT/invalidation-after.txt"
+  cmp "$TEST_ROOT/invalidation-before.txt" "$TEST_ROOT/invalidation-after.txt"
+  test "$(psql_db lexarbor_invalidation --command 'SELECT count(*) FROM vocabulary_audio_binding')" = 0
+  test "$(psql_db lexarbor_invalidation --command 'SELECT count(*) FROM audio_invalidation WHERE delete_started_at_unix_ms IS NOT NULL')" = 2
+  test "$(psql_db lexarbor_invalidation --command "SELECT count(*) FROM enrichment_round WHERE state = 'Pending'")" = 2
+  test "$(psql_db lexarbor_invalidation --command 'SELECT count(*) FROM enrichment_call')" = 13
 done
 
 echo "Checking immutable review outcomes and automatic retry state survive container recreation"
@@ -466,36 +569,32 @@ review_data="$TEST_ROOT/submission-review"
 mkdir -p "$review_data"
 chmod 700 "$review_data"
 cp "$fresh_data/appsettings.json" "$fresh_data/data-protection-root-key" "$review_data/"
-python3 - "$fresh_data/vocabulary.db" "$review_data/vocabulary.db" "$TEST_ROOT/review-before.json" <<'PYSQL'
-import json
-import sqlite3
-import sys
-with sqlite3.connect(sys.argv[1]) as source, sqlite3.connect(sys.argv[2]) as target:
-    source.backup(target)
-    target.execute("INSERT INTO meaning_submission (id,source,word,part_of_speech,meaning,example,status,created_at_unix_ms,updated_at_unix_ms,reviewed_at_unix_ms,review_comment,reviewer_kind,ai_review_verdict) VALUES ('retained-submission','synthetic-client','Mispelled','n.','original meaning','original example',2,1,2,2,'Synthetic rejection','ai','reject')")
-    target.execute("INSERT INTO meaning_submission_ai_review (id,attempt_id,submission_id,verdict,part_of_speech,meaning,phonetic_uk,phonetic_us,comment,model,reviewed_at_unix_ms,applied) VALUES ('retained-review','retained-attempt','retained-submission','reject','n.','proposed meaning','/uk/','/us/','Synthetic rejection','synthetic-actual-model',2,1)")
-    target.execute("INSERT INTO meaning_submission (id,source,word,meaning,status,created_at_unix_ms,updated_at_unix_ms) VALUES ('pending-auto','synthetic-client','Word','pending original',0,3,3)")
-    validated = json.dumps({"AttemptId":"staged-attempt","SubmissionId":"pending-auto","Verdict":"accept","PartOfSpeech":None,"Meaning":None,"PhoneticUk":None,"PhoneticUs":None,"Comment":None,"Model":"synthetic-model","ReviewedAt":"2026-11-02T00:00:00+00:00"})
-    target.execute("INSERT INTO meaning_submission_auto_review (submission_id,attempt_id,owner,epoch,lease_until_unix_ms,next_attempt_at_unix_ms,consecutive_failures,last_failure_code,last_failure_at_unix_ms,validated_review_json) VALUES ('pending-auto','staged-attempt','previous-process',4,1000,2000,12,'result_commit_failed',3,?)", (validated,))
-    target.execute("INSERT INTO meaning_submission_review_check (record_id,checked_at_unix_ms) VALUES ('retained-review',4)")
-    snapshot = {table: target.execute(f"SELECT * FROM {table} ORDER BY 1").fetchall() for table in ('meaning_submission','meaning_submission_ai_review','meaning_submission_auto_review','meaning_submission_review_check')}
-    with open(sys.argv[3], 'w', encoding='utf-8') as output:
-        json.dump(snapshot, output)
-PYSQL
+clone_database lexarbor_fresh lexarbor_review
+validated_review='{"AttemptId":"staged-attempt","SubmissionId":"pending-auto","Verdict":"accept","PartOfSpeech":null,"Meaning":null,"PhoneticUk":null,"PhoneticUs":null,"Comment":null,"Model":"synthetic-model","ReviewedAt":"2026-11-02T00:00:00+00:00"}'
+psql_db lexarbor_review <<SQL
+INSERT INTO meaning_submission (id, source, word, part_of_speech, meaning, example, status, created_at_unix_ms, updated_at_unix_ms,
+    reviewed_at_unix_ms, review_comment, reviewer_kind, ai_review_verdict)
+  VALUES ('retained-submission', 'synthetic-client', 'Mispelled', 'n.', 'original meaning', 'original example', 2, 1, 2, 2,
+    'Synthetic rejection', 'ai', 'reject');
+INSERT INTO meaning_submission_ai_review (id, attempt_id, submission_id, verdict, part_of_speech, meaning, phonetic_uk, phonetic_us,
+    comment, model, reviewed_at_unix_ms, applied)
+  VALUES ('retained-review', 'retained-attempt', 'retained-submission', 'reject', 'n.', 'proposed meaning', '/uk/', '/us/',
+    'Synthetic rejection', 'synthetic-actual-model', 2, true);
+INSERT INTO meaning_submission (id, source, word, meaning, status, created_at_unix_ms, updated_at_unix_ms)
+  VALUES ('pending-auto', 'synthetic-client', 'Word', 'pending original', 0, 3, 3);
+INSERT INTO meaning_submission_auto_review (submission_id, attempt_id, owner, epoch, lease_until_unix_ms, next_attempt_at_unix_ms,
+    consecutive_failures, last_failure_code, last_failure_at_unix_ms, validated_review_json)
+  VALUES ('pending-auto', 'staged-attempt', 'previous-process', 4, 1000, 2000, 12, 'result_commit_failed', 3, '${validated_review}');
+INSERT INTO meaning_submission_review_check (record_id, checked_at_unix_ms) VALUES ('retained-review', 4);
+SQL
+review_tables=(meaning_submission meaning_submission_ai_review meaning_submission_auto_review meaning_submission_review_check)
+snapshot_tables lexarbor_review "${review_tables[@]}" >"$TEST_ROOT/review-before.txt"
 for recreation in 1 2; do
-  start_bind_mounted_container "$EXISTING_CONTAINER" "$review_data"
+  start_bind_mounted_container "$EXISTING_CONTAINER" lexarbor_review "$review_data"
   docker rm -f "$EXISTING_CONTAINER" >/dev/null
-  python3 - "$review_data/vocabulary.db" "$TEST_ROOT/review-before.json" <<'PYSQL'
-import json
-import sqlite3
-import sys
-with open(sys.argv[2], encoding='utf-8') as source:
-    before = json.load(source)
-with sqlite3.connect(sys.argv[1]) as connection:
-    after = {table: [list(row) for row in connection.execute(f"SELECT * FROM {table} ORDER BY 1")] for table in before}
-    assert after == before, "Submission proposal, source, comment and permanent AI conclusion changed on restart"
-    assert connection.execute("SELECT COUNT(*) FROM vocabulary").fetchone()[0] == 0
-PYSQL
+  snapshot_tables lexarbor_review "${review_tables[@]}" >"$TEST_ROOT/review-after.txt"
+  cmp "$TEST_ROOT/review-before.txt" "$TEST_ROOT/review-after.txt"
+  test "$(psql_db lexarbor_review --command 'SELECT count(*) FROM vocabulary')" = 0
 done
 
 # Preserve both explicit login values and ignore obsolete business settings.
@@ -525,8 +624,9 @@ for probe_mode in file environment arguments; do
       probe_args=(--RateLimits:AdminLogin:Enabled "$login_enabled" --RateLimits:PublicApi:Enabled true)
     fi
     docker run --detach --name "$EXISTING_CONTAINER" \
+      --network "$NETWORK_NAME" --env "ConnectionStrings__Default=$(connection_string lexarbor_rate)" \
       --user "$(id -u):$(id -g)" --volume "$rate_data:/app/data" \
-      --publish 127.0.0.1::5008 "${probe_env[@]}" "$IMAGE_NAME" "${probe_args[@]}" >/dev/null
+      --publish 127.0.0.1::5008 ${probe_env[@]+"${probe_env[@]}"} "$IMAGE_NAME" ${probe_args[@]+"${probe_args[@]}"} >/dev/null
     wait_for_health "$EXISTING_CONTAINER"
     probe_port="$(docker port "$EXISTING_CONTAINER" 5008/tcp | head -n 1 | awk -F: '{print $NF}')"
     for attempt in 1 2; do
@@ -549,7 +649,7 @@ for probe_mode in file environment arguments; do
 done
 
 echo "Checking keys survive container recreation with the same data mount"
-start_bind_mounted_container "$FRESH_CONTAINER" "$fresh_data"
+start_bind_mounted_container "$FRESH_CONTAINER" lexarbor_fresh "$fresh_data"
 check_runs_unprivileged "$FRESH_CONTAINER"
 check_root_key_file "$FRESH_CONTAINER"
 docker exec "$FRESH_CONTAINER" sh -c 'sha256sum /app/data/data-protection-root-key' >"$TEST_ROOT/restarted-key-hashes"
@@ -558,125 +658,32 @@ check_catalog_is_empty "$FRESH_CONTAINER"
 cmp --silent src/Lexarbor.Host/appsettings.json "$fresh_data/appsettings.json"
 docker rm -f "$FRESH_CONTAINER" >/dev/null
 
-# Python sqlite3 inspects only schema and synthetic vocabulary rows, never session payloads.
-# It runs on the CI/smoke host; the production image stays free of database utilities.
-echo "Checking session schema and upgrading a pre-session database without rewriting vocabulary"
-upgrade_data="$TEST_ROOT/upgrade"
-mkdir -p "$upgrade_data"
-chmod 700 "$upgrade_data"
-cp "$fresh_data/appsettings.json" "$upgrade_data/appsettings.json"
-# Use SQLite backup so the stopped container's retained WAL is included consistently.
-python3 - "$fresh_data/vocabulary.db" "$upgrade_data/vocabulary.db" <<'PYSQL'
-import sqlite3
-import sys
-with sqlite3.connect(sys.argv[1]) as source, sqlite3.connect(sys.argv[2]) as target:
-    source.backup(target)
-PYSQL
-python3 - "$upgrade_data/vocabulary.db" "$TEST_ROOT/vocabulary-before.json" <<'PYSQL'
-import json
-import sqlite3
-import sys
-
-with sqlite3.connect(sys.argv[1]) as connection:
-    columns = {row[1]: row[2] for row in connection.execute("PRAGMA table_info(admin_session)")}
-    assert columns == {"handle_hash": "TEXT", "expires_at_unix_ms": "INTEGER", "protected_payload": "TEXT"}
-    assert connection.execute("SELECT name FROM sqlite_master WHERE name LIKE 'textbook_audio_%'").fetchall() == []
-    assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
-    assert connection.execute("SELECT COUNT(*) FROM admin_session").fetchone()[0] == 0
-    assert any(row[1] == "IX_admin_session_expires_at_unix_ms_handle_hash" for row in connection.execute("PRAGMA index_list(admin_session)"))
-    # Simulate the retired catalog at the previous migration boundary. Domain
-    # migration tests exercise the complete historical schema and upload states.
-    connection.execute("DELETE FROM __EFMigrationsHistory WHERE MigrationId LIKE '%_RemoveTextbookAudio'")
-    connection.execute("CREATE TABLE textbook_audio_track (id TEXT PRIMARY KEY, book_id TEXT REFERENCES vocabulary_book(id), unit_id TEXT REFERENCES vocabulary_book_unit(id), title TEXT, display_order INTEGER, current_asset_id TEXT REFERENCES audio_asset(id), duration_seconds REAL, is_available INTEGER, version TEXT)")
-    connection.execute("CREATE TABLE textbook_audio_upload_operation (idempotency_key TEXT PRIMARY KEY, asset_id TEXT REFERENCES audio_asset(id))")
-    connection.execute("CREATE TRIGGER textbook_audio_track_retain_publication BEFORE UPDATE OF first_published_at_unix_ms ON audio_asset WHEN NEW.first_published_at_unix_ms IS NULL AND EXISTS (SELECT 1 FROM textbook_audio_track WHERE current_asset_id=NEW.id AND is_available=1) BEGIN SELECT RAISE(ABORT, 'Retain publication.'); END")
-    connection.execute("DROP TABLE admin_session")
-    connection.execute("DELETE FROM __EFMigrationsHistory WHERE MigrationId LIKE '%_AddAdminSessions'")
-    # A pre-key-repository database also predates the ServiceMantle key table;
-    # dropping both the rows and the migration record simulates the real
-    # upgrade starting point.
-    connection.execute("DROP TABLE service_data_protection_keys")
-    connection.execute("DELETE FROM __EFMigrationsHistory WHERE MigrationId LIKE '%_AddServiceDataProtectionKeys'")
-    connection.execute("INSERT INTO vocabulary_book (id, book_name, display_order, status, created_at, updated_at) VALUES ('retained-book', 'Retained book', 0, 1, '2026-01-01', '2026-01-01')")
-    connection.execute("INSERT INTO vocabulary (id, word, created_at, updated_at) VALUES ('retained-word', 'Retained Word', '2026-01-01', '2026-01-01')")
-    connection.execute("INSERT INTO vocabulary_book_unit (id,book_id,number,created_at,updated_at) VALUES ('retained-unit','retained-book',1,'2026-01-01','2026-01-01')")
-    connection.execute("INSERT INTO audio_asset (id,bucket,object_key,sha256,byte_length,content_type,created_at_unix_ms,first_published_at_unix_ms) VALUES ('retained-asset','test-audio','audio/retained.mp3',?,128,'audio/mpeg',1,2)", ('0' * 64,))
-    connection.execute("INSERT INTO textbook_audio_track (id,book_id,unit_id,title,display_order,current_asset_id,duration_seconds,is_available,version) VALUES ('retained-track','retained-book','retained-unit','Retained track',3,'retained-asset',42,1,'11111111-1111-1111-1111-111111111111')")
-    connection.execute("INSERT INTO textbook_audio_upload_operation VALUES ('retired-upload','retained-asset')")
-    snapshot = {table: connection.execute(f"SELECT * FROM {table}").fetchall() for table in ("vocabulary_book", "vocabulary", "vocabulary_book_unit", "audio_asset")}
-    with open(sys.argv[2], "w", encoding="utf-8") as output:
-        json.dump(snapshot, output)
-PYSQL
-start_bind_mounted_container "$EXISTING_CONTAINER" "$upgrade_data"
-check_root_key_file "$EXISTING_CONTAINER"
+echo "Checking a read-only data directory with its files in place still serves"
+# The database is on the server, so a read-only /app/data that already holds
+# the configuration and root-key files has nothing left to write.
+start_container "$EXISTING_CONTAINER" lexarbor_fresh \
+  --user "$(id -u):$(id -g)" --volume "$fresh_data:/app/data:ro"
+check_catalog_is_empty "$EXISTING_CONTAINER"
 docker rm -f "$EXISTING_CONTAINER" >/dev/null
-python3 - "$upgrade_data/vocabulary.db" "$TEST_ROOT/vocabulary-before.json" <<'PYSQL'
-import json
-import sqlite3
-import sys
-
-with sqlite3.connect(sys.argv[1]) as connection:
-    with open(sys.argv[2], encoding="utf-8") as source:
-        before = json.load(source)
-    for table, rows in before.items():
-        assert [list(row) for row in connection.execute(f"SELECT * FROM {table}")] == rows
-    assert connection.execute("SELECT name FROM sqlite_master WHERE name LIKE 'textbook_audio_%'").fetchall() == []
-    assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
-    assert connection.execute("SELECT COUNT(*) FROM admin_session").fetchone()[0] == 0
-    assert any(row[1] == "IX_admin_session_expires_at_unix_ms_handle_hash" for row in connection.execute("PRAGMA index_list(admin_session)"))
-PYSQL
-start_bind_mounted_container "$EXISTING_CONTAINER" "$upgrade_data"
-check_root_key_file "$EXISTING_CONTAINER"
-docker rm -f "$EXISTING_CONTAINER" >/dev/null
-
-echo "Checking read-only storage cannot serve"
-# A read-only data directory must not produce a serving container: startup may
-# fail outright (any exit code) or the process may linger, but it never reports
-# healthy, and no key material reaches the log either way.
-docker run --detach --name "$FAILURE_CONTAINER" \
-  --user "$(id -u):$(id -g)" \
-  --volume "$fresh_data:/app/data:ro" \
-  "$IMAGE_NAME" >/dev/null
-served=false
-for _ in $(seq 1 30); do
-  if [[ "$(docker inspect --format '{{.State.Running}}' "$FAILURE_CONTAINER")" != "true" ]]; then
-    served=false
-    break
-  fi
-  if [[ "$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$FAILURE_CONTAINER")" == "healthy" ]]; then
-    served=true
-    break
-  fi
-  sleep 1
-done
-test "$served" = false
-docker logs "$FAILURE_CONTAINER" >"$TEST_ROOT/rejected.log" 2>&1
-if grep -q 'synthetic-secret-marker' "$TEST_ROOT/rejected.log"; then
-  echo "Key material appeared in startup diagnostics" >&2
-  exit 1
-fi
-docker rm -f "$FAILURE_CONTAINER" >/dev/null
 
 echo "Checking a wrong root key fails startup without logging key material"
 wrong_key_data="$TEST_ROOT/wrong-key"
 mkdir -p "$wrong_key_data"
 chmod 700 "$wrong_key_data"
 cp "$fresh_data/appsettings.json" "$wrong_key_data/appsettings.json"
-cp "$fresh_data/vocabulary.db" "$wrong_key_data/vocabulary.db"
 # A fresh random root key does not match the database's existing key rows.
 head -c 32 /dev/urandom | base64 >"$wrong_key_data/data-protection-root-key"
 chmod 600 "$wrong_key_data/data-protection-root-key"
-check_key_startup_rejected "$wrong_key_data" rw "$KEY_REPOSITORY_DIAGNOSTIC"
+check_key_startup_rejected lexarbor_fresh "$wrong_key_data"
 
 echo "Checking a loose root-key file fails startup"
 loose_key_data="$TEST_ROOT/loose-key"
 mkdir -p "$loose_key_data"
 chmod 700 "$loose_key_data"
 cp "$fresh_data/appsettings.json" "$loose_key_data/appsettings.json"
-cp "$fresh_data/vocabulary.db" "$loose_key_data/vocabulary.db"
 cp "$fresh_data/data-protection-root-key" "$loose_key_data/data-protection-root-key"
 chmod 644 "$loose_key_data/data-protection-root-key"
-check_key_startup_rejected "$loose_key_data" rw "$KEY_REPOSITORY_DIAGNOSTIC"
+check_key_startup_rejected lexarbor_fresh "$loose_key_data"
 
 existing_data="$TEST_ROOT/existing"
 mkdir -p "$existing_data"
@@ -689,19 +696,19 @@ cat > "$existing_data/appsettings.json" <<'JSON'
   "PersistenceProbe": "preserve-existing-configuration"
 }
 JSON
-printf '%s' 'preserve-existing-database' > "$existing_data/vocabulary.db"
-
+create_database lexarbor_uninitialized
 config_hash_before="$(sha256sum "$existing_data/appsettings.json" | cut -d ' ' -f 1)"
-database_hash_before="$(sha256sum "$existing_data/vocabulary.db" | cut -d ' ' -f 1)"
 
-echo "Checking that pre-mounted configuration and database files are not overwritten"
-# Readiness honestly reports not-ready for the placeholder database, so this
-# container never turns healthy by design; verify it serves liveness instead
-# and that neither pre-mounted file was rewritten. The key repository probe
-# stays silent here: the schema was never verified, and an unverified schema
-# is the operator's responsibility, not a key-storage failure.
+echo "Checking that a pre-mounted configuration is kept and disabled initialization leaves the database alone"
+# Readiness honestly reports not-ready for the unmigrated database, so this
+# container never turns healthy by design; verify it serves liveness instead,
+# that the pre-mounted file was not rewritten, and that the database was not
+# migrated. The key repository probe stays silent here: the schema was never
+# verified, and an unverified schema is the operator's responsibility.
 docker run --detach \
   --name "$EXISTING_CONTAINER" \
+  --network "$NETWORK_NAME" \
+  --env "ConnectionStrings__Default=$(connection_string lexarbor_uninitialized)" \
   --user "$(id -u):$(id -g)" \
   --volume "$existing_data:/app/data" \
   --publish 127.0.0.1::5008 \
@@ -717,9 +724,23 @@ done
 curl --silent --show-error "http://127.0.0.1:${existing_port}/health/ready" >"$TEST_ROOT/existing-health.json"
 jq --exit-status '.status == "not_ready" and .migrationStatus == "notStarted"' "$TEST_ROOT/existing-health.json" >/dev/null
 config_hash_after="$(sha256sum "$existing_data/appsettings.json" | cut -d ' ' -f 1)"
-database_hash_after="$(sha256sum "$existing_data/vocabulary.db" | cut -d ' ' -f 1)"
-
 test "$config_hash_before" = "$config_hash_after"
-test "$database_hash_before" = "$database_hash_after"
+test "$(psql_db lexarbor_uninitialized --command "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'")" = 0
+docker rm -f "$EXISTING_CONTAINER" >/dev/null
+
+echo "Checking the Compose example starts the application with its database"
+export LEXARBOR_DB_PASSWORD="$DB_PASSWORD"
+LEXARBOR_IMAGE="$IMAGE_NAME" LEXARBOR_PORT="127.0.0.1:0" LEXARBOR_POSTGRES_IMAGE="$POSTGRES_IMAGE" \
+  docker compose -f scripts/compose.yaml -p "$COMPOSE_PROJECT" up --detach --wait --wait-timeout 120 postgres >/dev/null
+LEXARBOR_IMAGE="$IMAGE_NAME" LEXARBOR_PORT="127.0.0.1:0" LEXARBOR_POSTGRES_IMAGE="$POSTGRES_IMAGE" \
+  docker compose -f scripts/compose.yaml -p "$COMPOSE_PROJECT" up --detach lexarbor >/dev/null
+compose_container="$(docker compose -f scripts/compose.yaml -p "$COMPOSE_PROJECT" ps --quiet lexarbor)"
+wait_for_health "$compose_container"
+LEXARBOR_IMAGE="$IMAGE_NAME" docker compose -f scripts/compose.yaml -p "$COMPOSE_PROJECT" restart lexarbor >/dev/null
+wait_for_health "$compose_container"
+check_root_key_file "$compose_container"
+check_no_database_file "$compose_container"
+docker compose -f scripts/compose.yaml -p "$COMPOSE_PROJECT" down --volumes >/dev/null 2>&1
+unset LEXARBOR_DB_PASSWORD
 
 echo "Container startup and persistence checks passed"

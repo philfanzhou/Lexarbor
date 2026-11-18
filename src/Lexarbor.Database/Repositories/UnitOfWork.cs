@@ -1,24 +1,17 @@
 using Lexarbor.Domain.Exceptions;
 using Lexarbor.Domain.Repositories;
-using Microsoft.Data.Sqlite;
+using Npgsql;
 
 namespace Lexarbor.Database.Repositories;
 
 public class UnitOfWork : IUnitOfWork
 {
-    /// <summary>SQLITE_BUSY: another connection holds the database.</summary>
-    private const int SqliteBusyErrorCode = 5;
-
-    /// <summary>SQLITE_LOCKED: a table in this database is locked.</summary>
-    private const int SqliteLockedErrorCode = 6;
-
-    /// <summary>SQLITE_CONSTRAINT: a unique or foreign key constraint failed.</summary>
-    private const int SqliteConstraintErrorCode = 19;
-
     /// <summary>
-    /// SQLite admits one writer at a time, and a single instance is the
-    /// deployment this service documents, so writes are serialized here rather
-    /// than left to collide in the database and be retried by the driver.
+    /// Writes are serialized in this process, a guarantee about 66 call sites
+    /// rely on. It predates PostgreSQL — SQLite admitted one writer at a time —
+    /// and stays until every invariant it protects has a database-level
+    /// guarantee of its own (ADR-011, "Write concurrency"). A single serving
+    /// instance remains the supported deployment while it exists.
     /// </summary>
     private static readonly SemaphoreSlim WriteLock = new(1, 1);
 
@@ -99,7 +92,7 @@ public class UnitOfWork : IUnitOfWork
         cancellationToken.ThrowIfCancellationRequested();
         // Taking the lock here as well as in ExecuteInTransactionAsync is the
         // point: the book write paths call this directly, so they used to reach
-        // SQLite unserialized while the import path was being protected.
+        // the database unserialized while the import path was being protected.
         if (HoldsWriteLock.Value)
         {
             return await TranslateStorageErrorsAsync(() => _dbContext.SaveChangesAsync(cancellationToken));
@@ -130,15 +123,13 @@ public class UnitOfWork : IUnitOfWork
         {
             return await operation();
         }
-        catch (Exception exception)
-            when (HasSqliteErrorCode(exception, SqliteConstraintErrorCode))
+        catch (Exception exception) when (StorageErrors.IsConstraintViolation(exception))
         {
             throw new ConflictException(
                 "The requested vocabulary data conflicts with existing data.",
                 exception);
         }
-        catch (Exception exception)
-            when (HasSqliteErrorCode(exception, SqliteBusyErrorCode, SqliteLockedErrorCode))
+        catch (Exception exception) when (StorageErrors.IsBusy(exception))
         {
             // Reported separately from a conflict because it is not about the
             // data: nothing is wrong with the request and retrying it works.
@@ -147,16 +138,49 @@ public class UnitOfWork : IUnitOfWork
                 exception);
         }
     }
+}
+
+/// <summary>
+/// Classifies PostgreSQL failures into the two storage answers the
+/// application gives: a data conflict and a retryable busy database.
+/// </summary>
+internal static class StorageErrors
+{
+    /// <summary>
+    /// SQLSTATE class 23, integrity constraint violation: unique, foreign key,
+    /// check, not-null, and exclusion constraints. SQLite reported all of them
+    /// as SQLITE_CONSTRAINT.
+    /// </summary>
+    internal static bool IsConstraintViolation(Exception exception) =>
+        FindPostgresException(exception)?.SqlState is { } state
+        && state.StartsWith("23", StringComparison.Ordinal);
 
     /// <summary>
-    /// A lock or constraint failure arrives wrapped in a DbUpdateException from
-    /// SaveChanges but bare from a commit, so both shapes are checked.
+    /// A lock wait that ran past <c>lock_timeout</c> (55P03), a deadlock
+    /// (40P01), or a serialization failure (40001): the PostgreSQL shapes of
+    /// SQLite's SQLITE_BUSY and SQLITE_LOCKED. Retrying the request works.
     /// </summary>
-    private static bool HasSqliteErrorCode(Exception exception, params int[] errorCodes)
+    internal static bool IsBusy(Exception exception) =>
+        FindPostgresException(exception)?.SqlState is PostgresErrorCodes.LockNotAvailable
+            or PostgresErrorCodes.DeadlockDetected
+            or PostgresErrorCodes.SerializationFailure;
+
+    /// <summary>
+    /// A failure arrives bare from a commit or a raw command, wrapped in a
+    /// DbUpdateException from SaveChanges, and — when Npgsql classifies it as
+    /// transient, as it does a lock timeout or a deadlock — wrapped once more
+    /// by the execution strategy, so the whole chain is searched.
+    /// </summary>
+    private static PostgresException? FindPostgresException(Exception exception)
     {
-        var sqliteException = exception as SqliteException
-                              ?? exception.InnerException as SqliteException;
-        return sqliteException != null
-               && Array.IndexOf(errorCodes, sqliteException.SqliteErrorCode) >= 0;
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is PostgresException postgres)
+            {
+                return postgres;
+            }
+        }
+
+        return null;
     }
 }

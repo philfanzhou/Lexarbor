@@ -5,7 +5,7 @@ using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Exceptions;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Services;
-using Microsoft.Data.Sqlite;
+using Lexarbor.Tests.Shared;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Xunit;
@@ -345,18 +345,15 @@ public class VocabularyAdminQueryTests : TestBase
         var statements = new List<string>();
         var materialization = new MaterializationCounter();
         var capture = new SqlCapture(statements);
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        var options = new DbContextOptionsBuilder<VocabularyDbContext>().UseSqlite(connection)
-            .AddInterceptors(materialization, capture).Options;
-        await using var context = new VocabularyDbContext(options);
-        await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await using var database = new PostgreSqlTestDatabase();
+        await using var context = database.Open(materialization, capture);
         await context.Database.ExecuteSqlRawAsync("""
-            INSERT INTO vocabulary_book(id,book_name,status,display_order,created_at,updated_at) VALUES('large','Large',1,0,'2026-01-01','2026-01-01');
-            WITH RECURSIVE n(i) AS (VALUES(1) UNION ALL SELECT i+1 FROM n WHERE i<20000)
-            INSERT INTO vocabulary(id,word,created_at,updated_at) SELECT printf('w%05d',i),printf('w%05d',i),'2026-01-01','2026-01-01' FROM n;
+            INSERT INTO vocabulary_book(id,book_name,status,display_order,created_at,updated_at) VALUES('large','Large',true,0,'2026-01-01','2026-01-01');
+            INSERT INTO vocabulary(id,word,created_at,updated_at)
+            SELECT 'w' || lpad(i::text, 5, '0'),'w' || lpad(i::text, 5, '0'),'2026-01-01','2026-01-01' FROM generate_series(1, 20000) AS n(i);
             INSERT INTO vocabulary_meaning(id,vocabulary_id,book_id,meaning,created_at,updated_at)
             SELECT id,id,'large','synthetic','2026-01-01','2026-01-01' FROM vocabulary;
+            ANALYZE vocabulary; ANALYZE vocabulary_meaning;
             """, TestContext.Current.CancellationToken);
         statements.Clear(); materialization.Count = 0;
         var service = new VocabularyAdminQueryService(new VocabularyAdminQueryRepository(context));
@@ -369,54 +366,36 @@ public class VocabularyAdminQueryTests : TestBase
         // batched page read. These projections materialize no entities.
         Assert.Equal(10, statements.Count);
         Assert.Contains(statements, sql => sql.Contains("LIMIT") && sql.Contains("OFFSET"));
-        Assert.Equal(5, statements.Count(sql => sql.Contains("json_each") || sql.Contains(" IN (")));
+        Assert.Equal(5, statements.Count(sql => sql.Contains("= ANY (") || sql.Contains(" IN (")));
         TestContext.Current.TestOutputHelper!.WriteLine(string.Join("\n\n", statements));
-        await using var command = connection.CreateCommand();
         var captured = capture.Commands.Last(c => c.Sql.Contains("LIMIT") && c.Sql.Contains("OFFSET"));
-        command.CommandText = "EXPLAIN QUERY PLAN " + captured.Sql;
-        foreach (var (name, value) in captured.Parameters) command.Parameters.AddWithValue(name, value);
-        await using var reader = await command.ExecuteReaderAsync(TestContext.Current.CancellationToken);
-        var plans = new List<string>();
-        while (await reader.ReadAsync(TestContext.Current.CancellationToken)) plans.Add(reader.GetString(3));
-        TestContext.Current.TestOutputHelper.WriteLine(string.Join("\n", plans));
-        Assert.Contains(plans, p => p.Contains("COVERING INDEX IX_vocabulary_meaning_") && p.Contains("book_id=?") && p.Contains("vocabulary_id=?"));
-        Assert.Contains(plans, p => p.Contains("IX_vocabulary_word"));
-        TestContext.Current.TestOutputHelper.WriteLine(string.Join("\n", plans));
+        var plan = await PostgreSqlPlan.ExplainAsync(database.ConnectionString, captured.Sql, captured.Parameters);
+        TestContext.Current.TestOutputHelper.WriteLine(plan);
+        Assert.Contains("IX_vocabulary_meaning_", plan, StringComparison.Ordinal);
+        Assert.Contains("IX_vocabulary_word", plan, StringComparison.Ordinal);
+        Assert.DoesNotContain("Seq Scan", plan, StringComparison.Ordinal);
         var next = await service.SearchAsync(null, "large", 2, 20, TestContext.Current.CancellationToken);
         Assert.Empty(page.Page.Items.Select(i => i.Word.Id).Intersect(next.Items.Select(i => i.Word.Id)));
         Assert.Equal(100, (await service.SearchAsync(null, null, 1, 100, TestContext.Current.CancellationToken)).Items.Count);
     }
 
     [Fact]
-    public async Task FileRollback_ConcurrentWriterCommitQueuesBehindAnOpenReaderSnapshot()
+    public async Task ConcurrentWriterCommitsBesideAnOpenReaderSnapshot_WhichKeepsItsAnswer()
     {
-        // Under the rollback journal the writer's commit needs the exclusive
-        // lock, which an in-flight reader's shared lock holds off; under WAL
-        // this test used to prove the commit passed the reader. The guarantee
-        // that survives the rollback switch is the snapshot one: the reader
-        // answers from the state it opened with, and the writer still commits
-        // — queued behind the reader rather than beside it.
-        var path = Path.Combine(Path.GetTempPath(), $"lexarbor-admin-query-{Guid.NewGuid():N}.db");
+        // Under SQLite's rollback journal the writer's commit queued behind an
+        // in-flight reader. PostgreSQL's snapshots let it commit beside the
+        // reader, and the reader still answers from the state it opened with.
+        await using var database = new PostgreSqlTestDatabase();
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var deleteExecuted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         try
         {
-            var options = new DbContextOptionsBuilder<VocabularyDbContext>().UseSqlite($"Data Source={path};Pooling=False").Options;
-            await using var writer = new VocabularyDbContext(new DbContextOptionsBuilder<VocabularyDbContext>(options)
-                .AddInterceptors(new DeleteExecutedSignal(deleteExecuted)).Options);
-            await writer.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
-            // EF Core 10 creates SQLite files in WAL mode; this test asserts
-            // rollback-journal lock semantics, so switch the file back the way
-            // the product's startup normalization leaves it.
-            await writer.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=DELETE", TestContext.Current.CancellationToken);
+            await using var writer = database.Open(new DeleteExecutedSignal(deleteExecuted));
             await SeedAsync(writer);
-            var readOptions = new DbContextOptionsBuilder<VocabularyDbContext>().UseSqlite($"Data Source={path};Pooling=False")
-                .AddInterceptors(new ReadBarrier(entered, release)).Options;
-            await using var reader = new VocabularyDbContext(readOptions);
+            await using var reader = database.Open(new ReadBarrier(entered, release));
             // Both sides run on their own thread: the barrier parks
-            // synchronously inside the snapshot's first reader, and the write's
-            // SQLite calls run on the calling thread until the first real yield.
+            // synchronously inside the snapshot's first reader.
             var query = Task.Run(() => new VocabularyAdminQueryService(new VocabularyAdminQueryRepository(reader))
                 .GetContentAsync("A", null, 1, 20, TestContext.Current.CancellationToken));
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
@@ -425,19 +404,12 @@ public class VocabularyAdminQueryTests : TestBase
                 await writer.Database.ExecuteSqlRawAsync("DELETE FROM vocabulary_meaning WHERE book_id='A'", TestContext.Current.CancellationToken);
                 return 0;
             }));
-            // The DELETE itself runs under the reserved lock; from here the
-            // write can only finish by taking the exclusive lock at COMMIT,
-            // which the reader's open snapshot transaction holds off for as
-            // long as it is parked.
+            // The write commits while the reader is still parked in its snapshot.
             await deleteExecuted.Task.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
-            // Grace window: a blocked COMMIT cannot finish no matter how long
-            // this takes, while a journal-mode regression (WAL beside an open
-            // reader) would complete within it.
-            await Task.Delay(TimeSpan.FromMilliseconds(100), TestContext.Current.CancellationToken);
-            Assert.False(write.IsCompleted);
+            await write.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+            Assert.False(query.IsCompleted);
             release.TrySetResult();
             var result = await query;
-            await write.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
             Assert.Equal(2, result.MeaningCount);
             Assert.Equal(2, result.Page.Items.Single().Meanings.Count);
             Assert.Equal(0, await writer.VocabularyMeanings.CountAsync(m => m.BookId == "A", TestContext.Current.CancellationToken));
@@ -445,7 +417,6 @@ public class VocabularyAdminQueryTests : TestBase
         finally
         {
             release.TrySetResult();
-            foreach (var suffix in new[] { "", "-wal", "-shm" }) File.Delete(path + suffix);
         }
     }
 
@@ -466,18 +437,17 @@ public class VocabularyAdminQueryTests : TestBase
     }
     private sealed class SqlCapture(List<string> statements) : DbCommandInterceptor
     {
-        public List<(string Sql, (string Name, object Value)[] Parameters)> Commands { get; } = [];
+        public List<(string Sql, DbParameter[] Parameters)> Commands { get; } = [];
         public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command, CommandEventData eventData,
             InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
-        { statements.Add(command.CommandText); Commands.Add((command.CommandText, command.Parameters.Cast<DbParameter>().Select(p => (p.ParameterName, p.Value!)).ToArray())); return ValueTask.FromResult(result); }
+        { statements.Add(command.CommandText); Commands.Add((command.CommandText, command.Parameters.Cast<DbParameter>().ToArray())); return ValueTask.FromResult(result); }
     }
     private sealed class ReadBarrier(TaskCompletionSource entered, TaskCompletionSource release) : DbCommandInterceptor
     {
         private bool _paused;
-        // ReaderExecuted fires before EF has stepped the statement, so a
-        // deferred snapshot transaction holds no shared lock yet there. Parking
+        // ReaderExecuted fires before EF has read the statement's rows. Parking
         // on the first reader's disposal parks between the snapshot's queries,
-        // where the open transaction deterministically holds the shared lock.
+        // after the first statement has fixed the REPEATABLE READ snapshot.
         // The hook is synchronous, so the parked query runs on its own thread.
         public override InterceptionResult DataReaderDisposing(DbCommand command, DataReaderDisposingEventData eventData, InterceptionResult result)
         {

@@ -3,8 +3,6 @@ using Lexarbor.Database.Entities;
 using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Models;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Migrations;
 using Xunit;
 
 namespace Lexarbor.Domain.Tests;
@@ -35,7 +33,6 @@ public sealed class EnrichmentTakeoverTests
         var replacement = await repo.EnsureAsync(null, 3000, Ct);
         Assert.Equal("Ready", replacement.State); Assert.NotEqual(id, replacement.BookId);
         Assert.Equal(1, await verify.VocabularyBooks.CountAsync(Ct));
-        Assert.Empty(await file.RowsAsync("PRAGMA foreign_key_check"));
     }
 
     [Fact]
@@ -54,15 +51,13 @@ public sealed class EnrichmentTakeoverTests
     }
 
     [Fact]
-    public async Task OldDatabase_UpgradeResumesHistoricalCursor_AndDiscoversEveryPageAcrossRestarts()
+    public async Task InterruptedFirstSweep_ResumesItsCursor_AndDiscoversEveryPageAcrossRestarts()
     {
         using var file = new AudioTestDatabase();
         await using (var db = file.Open())
         {
-            await db.GetService<IMigrator>().MigrateAsync("20261102063605_AddMeaningSubmissionReviewChecks", Ct);
             await AudioTestDatabase.SeedAsync(db);
             await db.Database.ExecuteSqlRawAsync("UPDATE vocabulary SET phonetic_uk=NULL,phonetic_us=NULL", Ct);
-            await db.Database.MigrateAsync(Ct);
             // Simulate an interrupted first sweep, then reopen the context for each page.
             await new EnrichmentSchedulerRepository(db).DiscoverAsync(1, [], Ct);
         }
@@ -77,7 +72,6 @@ public sealed class EnrichmentTakeoverTests
         var progress = (await new EnrichmentSchedulerRepository(final).DiscoveryProgressAsync(Ct))!;
         Assert.True(progress.InitialCompleted); Assert.Equal(2, progress.WordsScanned); Assert.Equal(2, progress.MeaningsScanned);
         Assert.Equal(4, await final.EnrichmentTargets.CountAsync(t => t.Step == EnrichmentStep.Fields, Ct));
-        Assert.Empty(await file.RowsAsync("PRAGMA foreign_key_check"));
     }
 
     [Fact]
@@ -88,9 +82,9 @@ public sealed class EnrichmentTakeoverTests
         {
             await seed.Database.MigrateAsync(Ct); await AudioTestDatabase.SeedAsync(seed);
             await seed.Database.ExecuteSqlRawAsync("""
-                WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<2000)
                 INSERT INTO vocabulary(id,word,phonetic_uk,phonetic_us,created_at,updated_at)
-                SELECT printf('legacy-%04d',i),printf('legacy-%04d',i),CASE WHEN i!=1000 THEN 'x' END,'x','2026-01-01','2026-01-01' FROM n;
+                SELECT 'legacy-' || lpad(i::text,4,'0'),'legacy-' || lpad(i::text,4,'0'),CASE WHEN i!=1000 THEN 'x' END,'x','2026-01-01','2026-01-01'
+                FROM generate_series(1, 2000) AS n(i);
                 INSERT INTO vocabulary_meaning(id,vocabulary_id,book_id,part_of_speech,meaning,created_at,updated_at)
                 SELECT id||'-sense',id,'book','n.','synthetic','2026-01-01','2026-01-01' FROM vocabulary WHERE id LIKE 'legacy-%';
                 """, Ct);
@@ -107,27 +101,6 @@ public sealed class EnrichmentTakeoverTests
             if (completed) { Assert.Equal(2002, progress.WordsScanned); Assert.Equal(2002, progress.MeaningsScanned); }
         }
         Assert.True(completed); Assert.True(gapFound);
-    }
-
-    [Fact]
-    public async Task Rc3Cursor_UpgradeBackfillsProgress_AndDownRetainsManagedBookAndOriginalCursor()
-    {
-        using var file = new AudioTestDatabase(); await using var db = file.Open();
-        var migrator = db.GetService<IMigrator>();
-        const string previous = "20261108025122_AddAutomaticEnrichmentRecovery";
-        await migrator.MigrateAsync(previous, Ct); await AudioTestDatabase.SeedAsync(db);
-        await db.Database.ExecuteSqlRawAsync("INSERT INTO enrichment_discovery (id,cursor,upper_bound) VALUES ('words','other','word'),('meanings','meaning','other-meaning')", Ct);
-        await db.Database.MigrateAsync(Ct);
-        var progress = (await new EnrichmentSchedulerRepository(db).DiscoveryProgressAsync(Ct))!;
-        Assert.Equal(1, progress.WordsScanned); Assert.Equal(2, progress.WordsTotal);
-        Assert.Equal(1, progress.MeaningsScanned); Assert.False(progress.InitialCompleted);
-        var book = (await new EnrichmentDestinationRepository(db).EnsureAsync(null, 1000, Ct)).BookId;
-        await migrator.MigrateAsync(previous, Ct);
-        Assert.True(await db.VocabularyBooks.AnyAsync(b => b.Id == book, Ct));
-        var cursor = await file.RowsAsync("SELECT cursor FROM enrichment_discovery WHERE id='words'");
-        Assert.Equal("other", ((object?[])Assert.Single(cursor)!)[0]);
-        await db.Database.MigrateAsync(Ct);
-        Assert.Empty(await file.RowsAsync("PRAGMA foreign_key_check"));
     }
 
     [Fact]

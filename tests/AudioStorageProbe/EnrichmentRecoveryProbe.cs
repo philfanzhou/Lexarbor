@@ -104,7 +104,7 @@ internal static class EnrichmentRecoveryProbe
         public override async ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command, CommandEventData data,
             InterceptionResult<int> result, CancellationToken token = default)
         {
-            if (command.CommandText.StartsWith("UPDATE \"enrichment_call\"", StringComparison.Ordinal))
+            if (command.CommandText.StartsWith("UPDATE enrichment_call", StringComparison.Ordinal))
             {
                 using var read = command.Connection!.CreateCommand(); read.Transaction = command.Transaction;
                 read.CommandText = "SELECT c.target_id FROM enrichment_call c JOIN audio_upload_operation u ON u.idempotency_key=c.upload_idempotency_key WHERE u.receipt_status_code=200 AND c.result='Started' LIMIT 1";
@@ -163,7 +163,7 @@ internal static class EnrichmentRecoveryProbe
                 var saved = await coordinator.SaveAsync(read.Revision, new Dictionary<string, JsonNode?> { ["Enrichment:AudioEnabled"] = JsonValue.Create(true) }, runtime.PrepareAsync, default);
                 Check(saved.Status == ConfigurationSaveStatus.Success, "The disposable probe must persist actual configuration versions.");
             }
-            var db = new VocabularyDbContext(new DbContextOptionsBuilder<VocabularyDbContext>().UseSqlite($"Data Source={Path.Combine(root, "probe.db")};Pooling=False").AddInterceptors(interceptors).Options);
+            var db = new VocabularyDbContext(new DbContextOptionsBuilder<VocabularyDbContext>().UseNpgsql(ProbeDatabase.For(root)).AddInterceptors(interceptors).Options);
             await db.Database.MigrateAsync();
             return new(db, runtime, config, options);
         }
