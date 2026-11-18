@@ -60,7 +60,7 @@ Startup writes no books, words, or meanings, so a new database starts empty. Lex
 
 ## Upgrading an existing database
 
-Migrations are the only startup writer, together with this transition release's one-time copy of a SQLite database of an earlier release. The copy runs inside the migration executor under the same advisory lock, in one transaction that copies every table, advances identity sequences, verifies each table by row count and an order-independent digest of every value (generated columns included), and writes the single `legacy_sqlite_import` row (`imported` or `none`). That row makes the decision final: a database recorded as `none` refuses a SQLite file that appears later, and a database holding data without the row is never merged with one. See [Upgrading from a SQLite release](../development/Deployment.md#upgrading-from-a-sqlite-release). Back up with `pg_dump` before upgrading.
+Back up with `pg_dump` before upgrading. PostgreSQL migrations retain the transition release's `legacy_sqlite_import` table. Startup reads its marker when the old file exists. An `imported` outcome permits startup. All other outcomes require the operator to follow [Upgrading from a SQLite release](../development/Deployment.md#upgrading-from-a-sqlite-release).
 
 ## Write consistency
 

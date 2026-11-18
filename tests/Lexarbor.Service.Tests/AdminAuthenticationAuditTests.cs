@@ -271,7 +271,7 @@ public class AdminAuthenticationAuditTests
         DateTimeOffset OccurredAtUtc);
 
     /// <summary>
-    /// Fails the first enabled INSERT into the named table with the given SQLite error. Session
+    /// Fails the first enabled INSERT into the named table with the given PostgreSQL error. Session
     /// SQL runs as raw non-queries while EF Core's SaveChanges INSERTs execute as readers; the
     /// reader fault is raised before execution so a standalone save has nothing committed.
     /// </summary>

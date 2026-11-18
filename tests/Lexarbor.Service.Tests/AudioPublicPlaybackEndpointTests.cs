@@ -309,7 +309,7 @@ public sealed class AudioPublicPlaybackEndpointTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task CancellationOfStatOrSign_DoesNotHoldSqliteWriteLock(bool signing)
+    public async Task CancellationOfStatOrSign_DoesNotBlockDatabaseWrites(bool signing)
     {
         await using var host = new Host(); await host.SeedAsync(); await host.Bind();
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

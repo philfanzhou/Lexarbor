@@ -22,7 +22,7 @@ Lexarbor 是自托管的词汇目录与测验服务：.NET 10 API、Vue 3 管理
 - `src/Lexarbor.Domain` 是不依赖宿主和数据库的领域层；不要把 ASP.NET Core、EF Core 或数据库驱动细节引入其中。
 - `src/Lexarbor.Database` 负责 EF Core/PostgreSQL 持久化，`src/Lexarbor.Service` 负责应用服务，`src/Lexarbor.Host`
   负责 HTTP、认证、配置和宿主组合；新增引用必须保持从领域到基础设施/宿主的单向依赖。
-- PostgreSQL 是唯一的业务数据库（见 `docs/adr/ADR-011-postgresql-only-storage.md`）；不得新增 SQLite 或其他数据库的运行时支持。过渡版只允许在启动时只读读取旧 SQLite 文件，用于一次性迁移。修改实体、迁移、初始化、持久化一致性、迁移比对或备份语义时，必须同步测试和部署文档。
+- PostgreSQL 是唯一的业务数据库（见 `docs/adr/ADR-011-postgresql-only-storage.md`）；不得新增 SQLite 或其他数据库的运行时支持。旧库须经 v0.2.0-rc.2 完成迁移；当前版本启动时仅检查旧文件是否存在及 PostgreSQL 的导入标记。修改实体、迁移、初始化、持久化一致性、迁移比对或备份语义时，必须同步测试和部署文档。
 - 公共 API 路由、JSON 字段、认证/管理员角色、限流、种子词汇和容器持久化目录都属于兼容性契约，除非 issue 明确批准不得静默改变。
 - 管理端通过宿主提供的 HTTP API 工作；不得把服务端 token、client secret 或管理凭据暴露给浏览器。
 

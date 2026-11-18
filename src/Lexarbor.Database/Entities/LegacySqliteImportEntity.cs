@@ -6,8 +6,7 @@ namespace Lexarbor.Database.Entities;
 /// <summary>
 /// The one row that records how this PostgreSQL database came to hold its
 /// data: copied and verified from a SQLite database of an earlier release, or
-/// initialized without one. Its presence means the decision is final; see
-/// <see cref="LegacySqlite.LegacySqliteImporter"/>.
+/// initialized without one. The transition release wrote this marker.
 /// </summary>
 [Table("legacy_sqlite_import")]
 public sealed class LegacySqliteImportEntity

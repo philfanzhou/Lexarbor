@@ -1,4 +1,3 @@
-using Lexarbor.Database.LegacySqlite;
 using Microsoft.EntityFrameworkCore;
 using ServiceMantle.Migration;
 
@@ -19,30 +18,10 @@ namespace Lexarbor.Database;
 /// <see cref="MigrationObservationState.InspectionFailed"/>. A history row this
 /// build does not know is a newer schema and is refused rather than adopted.
 /// </para>
-/// <para>
-/// Execution runs <c>MigrateAsync</c> on the application's own context and
-/// then the transition release's legacy SQLite step
-/// (<see cref="LegacySqliteImporter"/>), under the startup gate's advisory
-/// migration lock — see <see cref="LexarborDatabaseStartup"/>. A schema whose
-/// history is current but whose import decision is not yet recorded inspects
-/// as pending, so that step runs exactly once per database and is retried
-/// after a failed copy.
-/// </para>
 /// </remarks>
-public sealed class LexarborMigrationExecutor : IDatabaseMigrationExecutor
+public sealed class LexarborMigrationExecutor(VocabularyDbContext context) : IDatabaseMigrationExecutor
 {
     private const string HistoryTable = "__EFMigrationsHistory";
-
-    private readonly VocabularyDbContext context;
-    private readonly LegacySqliteImporter legacyImport;
-
-    public LexarborMigrationExecutor(VocabularyDbContext context, LegacySqliteImporter legacyImport)
-    {
-        ArgumentNullException.ThrowIfNull(context);
-        ArgumentNullException.ThrowIfNull(legacyImport);
-        this.context = context;
-        this.legacyImport = legacyImport;
-    }
 
     /// <inheritdoc />
     /// <remarks>
@@ -81,9 +60,7 @@ public sealed class LexarborMigrationExecutor : IDatabaseMigrationExecutor
             return MigrationObservationState.PendingMigration;
         }
 
-        return await legacyImport.RequiresExecutionAsync(cancellationToken)
-            ? MigrationObservationState.PendingMigration
-            : MigrationObservationState.CurrentVersionCompatible;
+        return MigrationObservationState.CurrentVersionCompatible;
     }
 
     /// <inheritdoc />
@@ -97,8 +74,6 @@ public sealed class LexarborMigrationExecutor : IDatabaseMigrationExecutor
     {
         cancellationToken.ThrowIfCancellationRequested();
         await context.Database.MigrateAsync(cancellationToken);
-        cancellationToken.ThrowIfCancellationRequested();
-        await legacyImport.RunAsync(cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
     }
 

@@ -100,15 +100,6 @@ builder.Services.AddScoped(serviceProvider =>
 // The ServiceMantle startup gate: PostgreSQL target preparation, the advisory
 // migration lock, and migration orchestration around the executor above.
 builder.Services.AddLexarborDatabaseStartup();
-// Transition release (ADR-011): the SQLite database of an earlier release,
-// copied and verified into PostgreSQL by the startup migration once. The
-// default is where those releases kept it, relative to the content root.
-builder.Services.AddSingleton(serviceProvider => new Lexarbor.Database.LegacySqlite.LegacySqliteImportOptions(
-    Path.GetFullPath(
-        serviceProvider.GetRequiredService<IConfiguration>()["Database:LegacySqlitePath"] is { Length: > 0 } configuredLegacyPath
-            ? configuredLegacyPath
-            : Path.Combine("data", "vocabulary.db"),
-        serviceProvider.GetRequiredService<IHostEnvironment>().ContentRootPath)));
 // Data Protection keys live in the PostgreSQL database as `sm:v1:` authenticated
 // envelopes scoped to the lexarbor service id, protected by the deployment's
 // root key (injected or created under data/); see DataProtectionRootKey.
@@ -724,6 +715,9 @@ if (!app.Environment.IsDevelopment() &&
             "Administrator login is not configured because AdminAuthentication:OidcCode is missing. The service will continue running.");
     }
 }
+
+await TransitionUpgradeGuard.CheckAsync(
+    app.Configuration["Database:LegacySqlitePath"], app.Environment.ContentRootPath, connectionString);
 
 // Configure database initialization. The outcome feeds the readiness snapshot:
 // a failed migration stops startup (and records the failure for any future
