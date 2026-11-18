@@ -27,7 +27,7 @@ body:
     id: impact
     attributes:
       label: 必须保持的接口和行为、验收标准与兼容性影响
-      description: 请说明公共 API、配置、SQLite 数据、认证、前端、Docker 和英文文档的影响，以及可逐条验证的验收标准。
+      description: 请说明公共 API、配置、PostgreSQL 数据、认证、前端、Docker 和英文文档的影响，以及可逐条验证的验收标准。
     validations:
       required: true
   - type: textarea
