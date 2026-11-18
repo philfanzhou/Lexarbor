@@ -1,6 +1,8 @@
 # Pending decisions
 
-There are currently no pending decisions.
+## PD-003 Learner progress model
+
+[ADR-012](./adr/ADR-012-learner-progress-model.md) proposes how Lexarbor identifies learners, stores their per-meaning state and answer history, schedules reviews with FSRS, and deletes a learner's data. Learner features are not implemented until it is accepted.
 
 ## Resolved
 
