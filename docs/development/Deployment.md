@@ -285,15 +285,64 @@ two together: the key rows inside the database are protected by that root key.
 
 ### Upgrading from a SQLite release
 
-**This build does not copy an existing SQLite database.** Started against an
-existing deployment, it serves from an empty PostgreSQL database and leaves
-`data/vocabulary.db` untouched. The release that upgrades SQLite deployments
-copies and verifies the data on its first start; see
-[ADR-011](../adr/ADR-011-postgresql-only-storage.md). Until then, keep existing
-deployments on their current release. A deployment whose persistent
-`appsettings.json` still holds the old `Data Source=data/vocabulary.db`
-connection string fails startup with the SQLite diagnostic until a PostgreSQL
-connection string is supplied, which an environment variable overrides.
+This is the transition release of [ADR-011](../adr/ADR-011-postgresql-only-storage.md).
+On its first start it copies the SQLite database of an earlier release into
+PostgreSQL, verifies the copy, and only then serves. **Upgrade every SQLite
+deployment through this release**; the next release no longer reads SQLite.
+
+Before upgrading:
+
+1. Stop the running release cleanly and back up `data/vocabulary.db` together
+   with the Data Protection root key (the injected value or
+   `data/data-protection-root-key`).
+2. Provide an **empty** PostgreSQL 16 or later database and set
+   `LEXARBOR_DATABASE_CONNECTION_STRING`. A persistent `appsettings.json` that
+   still holds the old `Data Source=data/vocabulary.db` connection string is
+   overridden by that variable; without it, startup fails with the SQLite
+   diagnostic.
+3. Keep the same data directory mounted at `/app/data`. The source defaults to
+   `data/vocabulary.db` under the content root (`/app/data/vocabulary.db` in the
+   container); `LEXARBOR_LEGACY_SQLITE_PATH` (`Database:LegacySqlitePath`)
+   names another file.
+4. Keep the same Data Protection root key, so that administrator sessions and
+   protected keys copied from SQLite stay readable.
+
+On the first start the database gate migrates PostgreSQL and then, under the
+same advisory migration lock, decides from the `legacy_sqlite_import` marker
+row and the source file:
+
+| Marker | SQLite file | Startup |
+|---|---|---|
+| `imported` | any | Serves from PostgreSQL. The file is not opened. |
+| `none` | absent | Serves from PostgreSQL. |
+| `none` | present | **Refuses to start**: the database was initialized without the file, and merging two histories is never attempted. Move the file away, or start again on an empty database to import it. |
+| absent | absent | New installation: records `none` and serves. |
+| absent | present | Copies, verifies, records `imported`, then serves. |
+
+The copy never writes to the source. It backs the file up to a private working
+copy beside it (removed afterwards), brings that copy to the last SQLite schema
+with the bundled SQLite migrations, and copies every table into PostgreSQL in
+one transaction. Before committing it compares every table, row count and an
+order-independent digest of every value, including the normalized columns
+PostgreSQL computes. Timestamps keep microsecond precision, which is
+PostgreSQL's. Insertion order is taken from SQLite's row ids, and identity
+sequences continue after them.
+
+The copy runs before the HTTP server starts, so `/health/live` and
+`/health/ready` do not answer until it finishes. A catalog database copies in
+seconds; for a large one, raise the container health check's start period. Any
+failure rolls the whole transaction back: PostgreSQL keeps no copied row and no
+marker, the source is unchanged, the process exits non-zero with a fixed
+diagnostic (`Legacy SQLite import refused: ...` or `Legacy SQLite import
+failed: ...`, never a path, connection string, SQL, or row value), and the
+next start tries again. A target that already holds data and no marker is
+refused rather than merged.
+
+Rolling back: until PostgreSQL has accepted writes, the previous release still
+runs on the untouched `data/vocabulary.db`. After that, returning to SQLite
+loses every write made on PostgreSQL. Keep the SQLite file until the upgrade
+is confirmed; afterwards it can be archived and removed. With
+`Database:InitializeOnStartup=false` neither migrations nor the copy run.
 
 ### Earlier SQLite upgrade notes
 

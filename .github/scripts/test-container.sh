@@ -16,6 +16,10 @@ NAMED_CONTAINER="lexarbor-named-${RUN_SUFFIX}"
 FAILURE_CONTAINER="lexarbor-failure-${RUN_SUFFIX}"
 CODE_CONTAINER="lexarbor-code-${RUN_SUFFIX}"
 PROVIDER_FAILURE_CONTAINER="lexarbor-provider-failure-${RUN_SUFFIX}"
+PREVIOUS_CONTAINER="lexarbor-previous-${RUN_SUFFIX}"
+UPGRADE_CONTAINER="lexarbor-upgrade-${RUN_SUFFIX}"
+# The last SQLite release, whose database the transition release copies.
+PREVIOUS_SQLITE_IMAGE="${LEXARBOR_PREVIOUS_SQLITE_IMAGE:-ghcr.io/philfanzhou/lexarbor:0.1.11}"
 NAMED_VOLUME="lexarbor-data-${RUN_SUFFIX}"
 # The application and its database server share one disposable network; the
 # server is reachable only from it. The password is synthetic and exists for
@@ -37,6 +41,8 @@ cleanup() {
     "$FAILURE_CONTAINER" \
     "$CODE_CONTAINER" \
     "$PROVIDER_FAILURE_CONTAINER" \
+    "$PREVIOUS_CONTAINER" \
+    "$UPGRADE_CONTAINER" \
     "$POSTGRES_CONTAINER" >/dev/null 2>&1 || true
   LEXARBOR_DB_PASSWORD="$DB_PASSWORD" docker compose -f scripts/compose.yaml -p "$COMPOSE_PROJECT" \
     down --volumes --remove-orphans >/dev/null 2>&1 || true
@@ -727,6 +733,67 @@ config_hash_after="$(sha256sum "$existing_data/appsettings.json" | cut -d ' ' -f
 test "$config_hash_before" = "$config_hash_after"
 test "$(psql_db lexarbor_uninitialized --command "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'")" = 0
 docker rm -f "$EXISTING_CONTAINER" >/dev/null
+
+echo "Checking an upgrade from the last SQLite release copies its database into PostgreSQL"
+# The previous release creates its SQLite database, Data Protection keys and
+# root key on the bind-mounted data directory, exactly as a deployment has
+# them; rows are then added to that file the way its catalog stored them.
+upgrade_data="$TEST_ROOT/upgrade-data"
+mkdir -m 700 "$upgrade_data"
+docker run --detach --name "$PREVIOUS_CONTAINER" \
+  --user "$(id -u):$(id -g)" --volume "$upgrade_data:/app/data" \
+  --publish 127.0.0.1::5008 "$PREVIOUS_SQLITE_IMAGE" >/dev/null
+# Readiness only: the health body's shape belongs to that release, not this one.
+previous_port="$(docker port "$PREVIOUS_CONTAINER" 5008/tcp | head -n 1 | awk -F: '{print $NF}')"
+for _ in $(seq 1 60); do
+  if curl --fail --silent "http://127.0.0.1:${previous_port}/health/ready" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 1
+done
+curl --fail --silent --show-error "http://127.0.0.1:${previous_port}/health/ready" >/dev/null
+docker stop "$PREVIOUS_CONTAINER" >/dev/null
+docker rm "$PREVIOUS_CONTAINER" >/dev/null
+test -f "$upgrade_data/vocabulary.db"
+python3 -I - "$upgrade_data/vocabulary.db" <<'PY'
+import sqlite3, sys
+connection = sqlite3.connect(sys.argv[1])
+stamp = "2026-03-04 05:06:07.1234567+08:00"
+with connection:
+    connection.execute("INSERT INTO vocabulary_book (id, book_name, display_order, status, created_at, updated_at) VALUES ('b-up', 'Upgrade', 1, 1, ?, ?)", (stamp, stamp))
+    for word_id, word in (("w-upper", "CAF\u00c9"), ("w-mixed", "Caf\u00e9")):
+        connection.execute("INSERT INTO vocabulary (id, word, created_at, updated_at) VALUES (?, ?, ?, ?)", (word_id, word, stamp, stamp))
+    connection.execute("INSERT INTO vocabulary_meaning (id, vocabulary_id, book_id, part_of_speech, meaning, created_at, updated_at) VALUES ('m-up', 'w-upper', 'b-up', ' N. ', 'coffee house', ?, ?)", (stamp, stamp))
+connection.close()
+PY
+source_hash_before="$(sha256sum "$upgrade_data/vocabulary.db" | cut -d ' ' -f 1)"
+files_before="$(ls -A "$upgrade_data")"
+create_database lexarbor_upgrade
+start_bind_mounted_container "$UPGRADE_CONTAINER" lexarbor_upgrade "$upgrade_data"
+docker logs "$UPGRADE_CONTAINER" >"$TEST_ROOT/upgrade.log" 2>&1
+grep --quiet 'SQLite import finished: ' "$TEST_ROOT/upgrade.log"
+test "$(psql_db lexarbor_upgrade --command "SELECT outcome FROM legacy_sqlite_import")" = imported
+test "$(psql_db lexarbor_upgrade --command "SELECT string_agg(normalized_word, ',' ORDER BY insertion_order) FROM vocabulary")" = "$(printf 'caf\303\211,caf\303\251')"
+test "$(psql_db lexarbor_upgrade --command "SELECT normalized_part_of_speech FROM vocabulary_meaning WHERE id = 'm-up'")" = n.
+# The keys the previous release created are readable with the same root key:
+# the host's key probe at startup passed, and no new key was needed for it.
+test "$(psql_db lexarbor_upgrade --command "SELECT count(*) > 0 FROM service_data_protection_keys")" = t
+test "$(sha256sum "$upgrade_data/vocabulary.db" | cut -d ' ' -f 1)" = "$source_hash_before"
+# No working copy and no SQLite sidecar the copy created is left behind.
+test "$(ls -A "$upgrade_data")" = "$files_before"
+# A restart serves the copy and never copies again.
+docker restart "$UPGRADE_CONTAINER" >/dev/null
+wait_for_health "$UPGRADE_CONTAINER"
+test "$(psql_db lexarbor_upgrade --command "SELECT count(*) FROM vocabulary")" = 2
+if docker logs "$UPGRADE_CONTAINER" 2>&1 | grep 'SQLite import finished: ' | sed -n 2p | grep --quiet .; then
+  echo "The restart copied the SQLite database again" >&2
+  exit 1
+fi
+if grep --quiet --fixed-strings "$DB_PASSWORD" "$TEST_ROOT/upgrade.log"; then
+  echo "The upgrade log echoed the database password" >&2
+  exit 1
+fi
+docker rm -f "$UPGRADE_CONTAINER" >/dev/null
 
 echo "Checking the Compose example starts the application with its database"
 export LEXARBOR_DB_PASSWORD="$DB_PASSWORD"

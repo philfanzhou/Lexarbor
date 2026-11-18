@@ -84,6 +84,8 @@ public class VocabularyDbContext : DbContext
 
     public DbSet<AdminSessionEntity> AdminSessions { get; set; } = null!;
 
+    public DbSet<LegacySqliteImportEntity> LegacySqliteImports { get; set; } = null!;
+
     public DbSet<MeaningSubmissionEntity> MeaningSubmissions { get; set; } = null!;
 
     public DbSet<MeaningSubmissionAiReviewEntity> MeaningSubmissionAiReviews { get; set; } = null!;
@@ -143,6 +145,18 @@ public class VocabularyDbContext : DbContext
         modelBuilder.Entity<AdminSessionEntity>(entity =>
         {
             entity.HasIndex(e => new { e.ExpiresAtUnixMs, e.HandleHash });
+        });
+
+        modelBuilder.Entity<LegacySqliteImportEntity>(entity =>
+        {
+            entity.Property(e => e.Id).ValueGeneratedNever();
+            entity.ToTable(table =>
+            {
+                table.HasCheckConstraint("CK_legacy_sqlite_import_singleton", $"id = {LegacySqliteImportEntity.SingletonId}");
+                table.HasCheckConstraint("CK_legacy_sqlite_import_outcome",
+                    $"outcome IN ('{LegacySqliteImportEntity.Imported}', '{LegacySqliteImportEntity.None}')");
+                table.HasCheckConstraint("CK_legacy_sqlite_import_counts", "copied_tables >= 0 AND copied_rows >= 0");
+            });
         });
 
         modelBuilder.Entity<BusinessApiKeyEntity>(entity =>
