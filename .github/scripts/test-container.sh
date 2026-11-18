@@ -742,7 +742,6 @@ expect_startup_failure "$UPGRADE_CONTAINER" "$TEST_ROOT/upgrade.log"
 grep --quiet 'Upgrade through v0.2.0-rc.2' "$TEST_ROOT/upgrade.log"
 test "$(cat "$upgrade_data/vocabulary.db")" = 'opaque legacy file'
 test "$(psql_db lexarbor_upgrade --command "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'")" = 0
-docker rm "$UPGRADE_CONTAINER" >/dev/null
 
 echo "Checking the Compose example starts the application with its database"
 export LEXARBOR_DB_PASSWORD="$DB_PASSWORD"
