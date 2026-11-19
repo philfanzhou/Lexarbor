@@ -40,7 +40,7 @@ async function setup(page: Page, rows = [task()]) {
 }
 async function openDetail(page: Page) {
   await page.goto('/#/enrichment')
-  await page.getByRole('button', { name: '查看 lead en-GB 音频生成 详情', exact: true }).click()
+  await page.getByRole('button', { name: /^(查看详情|查看并处理)，lead en-GB 音频生成$/ }).click()
   return page.getByRole('region', { name: '任务详情', exact: true })
 }
 
@@ -57,7 +57,7 @@ test('新增历史与部分成功、未排队关闭、429请求和额度分开�
   await expect(table).toContainText('服务限流')
   await expect(table).toContainText('已完成')
   await expect(page.getByRole('button', { name: /重试此失败步骤|开始批次/ })).toHaveCount(0)
-  await page.getByRole('button', { name: '查看 lead en-GB 音频生成 详情', exact: true }).click()
+  await page.getByRole('button', { name: '查看详情，lead en-GB 音频生成', exact: true }).click()
   const detail = page.getByRole('region', { name: '任务详情', exact: true })
   await expect(detail).toContainText('本轮模型请求7 次')
   await expect(detail).toContainText('已消耗 0 / 5')
@@ -294,7 +294,7 @@ test('处理中与旧成功后的新需求保留投影，不提供成功或取�
   await expect(page.getByRole('row').filter({ hasText: 'running' })).toContainText('处理中')
   await expect(page.getByRole('row').filter({ hasText: 'changed' })).toContainText('待处理')
   await expect(page.getByRole('row').filter({ hasText: 'cancelled' })).toContainText('当前不再需要此目标；历史保留')
-  await page.getByRole('button', { name: '查看 changed en-GB 音频生成 详情' }).click()
+  await page.getByRole('button', { name: '查看详情，changed en-GB 音频生成' }).click()
   const region = page.getByRole('region', { name: '任务详情', exact: true })
   await expect(region).toContainText('持久状态 已完成')
   await expect(region).toContainText('专用音频仍缺失：待处理')
@@ -306,11 +306,11 @@ test('切换详情目标取消旧history响应，轮询不重入，离开后迟�
   let held: Route | null = null, calls = 0
   await page.route(/\/tasks\/task\?/, route => { held = route; calls += 1 })
   await page.goto('/#/enrichment')
-  await page.getByRole('button', { name: '查看 lead en-GB 音频生成 详情' }).click()
+  await page.getByRole('button', { name: '查看详情，lead en-GB 音频生成' }).click()
   await expect.poll(() => held !== null).toBe(true)
   await page.clock.fastForward(20000)
   expect(calls).toBe(1)
-  await page.getByRole('button', { name: '查看 other en-GB 音频生成 详情' }).click()
+  await page.getByRole('button', { name: '查看详情，other en-GB 音频生成' }).click()
   await expect(page.getByRole('region', { name: '任务详情', exact: true })).toContainText('other')
   await held?.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ success: false, message: 'old read expired' }) }).catch(() => undefined)
   await expect(page.locator('.session')).toContainText('enrichment-admin')
@@ -362,7 +362,7 @@ test('词汇扩展使用同一进度页，显示不限口音并可筛选详情',
   await expect(table).toContainText('不限口音')
   await expect(table).toContainText('词形与派生词')
   await page.getByLabel('步骤', { exact: true }).selectOption('Expand')
-  await page.getByRole('button', { name: '查看 lead 不限口音 词形与派生词扩展 详情', exact: true }).click()
+  await page.getByRole('button', { name: '查看详情，lead 不限口音 词形与派生词扩展', exact: true }).click()
   await expect(page.getByRole('region', { name: '任务详情', exact: true })).toContainText('词形与派生词扩展')
 })
 
@@ -407,7 +407,7 @@ test('技术历史默认收起，旧轮次被替代可读，窄屏详情可关�
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await region.getByRole('button', { name: '关闭任务详情' }).click()
   await expect(region).toHaveCount(0)
-  await expect(page.getByRole('button', { name: '查看 lead en-GB 音频生成 详情', exact: true })).toBeFocused()
+  await expect(page.getByRole('button', { name: '查看并处理，lead en-GB 音频生成', exact: true })).toBeFocused()
 })
 
 
@@ -449,7 +449,7 @@ test('已确认的短语字段不显示为未完成或需要重试', async ({ pa
   await setup(page, [t]); await page.goto('/#/enrichment')
   const table = page.getByRole('table', { name: '补齐任务列表' })
   await expect(table.locator('.badge')).toHaveText('无需补全')
-  await page.getByRole('button', { name: '查看 lead en-GB 默认字段 详情', exact: true }).click()
+  await page.getByRole('button', { name: '查看详情，lead en-GB 默认字段', exact: true }).click()
   const region = page.getByRole('region', { name: '任务详情', exact: true })
   await expect(region).toContainText('短语无需补全')
   await expect(region).toContainText('读音生成单独继续')
