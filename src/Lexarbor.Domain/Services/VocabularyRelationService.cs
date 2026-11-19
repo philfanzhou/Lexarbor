@@ -35,7 +35,7 @@ public sealed class VocabularyRelationService(IVocabularyRelationRepository repo
     {
         input = Normalize(input);
         cancellationToken.ThrowIfCancellationRequested();
-        return unitOfWork.ExecuteInTransactionAsync(() =>
+        return unitOfWork.ExecuteWordSetWriteAsync([input.SourceWordId, input.TargetWordId], () =>
         {
             cancellationToken.ThrowIfCancellationRequested();
             return CreateInsideAsync(input, "manual", null);
@@ -52,7 +52,7 @@ public sealed class VocabularyRelationService(IVocabularyRelationRepository repo
     {
         ValidateVersion(expectedVersion);
         cancellationToken.ThrowIfCancellationRequested();
-        return unitOfWork.ExecuteInTransactionAsync(async () =>
+        return unitOfWork.ExecuteCatalogWriteAsync(async () =>
         {
             cancellationToken.ThrowIfCancellationRequested();
             var current = await GetWithMeaningPairsAsync(id, CancellationToken.None);
@@ -89,7 +89,8 @@ public sealed class VocabularyRelationService(IVocabularyRelationRepository repo
             { throw new DomainValidationException($"Relation at index {index}: {error.Message}"); }
         }).ToArray();
         cancellationToken.ThrowIfCancellationRequested();
-        return unitOfWork.ExecuteInTransactionAsync(async () =>
+        var endpoints = normalized.SelectMany(input => new[] { input.SourceWordId, input.TargetWordId }).ToArray();
+        return unitOfWork.ExecuteWordSetWriteAsync(endpoints, async () =>
         {
             cancellationToken.ThrowIfCancellationRequested();
             var batchId = Guid.NewGuid().ToString();
@@ -121,7 +122,7 @@ public sealed class VocabularyRelationService(IVocabularyRelationRepository repo
         input = Normalize(input);
         ValidateVersion(expectedVersion);
         cancellationToken.ThrowIfCancellationRequested();
-        return unitOfWork.ExecuteInTransactionAsync(async () =>
+        return unitOfWork.ExecuteCatalogWriteAsync(async () =>
         {
             cancellationToken.ThrowIfCancellationRequested();
             var current = await GetAsync(id);
@@ -157,7 +158,7 @@ public sealed class VocabularyRelationService(IVocabularyRelationRepository repo
         id = Required(id, "Relation ID");
         ValidateVersion(expectedVersion);
         cancellationToken.ThrowIfCancellationRequested();
-        return unitOfWork.ExecuteInTransactionAsync(async () =>
+        return unitOfWork.ExecuteCatalogWriteAsync(async () =>
         {
             cancellationToken.ThrowIfCancellationRequested();
             var current = await repository.GetAsync(id, CancellationToken.None);

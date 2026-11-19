@@ -56,7 +56,7 @@ public sealed class EnrichmentTaskRepositoryTests
         var task = await EnsureAsync(repo); var guard = await ClaimAsync(repo, task.Id, 2, 100);
         await using var holderDb = file.Open(); var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var holder = new UnitOfWork(holderDb).ExecuteInTransactionAsync(async () => { entered.SetResult(); await release.Task; return 0; });
+        var holder = new UnitOfWork(holderDb).ExecuteWordWriteAsync("word", [], async () => { entered.SetResult(); await release.Task; return 0; }, Token);
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(10), Token);
         var completing = repo.CompleteAsync(guard, 3, Token); clock.Now = 100; release.SetResult(); await holder;
         Assert.False(await completing); Assert.Null(await repo.ClaimAsync(task.Id, "late", 3, 99, Token));
@@ -299,7 +299,7 @@ public sealed class EnrichmentTaskRepositoryTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => repo.EnsureAsync(Key(), "config", 1, cancelled.Token));
         await using var holderDb = file.Open(); var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var holder = new UnitOfWork(holderDb).ExecuteInTransactionAsync(async () => { entered.SetResult(); await release.Task; return 0; });
+        var holder = new UnitOfWork(holderDb).ExecuteWordWriteAsync("word", [], async () => { entered.SetResult(); await release.Task; return 0; }, Token);
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(10), Token); using var queuedCancel = new CancellationTokenSource();
         var queued = repo.EnsureAsync(Key(), "config", 1, queuedCancel.Token); queuedCancel.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => queued); release.SetResult(); await holder;

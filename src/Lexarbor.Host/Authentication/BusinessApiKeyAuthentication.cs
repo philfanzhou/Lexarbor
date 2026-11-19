@@ -31,7 +31,7 @@ public sealed class BusinessApiKeyAuthentication(
             return Reject();
 
         // An indexed lookup by the digest of a 256-bit random secret never sends
-        // a caller's credential to SQLite and observes committed revocations.
+        // a caller's credential to PostgreSQL and observes committed revocations.
         var caller = await keys.FindActiveCallerAsync(HashKey(key), Context.RequestAborted);
         if (caller == null) return Reject();
 

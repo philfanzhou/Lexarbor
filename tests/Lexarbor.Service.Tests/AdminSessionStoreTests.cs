@@ -614,6 +614,7 @@ public sealed class AdminSessionStoreTests : IDisposable
             var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var transaction = scope.ServiceProvider.GetRequiredService<IUnitOfWork>().ExecuteInTransactionAsync(async () =>
             {
+                await Db(scope).Database.ExecuteSqlRawAsync("LOCK TABLE admin_session IN EXCLUSIVE MODE", cancellationToken);
                 entered.SetResult();
                 await release.Task;
                 return 0;

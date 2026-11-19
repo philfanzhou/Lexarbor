@@ -18,23 +18,10 @@ namespace Lexarbor.Database;
 /// <see cref="MigrationObservationState.InspectionFailed"/>. A history row this
 /// build does not know is a newer schema and is refused rather than adopted.
 /// </para>
-/// <para>
-/// Execution runs <c>MigrateAsync</c> on the application's own context and
-/// nothing else, under the startup gate's advisory migration lock — see
-/// <see cref="LexarborDatabaseStartup"/>.
-/// </para>
 /// </remarks>
-public sealed class LexarborMigrationExecutor : IDatabaseMigrationExecutor
+public sealed class LexarborMigrationExecutor(VocabularyDbContext context) : IDatabaseMigrationExecutor
 {
     private const string HistoryTable = "__EFMigrationsHistory";
-
-    private readonly VocabularyDbContext context;
-
-    public LexarborMigrationExecutor(VocabularyDbContext context)
-    {
-        ArgumentNullException.ThrowIfNull(context);
-        this.context = context;
-    }
 
     /// <inheritdoc />
     /// <remarks>
@@ -68,9 +55,12 @@ public sealed class LexarborMigrationExecutor : IDatabaseMigrationExecutor
             return MigrationObservationState.Empty;
         }
 
-        return applied.Count < known.Length
-            ? MigrationObservationState.PendingMigration
-            : MigrationObservationState.CurrentVersionCompatible;
+        if (applied.Count < known.Length)
+        {
+            return MigrationObservationState.PendingMigration;
+        }
+
+        return MigrationObservationState.CurrentVersionCompatible;
     }
 
     /// <inheritdoc />

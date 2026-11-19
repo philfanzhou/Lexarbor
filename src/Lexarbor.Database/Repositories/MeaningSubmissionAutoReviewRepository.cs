@@ -10,7 +10,7 @@ public sealed class MeaningSubmissionAutoReviewRepository(VocabularyDbContext db
     : IMeaningSubmissionAutoReviewRepository
 {
     public Task<MeaningSubmissionReviewLease?> ClaimAsync(string owner, TimeSpan leaseDuration, CancellationToken token)
-        => new UnitOfWork(db).ExecuteInTransactionAsync<MeaningSubmissionReviewLease?>(async () =>
+        => WriteReviewQueueAsync<MeaningSubmissionReviewLease?>(async () =>
         {
             var now = clock.GetUtcNow().ToUnixTimeMilliseconds();
             // All pending rows participate, including rows never notified or queued.
@@ -29,6 +29,7 @@ public sealed class MeaningSubmissionAutoReviewRepository(VocabularyDbContext db
             row.Owner = owner; row.Epoch++;
             row.LeaseUntilUnixMs = now + (long)leaseDuration.TotalMilliseconds;
             await db.SaveChangesAsync(token);
+            db.Entry(row).State = EntityState.Detached;
             return new(id, row.AttemptId, owner, row.Epoch);
         }, token);
 
@@ -42,7 +43,7 @@ public sealed class MeaningSubmissionAutoReviewRepository(VocabularyDbContext db
     }
 
     public Task FinishAsync(MeaningSubmissionReviewLease lease, string? failureCode, TimeSpan? retryAfter, CancellationToken token)
-        => new UnitOfWork(db).ExecuteInTransactionAsync(async () =>
+        => WriteReviewQueueAsync(async () =>
         {
             // Never mutate the newer owner's scheduling state, even after an old valid result was retained.
             var query = db.MeaningSubmissionAutoReviews.Where(s => s.SubmissionId == lease.SubmissionId
@@ -76,7 +77,7 @@ public sealed class MeaningSubmissionAutoReviewRepository(VocabularyDbContext db
     }
 
     public Task StageValidatedAsync(MeaningSubmissionReviewLease lease, MeaningSubmissionAiReview review, CancellationToken token)
-        => new UnitOfWork(db).ExecuteInTransactionAsync(async () =>
+        => WriteReviewQueueAsync(async () =>
         {
             if (review.AttemptId != lease.AttemptId || review.SubmissionId != lease.SubmissionId)
                 throw new ArgumentException("Review does not match its attempt.", nameof(review));
@@ -99,5 +100,12 @@ public sealed class MeaningSubmissionAutoReviewRepository(VocabularyDbContext db
             .Select(s => (long?)Math.Max(s.NextAttemptAtUnixMs, s.LeaseUntilUnixMs)).MinAsync(token);
         return new(count, latest?.LastFailureCode, At(latest?.LastFailureAtUnixMs), At(next));
     }
+    private Task<T> WriteReviewQueueAsync<T>(Func<Task<T>> action, CancellationToken token) =>
+        new UnitOfWork(db).ExecuteInTransactionAsync(async () =>
+        {
+            await WriteLocks.SubmissionReviewsAsync(db, token);
+            return await action();
+        }, token);
+
     private static DateTimeOffset? At(long? value) => value is { } ms ? DateTimeOffset.FromUnixTimeMilliseconds(ms) : null;
 }

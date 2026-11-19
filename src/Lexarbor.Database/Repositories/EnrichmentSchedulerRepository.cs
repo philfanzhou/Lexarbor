@@ -62,7 +62,7 @@ public sealed partial class EnrichmentSchedulerRepository(VocabularyDbContext co
             await context.SaveChangesAsync();
             context.Entry(wordCursor).State = EntityState.Detached; context.Entry(meaningCursor).State = EntityState.Detached;
             return result.ToArray();
-        }, token);
+        }, token, ct => WriteLocks.KeyAsync(context, "enrichment-discovery", ct));
     }
 
     public async Task<EnrichmentDiscoveryProgress?> DiscoveryProgressAsync(CancellationToken token)
@@ -187,7 +187,7 @@ public sealed partial class EnrichmentSchedulerRepository(VocabularyDbContext co
             await context.SaveChangesAsync(); context.ChangeTracker.Clear();
             return new EnrichmentServiceAdmission(serviceId, configurationVersion, lease, probe, reason,
                 Math.Max(now + 1000, row.NextAttemptAtUnixMs));
-        }, token);
+        }, token, ct => WriteLocks.KeyAsync(context, "enrichment-service:" + serviceId, ct));
     }
 
     public Task<long> FinishServiceAsync(EnrichmentServiceAdmission admission, string outcome, string? errorCode,
@@ -255,7 +255,11 @@ public sealed partial class EnrichmentSchedulerRepository(VocabularyDbContext co
             }
             await context.SaveChangesAsync(); context.ChangeTracker.Clear();
             return row.NextAttemptAtUnixMs;
-        }, token);
+        }, token, async ct =>
+        {
+            if (completion is not null) await WriteLocks.EnrichmentTargetAsync(context, completion.Guard.TargetId, ct);
+            await WriteLocks.KeyAsync(context, "enrichment-service:" + admission.ServiceId, ct);
+        });
 
     public async Task<EnrichmentServiceStatus?> ServiceAsync(string serviceId, CancellationToken token)
     {

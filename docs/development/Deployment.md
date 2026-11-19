@@ -67,7 +67,7 @@ bash scripts/start.sh
 | `LEXARBOR_PORT` | `5008` | Host port mapped to container port 5008 |
 | `LEXARBOR_DATA_DIR` | `<repository>/data` | Host directory mounted at `/app/data` |
 
-The deployment is single-instance only: writes are serialized inside one process, so do not run more than one serving container against the same database. `LEXARBOR_DATABASE_CONNECTION_STRING` is required; see [PostgreSQL configuration](#postgresql-configuration).
+Run one serving container per deployment. Rate limiting and background scheduling still use process-local state. PostgreSQL coordinates concurrent writes from independent requests. `LEXARBOR_DATABASE_CONNECTION_STRING` is required; see [PostgreSQL configuration](#postgresql-configuration).
 
 ### Container user and file ownership
 
@@ -244,8 +244,7 @@ Startup runs the ServiceMantle PostgreSQL startup gate:
   privilege, and an existing database is only observed, never repaired.
 - **Migrations run once.** The orchestration takes a PostgreSQL advisory lock
   derived from the service id, so two containers starting together migrate the
-  database once. This coordinates the startup migration only: writes are still
-  serialized inside one process, so run a single serving instance.
+  database once. This lock covers startup migrations. The supported deployment has one serving instance.
 - **The upgrade check refuses newer schemas.** A database whose
   `__EFMigrationsHistory` records a migration the running build does not know
   stops startup with `migration.version_too_new` instead of being rewritten.
@@ -283,17 +282,30 @@ recovery. Back up the Data Protection root key (the injected value or
 `/app/data/data-protection-root-key`) separately from the dump, and restore the
 two together: the key rows inside the database are protected by that root key.
 
+### Recovering from enrichment scheduling timeouts
+
+If rc.2 or rc.3 logs a 30-second timeout during each enrichment discovery sweep,
+upgrade the application to `v0.2.0-rc.4` using the same PostgreSQL database and
+settings. The worker checks demand by word when selecting failed rounds and can
+resume eligible work on the next discovery sweep.
+
 ### Upgrading from a SQLite release
 
-**This build does not copy an existing SQLite database.** Started against an
-existing deployment, it serves from an empty PostgreSQL database and leaves
-`data/vocabulary.db` untouched. The release that upgrades SQLite deployments
-copies and verifies the data on its first start; see
-[ADR-011](../adr/ADR-011-postgresql-only-storage.md). Until then, keep existing
-deployments on their current release. A deployment whose persistent
-`appsettings.json` still holds the old `Data Source=data/vocabulary.db`
-connection string fails startup with the SQLite diagnostic until a PostgreSQL
-connection string is supplied, which an environment variable overrides.
+Upgrade an installation that still uses SQLite through
+[v0.2.0-rc.2](https://github.com/philfanzhou/Lexarbor/releases/tag/v0.2.0-rc.2).
+Stop the old service cleanly, back up its data directory and Data Protection
+root key, and configure an empty PostgreSQL database for rc.2. Keep the same
+data directory and key. Wait for rc.2 to report that it copied and verified
+the data. Then start this release against that PostgreSQL database.
+
+This release checks for `data/vocabulary.db` (or the path selected by
+`Database:LegacySqlitePath`, passed as `LEXARBOR_LEGACY_SQLITE_PATH` to
+`scripts/start.sh`). If the file exists, PostgreSQL must contain the
+`imported` outcome recorded by the transition release. A missing marker or
+`none` stops startup even with initialization disabled. The check leaves the
+old file untouched. A fresh installation needs only PostgreSQL. After the
+switch, back up PostgreSQL and the root key together. Returning to an older
+SQLite backup loses subsequent writes to PostgreSQL.
 
 ### Earlier SQLite upgrade notes
 

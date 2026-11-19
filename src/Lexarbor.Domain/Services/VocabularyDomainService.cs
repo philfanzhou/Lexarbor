@@ -7,10 +7,8 @@ namespace Lexarbor.Domain.Services;
 public partial class VocabularyDomainService
 {
     /// <summary>
-    /// The most entries one batch import may carry. It bounds how long a batch
-    /// holds the process-wide write lock: 500 entries took about three seconds
-    /// on a first import, during which every other administrative write waits.
-    /// ADR-005 records the measurement.
+    /// The most entries one batch import may carry. It bounds the number of spelling keys and
+    /// the amount of work held in a single transaction (ADR-005).
     /// </summary>
     public const int MaxBatchEntries = 500;
 
@@ -88,7 +86,7 @@ public partial class VocabularyDomainService
         VocabularyModel vocabulary,
         VocabularyMeaningModel meaning)
     {
-        return await _unitOfWork.ExecuteInTransactionAsync(async () =>
+        return await _unitOfWork.ExecuteWordWriteAsync(vocabulary.Id, [NormalizeWord(vocabulary.Word)], async () =>
         {
             var (word, storedMeaning, _) = await AddOrUpdateCoreAsync(vocabulary, meaning);
             return (word, storedMeaning);
@@ -230,7 +228,7 @@ public partial class VocabularyDomainService
             normalizedEntries.Add((word, meaning, NullIfWhiteSpace(unitId), VocabularyMeaningUnitSections.NormalizeOrNull(section), VocabularyMeaningUnitEntryKinds.NormalizeOrNull(entryKind)));
         }
 
-        return await _unitOfWork.ExecuteInTransactionAsync(async () =>
+        return await _unitOfWork.ExecuteWordWriteAsync(null, normalizedEntries.Select(entry => NormalizeWord(entry.Word.Word)).ToArray(), async () =>
         {
             var book = await _bookRepository.GetByIdAsync(normalizedBookId)
                        ?? throw new ResourceNotFoundException("Vocabulary book was not found.");

@@ -23,6 +23,8 @@ add_configuration_override() {
 # Required: the PostgreSQL connection string. There is no default, and the
 # application refuses to start without one (or with a SQLite one).
 add_configuration_override LEXARBOR_DATABASE_CONNECTION_STRING ConnectionStrings__Default
+# Location checked for installations that still need the v0.2.0-rc.2 upgrade.
+add_configuration_override LEXARBOR_LEGACY_SQLITE_PATH Database__LegacySqlitePath
 add_configuration_override LEXARBOR_IDENTITY_AUTHORITY IdentityService__Authority
 if identity_issuer="$(printenv LEXARBOR_IDENTITY_ISSUER)"; then
   APP_ENVIRONMENT+=("-e" "IdentityService__Issuer=${identity_issuer}")

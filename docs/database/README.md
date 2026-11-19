@@ -16,8 +16,9 @@ The move from SQLite does not change what the data means or how the API orders i
 - **Insertion order.** `vocabulary` and `vocabulary_meaning` carry an indexed identity column `insertion_order`, which the enrichment scheduler reads where it used SQLite's implicit `rowid` to find the newest rows.
 - **Timestamps.** `DateTimeOffset` columns are `timestamp with time zone` and are written as UTC.
 - **Read snapshots.** Multi-statement reads that used a deferred SQLite transaction open a `READ ONLY` `REPEATABLE READ` transaction. They take no write lock, and a concurrent writer commits beside them instead of queueing behind them; the read still answers from one snapshot.
-- **Errors.** SQLSTATE class 23 (unique, foreign key, check, not-null, and trigger refusals raised as `23000`) maps to the existing `ConflictException` (409). A lock wait past `lock_timeout` (`55P03`), a deadlock (`40P01`), and a serialization failure (`40001`) map to `StorageBusyException` (503 with `Retry-After`).
-- **Write serialization.** `UnitOfWork` still serializes writes inside the process. A writer outside the process is no longer held off by a database-wide write lock, as it was under SQLite; the supported deployment remains one serving instance.
+- **Errors.** Integrity violations (SQLSTATE class 23) and serialization failures (`40001`) return `ConflictException` (409). A lock timeout (`55P03`) or deadlock (`40P01`) returns `StorageBusyException` (503 with `Retry-After`).
+- **Concurrent writes.** PostgreSQL grants transaction-scoped advisory locks for normalized spellings before lookup, then for existing word IDs in deterministic order. Different words in the same book can commit independently. Imports hold a shared lock on the book row while validating its state. Audio uploads coordinate by idempotency key and word. Enrichment leases coordinate by word and service capacity by service ID. Structural operations such as scoped cleanup, relation changes and multi-target batches lock the vocabulary table in `SHARE ROW EXCLUSIVE` mode to keep their cross-row checks and changes atomic. Ordinary word writers take compatible `ROW EXCLUSIVE` locks. Catalog reads, administrator sessions and independent service capacity updates can continue during a structural mutation.
+- **Transaction ownership.** A scoped EF context runs one transaction at a time. Nested saves join the owning context. The unit of work publishes enrichment notifications only after commit and never replays a callback.
 
 ## Core relationships
 
@@ -60,7 +61,7 @@ Startup writes no books, words, or meanings, so a new database starts empty. Lex
 
 ## Upgrading an existing database
 
-Migrations are the only startup writer. This build does not copy a SQLite database into PostgreSQL; see [Upgrading from a SQLite release](../development/Deployment.md#upgrading-from-a-sqlite-release). Back up with `pg_dump` before upgrading.
+Back up with `pg_dump` before upgrading. PostgreSQL migrations retain the transition release's `legacy_sqlite_import` table. Startup reads its marker when the old file exists. An `imported` outcome permits startup. All other outcomes require the operator to follow [Upgrading from a SQLite release](../development/Deployment.md#upgrading-from-a-sqlite-release).
 
 ## Write consistency
 
@@ -69,7 +70,7 @@ Migrations are the only startup writer. This build does not copy a SQLite databa
 - Updating a meaning must confirm the meaning belongs to the current word and book.
 - A word has a display spelling and a normalization key, and they are not the same value. The key is `word.Trim().ToLowerInvariant()`; the display value is the imported spelling, trimmed but with its casing, so `Nobel Prize` is stored as `Nobel Prize`. The database keeps the ASCII-only equivalent as the stored generated column `normalized_word` (trimmed, with A–Z folded), and the lookup that resolves an import to an existing word compares against it, so the comparison is an index seek rather than a scan of the table. It carries no unique constraint: asserting one would fail on a database that already holds two spellings of one word. `Apple`, ` apple `, and `APPLE` resolve to one row; the first creation's spelling is the stored display value, a later equivalent import never rewrites it, and only the administrator's word replacement can correct casing while the normalized key is unchanged. Rows lower-cased by an earlier release keep their value.
 - Re-importing the same word, book, normalized part of speech, and definition is idempotent.
-- The deployment is single-instance; a process-level write transaction lock serializes administrative writes, and the database's unique index is the last line of defence.
+- Imports coordinate on the spelling and existing word ID. The database unique index enforces the logical key.
 - `UnitOfWork` maps PostgreSQL integrity-constraint errors to 409 and never exposes the internal error to the client.
 
 ## Shared word replacement
@@ -105,13 +106,13 @@ Exact-position management writes use the existing four-part key `(unit_id, meani
 
 The phrase-position administration read filters `entry_kind='phrase'` in SQL and counts assignment rows directly. Its `totalCount` and pages include separate rows for the same meaning in different units or sections while ignoring a sibling `word` assignment at the same unit and section. The query pages by unit number, stored section, spelling, unit ID and meaning ID, and projects only the requested page within one read-only snapshot. Disabled books are readable; missing or cross-book units return 404. No schema change is required.
 
-`VocabularyAdminQueryRepository` implements the separate management query contract without the public enabled-book filter. Each response opens a read-only `REPEATABLE READ` transaction on the EF context. It does not acquire `UnitOfWork`'s write semaphore or take a lock. A concurrent writer commits beside the open read transaction, and the response still answers from its original snapshot.
+`VocabularyAdminQueryRepository` implements the separate management query contract without the public enabled-book filter. Each response opens a read-only `REPEATABLE READ` transaction on the EF context. A concurrent writer commits beside the open read transaction, and the response still answers from its original snapshot.
 
 Filtering, distinct-word counting and paging run in SQL. Only the current page's word IDs are used to batch-load deduplicated book memberships and, where requested, applicable meanings. Summaries do not load meanings; content never loads other books' meaning text. Detail loads also batch-read the page's meaning-level unit assignments (join through `vocabulary_meaning_unit`) in one query, never one per meaning. The unit-content route (`GET /admin/vocabulary-books/{bookId}/units/{unitId}/content`) uses the same snapshot and paging; its membership probe narrows a word through a meaning of the book assigned to the unit, its `wordCount`/`meaningCount` count the unit rather than the book — still per distinct meaning, so a meaning in both sections of the unit or under both kinds of one place counts once — and a missing or cross-book unit answers 404. An optional `section` query parameter (`A`, `B`, or `none`; anything else answers 400) narrows the page and those counts to that section's places, and an optional `entryKind` query parameter (`word`, `phrase`, or `none`; anything else answers 400) narrows them to that kind's places — the two are independent dimensions of one position and combine by intersection — while the response's `sectionCounts` (`sectionA`, `sectionB`, `noSection`) and `entryKindCounts` (`word`, `phrase`, `none`) always report the whole unit's place counts whatever the filters. Each meaning's unit assignments name the place they sit in (`section` null for the unsectioned place, `entryKind` null for the unclassified kind). Existing `IX_vocabulary_word`, `IX_vocabulary_meaning_book_id_vocabulary_id`, and the `vocabulary_meaning_unit` primary key over `(unit_id, meaning_id, section, entry_kind)` support ordered traversal and membership probes. No schema or index migration is needed. Read responses promise consistency within one request, not between pages.
 
 ## Scoped cleanup
 
-The new cleanup commands are separate from the legacy book DELETE, which still refuses a book with meanings. `VocabularyCleanupService` validates the current book, ownership, selected memberships and optional exact name within the same UnitOfWork write transaction as deletion. Preview instead uses a read-only snapshot transaction without the process write semaphore.
+The new cleanup commands are separate from the legacy book DELETE, which still refuses a book with meanings. `VocabularyCleanupService` validates the current book, ownership, selected memberships and optional exact name within the same UnitOfWork write transaction as deletion. Preview uses a read-only snapshot transaction.
 
 Let R be the meanings selected by book and action, and A the distinct word IDs in R. One shared parameterized predicate defines R in preview counts and commit. Commit records A in a transaction-scoped temporary table (`ON COMMIT DROP`), deletes R, deletes only words in A with no remaining meaning and no incoming or outgoing vocabulary relation, then optionally deletes the book. Pending and self-relations also retain their endpoints. Other/disabled books' references and unrelated historical orphan words remain untouched. No cascade is used to widen the scope, and no whole book of meaning entities is loaded. The temporary table is dropped at the end of a successful commit and disappears with the transaction otherwise; tracked entries are cleared after bulk SQL so later operations cannot reuse deleted entities. Failure at any stage rolls back all business rows.
 
@@ -122,7 +123,7 @@ number deleted. Both phases use the same retention conditions, evaluated at the
 time of their own transaction. Removing a relation never sweeps newly unreferenced
 words.
 
-A single instance remains the supported deployment. Writes are serialized inside the process; busy/constraint failures keep existing 503/409 mappings. Preview counts can become stale between requests. These destructive commands offer no undo, replay safety or automatic orphan sweep.
+A single instance remains the supported deployment. Preview counts can become stale between requests. These destructive commands offer no undo, replay safety or automatic orphan sweep.
 
 ## Vocabulary relations
 
@@ -296,8 +297,7 @@ immutability and the prohibition on cleaning published assets. Static schema
 checks alone are not a runtime upload or recovery implementation.
 
 `AudioReadRepository` reads current word, owned optional meaning and both accents'
-bindings/assets inside one read-only snapshot, without taking the
-UnitOfWork write semaphore. Reads ignore tracked entities. All consumers use
+bindings/assets inside one read-only snapshot. Reads ignore tracked entities. All consumers use
 `AudioSelectionService`: source revision is lower-case SHA-256 of the fixed JSON
 array `["lexarbor.audio.source.v1", word, locale, phonetic, targetKind, partOfSpeech,
 meaning]`, using System.Text.Json UTF-8 encoding with explicit nulls. `targetKind`
@@ -364,7 +364,7 @@ the pre-upgrade backup is the alternative when those values must be retained.
 logical deletion and recovery callers. Each mutation owns a short database write
 transaction through `UnitOfWork`; it may not be called inside an enclosing write
 transaction. Writer admission and conditional owner/fence updates arbitrate
-across connections; the process semaphore only queues local writers. Reads use
+across connections. Reads use
 fresh, untracked database values rather than pre-upload tracked targets.
 
 Upload callers validate authorization, bounded body, MP3, locale and fingerprint
@@ -508,7 +508,7 @@ the latest round state. Network I/O and waiting occur outside writer transaction
 `ClaimAsync` atomically admits only one owner and increments its fencing token;
 expiry is exclusive. It can reclaim an expired running round without clearing its
 plan, calls or budget. Time is read from `TimeProvider` after writer
-admission, including the process write queue. Old owners, fences, rounds, epochs,
+admission, including any wait for a conflicting database lock. Old owners, fences, rounds, epochs,
 changed input, changed own bindings and deleted targets cannot complete or mutate
 queue work. `ValidateInTransactionAsync` is the shared authorization boundary for
 later field and final binding writers: it requires the **same scoped context and

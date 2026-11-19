@@ -15,5 +15,6 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Lexarbor.Domain.Tests" />
+    <InternalsVisibleTo Include="Lexarbor.Service.Tests" />
   </ItemGroup>
 </Project>

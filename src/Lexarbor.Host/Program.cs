@@ -716,6 +716,9 @@ if (!app.Environment.IsDevelopment() &&
     }
 }
 
+await TransitionUpgradeGuard.CheckAsync(
+    app.Configuration["Database:LegacySqlitePath"], app.Environment.ContentRootPath, connectionString);
+
 // Configure database initialization. The outcome feeds the readiness snapshot:
 // a failed migration stops startup (and records the failure for any future
 // non-fatal handling), while a disabled initialization only checks once whether

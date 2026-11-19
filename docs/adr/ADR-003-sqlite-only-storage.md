@@ -1,6 +1,6 @@
 # ADR-003 SQLite as the only supported storage
 
-- **Status**: accepted and implemented
+- **Status**: superseded by [ADR-011 PostgreSQL as the only supported storage](./ADR-011-postgresql-only-storage.md) on 2026-11-18
 - **Date**: 2026-08-05
 - **Scope**: Vocabulary's database provider, migrations, concurrent write strategy, and phonetic fields. Paths are unchanged; the word DTO's phonetic fields are a contract change
 

@@ -14,6 +14,7 @@ public sealed partial class EnrichmentTaskRepository
             throw new InvalidOperationException("Admin retry requires its own serialized writer transaction.");
         return _unitOfWork.ExecuteInTransactionAsync(async () =>
         {
+            await WriteLocks.EnrichmentTargetAsync(context, id, token);
             now = Now(now);
             var target = await Targets.SingleOrDefaultAsync(t => t.Id == id, token);
             if (target == null) return new EnrichmentRetryResult(EnrichmentRetryStatus.NotFound, id);

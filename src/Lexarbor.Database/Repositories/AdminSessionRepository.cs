@@ -68,10 +68,12 @@ public sealed class AdminSessionRepository(VocabularyDbContext context, IUnitOfW
         CancellationToken cancellationToken = default) =>
         SafelyAsync(() => WriteAsync(async () =>
         {
-            var row = await context.AdminSessions.AsNoTracking().SingleOrDefaultAsync(
-                item => item.HandleHash == hash, cancellationToken);
+            var row = await context.AdminSessions.FromSqlInterpolated(
+                $"SELECT * FROM admin_session WHERE handle_hash = {hash} FOR UPDATE")
+                .AsNoTracking().SingleOrDefaultAsync(cancellationToken);
             if (participatingWrite is not null) await participatingWrite(row);
-            await context.AdminSessions.Where(item => item.HandleHash == hash).ExecuteDeleteAsync(cancellationToken);
+            if (row is not null)
+                await context.AdminSessions.Where(item => item.HandleHash == hash).ExecuteDeleteAsync(cancellationToken);
             return row;
         }, cancellationToken));
 
@@ -81,7 +83,7 @@ public sealed class AdminSessionRepository(VocabularyDbContext context, IUnitOfW
     /// family the session middleware answers, and its database activity is logged under the
     /// same EF Core suppression. Used for the standalone management audit row a failed login
     /// leaves behind — a path with no session transaction to join. The delegate performs its
-    /// own save through the unit of work (the shared write lock serializes it).
+    /// own save through the unit of work.
     /// </summary>
     public Task ExecuteStandaloneWriteAsync(Func<Task> write) => SafelyAsync(async () =>
     {
@@ -91,7 +93,7 @@ public sealed class AdminSessionRepository(VocabularyDbContext context, IUnitOfW
 
     public Task<int> CleanupAsync(long nowUnixMs, CancellationToken cancellationToken = default) =>
         SafelyAsync(() => WriteAsync(() => context.Database.ExecuteSqlInterpolatedAsync(
-            $"DELETE FROM admin_session WHERE handle_hash IN (SELECT handle_hash FROM admin_session WHERE expires_at_unix_ms <= {nowUnixMs} ORDER BY expires_at_unix_ms, handle_hash LIMIT {CleanupBatchSize})",
+            $"DELETE FROM admin_session WHERE handle_hash IN (SELECT handle_hash FROM admin_session WHERE expires_at_unix_ms <= {nowUnixMs} ORDER BY expires_at_unix_ms, handle_hash LIMIT {CleanupBatchSize} FOR UPDATE SKIP LOCKED)",
             cancellationToken), cancellationToken));
 
     private Task<T> WriteAsync<T>(Func<Task<T>> action, CancellationToken cancellationToken)

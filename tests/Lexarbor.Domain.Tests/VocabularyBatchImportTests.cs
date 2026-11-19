@@ -422,8 +422,7 @@ public class VocabularyBatchImportTests : TestBase
             Entry("apple", "苹果", unitId: unit.Id)
         };
 
-        // The process-wide write lock serializes the two batches, so one
-        // creates the meaning and its assignment and the other matches both.
+        // Two calls sharing one scoped EF context must still take turns using its transaction.
         var results = await Task.WhenAll(
             _service.ImportBatchAsync(book.Id, entries),
             _service.ImportBatchAsync(book.Id, entries));

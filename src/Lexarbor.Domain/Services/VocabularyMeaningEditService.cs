@@ -13,7 +13,7 @@ public sealed class VocabularyMeaningEditService(IVocabularyRepository words, IV
         var normalizedMeaning = meaning.Trim();
         var normalizedPartOfSpeech = partOfSpeech?.Trim().ToLowerInvariant() ?? string.Empty;
         cancellationToken.ThrowIfCancellationRequested();
-        await unitOfWork.ExecuteInTransactionAsync(async () =>
+        await unitOfWork.ExecuteWordWriteAsync(wordId, [], async () =>
         {
             _ = await books.GetByIdAsync(bookId) ?? throw new ResourceNotFoundException("Vocabulary book was not found.");
             _ = await words.GetByIdAsync(wordId) ?? throw new ResourceNotFoundException("Vocabulary word was not found.");

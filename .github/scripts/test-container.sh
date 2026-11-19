@@ -16,6 +16,7 @@ NAMED_CONTAINER="lexarbor-named-${RUN_SUFFIX}"
 FAILURE_CONTAINER="lexarbor-failure-${RUN_SUFFIX}"
 CODE_CONTAINER="lexarbor-code-${RUN_SUFFIX}"
 PROVIDER_FAILURE_CONTAINER="lexarbor-provider-failure-${RUN_SUFFIX}"
+UPGRADE_CONTAINER="lexarbor-upgrade-${RUN_SUFFIX}"
 NAMED_VOLUME="lexarbor-data-${RUN_SUFFIX}"
 # The application and its database server share one disposable network; the
 # server is reachable only from it. The password is synthetic and exists for
@@ -37,6 +38,7 @@ cleanup() {
     "$FAILURE_CONTAINER" \
     "$CODE_CONTAINER" \
     "$PROVIDER_FAILURE_CONTAINER" \
+    "$UPGRADE_CONTAINER" \
     "$POSTGRES_CONTAINER" >/dev/null 2>&1 || true
   LEXARBOR_DB_PASSWORD="$DB_PASSWORD" docker compose -f scripts/compose.yaml -p "$COMPOSE_PROJECT" \
     down --volumes --remove-orphans >/dev/null 2>&1 || true
@@ -727,6 +729,19 @@ config_hash_after="$(sha256sum "$existing_data/appsettings.json" | cut -d ' ' -f
 test "$config_hash_before" = "$config_hash_after"
 test "$(psql_db lexarbor_uninitialized --command "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'")" = 0
 docker rm -f "$EXISTING_CONTAINER" >/dev/null
+
+echo "Checking an installation that skipped the transition release refuses startup"
+upgrade_data="$TEST_ROOT/upgrade-data"
+mkdir -m 700 "$upgrade_data"
+printf 'opaque legacy file' > "$upgrade_data/vocabulary.db"
+create_database lexarbor_upgrade
+docker run --detach --name "$UPGRADE_CONTAINER" --network "$NETWORK_NAME" \
+  --user "$(id -u):$(id -g)" --volume "$upgrade_data:/app/data" \
+  --env "ConnectionStrings__Default=$(connection_string lexarbor_upgrade)" "$IMAGE_NAME" >/dev/null
+expect_startup_failure "$UPGRADE_CONTAINER" "$TEST_ROOT/upgrade.log"
+grep --quiet 'Upgrade through v0.2.0-rc.2' "$TEST_ROOT/upgrade.log"
+test "$(cat "$upgrade_data/vocabulary.db")" = 'opaque legacy file'
+test "$(psql_db lexarbor_upgrade --command "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'")" = 0
 
 echo "Checking the Compose example starts the application with its database"
 export LEXARBOR_DB_PASSWORD="$DB_PASSWORD"

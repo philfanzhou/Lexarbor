@@ -13,7 +13,7 @@ namespace Lexarbor.Host.Authentication;
 /// replacing the retired <c>SignaCore.Client.AspNetCore</c> client package wholesale. The
 /// shared-framework handler owns the authorization-code flow, the correlation/nonce browser
 /// binding and the standard RP-initiated end-session redirect; this host keeps every
-/// Lexarbor-owned boundary around it: the SQLite-backed server-side session tickets with their
+/// Lexarbor-owned boundary around it: the PostgreSQL-backed server-side session tickets with their
 /// audit companion writes, the antiforgery write model on the historical
 /// <c>X-SignaCore-CSRF</c> header, the pre-sign-in administrator gate on the verified access
 /// token, the fixed JSON/redirect presentation, the return-target allowlist, and the
@@ -95,7 +95,7 @@ public static class AdminOidcRegistration
             .AddHttpMessageHandler<AdminOidcBackchannelTimeoutHandler>()
             .RemoveAllLoggers();
 
-        // The SQLite-backed server-side ticket store and its periodic expiry sweep (the
+        // The PostgreSQL-backed server-side ticket store and its periodic expiry sweep (the
         // repository rows, the audit companion writes and the v1 protected payload format are
         // Lexarbor's own persistence boundary, unchanged by the handler swap).
         services.AddSingleton<AdminSessionTicketStore>();

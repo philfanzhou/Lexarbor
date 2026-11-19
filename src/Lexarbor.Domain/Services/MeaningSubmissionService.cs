@@ -86,7 +86,7 @@ public sealed partial class MeaningSubmissionService
         var normalizedExample = Optional(example, MaxExampleLength, "Example");
         var normalizedWord = spelling.ToLowerInvariant();
 
-        var result = await _unitOfWork.ExecuteInTransactionAsync(async () =>
+        var result = await _unitOfWork.ExecuteWordWriteAsync(null, [normalizedWord], async () =>
         {
             var reusable = await _submissions.FindReusableAsync(
                 normalizedWord, normalizedPartOfSpeech ?? string.Empty, definition, cancellationToken);
@@ -279,7 +279,7 @@ public sealed partial class MeaningSubmissionService
     {
         var normalized = ValidateApproval(approval);
         var comment = Optional(approval.ReviewComment, MaxReviewCommentLength, "Review comment");
-        return await _unitOfWork.ExecuteInTransactionAsync(async () =>
+        return await _unitOfWork.ExecuteCatalogWriteAsync(async () =>
         {
             var submission = await RequirePendingAsync(id, cancellationToken);
             await WriteApprovalAsync(submission, normalized, cancellationToken);
@@ -297,7 +297,7 @@ public sealed partial class MeaningSubmissionService
     public async Task<MeaningSubmissionModel> RejectAsync(string id, string? reviewComment, CancellationToken cancellationToken = default)
     {
         var comment = Optional(reviewComment, MaxReviewCommentLength, "Review comment");
-        return await _unitOfWork.ExecuteInTransactionAsync(async () =>
+        return await _unitOfWork.ExecuteCatalogWriteAsync(async () =>
         {
             var submission = await RequirePendingAsync(id, cancellationToken);
             MarkRejected(submission, _time.GetUtcNow());
@@ -321,7 +321,7 @@ public sealed partial class MeaningSubmissionService
     {
         ArgumentNullException.ThrowIfNull(eligibility);
         review = ValidateReview(review);
-        return await _unitOfWork.ExecuteInTransactionAsync(async () =>
+        return await _unitOfWork.ExecuteCatalogWriteAsync(async () =>
         {
             var previous = await _submissions.GetReviewByAttemptIdAsync(review.AttemptId, cancellationToken);
             if (previous != null)
