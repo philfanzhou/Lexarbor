@@ -7,7 +7,7 @@
 
 An external learning system needs to propose meanings missing from every enabled
 book while Lexarbor remains responsible for shared vocabulary and pronunciation.
-Lexarbor stores no learner identity or learning history. Unreviewed proposals
+The submission subsystem stores no learner identity or learning history. Learner state belongs to the [learner progress model](ADR-012-learner-progress-model.md). Unreviewed proposals
 must not become public catalog meanings.
 
 ## Decision
