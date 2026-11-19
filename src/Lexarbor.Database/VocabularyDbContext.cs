@@ -13,6 +13,9 @@ public class VocabularyDbContext : DbContext
     private readonly HashSet<string> _changedWords = [];
     private readonly HashSet<EnrichmentTargetKey> _changedAudioTargets = [];
     private bool _catalogChanged;
+    // A scoped EF context can own only one transaction. Other requests have their own context.
+    internal SemaphoreSlim TransactionSlot { get; } = new(1, 1);
+
     public VocabularyDbContext(DbContextOptions<VocabularyDbContext> options, IEnrichmentChangeNotifier? enrichmentChanges = null) : base(options)
     {
         _enrichmentChanges = enrichmentChanges;

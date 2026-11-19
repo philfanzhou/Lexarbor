@@ -11,7 +11,7 @@ Thank you for improving Lexarbor. Keep changes focused, preserve the public API 
 
 ## Local verification
 
-Run the checks relevant to your change; run all of them before requesting merge for cross-cutting changes. Backend tests start a disposable PostgreSQL server through Testcontainers, so Docker must be available (see [Testing](docs/development/Testing.md#test-database)). PostgreSQL is the only supported storage ([ADR-011](docs/adr/ADR-011-postgresql-only-storage.md)); do not add runtime support for another database.
+Run the checks relevant to your change; run all of them before requesting merge for cross-cutting changes. Backend tests start a disposable PostgreSQL server through Testcontainers, so Docker must be available (see [Testing](docs/development/Testing.md#test-database)). PostgreSQL is the only supported storage ([ADR-011](docs/adr/ADR-011-postgresql-only-storage.md)); legacy installations upgrade through v0.2.0-rc.2. Keep the startup check for a completed import when the old file is present.
 
 ```bash
 dotnet restore Lexarbor.sln

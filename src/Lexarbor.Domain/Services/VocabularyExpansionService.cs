@@ -13,7 +13,7 @@ public sealed class VocabularyExpansionService(IVocabularyExpansionRepository ex
         VocabularyExpansionPlan plan, Func<bool> canPublish, CancellationToken token)
     {
         if (!VocabularyExpansionValidation.Valid(plan)) throw new DomainValidationException("Invalid vocabulary expansion plan.");
-        return unitOfWork.ExecuteInTransactionAsync(async () =>
+        return unitOfWork.ExecuteCatalogWriteAsync(async () =>
         {
             var now = clock.GetUtcNow().ToUnixTimeMilliseconds();
             if (!canPublish() || task.Id != guard.TargetId || task.Target.Step != EnrichmentStep.Expand

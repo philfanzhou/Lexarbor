@@ -10,7 +10,7 @@ namespace Lexarbor.Host.Authentication;
 
 /// <summary>
 /// The Lexarbor <see cref="ITicketStore"/> behind the framework cookie session handler's
-/// <c>SessionStore</c> seam: the server-side session boundary backed by the existing SQLite
+/// <c>SessionStore</c> seam: the server-side session boundary backed by the existing PostgreSQL
 /// administrator session rows. The browser's opaque cookie references a 43-character handle of
 /// the same canonical form the retired implementations issued, and the protected payload keeps
 /// the byte-for-byte <c>v1</c> format, so the rows written before the handler swap (and before
@@ -114,7 +114,7 @@ public sealed class AdminSessionTicketStore(
 
     /// <summary>
     /// The periodic sweep of expired rows, driven by <see cref="AdminSessionCleanupService"/>
-    /// (the framework handler has no sweep hook of its own). The bounded SQLite delete is safe
+    /// (the framework handler has no sweep hook of its own). The bounded PostgreSQL delete is safe
     /// to wait on the background thread (no synchronization context). A storage failure is
     /// contained here — logged with the fixed diagnostic, never SQL or provider detail — so the
     /// host survives it and the next interval retries.

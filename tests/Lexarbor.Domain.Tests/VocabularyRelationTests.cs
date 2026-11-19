@@ -194,12 +194,13 @@ public sealed class VocabularyRelationTests : TestBase
         await SeedAsync(_dbContext, Ct);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var hold = _unitOfWork.ExecuteInTransactionAsync(async () =>
+        await using var holder = new VocabularyDbContext(PostgreSqlTestServer.Options(ConnectionString).Options);
+        var hold = new UnitOfWork(holder).ExecuteCatalogWriteAsync(async () =>
         {
             entered.SetResult();
             await release.Task;
             return 0;
-        });
+        }, Ct);
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(15), Ct);
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(Ct);
         try

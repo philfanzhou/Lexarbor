@@ -17,7 +17,7 @@ public sealed partial class EnrichmentTaskRepository
         if (limit is < 1 or > 20 || excludedWords.Count > 4096) throw new ArgumentOutOfRangeException(nameof(limit));
         if (!configuration.CanPrepare) return 0;
         var candidates = await EnrichmentAdminQueries.Rows(context, configuration, now, true)
-            .Where(r => r.AutomaticRecoveryAvailable
+            .Where(r => r.RoundState == "Failed" && r.AutomaticRecoveryAvailable
                 && (r.Step != "Fields" || r.ErrorCode == "fields.candidates_missing")
                 && r.ErrorCode != "preparation.failed" && !excludedWords.Contains(r.WordId))
             .OrderBy(r => r.UpdatedAtUnixMs).ThenBy(r => r.Id).Take(limit * 4)
@@ -44,7 +44,7 @@ public sealed partial class EnrichmentTaskRepository
                            select t.Id).AnyAsync()) return false;
                 // Recheck only this word under the writer; never build the
                 // entire catalog's demand set while blocking other writes.
-                var demand = await EnrichmentAdminQueries.Rows(context, configuration, now, true, target.WordId).SingleAsync(r => r.Id == target.Id);
+                var demand = await EnrichmentAdminQueries.Rows(context, configuration, now, true).SingleAsync(r => r.Id == target.Id);
                 if (!demand.AutomaticRecoveryAvailable) return false;
                 var key = Key(target);
                 if (key.Step == EnrichmentStep.Audio && (!configuration.AudioEnabled || !configuration.StorageEnabled
@@ -101,7 +101,7 @@ public sealed partial class EnrichmentTaskRepository
                     foreach (var dependent in dependents) await Renew(Key(dependent));
                 }
                 return true;
-            }, token)) recovered++;
+            }, token, ct => WriteLocks.WordsAsync(context, item.WordId, [], ct))) recovered++;
         }
         return recovered;
     }

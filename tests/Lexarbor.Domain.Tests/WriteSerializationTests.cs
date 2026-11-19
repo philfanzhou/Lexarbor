@@ -13,9 +13,7 @@ using Xunit;
 namespace Lexarbor.Domain.Tests;
 
 /// <summary>
-/// The process write lock in <see cref="UnitOfWork"/>, which the move to
-/// PostgreSQL keeps unchanged, and the busy answer for a lock wait that runs
-/// past the bounded timeout.
+/// PostgreSQL write coordination and the application contract for competing transactions.
 /// </summary>
 public sealed class WriteSerializationTests : IDisposable
 {
@@ -135,10 +133,7 @@ public sealed class WriteSerializationTests : IDisposable
             await setupContext.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
-        // Another connection holds the book's row lock, which is what a long
-        // write from outside this process does. The in-process write lock
-        // cannot help here: this connection never goes through UnitOfWork,
-        // which is exactly the situation the error mapping exists for.
+        // Hold a real PostgreSQL row lock until the other connection hits lock_timeout.
         await using var blockingContext = CreateContext(databasePath);
         await blockingContext.Database.OpenConnectionAsync(TestContext.Current.CancellationToken);
         await blockingContext.Database.ExecuteSqlRawAsync(
@@ -173,7 +168,7 @@ public sealed class WriteSerializationTests : IDisposable
     }
 
     [Fact]
-    public async Task BookWrite_WaitsForAnInFlightImport_InsteadOfCollidingWithIt()
+    public async Task BookWrite_CanCommitBesideAnUnrelatedWordWrite()
     {
         var databasePath = _database.ConnectionString;
         await using (var setupContext = CreateContext(databasePath))
@@ -225,19 +220,10 @@ public sealed class WriteSerializationTests : IDisposable
 
         try
         {
-            // The book write must be waiting on the process write lock. Without
-            // it the write would go straight to the database and commit beside
-            // the import, so settling here at all is the failure.
-            var firstToSettle = await Task.WhenAny(
-                bookWrite,
-                Task.Delay(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken));
-            Assert.NotSame(bookWrite, firstToSettle);
+            await bookWrite.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         }
         finally
         {
-            // Released even when that assertion fails. The write lock is static,
-            // so an import left holding it would hang every later test in the
-            // process instead of letting this one report the problem.
             releaseImport.TrySetResult();
             await Task.WhenAny(
                 import,
@@ -259,6 +245,58 @@ public sealed class WriteSerializationTests : IDisposable
     }
 
     [Fact]
+    public async Task IndependentWords_InTheSameBook_CanCommitConcurrently()
+    {
+        var token = TestContext.Current.CancellationToken;
+        await using var first = _database.Open();
+        await using var second = _database.Open();
+        first.VocabularyBooks.Add(new() { Id = "book", BookName = "Book", Status = true });
+        await first.SaveChangesAsync(token);
+
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var held = new UnitOfWork(first).ExecuteInTransactionAsync(async () =>
+        {
+            var imported = await CreateService(first).AddOrUpdateAsync(new() { Word = "apple" },
+                new() { BookId = "book", Meaning = "fruit" });
+            entered.SetResult();
+            await release.Task;
+            return imported;
+        }, token);
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(10), token);
+            await CreateService(second).AddOrUpdateAsync(new() { Word = "birch" },
+                new() { BookId = "book", Meaning = "tree" }).WaitAsync(TimeSpan.FromSeconds(10), token);
+            Assert.Equal(new[] { "birch" }, await second.Vocabularies.Select(word => word.Word).ToArrayAsync(token));
+        }
+        finally
+        {
+            release.TrySetResult();
+            await held;
+        }
+        Assert.Equal(2, await second.VocabularyMeanings.CountAsync(token));
+    }
+
+    [Fact]
+    public async Task SerializationFailure_RollsBackAndReportsConflictWithoutReplayingTheCallback()
+    {
+        var token = TestContext.Current.CancellationToken;
+        await using var db = _database.Open();
+        var attempts = 0;
+        await Assert.ThrowsAsync<ConflictException>(() => new UnitOfWork(db).ExecuteInTransactionAsync(async () =>
+        {
+            attempts++;
+            db.VocabularyBooks.Add(new() { Id = "conflict", BookName = "Conflict" });
+            await db.SaveChangesAsync(token);
+            return await db.Database.ExecuteSqlRawAsync(
+                "DO $$ BEGIN RAISE serialization_failure; END $$", token);
+        }, token));
+        Assert.Equal(1, attempts);
+        Assert.Empty(await db.VocabularyBooks.AsNoTracking().ToListAsync(token));
+    }
+
+    [Fact]
     public async Task ImportWrite_NestsSaveChangesInsideItsTransaction_WithoutDeadlocking()
     {
         var databasePath = _database.ConnectionString;
@@ -275,11 +313,7 @@ public sealed class WriteSerializationTests : IDisposable
         });
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        // AddOrUpdateAsync calls SaveChangesAsync from inside
-        // ExecuteInTransactionAsync, and both take the process write lock. The
-        // semaphore is not reentrant, so the flow-scoped guard is the only
-        // reason this returns at all. Raced against a timer because the failure
-        // mode is a hang, and a hung suite says much less than a failed test.
+        // SaveChanges must join the transaction already owned by this context.
         var import = CreateService(context).AddOrUpdateAsync(
             new VocabularyModel { Word = "apple" },
             new VocabularyMeaningModel { BookId = "reentrancy-book", Meaning = "fruit" });
