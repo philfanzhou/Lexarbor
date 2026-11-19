@@ -2202,3 +2202,7 @@ Back up `/app/data` and matching audio objects before upgrading. Downgrading thi
 migration removes only destination ownership and first-scan metadata; generated
 books and vocabulary remain. Restore a matched backup if the removed ownership
 must be recovered. Older-image schema-version refusal still applies.
+
+## Learner progress
+
+Before connecting a learning backend, configure the catalog and submission clients, match its scheduler settings and verify the authenticated store binding. Include every learner schema in backup and restore rehearsals. See [Learner progress](../api/LearnerProgress.md).

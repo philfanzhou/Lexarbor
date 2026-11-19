@@ -7,6 +7,7 @@ namespace Lexarbor.Service;
 public static class BusinessApiAuthorization
 {
     public const string Header = "X-Api-Key";
+    public const string Learning = "learning";
     public const string Catalog = "catalog";
     public const string MeaningSubmissions = "meaning-submissions";
     public const string ScopeClaim = "lexarbor.api_scope";

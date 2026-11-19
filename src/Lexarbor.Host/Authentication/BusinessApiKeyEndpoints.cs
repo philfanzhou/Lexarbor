@@ -41,17 +41,17 @@ public static class BusinessApiKeyEndpoints
             try { body = await request.ReadFromJsonAsync<IssueRequest>(JsonOptions, token); }
             catch (JsonException) { }
         }
-        if (body?.CallerId is not { Length: > 0 and <= 2048 } callerId || callerId.Any(c => char.IsWhiteSpace(c) || char.IsControl(c)))
+        if (body?.CallerId is not { Length: > 0 and <= 3048 } callerId || callerId.Any(c => char.IsWhiteSpace(c) || char.IsControl(c)))
             return VocabularyHttpResponse.BadRequest("A caller ID of 1 to 2048 characters without whitespace is required.");
-        if (body.Scopes is not { Length: > 0 and <= 2 } scopes
-            || scopes.Any(scope => scope is not (BusinessApiAuthorization.Catalog or BusinessApiAuthorization.MeaningSubmissions))
+        if (body.Scopes is not { Length: > 0 and <= 3 } scopes
+            || scopes.Any(scope => scope is not (BusinessApiAuthorization.Catalog or BusinessApiAuthorization.MeaningSubmissions or BusinessApiAuthorization.Learning))
             || scopes.Distinct(StringComparer.Ordinal).Count() != scopes.Length)
             return VocabularyHttpResponse.BadRequest("Select at least one valid, distinct API key scope.");
 
         var key = BusinessApiKeyAuthentication.GenerateKey();
         var metadata = new BusinessApiKeyMetadata(Guid.NewGuid().ToString(), callerId,
             scopes.Contains(BusinessApiAuthorization.Catalog), scopes.Contains(BusinessApiAuthorization.MeaningSubmissions),
-            time.GetUtcNow().ToUnixTimeMilliseconds(), null);
+            time.GetUtcNow().ToUnixTimeMilliseconds(), null, scopes.Contains(BusinessApiAuthorization.Learning));
         if (!await keys.TryAddAsync(metadata, BusinessApiKeyAuthentication.HashKey(key), token))
             return VocabularyHttpResponse.Conflict("Meaning submission access belongs to another caller with an active key.");
         return VocabularyHttpResponse.Ok(new { key, metadata = ToResponse(metadata) });
@@ -68,7 +68,8 @@ public static class BusinessApiKeyEndpoints
 
     private static KeyResponse ToResponse(BusinessApiKeyMetadata value)
     {
-        var scopes = new List<string>(2);
+        var scopes = new List<string>(3);
+        if (value.Learning) scopes.Add(BusinessApiAuthorization.Learning);
         if (value.Catalog) scopes.Add(BusinessApiAuthorization.Catalog);
         if (value.MeaningSubmissions) scopes.Add(BusinessApiAuthorization.MeaningSubmissions);
         return new(value.Id, value.CallerId, scopes, value.CreatedAtUnixMs, value.RevokedAtUnixMs);

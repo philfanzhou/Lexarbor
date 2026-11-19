@@ -17,7 +17,7 @@ namespace Lexarbor.Database.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.14")
+                .HasAnnotation("ProductVersion", "10.0.15")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -536,6 +536,10 @@ namespace Lexarbor.Database.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("created_at_unix_ms");
 
+                    b.Property<bool>("Learning")
+                        .HasColumnType("boolean")
+                        .HasColumnName("learning");
+
                     b.Property<bool>("MeaningSubmissions")
                         .HasColumnType("boolean")
                         .HasColumnName("meaning_submissions");
@@ -561,7 +565,7 @@ namespace Lexarbor.Database.Migrations
 
                             t.HasCheckConstraint("CK_business_api_key_hash", "length(secret_hash) = 64 AND secret_hash !~ '[^0-9a-f]'");
 
-                            t.HasCheckConstraint("CK_business_api_key_scopes", "catalog OR meaning_submissions");
+                            t.HasCheckConstraint("CK_business_api_key_scopes", "catalog OR meaning_submissions OR learning");
 
                             t.HasCheckConstraint("CK_business_api_key_times", "created_at_unix_ms >= 0 AND (revoked_at_unix_ms IS NULL OR revoked_at_unix_ms >= created_at_unix_ms)");
                         });

@@ -8,12 +8,12 @@ namespace Lexarbor.Service.Tests.TestInfrastructure;
 internal static class BusinessApiTestKeys
 {
     internal static async Task<string> SeedKeyAsync(this WebApplicationFactory<Program> host, string callerId = "catalog-tests",
-        bool catalog = true, bool meaningSubmissions = false)
+        bool catalog = true, bool meaningSubmissions = false, bool learning = false)
     {
         var secret = BusinessApiKeyAuthentication.GenerateKey();
         using var scope = host.Services.CreateScope();
         var repository = scope.ServiceProvider.GetRequiredService<BusinessApiKeyRepository>();
-        if (!await repository.TryAddAsync(new(Guid.NewGuid().ToString(), callerId, catalog, meaningSubmissions, 1, null),
+        if (!await repository.TryAddAsync(new(Guid.NewGuid().ToString(), callerId, catalog, meaningSubmissions, 1, null, learning),
             BusinessApiKeyAuthentication.HashKey(secret), TestContext.Current.CancellationToken))
             throw new InvalidOperationException("Could not provision the synthetic test caller.");
         return secret;

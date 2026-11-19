@@ -1,0 +1,1544 @@
+{
+ "generator": {
+  "library": "py-fsrs",
+  "version": "6.3.2",
+  "command": "python3 generate_fsrs_vectors.py > fsrs_vectors.json",
+  "scheduler": {
+   "parameters": [
+    0.212,
+    1.2931,
+    2.3065,
+    8.2956,
+    6.4133,
+    0.8334,
+    3.0194,
+    0.001,
+    1.8722,
+    0.1666,
+    0.796,
+    1.4835,
+    0.0614,
+    0.2629,
+    1.6483,
+    0.6014,
+    1.8729,
+    0.5425,
+    0.0912,
+    0.0658,
+    0.1542
+   ],
+   "desired_retention": 0.9,
+   "learning_steps": [
+    60,
+    600
+   ],
+   "relearning_steps": [
+    600
+   ],
+   "maximum_interval": 36500,
+   "enable_fuzzing": false
+  }
+ },
+ "cases": [
+  {
+   "name": "new_first_again[0]",
+   "rating": 1,
+   "review_datetime": "2026-01-01T00:00:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 1,
+    "step": 0,
+    "stability": null,
+    "difficulty": null,
+    "due": "2026-01-01T00:00:00+00:00",
+    "last_review": null
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 1,
+    "step": 0,
+    "stability": 0.212,
+    "difficulty": 6.4133,
+    "due": "2026-01-01T00:01:00+00:00",
+    "last_review": "2026-01-01T00:00:00+00:00",
+    "reps": 1,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "new_first_hard[0]",
+   "rating": 2,
+   "review_datetime": "2026-01-01T00:00:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 1,
+    "step": 0,
+    "stability": null,
+    "difficulty": null,
+    "due": "2026-01-01T00:00:00+00:00",
+    "last_review": null
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 1,
+    "step": 0,
+    "stability": 1.2931,
+    "difficulty": 5.112170705601056,
+    "due": "2026-01-01T00:05:30+00:00",
+    "last_review": "2026-01-01T00:00:00+00:00",
+    "reps": 1,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "new_first_good[0]",
+   "rating": 3,
+   "review_datetime": "2026-01-01T00:00:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 1,
+    "step": 0,
+    "stability": null,
+    "difficulty": null,
+    "due": "2026-01-01T00:00:00+00:00",
+    "last_review": null
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 1,
+    "step": 1,
+    "stability": 2.3065,
+    "difficulty": 2.118103970459016,
+    "due": "2026-01-01T00:10:00+00:00",
+    "last_review": "2026-01-01T00:00:00+00:00",
+    "reps": 1,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "new_first_easy[0]",
+   "rating": 4,
+   "review_datetime": "2026-01-01T00:00:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 1,
+    "step": 0,
+    "stability": null,
+    "difficulty": null,
+    "due": "2026-01-01T00:00:00+00:00",
+    "last_review": null
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 8.2956,
+    "difficulty": 1.0,
+    "due": "2026-01-09T00:00:00+00:00",
+    "last_review": "2026-01-01T00:00:00+00:00",
+    "reps": 1,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "good_good_again_hard[0]",
+   "rating": 3,
+   "review_datetime": "2026-01-01T00:00:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 1,
+    "step": 0,
+    "stability": null,
+    "difficulty": null,
+    "due": "2026-01-01T00:00:00+00:00",
+    "last_review": null
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 1,
+    "step": 1,
+    "stability": 2.3065,
+    "difficulty": 2.118103970459016,
+    "due": "2026-01-01T00:10:00+00:00",
+    "last_review": "2026-01-01T00:00:00+00:00",
+    "reps": 1,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "good_good_again_hard[1]",
+   "rating": 3,
+   "review_datetime": "2026-01-01T00:01:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 1,
+    "step": 1,
+    "stability": 2.3065,
+    "difficulty": 2.118103970459016,
+    "due": "2026-01-01T00:10:00+00:00",
+    "last_review": "2026-01-01T00:00:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 2.3065,
+    "difficulty": 2.111214235785395,
+    "due": "2026-01-03T00:01:00+00:00",
+    "last_review": "2026-01-01T00:01:00+00:00",
+    "reps": 2,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "good_good_again_hard[2]",
+   "rating": 1,
+   "review_datetime": "2026-01-01T00:11:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 2.3065,
+    "difficulty": 2.111214235785395,
+    "due": "2026-01-03T00:01:00+00:00",
+    "last_review": "2026-01-01T00:01:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 3,
+    "step": 0,
+    "stability": 0.7750839828558984,
+    "difficulty": 7.392238132342694,
+    "due": "2026-01-01T00:21:00+00:00",
+    "last_review": "2026-01-01T00:11:00+00:00",
+    "reps": 3,
+    "lapses": 1
+   }
+  },
+  {
+   "name": "good_good_again_hard[3]",
+   "rating": 2,
+   "review_datetime": "2026-01-01T00:12:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 3,
+    "step": 0,
+    "stability": 0.7750839828558984,
+    "difficulty": 7.392238132342694,
+    "due": "2026-01-01T00:21:00+00:00",
+    "last_review": "2026-01-01T00:11:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 3,
+    "step": 0,
+    "stability": 0.7750839828558984,
+    "difficulty": 8.254074519842886,
+    "due": "2026-01-01T00:27:00+00:00",
+    "last_review": "2026-01-01T00:12:00+00:00",
+    "reps": 4,
+    "lapses": 1
+   }
+  },
+  {
+   "name": "good_good_again_hard_good_good[0]",
+   "rating": 3,
+   "review_datetime": "2026-01-01T00:00:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 1,
+    "step": 0,
+    "stability": null,
+    "difficulty": null,
+    "due": "2026-01-01T00:00:00+00:00",
+    "last_review": null
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 1,
+    "step": 1,
+    "stability": 2.3065,
+    "difficulty": 2.118103970459016,
+    "due": "2026-01-01T00:10:00+00:00",
+    "last_review": "2026-01-01T00:00:00+00:00",
+    "reps": 1,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "good_good_again_hard_good_good[1]",
+   "rating": 3,
+   "review_datetime": "2026-01-01T00:01:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 1,
+    "step": 1,
+    "stability": 2.3065,
+    "difficulty": 2.118103970459016,
+    "due": "2026-01-01T00:10:00+00:00",
+    "last_review": "2026-01-01T00:00:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 2.3065,
+    "difficulty": 2.111214235785395,
+    "due": "2026-01-03T00:01:00+00:00",
+    "last_review": "2026-01-01T00:01:00+00:00",
+    "reps": 2,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "good_good_again_hard_good_good[2]",
+   "rating": 1,
+   "review_datetime": "2026-01-01T00:11:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 2.3065,
+    "difficulty": 2.111214235785395,
+    "due": "2026-01-03T00:01:00+00:00",
+    "last_review": "2026-01-01T00:01:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 3,
+    "step": 0,
+    "stability": 0.7750839828558984,
+    "difficulty": 7.392238132342694,
+    "due": "2026-01-01T00:21:00+00:00",
+    "last_review": "2026-01-01T00:11:00+00:00",
+    "reps": 3,
+    "lapses": 1
+   }
+  },
+  {
+   "name": "good_good_again_hard_good_good[3]",
+   "rating": 2,
+   "review_datetime": "2026-01-01T00:12:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 3,
+    "step": 0,
+    "stability": 0.7750839828558984,
+    "difficulty": 7.392238132342694,
+    "due": "2026-01-01T00:21:00+00:00",
+    "last_review": "2026-01-01T00:11:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 3,
+    "step": 0,
+    "stability": 0.7750839828558984,
+    "difficulty": 8.254074519842886,
+    "due": "2026-01-01T00:27:00+00:00",
+    "last_review": "2026-01-01T00:12:00+00:00",
+    "reps": 4,
+    "lapses": 1
+   }
+  },
+  {
+   "name": "good_good_again_hard_good_good[4]",
+   "rating": 3,
+   "review_datetime": "2026-01-01T00:27:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 3,
+    "step": 0,
+    "stability": 0.7750839828558984,
+    "difficulty": 8.254074519842886,
+    "due": "2026-01-01T00:27:00+00:00",
+    "last_review": "2026-01-01T00:12:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 0.8281648000472626,
+    "difficulty": 8.24104881461988,
+    "due": "2026-01-02T00:27:00+00:00",
+    "last_review": "2026-01-01T00:27:00+00:00",
+    "reps": 5,
+    "lapses": 1
+   }
+  },
+  {
+   "name": "good_good_again_hard_good_good[5]",
+   "rating": 3,
+   "review_datetime": "2026-01-06T00:27:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 0.8281648000472626,
+    "difficulty": 8.24104881461988,
+    "due": "2026-01-02T00:27:00+00:00",
+    "last_review": "2026-01-01T00:27:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 4.321799739478955,
+    "difficulty": 8.228036135102098,
+    "due": "2026-01-10T00:27:00+00:00",
+    "last_review": "2026-01-06T00:27:00+00:00",
+    "reps": 6,
+    "lapses": 1
+   }
+  },
+  {
+   "name": "cross_day_learning[0]",
+   "rating": 3,
+   "review_datetime": "2026-01-01T00:00:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 1,
+    "step": 0,
+    "stability": null,
+    "difficulty": null,
+    "due": "2026-01-01T00:00:00+00:00",
+    "last_review": null
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 1,
+    "step": 1,
+    "stability": 2.3065,
+    "difficulty": 2.118103970459016,
+    "due": "2026-01-01T00:10:00+00:00",
+    "last_review": "2026-01-01T00:00:00+00:00",
+    "reps": 1,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "cross_day_learning[1]",
+   "rating": 3,
+   "review_datetime": "2026-01-03T00:00:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 1,
+    "step": 1,
+    "stability": 2.3065,
+    "difficulty": 2.118103970459016,
+    "due": "2026-01-01T00:10:00+00:00",
+    "last_review": "2026-01-01T00:00:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 10.964332335820698,
+    "difficulty": 2.111214235785395,
+    "due": "2026-01-14T00:00:00+00:00",
+    "last_review": "2026-01-03T00:00:00+00:00",
+    "reps": 2,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "cross_day_learning[2]",
+   "rating": 2,
+   "review_datetime": "2026-01-03T00:10:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 10.964332335820698,
+    "difficulty": 2.111214235785395,
+    "due": "2026-01-14T00:00:00+00:00",
+    "last_review": "2026-01-03T00:00:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 10.964332335820698,
+    "difficulty": 4.748284761594571,
+    "due": "2026-01-14T00:10:00+00:00",
+    "last_review": "2026-01-03T00:10:00+00:00",
+    "reps": 3,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "cross_day_learning[3]",
+   "rating": 3,
+   "review_datetime": "2026-01-04T00:10:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 10.964332335820698,
+    "difficulty": 4.748284761594571,
+    "due": "2026-01-14T00:10:00+00:00",
+    "last_review": "2026-01-03T00:10:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 14.103956243060402,
+    "difficulty": 4.738764846129815,
+    "due": "2026-01-18T00:10:00+00:00",
+    "last_review": "2026-01-04T00:10:00+00:00",
+    "reps": 4,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "same_day_short_term_review[0]",
+   "rating": 3,
+   "review_datetime": "2026-01-01T00:00:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 1,
+    "step": 0,
+    "stability": null,
+    "difficulty": null,
+    "due": "2026-01-01T00:00:00+00:00",
+    "last_review": null
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 1,
+    "step": 1,
+    "stability": 2.3065,
+    "difficulty": 2.118103970459016,
+    "due": "2026-01-01T00:10:00+00:00",
+    "last_review": "2026-01-01T00:00:00+00:00",
+    "reps": 1,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "same_day_short_term_review[1]",
+   "rating": 3,
+   "review_datetime": "2026-01-01T00:01:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 1,
+    "step": 1,
+    "stability": 2.3065,
+    "difficulty": 2.118103970459016,
+    "due": "2026-01-01T00:10:00+00:00",
+    "last_review": "2026-01-01T00:00:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 2.3065,
+    "difficulty": 2.111214235785395,
+    "due": "2026-01-03T00:01:00+00:00",
+    "last_review": "2026-01-01T00:01:00+00:00",
+    "reps": 2,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "same_day_short_term_review[2]",
+   "rating": 2,
+   "review_datetime": "2026-01-01T00:31:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 2.3065,
+    "difficulty": 2.111214235785395,
+    "due": "2026-01-03T00:01:00+00:00",
+    "last_review": "2026-01-01T00:01:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 2.3065,
+    "difficulty": 4.748284761594571,
+    "due": "2026-01-03T00:31:00+00:00",
+    "last_review": "2026-01-01T00:31:00+00:00",
+    "reps": 3,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "same_day_short_term_review[3]",
+   "rating": 3,
+   "review_datetime": "2026-01-01T02:31:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 2.3065,
+    "difficulty": 4.748284761594571,
+    "due": "2026-01-03T00:31:00+00:00",
+    "last_review": "2026-01-01T00:31:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 2.3065,
+    "difficulty": 4.738764846129815,
+    "due": "2026-01-03T02:31:00+00:00",
+    "last_review": "2026-01-01T02:31:00+00:00",
+    "reps": 4,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "same_day_short_term_review[4]",
+   "rating": 1,
+   "review_datetime": "2026-01-01T04:01:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 2.3065,
+    "difficulty": 4.738764846129815,
+    "due": "2026-01-03T02:31:00+00:00",
+    "last_review": "2026-01-01T02:31:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 3,
+    "step": 0,
+    "stability": 0.7750839828558984,
+    "difficulty": 8.255896150618755,
+    "due": "2026-01-01T04:11:00+00:00",
+    "last_review": "2026-01-01T04:01:00+00:00",
+    "reps": 5,
+    "lapses": 1
+   }
+  },
+  {
+   "name": "long_intervals[0]",
+   "rating": 3,
+   "review_datetime": "2026-01-01T00:00:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 1,
+    "step": 0,
+    "stability": null,
+    "difficulty": null,
+    "due": "2026-01-01T00:00:00+00:00",
+    "last_review": null
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 1,
+    "step": 1,
+    "stability": 2.3065,
+    "difficulty": 2.118103970459016,
+    "due": "2026-01-01T00:10:00+00:00",
+    "last_review": "2026-01-01T00:00:00+00:00",
+    "reps": 1,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "long_intervals[1]",
+   "rating": 3,
+   "review_datetime": "2026-01-01T00:01:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 1,
+    "step": 1,
+    "stability": 2.3065,
+    "difficulty": 2.118103970459016,
+    "due": "2026-01-01T00:10:00+00:00",
+    "last_review": "2026-01-01T00:00:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 2.3065,
+    "difficulty": 2.111214235785395,
+    "due": "2026-01-03T00:01:00+00:00",
+    "last_review": "2026-01-01T00:01:00+00:00",
+    "reps": 2,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "long_intervals[2]",
+   "rating": 3,
+   "review_datetime": "2026-01-01T00:11:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 2.3065,
+    "difficulty": 2.111214235785395,
+    "due": "2026-01-03T00:01:00+00:00",
+    "last_review": "2026-01-01T00:01:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 2.3065,
+    "difficulty": 2.1043313908464483,
+    "due": "2026-01-03T00:11:00+00:00",
+    "last_review": "2026-01-01T00:11:00+00:00",
+    "reps": 3,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "long_intervals[3]",
+   "rating": 3,
+   "review_datetime": "2026-01-04T00:11:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 2.3065,
+    "difficulty": 2.1043313908464483,
+    "due": "2026-01-03T00:11:00+00:00",
+    "last_review": "2026-01-01T00:11:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 13.844767636526564,
+    "difficulty": 2.0974554287524403,
+    "due": "2026-01-18T00:11:00+00:00",
+    "last_review": "2026-01-04T00:11:00+00:00",
+    "reps": 4,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "long_intervals[4]",
+   "rating": 3,
+   "review_datetime": "2026-01-14T00:11:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 13.844767636526564,
+    "difficulty": 2.0974554287524403,
+    "due": "2026-01-18T00:11:00+00:00",
+    "last_review": "2026-01-04T00:11:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 47.524860298401094,
+    "difficulty": 2.0905863426205262,
+    "due": "2026-03-03T00:11:00+00:00",
+    "last_review": "2026-01-14T00:11:00+00:00",
+    "reps": 5,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "long_intervals[5]",
+   "rating": 2,
+   "review_datetime": "2026-02-13T00:11:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 47.524860298401094,
+    "difficulty": 2.0905863426205262,
+    "due": "2026-03-03T00:11:00+00:00",
+    "last_review": "2026-01-14T00:11:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 98.55557523120841,
+    "difficulty": 4.73459100485191,
+    "due": "2026-05-23T00:11:00+00:00",
+    "last_review": "2026-02-13T00:11:00+00:00",
+    "reps": 6,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "long_intervals[6]",
+   "rating": 3,
+   "review_datetime": "2026-04-14T00:11:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 98.55557523120841,
+    "difficulty": 4.73459100485191,
+    "due": "2026-05-23T00:11:00+00:00",
+    "last_review": "2026-02-13T00:11:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 205.05427794559452,
+    "difficulty": 4.725084783143896,
+    "due": "2026-11-05T00:11:00+00:00",
+    "last_review": "2026-04-14T00:11:00+00:00",
+    "reps": 7,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "long_intervals[7]",
+   "rating": 3,
+   "review_datetime": "2026-08-12T00:11:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 205.05427794559452,
+    "difficulty": 4.725084783143896,
+    "due": "2026-11-05T00:11:00+00:00",
+    "last_review": "2026-04-14T00:11:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 395.4026167091745,
+    "difficulty": 4.715588067657591,
+    "due": "2027-09-11T00:11:00+00:00",
+    "last_review": "2026-08-12T00:11:00+00:00",
+    "reps": 8,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "lapse_after_long_stability[0]",
+   "rating": 3,
+   "review_datetime": "2026-01-01T00:00:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 1,
+    "step": 0,
+    "stability": null,
+    "difficulty": null,
+    "due": "2026-01-01T00:00:00+00:00",
+    "last_review": null
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 1,
+    "step": 1,
+    "stability": 2.3065,
+    "difficulty": 2.118103970459016,
+    "due": "2026-01-01T00:10:00+00:00",
+    "last_review": "2026-01-01T00:00:00+00:00",
+    "reps": 1,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "lapse_after_long_stability[1]",
+   "rating": 3,
+   "review_datetime": "2026-01-01T00:01:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 1,
+    "step": 1,
+    "stability": 2.3065,
+    "difficulty": 2.118103970459016,
+    "due": "2026-01-01T00:10:00+00:00",
+    "last_review": "2026-01-01T00:00:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 2.3065,
+    "difficulty": 2.111214235785395,
+    "due": "2026-01-03T00:01:00+00:00",
+    "last_review": "2026-01-01T00:01:00+00:00",
+    "reps": 2,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "lapse_after_long_stability[2]",
+   "rating": 3,
+   "review_datetime": "2026-01-01T00:11:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 2.3065,
+    "difficulty": 2.111214235785395,
+    "due": "2026-01-03T00:01:00+00:00",
+    "last_review": "2026-01-01T00:01:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 2.3065,
+    "difficulty": 2.1043313908464483,
+    "due": "2026-01-03T00:11:00+00:00",
+    "last_review": "2026-01-01T00:11:00+00:00",
+    "reps": 3,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "lapse_after_long_stability[3]",
+   "rating": 3,
+   "review_datetime": "2026-02-15T00:11:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 2.3065,
+    "difficulty": 2.1043313908464483,
+    "due": "2026-01-03T00:11:00+00:00",
+    "last_review": "2026-01-01T00:11:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 42.12985983839688,
+    "difficulty": 2.0974554287524403,
+    "due": "2026-03-29T00:11:00+00:00",
+    "last_review": "2026-02-15T00:11:00+00:00",
+    "reps": 4,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "lapse_after_long_stability[4]",
+   "rating": 1,
+   "review_datetime": "2026-02-20T00:11:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 42.12985983839688,
+    "difficulty": 2.0974554287524403,
+    "due": "2026-03-29T00:11:00+00:00",
+    "last_review": "2026-02-15T00:11:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 3,
+    "step": 0,
+    "stability": 2.4633043757468553,
+    "difficulty": 7.387715706030851,
+    "due": "2026-02-20T00:21:00+00:00",
+    "last_review": "2026-02-20T00:11:00+00:00",
+    "reps": 5,
+    "lapses": 1
+   }
+  },
+  {
+   "name": "lapse_after_long_stability[5]",
+   "rating": 3,
+   "review_datetime": "2026-02-20T00:21:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 3,
+    "step": 0,
+    "stability": 2.4633043757468553,
+    "difficulty": 7.387715706030851,
+    "due": "2026-02-20T00:21:00+00:00",
+    "last_review": "2026-02-20T00:11:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 2.4633043757468553,
+    "difficulty": 7.375556359621658,
+    "due": "2026-02-22T00:21:00+00:00",
+    "last_review": "2026-02-20T00:21:00+00:00",
+    "reps": 6,
+    "lapses": 1
+   }
+  },
+  {
+   "name": "lapse_after_long_stability[6]",
+   "rating": 3,
+   "review_datetime": "2026-03-12T00:21:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 2.4633043757468553,
+    "difficulty": 7.375556359621658,
+    "due": "2026-02-22T00:21:00+00:00",
+    "last_review": "2026-02-20T00:21:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 15.2800463042785,
+    "difficulty": 7.363409172558875,
+    "due": "2026-03-27T00:21:00+00:00",
+    "last_review": "2026-03-12T00:21:00+00:00",
+    "reps": 7,
+    "lapses": 1
+   }
+  },
+  {
+   "name": "again_again_good_good[0]",
+   "rating": 1,
+   "review_datetime": "2026-01-01T00:00:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 1,
+    "step": 0,
+    "stability": null,
+    "difficulty": null,
+    "due": "2026-01-01T00:00:00+00:00",
+    "last_review": null
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 1,
+    "step": 0,
+    "stability": 0.212,
+    "difficulty": 6.4133,
+    "due": "2026-01-01T00:01:00+00:00",
+    "last_review": "2026-01-01T00:00:00+00:00",
+    "reps": 1,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "again_again_good_good[1]",
+   "rating": 1,
+   "review_datetime": "2026-01-01T00:01:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 1,
+    "step": 0,
+    "stability": 0.212,
+    "difficulty": 6.4133,
+    "due": "2026-01-01T00:01:00+00:00",
+    "last_review": "2026-01-01T00:00:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 1,
+    "step": 0,
+    "stability": 0.08335671711031604,
+    "difficulty": 8.806304468856837,
+    "due": "2026-01-01T00:02:00+00:00",
+    "last_review": "2026-01-01T00:01:00+00:00",
+    "reps": 2,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "again_again_good_good[2]",
+   "rating": 3,
+   "review_datetime": "2026-01-01T00:02:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 1,
+    "step": 0,
+    "stability": 0.08335671711031604,
+    "difficulty": 8.806304468856837,
+    "due": "2026-01-01T00:02:00+00:00",
+    "last_review": "2026-01-01T00:01:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 1,
+    "step": 1,
+    "stability": 0.10314065007785231,
+    "difficulty": 8.792726533684817,
+    "due": "2026-01-01T00:12:00+00:00",
+    "last_review": "2026-01-01T00:02:00+00:00",
+    "reps": 3,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "again_again_good_good[3]",
+   "rating": 3,
+   "review_datetime": "2026-01-01T00:12:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 1,
+    "step": 1,
+    "stability": 0.10314065007785231,
+    "difficulty": 8.792726533684817,
+    "due": "2026-01-01T00:12:00+00:00",
+    "last_review": "2026-01-01T00:02:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 0.12584423732556518,
+    "difficulty": 8.77916217644797,
+    "due": "2026-01-02T00:12:00+00:00",
+    "last_review": "2026-01-01T00:12:00+00:00",
+    "reps": 4,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "again_again_good_good[4]",
+   "rating": 2,
+   "review_datetime": "2026-01-03T00:12:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 0.12584423732556518,
+    "difficulty": 8.77916217644797,
+    "due": "2026-01-02T00:12:00+00:00",
+    "last_review": "2026-01-01T00:12:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 0.6241743567478322,
+    "difficulty": 9.174779330980423,
+    "due": "2026-01-04T00:12:00+00:00",
+    "last_review": "2026-01-03T00:12:00+00:00",
+    "reps": 5,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "easy_then_reviews[0]",
+   "rating": 4,
+   "review_datetime": "2026-01-01T00:00:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 1,
+    "step": 0,
+    "stability": null,
+    "difficulty": null,
+    "due": "2026-01-01T00:00:00+00:00",
+    "last_review": null
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 8.2956,
+    "difficulty": 1.0,
+    "due": "2026-01-09T00:00:00+00:00",
+    "last_review": "2026-01-01T00:00:00+00:00",
+    "reps": 1,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "easy_then_reviews[1]",
+   "rating": 2,
+   "review_datetime": "2026-01-02T00:00:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 8.2956,
+    "difficulty": 1.0,
+    "due": "2026-01-09T00:00:00+00:00",
+    "last_review": "2026-01-01T00:00:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 11.416542814538671,
+    "difficulty": 4.010608969296839,
+    "due": "2026-01-13T00:00:00+00:00",
+    "last_review": "2026-01-02T00:00:00+00:00",
+    "reps": 2,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "easy_then_reviews[2]",
+   "rating": 3,
+   "review_datetime": "2026-01-08T00:00:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 11.416542814538671,
+    "difficulty": 4.010608969296839,
+    "due": "2026-01-13T00:00:00+00:00",
+    "last_review": "2026-01-02T00:00:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 28.93282735622635,
+    "difficulty": 4.00182672962438,
+    "due": "2026-02-06T00:00:00+00:00",
+    "last_review": "2026-01-08T00:00:00+00:00",
+    "reps": 3,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "hard_first_step_mix[0]",
+   "rating": 2,
+   "review_datetime": "2026-01-01T00:00:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 1,
+    "step": 0,
+    "stability": null,
+    "difficulty": null,
+    "due": "2026-01-01T00:00:00+00:00",
+    "last_review": null
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 1,
+    "step": 0,
+    "stability": 1.2931,
+    "difficulty": 5.112170705601056,
+    "due": "2026-01-01T00:05:30+00:00",
+    "last_review": "2026-01-01T00:00:00+00:00",
+    "reps": 1,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "hard_first_step_mix[1]",
+   "rating": 3,
+   "review_datetime": "2026-01-01T00:06:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 1,
+    "step": 0,
+    "stability": 1.2931,
+    "difficulty": 5.112170705601056,
+    "due": "2026-01-01T00:05:30+00:00",
+    "last_review": "2026-01-01T00:00:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 1,
+    "step": 1,
+    "stability": 1.3358997622047517,
+    "difficulty": 5.102286904192293,
+    "due": "2026-01-01T00:16:00+00:00",
+    "last_review": "2026-01-01T00:06:00+00:00",
+    "reps": 2,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "hard_first_step_mix[2]",
+   "rating": 1,
+   "review_datetime": "2026-01-01T00:16:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 1,
+    "step": 1,
+    "stability": 1.3358997622047517,
+    "difficulty": 5.102286904192293,
+    "due": "2026-01-01T00:16:00+00:00",
+    "last_review": "2026-01-01T00:06:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 1,
+    "step": 0,
+    "stability": 0.4653455794121078,
+    "difficulty": 8.375383379153895,
+    "due": "2026-01-01T00:17:00+00:00",
+    "last_review": "2026-01-01T00:16:00+00:00",
+    "reps": 3,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "hard_first_step_mix[3]",
+   "rating": 3,
+   "review_datetime": "2026-01-01T00:17:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 1,
+    "step": 0,
+    "stability": 0.4653455794121078,
+    "difficulty": 8.375383379153895,
+    "due": "2026-01-01T00:17:00+00:00",
+    "last_review": "2026-01-01T00:16:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 1,
+    "step": 1,
+    "stability": 0.5141893917269943,
+    "difficulty": 8.36223636507158,
+    "due": "2026-01-01T00:27:00+00:00",
+    "last_review": "2026-01-01T00:17:00+00:00",
+    "reps": 4,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "hard_first_step_mix[4]",
+   "rating": 3,
+   "review_datetime": "2026-01-01T00:27:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 1,
+    "step": 1,
+    "stability": 0.5141893917269943,
+    "difficulty": 8.36223636507158,
+    "due": "2026-01-01T00:27:00+00:00",
+    "last_review": "2026-01-01T00:17:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 0.5644407567228666,
+    "difficulty": 8.349102498003345,
+    "due": "2026-01-02T00:27:00+00:00",
+    "last_review": "2026-01-01T00:27:00+00:00",
+    "reps": 5,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "hard_first_step_mix[5]",
+   "rating": 3,
+   "review_datetime": "2026-01-06T00:27:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 0.5644407567228666,
+    "difficulty": 8.349102498003345,
+    "due": "2026-01-02T00:27:00+00:00",
+    "last_review": "2026-01-01T00:27:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 3.4013448318215582,
+    "difficulty": 8.33598176480218,
+    "due": "2026-01-09T00:27:00+00:00",
+    "last_review": "2026-01-06T00:27:00+00:00",
+    "reps": 6,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "hard_first_step_mix[6]",
+   "rating": 1,
+   "review_datetime": "2026-01-21T00:27:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 3.4013448318215582,
+    "difficulty": 8.33598176480218,
+    "due": "2026-01-09T00:27:00+00:00",
+    "last_review": "2026-01-06T00:27:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 3,
+    "step": 0,
+    "stability": 0.902388127026876,
+    "difficulty": 9.438276890711313,
+    "due": "2026-01-21T00:37:00+00:00",
+    "last_review": "2026-01-21T00:27:00+00:00",
+    "reps": 7,
+    "lapses": 1
+   }
+  },
+  {
+   "name": "relearning_again_loop[0]",
+   "rating": 3,
+   "review_datetime": "2026-01-01T00:00:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 1,
+    "step": 0,
+    "stability": null,
+    "difficulty": null,
+    "due": "2026-01-01T00:00:00+00:00",
+    "last_review": null
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 1,
+    "step": 1,
+    "stability": 2.3065,
+    "difficulty": 2.118103970459016,
+    "due": "2026-01-01T00:10:00+00:00",
+    "last_review": "2026-01-01T00:00:00+00:00",
+    "reps": 1,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "relearning_again_loop[1]",
+   "rating": 3,
+   "review_datetime": "2026-01-01T00:01:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 1,
+    "step": 1,
+    "stability": 2.3065,
+    "difficulty": 2.118103970459016,
+    "due": "2026-01-01T00:10:00+00:00",
+    "last_review": "2026-01-01T00:00:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 2.3065,
+    "difficulty": 2.111214235785395,
+    "due": "2026-01-03T00:01:00+00:00",
+    "last_review": "2026-01-01T00:01:00+00:00",
+    "reps": 2,
+    "lapses": 0
+   }
+  },
+  {
+   "name": "relearning_again_loop[2]",
+   "rating": 1,
+   "review_datetime": "2026-01-01T00:11:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 2.3065,
+    "difficulty": 2.111214235785395,
+    "due": "2026-01-03T00:01:00+00:00",
+    "last_review": "2026-01-01T00:01:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 3,
+    "step": 0,
+    "stability": 0.7750839828558984,
+    "difficulty": 7.392238132342694,
+    "due": "2026-01-01T00:21:00+00:00",
+    "last_review": "2026-01-01T00:11:00+00:00",
+    "reps": 3,
+    "lapses": 1
+   }
+  },
+  {
+   "name": "relearning_again_loop[3]",
+   "rating": 1,
+   "review_datetime": "2026-01-01T00:21:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 3,
+    "step": 0,
+    "stability": 0.7750839828558984,
+    "difficulty": 7.392238132342694,
+    "due": "2026-01-01T00:21:00+00:00",
+    "last_review": "2026-01-01T00:11:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 3,
+    "step": 0,
+    "stability": 0.2798383649511081,
+    "difficulty": 9.128074776178583,
+    "due": "2026-01-01T00:31:00+00:00",
+    "last_review": "2026-01-01T00:21:00+00:00",
+    "reps": 4,
+    "lapses": 1
+   }
+  },
+  {
+   "name": "relearning_again_loop[4]",
+   "rating": 2,
+   "review_datetime": "2026-01-01T00:31:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 3,
+    "step": 0,
+    "stability": 0.2798383649511081,
+    "difficulty": 9.128074776178583,
+    "due": "2026-01-01T00:31:00+00:00",
+    "last_review": "2026-01-01T00:21:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 3,
+    "step": 0,
+    "stability": 0.2798383649511081,
+    "difficulty": 9.406403774008751,
+    "due": "2026-01-01T00:46:00+00:00",
+    "last_review": "2026-01-01T00:31:00+00:00",
+    "reps": 5,
+    "lapses": 1
+   }
+  },
+  {
+   "name": "relearning_again_loop[5]",
+   "rating": 3,
+   "review_datetime": "2026-01-01T00:46:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 3,
+    "step": 0,
+    "stability": 0.2798383649511081,
+    "difficulty": 9.406403774008751,
+    "due": "2026-01-01T00:46:00+00:00",
+    "last_review": "2026-01-01T00:31:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 0.3197333301621218,
+    "difficulty": 9.39222573953158,
+    "due": "2026-01-02T00:46:00+00:00",
+    "last_review": "2026-01-01T00:46:00+00:00",
+    "reps": 6,
+    "lapses": 1
+   }
+  },
+  {
+   "name": "relearning_again_loop[6]",
+   "rating": 3,
+   "review_datetime": "2026-01-26T00:46:00+00:00",
+   "card": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 0.3197333301621218,
+    "difficulty": 9.39222573953158,
+    "due": "2026-01-02T00:46:00+00:00",
+    "last_review": "2026-01-01T00:46:00+00:00"
+   },
+   "expected": {
+    "card_id": 1,
+    "state": 2,
+    "step": null,
+    "stability": 2.2425509479067633,
+    "difficulty": 9.378061883088886,
+    "due": "2026-01-28T00:46:00+00:00",
+    "last_review": "2026-01-26T00:46:00+00:00",
+    "reps": 7,
+    "lapses": 1
+   }
+  }
+ ]
+}

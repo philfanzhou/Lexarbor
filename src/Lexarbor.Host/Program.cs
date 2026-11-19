@@ -234,6 +234,7 @@ builder.Services.AddSingleton<AutomaticMeaningSubmissionReviewClient>();
 builder.Services.AddSingleton<MeaningSubmissionReviewBatchExecutor>();
 builder.Services.AddHostedService<MeaningSubmissionReviewWorker>();
 builder.Services.AddScoped<BusinessApiKeyRepository>();
+builder.Services.AddLearnerServices(builder.Configuration, connectionString);
 builder.Services.AddSingleton<EnrichmentRuntimeConfiguration>();
 builder.Services.AddHttpClient(OpenAiCompatibleReviewAssistant.HttpClientName);
 builder.Services.AddSingleton<IMeaningSubmissionReviewAssistant, OpenAiCompatibleReviewAssistant>();
@@ -395,7 +396,7 @@ builder.Services
 builder.Services.AddServiceMantleManagementAuthorization();
 builder.Services.AddAuthorization(options =>
 {
-    foreach (var scope in new[] { BusinessApiAuthorization.Catalog, BusinessApiAuthorization.MeaningSubmissions })
+    foreach (var scope in new[] { BusinessApiAuthorization.Catalog, BusinessApiAuthorization.MeaningSubmissions, BusinessApiAuthorization.Learning })
         options.AddPolicy(scope, policy => policy
             .AddAuthenticationSchemes(BusinessApiKeyAuthentication.SchemeName)
             .RequireAuthenticatedUser()
@@ -832,6 +833,7 @@ app.UseAuthentication();
 // carry the official antiforgery boundary inside the session scheme itself.
 app.UseMiddleware<AdminSessionIdentityMiddleware>();
 app.UseAuthorization();
+app.Use(LearningEndpoints.PrepareAsync);
 // One requirement for the whole administration surface. The empty-prefix group
 // changes no route; it only carries the ServiceMantle security response-header
 // marker down to every endpoint and nested group these mappers create, so the
@@ -859,6 +861,7 @@ adminSurface.MapVocabularyCleanupEndpoints();
 adminSurface.MapMeaningSubmissionAdminEndpoints();
 adminSurface.MapMeaningSubmissionReviewAdminEndpoints();
 app.MapMeaningSubmissionIntegrationEndpoints();
+app.MapLearnerEndpoints();
 app.MapAudioPublicPlaybackEndpoints();
 app.MapVocabularyHttpEndpoints(
     static adminGroup => adminGroup.RequireServiceMantleSecurityResponseHeaders());

@@ -15,6 +15,10 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Lexarbor.Domain.Tests" />
+    <InternalsVisibleTo Include="Lexarbor.Host" />
     <InternalsVisibleTo Include="Lexarbor.Service.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Learning/*.sql" />
   </ItemGroup>
 </Project>

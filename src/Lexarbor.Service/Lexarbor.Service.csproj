@@ -10,6 +10,7 @@
     <ProjectReference Include="..\Lexarbor.Database\Lexarbor.Database.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Lexarbor.Host" />
     <InternalsVisibleTo Include="Lexarbor.Service.Tests" />
   </ItemGroup>
 </Project>

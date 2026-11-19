@@ -24,4 +24,7 @@
     <Compile Include="../Shared/*.cs" Link="Shared/%(Filename)%(Extension)" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="Learning/fsrs_vectors.json" LogicalName="fsrs_vectors.json" />
+  </ItemGroup>
 </Project>

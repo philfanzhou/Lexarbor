@@ -16,6 +16,8 @@ public sealed class BusinessApiKeyEntity
     public bool Catalog { get; init; }
     [Column("meaning_submissions")]
     public bool MeaningSubmissions { get; init; }
+    [Column("learning")]
+    public bool Learning { get; init; }
     [Column("created_at_unix_ms")]
     public long CreatedAtUnixMs { get; init; }
     [Column("revoked_at_unix_ms")]

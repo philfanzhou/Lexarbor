@@ -5,20 +5,20 @@ using Microsoft.EntityFrameworkCore;
 namespace Lexarbor.Database.Repositories;
 
 public sealed record BusinessApiKeyMetadata(string Id, string CallerId, bool Catalog, bool MeaningSubmissions,
-    long CreatedAtUnixMs, long? RevokedAtUnixMs);
+    long CreatedAtUnixMs, long? RevokedAtUnixMs, bool Learning = false);
 
-public sealed record BusinessApiCaller(string CallerId, bool Catalog, bool MeaningSubmissions);
+public sealed record BusinessApiCaller(string CallerId, bool Catalog, bool MeaningSubmissions, bool Learning);
 
 public sealed class BusinessApiKeyRepository(VocabularyDbContext context, IUnitOfWork unitOfWork)
 {
     public Task<BusinessApiCaller?> FindActiveCallerAsync(string secretHash, CancellationToken token) => context.BusinessApiKeys
         .AsNoTracking().Where(key => key.SecretHash == secretHash && key.RevokedAtUnixMs == null)
-        .Select(key => new BusinessApiCaller(key.CallerId, key.Catalog, key.MeaningSubmissions)).SingleOrDefaultAsync(token);
+        .Select(key => new BusinessApiCaller(key.CallerId, key.Catalog, key.MeaningSubmissions, key.Learning)).SingleOrDefaultAsync(token);
 
     public Task<BusinessApiKeyMetadata[]> ListAsync(CancellationToken token) => context.BusinessApiKeys.AsNoTracking()
         .OrderByDescending(key => key.CreatedAtUnixMs).ThenBy(key => key.Id)
         .Select(key => new BusinessApiKeyMetadata(key.Id, key.CallerId, key.Catalog, key.MeaningSubmissions,
-            key.CreatedAtUnixMs, key.RevokedAtUnixMs)).ToArrayAsync(token);
+            key.CreatedAtUnixMs, key.RevokedAtUnixMs, key.Learning)).ToArrayAsync(token);
 
     public Task<bool> TryAddAsync(BusinessApiKeyMetadata key, string secretHash, CancellationToken token) => unitOfWork.ExecuteInTransactionAsync(async () =>
     {
@@ -35,6 +35,7 @@ public sealed class BusinessApiKeyRepository(VocabularyDbContext context, IUnitO
             SecretHash = secretHash,
             CallerId = key.CallerId,
             Catalog = key.Catalog,
+            Learning = key.Learning,
             MeaningSubmissions = key.MeaningSubmissions,
             CreatedAtUnixMs = key.CreatedAtUnixMs
         });

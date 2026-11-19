@@ -983,3 +983,7 @@ Provider-call indexes on `(service,result,finished_at_unix_ms)` and
 `(result,finished_at_unix_ms)` support read-only request statistics.
 Existing business rows and task receipts are not rewritten. Migration rollback
 removes these metadata only and retains any generated book and vocabulary.
+
+## Learner schemas
+
+Each authenticated caller has a schema named `learn_` followed by the first 48 lowercase hex characters of the SHA-256 of its UTF-8 caller ID. The version row holds its store UUID and migration generation. Version 1 stores the identity and ten vocabulary history tables. Version 2 adds original archive rows and per-snapshot table descriptors, row counts and SHA-256 digests. Back up entire schemas, including sequences and constraints. [Storage decision](../adr/ADR-012-learner-progress-model.md).

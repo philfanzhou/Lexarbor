@@ -9,8 +9,9 @@ audio URL and passes the URL to the browser.
 | --- | --- |
 | `catalog` | Vocabulary and book queries including [batch meaning lookup](VocabularyMeaningLookup.md), single, batch and learning questions, and audio link issuance under `/api/vocabulary*` |
 | `meaning-submissions` | `/integration/vocabulary/search` and `/integration/meaning-submissions` with its lookup and question subroutes |
+| `learning` | [Learner progress](LearnerProgress.md) under `/learning/v1` |
 
-A key can carry either or both scopes. Missing, malformed, unknown and revoked
+A key can carry one or more scopes. Missing, malformed, unknown and revoked
 keys return `401` with `WWW-Authenticate: ApiKey`. A valid key missing the
 required scope returns `403`. Both responses use `{ "success": false, "message": "..." }`.
 Authentication and authorization precede business input validation and queries.

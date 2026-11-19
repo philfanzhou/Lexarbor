@@ -169,7 +169,7 @@ public class VocabularyDbContext : DbContext
             {
                 table.HasCheckConstraint("CK_business_api_key_hash", "length(secret_hash) = 64 AND secret_hash !~ '[^0-9a-f]'");
                 table.HasCheckConstraint("CK_business_api_key_caller", "length(caller_id) BETWEEN 1 AND 2048");
-                table.HasCheckConstraint("CK_business_api_key_scopes", "catalog OR meaning_submissions");
+                table.HasCheckConstraint("CK_business_api_key_scopes", "catalog OR meaning_submissions OR learning");
                 table.HasCheckConstraint("CK_business_api_key_times", "created_at_unix_ms >= 0 AND (revoked_at_unix_ms IS NULL OR revoked_at_unix_ms >= created_at_unix_ms)");
             });
         });
