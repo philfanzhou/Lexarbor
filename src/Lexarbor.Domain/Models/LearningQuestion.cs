@@ -3,7 +3,12 @@ namespace Lexarbor.Domain.Models;
 public enum LearningQuestionMode { New, Review }
 public enum LearningQuestionType { EnglishToChinese, ChineseToEnglish, FillLetters, FormChoice, RelationChoice, FormFill, PartOfSpeechChoice }
 
-public sealed record LearningQuestionRelation(string SourceWordId, string Type);
+public sealed record LearningQuestionRelation(string SourceWordId, string Type, string? RelationId = null, string? SourceMeaningId = null)
+{
+    public bool IsValid() => !string.IsNullOrWhiteSpace(SourceWordId) && VocabularyRelationTypes.IsValid(Type)
+        && (RelationId == null && SourceMeaningId == null
+            || !string.IsNullOrWhiteSpace(RelationId) && !string.IsNullOrWhiteSpace(SourceMeaningId));
+}
 
 public sealed record LearningQuestionRelationContext(string AnchorWord, IReadOnlyList<string> Types, IReadOnlyList<string> FormDistractors);
 

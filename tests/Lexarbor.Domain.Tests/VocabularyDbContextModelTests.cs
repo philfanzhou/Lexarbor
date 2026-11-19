@@ -58,12 +58,12 @@ public class VocabularyDbContextModelTests
     }
 
     [Fact]
-    public void Context_UsesSqliteProvider()
+    public void Context_UsesPostgreSqlProvider()
     {
         using var dbContext = CreateDbContext();
 
         Assert.Equal(
-            "Microsoft.EntityFrameworkCore.Sqlite",
+            "Npgsql.EntityFrameworkCore.PostgreSQL",
             dbContext.Database.ProviderName);
     }
 
@@ -167,7 +167,7 @@ public class VocabularyDbContextModelTests
     private static VocabularyDbContext CreateDbContext()
     {
         var options = new DbContextOptionsBuilder<VocabularyDbContext>()
-            .UseSqlite("Data Source=:memory:")
+            .UseNpgsql("Host=localhost;Database=model")
             .Options;
 
         return new VocabularyDbContext(options);

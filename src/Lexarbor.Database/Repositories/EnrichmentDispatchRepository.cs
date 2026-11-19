@@ -1,7 +1,6 @@
-using System.Text.Json;
 using Lexarbor.Domain.Repositories;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace Lexarbor.Database.Repositories;
 
@@ -10,15 +9,17 @@ public sealed partial class EnrichmentSchedulerRepository
     // Bound each lane after word deduplication, not before it. Dependencies that
     // cannot advance do not displace ready work or crashed owners needing recovery.
     // Separate NULL/non-NULL prerequisite lookups use the existing partial unique
-    // indexes; an IS-to-IS self-join would scan all targets for every due round.
+    // indexes; a null-safe self-join would scan all targets for every due round.
+    // "Recent" words are the newest rows by insertion_order, the explicit,
+    // indexed successor of SQLite's implicit rowid order.
     public async Task<IReadOnlyList<EnrichmentDispatch>> PlanAsync(int limit, long now,
         IReadOnlyList<string> excludedWords, CancellationToken token, bool expansionReady = true)
     {
         if (limit is < 1 or > 1000 || excludedWords.Count > 4096) throw new ArgumentOutOfRangeException(nameof(limit));
         const string sql = """
             WITH recent AS (
-              SELECT id AS word_id FROM (SELECT id FROM vocabulary ORDER BY rowid DESC LIMIT @limit)
-              UNION SELECT vocabulary_id FROM (SELECT vocabulary_id FROM vocabulary_meaning ORDER BY rowid DESC LIMIT @limit)
+              SELECT id AS word_id FROM (SELECT id FROM vocabulary ORDER BY insertion_order DESC LIMIT @limit) AS newest_words
+              UNION SELECT vocabulary_id FROM (SELECT vocabulary_id FROM vocabulary_meaning ORDER BY insertion_order DESC LIMIT @limit) AS newest_meanings
             ), candidates AS (
               SELECT t.id AS Id,t.word_id AS WordId,t.step AS Step,r.updated_at_unix_ms AS QueuedAtUnixMs,
                 EXISTS (SELECT 1 FROM recent n WHERE n.word_id=t.word_id) AS Recent,
@@ -28,7 +29,7 @@ public sealed partial class EnrichmentSchedulerRepository
                   WHEN t.step='Expand' THEN CASE WHEN r.plan_json IS NULL THEN 'Expansion' ELSE 'Ready' END
                   WHEN t.step='Prepare' THEN CASE WHEN r.plan_json IS NULL THEN 'Text' ELSE 'Ready' END
                   WHEN t.step='Audio' AND EXISTS (SELECT 1 FROM vocabulary_audio_binding b
-                    WHERE b.word_id=t.word_id AND b.meaning_id IS t.meaning_id AND b.locale=t.locale) THEN 'Ready'
+                    WHERE b.word_id=t.word_id AND b.meaning_id IS NOT DISTINCT FROM t.meaning_id AND b.locale=t.locale) THEN 'Ready'
                   WHEN p.state IN ('Succeeded','Failed') THEN 'Ready'
                   WHEN p.target_id IS NULL OR (p.state IN ('Pending','Waiting')
                     AND (p.next_attempt_at_unix_ms IS NULL OR p.next_attempt_at_unix_ms<=@now)
@@ -48,7 +49,7 @@ public sealed partial class EnrichmentSchedulerRepository
               WHERE (@expansionReady OR t.step!='Expand') AND NOT t.deleted AND r.consumed_failures<r.failure_budget
                 AND (r.state IN ('Pending','Waiting') OR r.state='Running' AND r.lease_expires_at_unix_ms<=@now)
                 AND (r.next_attempt_at_unix_ms IS NULL OR r.next_attempt_at_unix_ms<=@now)
-                AND t.word_id NOT IN (SELECT value FROM json_each(@excluded))
+                AND NOT (t.word_id = ANY(@excluded))
             ), words AS (
               SELECT *,row_number() OVER (PARTITION BY Lane,WordId ORDER BY
                 CASE WHEN Lane='Text' AND Step='Prepare' THEN 0 WHEN Lane='Text' AND Step='Fields' THEN 1 ELSE 2 END,
@@ -57,10 +58,11 @@ public sealed partial class EnrichmentSchedulerRepository
             ), ranked AS (
               SELECT *,row_number() OVER (PARTITION BY Lane,Recent ORDER BY QueuedAtUnixMs,Id) AS Position
               FROM words WHERE WordRank=1
-            ) SELECT Id,WordId,Step,Lane,QueuedAtUnixMs,Recent FROM ranked WHERE Position<=@limit
+            ) SELECT Id AS "Id",WordId AS "WordId",Step AS "Step",Lane AS "Lane",QueuedAtUnixMs AS "QueuedAtUnixMs",Recent AS "Recent"
+              FROM ranked WHERE Position<=@limit
             """;
-        var rows = await context.Database.SqlQueryRaw<DispatchRow>(sql, new SqliteParameter("@limit", limit),
-            new SqliteParameter("@now", now), new SqliteParameter("@expansionReady", expansionReady), new SqliteParameter("@excluded", JsonSerializer.Serialize(excludedWords))).ToArrayAsync(token);
+        var rows = await context.Database.SqlQueryRaw<DispatchRow>(sql, new NpgsqlParameter("@limit", limit),
+            new NpgsqlParameter("@now", now), new NpgsqlParameter("@expansionReady", expansionReady), new NpgsqlParameter("@excluded", excludedWords.ToArray())).ToArrayAsync(token);
         var result = new List<EnrichmentDispatch>();
         foreach (var lane in new[] { "Recovery", "Ready", "Text", "Expansion" })
         {

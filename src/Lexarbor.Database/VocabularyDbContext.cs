@@ -13,6 +13,9 @@ public class VocabularyDbContext : DbContext
     private readonly HashSet<string> _changedWords = [];
     private readonly HashSet<EnrichmentTargetKey> _changedAudioTargets = [];
     private bool _catalogChanged;
+    // A scoped EF context can own only one transaction. Other requests have their own context.
+    internal SemaphoreSlim TransactionSlot { get; } = new(1, 1);
+
     public VocabularyDbContext(DbContextOptions<VocabularyDbContext> options, IEnrichmentChangeNotifier? enrichmentChanges = null) : base(options)
     {
         _enrichmentChanges = enrichmentChanges;
@@ -51,6 +54,7 @@ public class VocabularyDbContext : DbContext
 
     public DbSet<VocabularyEntity> Vocabularies { get; set; } = null!;
     public DbSet<VocabularyRelationEntity> VocabularyRelations { get; set; } = null!;
+    public DbSet<VocabularyRelationMeaningEntity> VocabularyRelationMeanings { get; set; } = null!;
     public DbSet<VocabularyBookEntity> VocabularyBooks { get; set; } = null!;
     public DbSet<VocabularyMeaningEntity> VocabularyMeanings { get; set; } = null!;
     public DbSet<MeaningPhoneticEpochEntity> MeaningPhoneticEpochs { get; set; } = null!;
@@ -83,12 +87,49 @@ public class VocabularyDbContext : DbContext
 
     public DbSet<AdminSessionEntity> AdminSessions { get; set; } = null!;
 
+    public DbSet<LegacySqliteImportEntity> LegacySqliteImports { get; set; } = null!;
+
     public DbSet<MeaningSubmissionEntity> MeaningSubmissions { get; set; } = null!;
 
     public DbSet<MeaningSubmissionAiReviewEntity> MeaningSubmissionAiReviews { get; set; } = null!;
     public DbSet<MeaningSubmissionAutoReviewEntity> MeaningSubmissionAutoReviews { get; set; } = null!;
 
     public DbSet<MeaningSubmissionReviewCheckEntity> MeaningSubmissionReviewChecks { get; set; } = null!;
+
+    /// <summary>
+    /// The collation every text column uses. "C" compares bytes, which is what
+    /// SQLite's default BINARY collation did, so ordering, pagination, equality,
+    /// and unique indexes stay what they were whatever collation the database
+    /// itself was created with. Under it <c>lower()</c> and <c>ILIKE</c> fold
+    /// ASCII letters only, again matching SQLite.
+    /// </summary>
+    public const string TextCollation = "C";
+
+    /// <summary>
+    /// The shadow column that records insertion order on the catalog tables.
+    /// SQLite answered "the newest rows" from the implicit rowid; PostgreSQL
+    /// has no such column, so the order is an explicit, indexed identity.
+    /// </summary>
+    public const string InsertionOrderProperty = "InsertionOrder";
+
+    /// <summary>
+    /// Folds A–Z to a–z and nothing else, after trimming spaces: the value
+    /// SQLite's <c>lower(trim(...))</c> produced. PostgreSQL's <c>lower()</c>
+    /// folds every Unicode letter under a linguistic collation, which would
+    /// make distinct words such as <c>CAFÉ</c> and <c>Café</c> collide in a
+    /// unique index, so the generated columns spell the ASCII fold out.
+    /// </summary>
+    internal static string AsciiLowerTrim(string expression) =>
+        $"translate(trim({expression}), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')";
+
+    protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
+    {
+        base.ConfigureConventions(configurationBuilder);
+        configurationBuilder.Properties<string>().UseCollation(TextCollation);
+        // timestamptz stores an instant; Npgsql refuses a non-UTC offset, so
+        // every value is written as UTC.
+        configurationBuilder.Properties<DateTimeOffset>().HaveConversion<UtcDateTimeOffsetConverter>();
+    }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -102,12 +143,23 @@ public class VocabularyDbContext : DbContext
         // former plaintext file ring under data/admin-keys.
         modelBuilder.AddServiceMantleDataProtectionKeys();
         // Management audit rows (administrator sign-in, sign-out) share the
-        // business database and its transactions; the octet_length CHECK
-        // constraints match the bundled SQLite (>= 3.45).
-        modelBuilder.AddServiceMantleManagementAudit(ManagementAuditDatabaseDialect.Sqlite);
+        // business database and its transactions.
+        modelBuilder.AddServiceMantleManagementAudit(ManagementAuditDatabaseDialect.PostgreSql);
         modelBuilder.Entity<AdminSessionEntity>(entity =>
         {
             entity.HasIndex(e => new { e.ExpiresAtUnixMs, e.HandleHash });
+        });
+
+        modelBuilder.Entity<LegacySqliteImportEntity>(entity =>
+        {
+            entity.Property(e => e.Id).ValueGeneratedNever();
+            entity.ToTable(table =>
+            {
+                table.HasCheckConstraint("CK_legacy_sqlite_import_singleton", $"id = {LegacySqliteImportEntity.SingletonId}");
+                table.HasCheckConstraint("CK_legacy_sqlite_import_outcome",
+                    $"outcome IN ('{LegacySqliteImportEntity.Imported}', '{LegacySqliteImportEntity.None}')");
+                table.HasCheckConstraint("CK_legacy_sqlite_import_counts", "copied_tables >= 0 AND copied_rows >= 0");
+            });
         });
 
         modelBuilder.Entity<BusinessApiKeyEntity>(entity =>
@@ -115,9 +167,9 @@ public class VocabularyDbContext : DbContext
             entity.HasIndex(key => key.SecretHash).IsUnique();
             entity.ToTable(table =>
             {
-                table.HasCheckConstraint("CK_business_api_key_hash", "length(secret_hash) = 64 AND secret_hash NOT GLOB '*[^0-9a-f]*'");
+                table.HasCheckConstraint("CK_business_api_key_hash", "length(secret_hash) = 64 AND secret_hash !~ '[^0-9a-f]'");
                 table.HasCheckConstraint("CK_business_api_key_caller", "length(caller_id) BETWEEN 1 AND 2048");
-                table.HasCheckConstraint("CK_business_api_key_scopes", "catalog IN (0, 1) AND meaning_submissions IN (0, 1) AND (catalog = 1 OR meaning_submissions = 1)");
+                table.HasCheckConstraint("CK_business_api_key_scopes", "catalog OR meaning_submissions");
                 table.HasCheckConstraint("CK_business_api_key_times", "created_at_unix_ms >= 0 AND (revoked_at_unix_ms IS NULL OR revoked_at_unix_ms >= created_at_unix_ms)");
             });
         });
@@ -132,22 +184,14 @@ public class VocabularyDbContext : DbContext
             // comparison is a seek: lower(trim(word)) written into a predicate
             // makes IX_vocabulary_word unusable and scans the table instead.
             //
-            // Virtual, unlike the two generated columns on vocabulary_meaning,
-            // which are stored. Those were declared in the CREATE TABLE of the
-            // initial migration; SQLite refuses "ALTER TABLE ... ADD COLUMN" for
-            // a stored generated column, so adding this one to a database that
-            // already exists means either a virtual column or a full table
-            // rebuild. The index holds the computed value either way, which is
-            // what the lookup reads, so the query cost is the same and the
-            // rebuild buys nothing.
-            //
             // Not unique. Uniqueness here is a stronger constraint than the
             // table has today and a migration asserting it would fail on a
             // database that already holds two spellings of one word; that is a
             // separate decision from making the lookup indexable.
             entity.Property(e => e.NormalizedWord)
-                .HasComputedColumnSql("lower(trim(word))", stored: false);
+                .HasComputedColumnSql(AsciiLowerTrim("word"), stored: true);
             entity.HasIndex(e => e.NormalizedWord);
+            ConfigureInsertionOrder(entity);
         });
 
         modelBuilder.Entity<VocabularyMeaningEntity>(entity =>
@@ -165,7 +209,7 @@ public class VocabularyDbContext : DbContext
             entity.Property(e => e.BookId).IsRequired();
             entity.Property(e => e.NormalizedPartOfSpeech)
                 .HasComputedColumnSql(
-                    "lower(trim(coalesce(part_of_speech, '')))",
+                    AsciiLowerTrim("coalesce(part_of_speech, '')"),
                     stored: true);
             entity.Property(e => e.NormalizedMeaning)
                 .HasComputedColumnSql("trim(meaning)", stored: true);
@@ -181,13 +225,12 @@ public class VocabularyDbContext : DbContext
                   .OnDelete(DeleteBehavior.Restrict);
 
             // Referenced by the composite foreign key from vocabulary_meaning_unit
-            // as (id, book_id). SQLite accepts a unique index as a parent key, and
-            // an index can be added to a table that already exists, which a table
-            // constraint cannot on SQLite. Uniqueness of the wider pair is implied
-            // by the primary key on id, so this constrains nothing the rows do not
+            // as (id, book_id). Uniqueness of the wider pair is implied by the
+            // primary key on id, so this constrains nothing the rows do not
             // already satisfy.
             entity.HasIndex(e => new { e.Id, e.BookId }).IsUnique();
             entity.HasIndex(e => new { e.Id, e.VocabularyId }).IsUnique();
+            ConfigureInsertionOrder(entity);
         });
 
         modelBuilder.Entity<MeaningSubmissionReviewCheckEntity>(entity =>
@@ -215,9 +258,9 @@ public class VocabularyDbContext : DbContext
             // logical key of a meaning, so a submission can be matched against
             // both. Stored, as the table is created with them.
             entity.Property(e => e.NormalizedWord)
-                .HasComputedColumnSql("lower(trim(word))", stored: true);
+                .HasComputedColumnSql(AsciiLowerTrim("word"), stored: true);
             entity.Property(e => e.NormalizedPartOfSpeech)
-                .HasComputedColumnSql("lower(trim(coalesce(part_of_speech, '')))", stored: true);
+                .HasComputedColumnSql(AsciiLowerTrim("coalesce(part_of_speech, '')"), stored: true);
             entity.Property(e => e.NormalizedMeaning)
                 .HasComputedColumnSql("trim(meaning)", stored: true);
             entity.Property(e => e.Status).HasConversion<int>();
@@ -246,9 +289,9 @@ public class VocabularyDbContext : DbContext
             entity.HasIndex(e => new { e.BookId, e.Number }).IsUnique();
 
             // The composite foreign key from vocabulary_meaning_unit references
-            // (id, book_id); SQLite requires the referenced columns of a parent
-            // key to carry a unique index, and the primary key on id alone does
-            // not cover the pair. Uniqueness of the wider pair is implied by the
+            // (id, book_id); the referenced columns of a parent key need a
+            // unique constraint, and the primary key on id alone does not cover
+            // the pair. Uniqueness of the wider pair is implied by the
             // primary key, so this index adds a constraint the rows already
             // satisfy.
             entity.HasIndex(e => new { e.Id, e.BookId }).IsUnique();
@@ -304,5 +347,31 @@ public class VocabularyDbContext : DbContext
                   .HasPrincipalKey(meaning => new { meaning.Id, meaning.BookId })
                   .OnDelete(DeleteBehavior.Cascade);
         });
+
+        // Properties stored as text through a value conversion (the enums
+        // persisted by name) are not string properties to the convention in
+        // ConfigureConventions, so they take the byte-wise collation here.
+        foreach (var property in modelBuilder.Model.GetEntityTypes().SelectMany(entity => entity.GetProperties()))
+        {
+            var storeType = property.GetProviderClrType() ?? property.GetValueConverter()?.ProviderClrType ?? property.ClrType;
+            if (storeType == typeof(string) && property.GetCollation() is null)
+            {
+                property.SetCollation(TextCollation);
+            }
+        }
+    }
+
+    private static void ConfigureInsertionOrder<TEntity>(Microsoft.EntityFrameworkCore.Metadata.Builders.EntityTypeBuilder<TEntity> entity)
+        where TEntity : class
+    {
+        entity.Property<long>(InsertionOrderProperty)
+            .HasColumnName("insertion_order")
+            .UseIdentityByDefaultColumn();
+        entity.HasIndex(InsertionOrderProperty);
     }
 }
+
+internal sealed class UtcDateTimeOffsetConverter()
+    : Microsoft.EntityFrameworkCore.Storage.ValueConversion.ValueConverter<DateTimeOffset, DateTimeOffset>(
+        value => value.ToUniversalTime(),
+        value => value);

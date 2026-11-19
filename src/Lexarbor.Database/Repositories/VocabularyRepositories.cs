@@ -14,28 +14,23 @@ namespace Lexarbor.Database.Repositories;
 /// Builds the substring patterns used by the keyword searches.
 /// </summary>
 /// <remarks>
-/// <c>string.Contains</c> translates to SQLite's <c>instr()</c>, which compares
-/// bytes, so a keyword had to match the stored casing exactly. When every word
-/// was stored lower-cased that made each mixed-case public search return an
-/// empty page rather than an error; words now keep their imported display
-/// casing, so the byte-wise operator would miss on either side of the case
-/// difference. <c>LIKE</c> folds ASCII case by default -- nothing in this
-/// application sets <c>PRAGMA case_sensitive_like</c> -- and that is the same
-/// folding <c>lower()</c> already gives the question and equivalence queries,
-/// so the whole codebase agrees on what "the same text" means. Neither
-/// operator can use an index for a leading-wildcard match, so this is not a
-/// change in query cost.
+/// The searches match with <c>ILIKE</c> over the <c>"C"</c>-collated text
+/// columns, which folds ASCII letters only: <c>apple</c> finds <c>Apple</c>,
+/// while <c>é</c> does not find <c>É</c>. That is the folding SQLite's
+/// <c>LIKE</c> applied before the move to PostgreSQL, and the same folding
+/// <c>lower()</c> gives the question and equivalence queries, so the whole
+/// codebase agrees on what "the same text" means. A leading-wildcard match
+/// cannot use an ordinary index on either engine.
 /// </remarks>
-internal static class SqliteSearchPattern
+internal static class SearchPattern
 {
-    /// <summary>Backslash, declared to SQLite with an explicit ESCAPE clause.</summary>
+    /// <summary>Backslash, declared with an explicit ESCAPE clause.</summary>
     internal const char EscapeCharacter = '\\';
 
     /// <summary>
     /// Wraps a user-supplied keyword in wildcards, escaping the characters LIKE
     /// would otherwise read as wildcards. Without this, a keyword containing
-    /// <c>%</c> or <c>_</c> would silently widen the search -- something
-    /// <c>instr()</c> never did.
+    /// <c>%</c> or <c>_</c> would silently widen the search.
     /// </summary>
     internal static string Contains(string keyword)
     {
@@ -177,9 +172,9 @@ public class VocabularyRepository : IVocabularyRepository
                         book.Status)));
         if (!string.IsNullOrWhiteSpace(keyword))
         {
-            var pattern = SqliteSearchPattern.Contains(keyword);
+            var pattern = SearchPattern.Contains(keyword);
             query = query.Where(v =>
-                EF.Functions.Like(v.Word, pattern, SqliteSearchPattern.EscapeCharacter.ToString()));
+                EF.Functions.ILike(v.Word, pattern, SearchPattern.EscapeCharacter.ToString()));
         }
 
         var totalCount = await query.CountAsync();
@@ -268,7 +263,9 @@ public class VocabularyRepository : IVocabularyRepository
         // of where the probe landed.
         var entities = await _context.Vocabularies
             .FromSqlInterpolated($"""
-                SELECT v.*
+                SELECT *
+                FROM (
+                SELECT DISTINCT ON (lower(trim(v.word))) v.*
                 FROM vocabulary AS v
                 INNER JOIN vocabulary_meaning AS m
                     ON m.vocabulary_id = v.id
@@ -282,7 +279,7 @@ public class VocabularyRepository : IVocabularyRepository
                         AND synonym.book_id = {bookId}
                         AND lower(trim(synonym.meaning)) = {normalizedExcludeMeaning}
                   )
-                  AND ({unitId} IS NULL OR EXISTS (
+                  AND ({unitId}::text IS NULL OR EXISTS (
                       SELECT 1
                       FROM vocabulary_meaning AS scoped_meaning
                       INNER JOIN vocabulary_meaning_unit AS scoped_unit
@@ -291,18 +288,21 @@ public class VocabularyRepository : IVocabularyRepository
                         AND scoped_meaning.vocabulary_id = v.id
                         AND scoped_unit.unit_id = {unitId}
                   ))
-                  AND ({phraseOnly} IS NULL OR EXISTS (
+                  AND ({phraseOnly}::boolean IS NULL OR EXISTS (
                       SELECT 1
                       FROM vocabulary_meaning AS scoped_meaning
                       INNER JOIN vocabulary_meaning_unit AS scoped_unit
                           ON scoped_unit.meaning_id = scoped_meaning.id
                       WHERE scoped_meaning.book_id = {bookId}
                         AND scoped_meaning.vocabulary_id = v.id
-                        AND ({unitId} IS NOT NULL AND scoped_unit.unit_id = {unitId}
-                             OR {unitId} IS NULL)
+                        AND ({unitId}::text IS NOT NULL AND scoped_unit.unit_id = {unitId}
+                             OR {unitId}::text IS NULL)
                         AND scoped_unit.entry_kind = 'phrase'
-                  ) = ({phraseOnly} = 1))
-                GROUP BY lower(trim(v.word))
+                  ) = {phraseOnly}::boolean)
+                -- One row per spelling, chosen at random: the row SQLite's bare
+                -- GROUP BY column used to return was just as arbitrary.
+                ORDER BY lower(trim(v.word)), random()
+                ) AS one_per_spelling
                 ORDER BY random()
                 LIMIT {count}
                 """)
@@ -359,7 +359,7 @@ public class VocabularyRepository : IVocabularyRepository
                                 AND synonym.book_id = {bookId}
                                 AND lower(trim(synonym.meaning)) = {normalizedExcludeMeaning}
                           )
-                          AND ({unitId} IS NULL OR EXISTS (
+                          AND ({unitId}::text IS NULL OR EXISTS (
                               SELECT 1
                               FROM vocabulary_meaning AS scoped_meaning
                               INNER JOIN vocabulary_meaning_unit AS scoped_unit
@@ -368,17 +368,17 @@ public class VocabularyRepository : IVocabularyRepository
                                 AND scoped_meaning.vocabulary_id = m.vocabulary_id
                                 AND scoped_unit.unit_id = {unitId}
                           ))
-                          AND ({phraseOnly} IS NULL OR EXISTS (
+                          AND ({phraseOnly}::boolean IS NULL OR EXISTS (
                               SELECT 1
                               FROM vocabulary_meaning AS scoped_meaning
                               INNER JOIN vocabulary_meaning_unit AS scoped_unit
                                   ON scoped_unit.meaning_id = scoped_meaning.id
                               WHERE scoped_meaning.book_id = {bookId}
                                 AND scoped_meaning.vocabulary_id = m.vocabulary_id
-                                AND ({unitId} IS NOT NULL AND scoped_unit.unit_id = {unitId}
-                                     OR {unitId} IS NULL)
+                                AND ({unitId}::text IS NOT NULL AND scoped_unit.unit_id = {unitId}
+                                     OR {unitId}::text IS NULL)
                                 AND scoped_unit.entry_kind = 'phrase'
-                          ) = ({phraseOnly} = 1))
+                          ) = {phraseOnly}::boolean)
                         GROUP BY m.vocabulary_id
                         ORDER BY m.vocabulary_id
                         LIMIT {limit}
@@ -403,7 +403,10 @@ public class VocabularyBookRepository : IVocabularyBookRepository
 
     public async Task<VocabularyBookModel?> GetByIdAsync(string id, CancellationToken cancellationToken)
     {
-        var entity = await _context.VocabularyBooks
+        var books = UnitOfWork.OwnsWriteContext(_context)
+            ? _context.VocabularyBooks.FromSqlInterpolated($"SELECT * FROM vocabulary_book WHERE id = {id} FOR SHARE")
+            : _context.VocabularyBooks;
+        var entity = await books
             .AsNoTracking()
             .FirstOrDefaultAsync(book => book.Id == id, cancellationToken);
         return entity?.Adapt<VocabularyBookModel>();
@@ -436,12 +439,12 @@ public class VocabularyBookRepository : IVocabularyBookRepository
         var query = _context.VocabularyBooks.AsNoTracking();
         if (!string.IsNullOrWhiteSpace(keyword))
         {
-            var pattern = SqliteSearchPattern.Contains(keyword);
-            var escape = SqliteSearchPattern.EscapeCharacter.ToString();
+            var pattern = SearchPattern.Contains(keyword);
+            var escape = SearchPattern.EscapeCharacter.ToString();
             query = query.Where(book =>
-                EF.Functions.Like(book.BookName, pattern, escape) ||
+                EF.Functions.ILike(book.BookName, pattern, escape) ||
                 (book.Description != null &&
-                 EF.Functions.Like(book.Description, pattern, escape)));
+                 EF.Functions.ILike(book.Description, pattern, escape)));
         }
 
         var totalCount = await query.CountAsync();
@@ -702,20 +705,20 @@ public class VocabularyMeaningRepository : IVocabularyMeaningRepository
                     WHERE m.book_id = {bookId}
                       AND m.vocabulary_id <> {excludeVocabularyId}
                       AND lower(trim(m.meaning)) <> {normalizedExcludeMeaning}
-                      AND ({unitId} IS NULL OR EXISTS (
+                      AND ({unitId}::text IS NULL OR EXISTS (
                           SELECT 1
                           FROM vocabulary_meaning_unit AS scoped_unit
                           WHERE scoped_unit.meaning_id = m.id
                             AND scoped_unit.unit_id = {unitId}
                       ))
-                      AND ({phraseOnly} IS NULL OR EXISTS (
+                      AND ({phraseOnly}::boolean IS NULL OR EXISTS (
                           SELECT 1
                           FROM vocabulary_meaning_unit AS scoped_unit
                           WHERE scoped_unit.meaning_id = m.id
-                            AND ({unitId} IS NOT NULL AND scoped_unit.unit_id = {unitId}
-                                 OR {unitId} IS NULL)
+                            AND ({unitId}::text IS NOT NULL AND scoped_unit.unit_id = {unitId}
+                                 OR {unitId}::text IS NULL)
                             AND scoped_unit.entry_kind = 'phrase'
-                      ) = ({phraseOnly} = 1))
+                      ) = {phraseOnly}::boolean)
                 ),
                 distinct_meaning AS (
                     SELECT
@@ -738,7 +741,8 @@ public class VocabularyMeaningRepository : IVocabularyMeaningRepository
                     normalized_meaning,
                     example,
                     created_at,
-                    updated_at
+                    updated_at,
+                    insertion_order
                 FROM distinct_meaning
                 WHERE meaning_rank = 1
                 ORDER BY random()
@@ -786,39 +790,39 @@ public class VocabularyMeaningRepository : IVocabularyMeaningRepository
                         WHERE candidate.book_id = {bookId}
                           AND candidate.vocabulary_id >= {probe}
                           AND candidate.vocabulary_id <> {excludeVocabularyId}
-                          AND ({unitId} IS NULL OR EXISTS (
+                          AND ({unitId}::text IS NULL OR EXISTS (
                               SELECT 1
                               FROM vocabulary_meaning_unit AS scoped_unit
                               WHERE scoped_unit.meaning_id = candidate.id
                                 AND scoped_unit.unit_id = {unitId}
                           ))
-                          AND ({phraseOnly} IS NULL OR EXISTS (
+                          AND ({phraseOnly}::boolean IS NULL OR EXISTS (
                               SELECT 1
                               FROM vocabulary_meaning_unit AS scoped_unit
                               WHERE scoped_unit.meaning_id = candidate.id
-                                AND ({unitId} IS NOT NULL AND scoped_unit.unit_id = {unitId}
-                                     OR {unitId} IS NULL)
+                                AND ({unitId}::text IS NOT NULL AND scoped_unit.unit_id = {unitId}
+                                     OR {unitId}::text IS NULL)
                                 AND scoped_unit.entry_kind = 'phrase'
-                          ) = ({phraseOnly} = 1))
+                          ) = {phraseOnly}::boolean)
                         GROUP BY candidate.vocabulary_id
                         ORDER BY candidate.vocabulary_id
                         LIMIT {limit}
                     )
                   AND lower(trim(m.meaning)) <> {normalizedExcludeMeaning}
-                  AND ({unitId} IS NULL OR EXISTS (
+                  AND ({unitId}::text IS NULL OR EXISTS (
                       SELECT 1
                       FROM vocabulary_meaning_unit AS scoped_unit
                       WHERE scoped_unit.meaning_id = m.id
                         AND scoped_unit.unit_id = {unitId}
                   ))
-                  AND ({phraseOnly} IS NULL OR EXISTS (
+                  AND ({phraseOnly}::boolean IS NULL OR EXISTS (
                       SELECT 1
                       FROM vocabulary_meaning_unit AS scoped_unit
                       WHERE scoped_unit.meaning_id = m.id
-                        AND ({unitId} IS NOT NULL AND scoped_unit.unit_id = {unitId}
-                             OR {unitId} IS NULL)
+                        AND ({unitId}::text IS NOT NULL AND scoped_unit.unit_id = {unitId}
+                             OR {unitId}::text IS NULL)
                         AND scoped_unit.entry_kind = 'phrase'
-                  ) = ({phraseOnly} = 1))
+                  ) = {phraseOnly}::boolean)
                 """)
             .AsNoTracking()
             .ToListAsync(cancellationToken);

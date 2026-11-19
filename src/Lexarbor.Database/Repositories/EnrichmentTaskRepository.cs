@@ -5,7 +5,6 @@ using Lexarbor.Database.Entities;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 using Lexarbor.Domain.Services;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 namespace Lexarbor.Database.Repositories;
@@ -29,7 +28,7 @@ public sealed partial class EnrichmentTaskRepository(VocabularyDbContext context
         CancellationToken cancellationToken, int failureBudget = 5, string? retryKey = null)
     {
         ValidateOptions(target, configurationVersion, failureBudget, retryKey);
-        return WriteAsync(() => EnsureCoreAsync(target, configurationVersion, Now(now), failureBudget, retryKey, false), cancellationToken);
+        return WriteAsync(ct => WriteLocks.WordsAsync(context, target.WordId, [], ct), () => EnsureCoreAsync(target, configurationVersion, Now(now), failureBudget, retryKey, false), cancellationToken);
     }
 
     public Task<EnrichmentTask?> InvalidateInTransactionAsync(EnrichmentTargetKey target, string configurationVersion,
@@ -135,7 +134,7 @@ public sealed partial class EnrichmentTaskRepository(VocabularyDbContext context
         CancellationToken cancellationToken)
     {
         Bounded(owner, 128); ValidateExpiry(now, expiresAt);
-        return WriteAsync<EnrichmentExecutionGuard?>(async () =>
+        return WriteTargetAsync<EnrichmentExecutionGuard?>(targetId, async () =>
         {
             now = Now(now);
             if (expiresAt <= now) return null;
@@ -163,7 +162,7 @@ public sealed partial class EnrichmentTaskRepository(VocabularyDbContext context
     public Task<bool> RenewAsync(EnrichmentExecutionGuard guard, long now, long expiresAt, CancellationToken cancellationToken)
     {
         ValidateExpiry(now, expiresAt);
-        return WriteAsync(async () => await ValidAsync(guard, now) && expiresAt > Now(now)
+        return WriteTargetAsync(guard.TargetId, async () => await ValidAsync(guard, now) && expiresAt > Now(now)
             && await Owned(guard, Now(now)).Where(row => row.LeaseExpiresAtUnixMs < expiresAt).ExecuteUpdateAsync(set => set
                 .SetProperty(row => row.LeaseExpiresAtUnixMs, expiresAt).SetProperty(row => row.UpdatedAtUnixMs, Now(now))) == 1, cancellationToken);
     }
@@ -192,7 +191,7 @@ public sealed partial class EnrichmentTaskRepository(VocabularyDbContext context
         }
         var json = JsonSerializer.Serialize(plan);
         if (json.Length > 16384) throw new ArgumentException("Enrichment plan is too large.", nameof(plan));
-        return WriteAsync(async () => await ValidAsync(guard, now) && await Owned(guard, Now(now))
+        return WriteTargetAsync(guard.TargetId, async () => await ValidAsync(guard, now) && await Owned(guard, Now(now))
             .Where(row => row.PlanJson == null || row.PlanJson == json).ExecuteUpdateAsync(set => set
                 .SetProperty(row => row.PlanJson, json).SetProperty(row => row.UpdatedAtUnixMs, Now(now))) == 1, cancellationToken);
     }
@@ -202,7 +201,7 @@ public sealed partial class EnrichmentTaskRepository(VocabularyDbContext context
     {
         Uuid(callId); if (uploadIdempotencyKey != null) Uuid(uploadIdempotencyKey);
         if (service is not ("text" or "tts")) throw new ArgumentException("Enrichment service is invalid.", nameof(service));
-        return WriteAsync(async () =>
+        return WriteTargetAsync(guard.TargetId, async () =>
         {
             now = Now(now);
             if (!await ValidAsync(guard, now) || await context.EnrichmentCalls.AnyAsync(row => row.Id == callId || uploadIdempotencyKey != null && row.UploadIdempotencyKey == uploadIdempotencyKey
@@ -228,7 +227,7 @@ public sealed partial class EnrichmentTaskRepository(VocabularyDbContext context
 
     public Task<bool> FinishCallAsync(EnrichmentExecutionGuard guard, string callId, EnrichmentCallResult result,
         string? errorCode, long now, long? nextAttemptAt, CancellationToken cancellationToken) =>
-        WriteAsync(() => FinishCallCoreAsync(guard, callId, result, errorCode, now, nextAttemptAt), cancellationToken);
+        WriteTargetAsync(guard.TargetId, () => FinishCallCoreAsync(guard, callId, result, errorCode, now, nextAttemptAt), cancellationToken);
 
     public Task<bool> FinishCallInTransactionAsync(EnrichmentExecutionGuard guard, string callId, EnrichmentCallResult result,
         string? errorCode, long now, long? nextAttemptAt, CancellationToken cancellationToken)
@@ -281,7 +280,7 @@ public sealed partial class EnrichmentTaskRepository(VocabularyDbContext context
         if (!Enum.IsDefined(reason) || reason is EnrichmentWaitReason.Retry or EnrichmentWaitReason.LeaseExpired)
             throw new ArgumentOutOfRangeException(nameof(reason));
         ValidateExpiry(now, nextAttemptAt);
-        return WriteAsync(async () =>
+        return WriteTargetAsync(guard.TargetId, async () =>
         {
             now = Now(now);
             if (!await ValidAsync(guard, now) || await HasOpenCallAsync(guard)) return false;
@@ -297,7 +296,7 @@ public sealed partial class EnrichmentTaskRepository(VocabularyDbContext context
     public Task<bool> RecoverPublishedAsync(string targetId, string uploadIdempotencyKey, long now, CancellationToken cancellationToken)
     {
         Uuid(uploadIdempotencyKey);
-        return WriteAsync(async () =>
+        return WriteTargetAsync(targetId, async () =>
         {
             now = Now(now);
             var target = await Targets.SingleOrDefaultAsync(row => row.Id == targetId && !row.Deleted && row.Step == EnrichmentStep.Audio);
@@ -330,7 +329,7 @@ public sealed partial class EnrichmentTaskRepository(VocabularyDbContext context
     public Task<bool> StopAsync(EnrichmentExecutionGuard guard, string errorCode, long now, CancellationToken cancellationToken)
     {
         SafeCode(errorCode);
-        return WriteAsync(async () => await ValidAsync(guard, now) && !await HasOpenCallAsync(guard)
+        return WriteTargetAsync(guard.TargetId, async () => await ValidAsync(guard, now) && !await HasOpenCallAsync(guard)
             && await Owned(guard, Now(now)).ExecuteUpdateAsync(set => set.SetProperty(row => row.State, EnrichmentState.Failed)
                 .SetProperty(row => row.ErrorCode, errorCode).SetProperty(row => row.WaitReason, (EnrichmentWaitReason?)null)
                 .SetProperty(row => row.NextAttemptAtUnixMs, (long?)null).SetProperty(row => row.LeaseOwner, (string?)null)
@@ -338,7 +337,7 @@ public sealed partial class EnrichmentTaskRepository(VocabularyDbContext context
     }
 
     public Task<bool> CompleteAsync(EnrichmentExecutionGuard guard, long now, CancellationToken cancellationToken, bool fieldsNotRequired = false) =>
-        WriteAsync(async () =>
+        WriteTargetAsync(guard.TargetId, async () =>
         {
             if (fieldsNotRequired && !await Targets.AnyAsync(t => t.Id == guard.TargetId && t.Step == EnrichmentStep.Fields))
                 throw new ArgumentException("Only field completion may declare fields unnecessary.");
@@ -508,19 +507,21 @@ public sealed partial class EnrichmentTaskRepository(VocabularyDbContext context
         await context.Database.OpenConnectionAsync(token);
         try
         {
-            await using var transaction = ((SqliteConnection)context.Database.GetDbConnection()).BeginTransaction(deferred: true);
-            await using var enlisted = await context.Database.UseTransactionAsync(transaction, token);
+            await using var transaction = await ReadSnapshot.BeginAsync(context, token);
             var result = await action(); await transaction.CommitAsync(token); return result;
         }
         finally { await context.Database.CloseConnectionAsync(); }
     }
 
-    private Task<T> WriteAsync<T>(Func<Task<T>> action, CancellationToken token)
+    private Task<T> WriteTargetAsync<T>(string targetId, Func<Task<T>> action, CancellationToken token) =>
+        WriteAsync(ct => WriteLocks.EnrichmentTargetAsync(context, targetId, ct), action, token);
+
+    private Task<T> WriteAsync<T>(Func<CancellationToken, Task> acquire, Func<Task<T>> action, CancellationToken token)
     {
         if (_batchWrite && UnitOfWork.OwnsWriteContext(context)) return action();
         if (UnitOfWork.IsWriteInProgress || context.Database.CurrentTransaction != null)
             throw new InvalidOperationException("Use the enrichment transaction methods inside the actual writer transaction.");
-        return _unitOfWork.ExecuteAdmittedTransactionAsync(action, token);
+        return _unitOfWork.ExecuteAdmittedTransactionAsync(action, token, acquire);
     }
     private void RequireTransaction(CancellationToken token)
     {

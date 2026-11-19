@@ -58,8 +58,8 @@ public sealed class AudioReadRepositoryTests
             case "pos": await meaningEdit.ReplaceAsync("book", "word", "meaning", "v.", "fruit", null, Token); break;
             case "meaning": await meaningEdit.ReplaceAsync("book", "word", "meaning", "n.", "new fruit", null, Token); break;
             case "example": await meaningEdit.ReplaceAsync("book", "word", "meaning", "n.", "fruit", "new example", Token); break;
-            case "positions": await db.Database.ExecuteSqlRawAsync("DELETE FROM vocabulary_meaning_unit; INSERT INTO vocabulary_meaning_unit VALUES ('unit','meaning','book','A','phrase')", Token); break;
-            case "book-disabled": await db.Database.ExecuteSqlRawAsync("UPDATE vocabulary_book SET status=0 WHERE id='book'", Token); break;
+            case "positions": await db.Database.ExecuteSqlRawAsync("DELETE FROM vocabulary_meaning_unit; INSERT INTO vocabulary_meaning_unit (unit_id, meaning_id, book_id, section, entry_kind) VALUES ('unit','meaning','book','A','phrase')", Token); break;
+            case "book-disabled": await db.Database.ExecuteSqlRawAsync("UPDATE vocabulary_book SET status=false WHERE id='book'", Token); break;
             case "timestamp": await db.Database.ExecuteSqlRawAsync("UPDATE vocabulary SET updated_at='2026-10-01'; UPDATE vocabulary_meaning SET updated_at='2026-10-01'", Token); break;
         }
         var repository = new AudioReadRepository(db);
@@ -114,7 +114,6 @@ public sealed class AudioReadRepositoryTests
         await using (var seed = file.Open())
         {
             await seed.Database.MigrateAsync(Token); await AudioTestDatabase.SeedAsync(seed); await BindAllAsync(seed);
-            await seed.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL", Token);
         }
         var interceptor = new ChangeAfterWordRead(file);
         await using var db = file.Open(interceptor);
@@ -134,7 +133,6 @@ public sealed class AudioReadRepositoryTests
         await using (var seed = file.Open())
         {
             await seed.Database.MigrateAsync(Token); await AudioTestDatabase.SeedAsync(seed); await BindAllAsync(seed);
-            await seed.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL", Token);
         }
         var interceptor = new ChangeAfterWordRead(file);
         await using var db = file.Open(interceptor);
@@ -181,7 +179,7 @@ public sealed class AudioReadRepositoryTests
         public override ValueTask<DbDataReader> ReaderExecutedAsync(DbCommand command, CommandExecutedEventData eventData,
             DbDataReader result, CancellationToken cancellationToken = default)
         {
-            if (command.CommandText.Contains("FROM \"vocabulary\" AS", StringComparison.Ordinal)) cancelled.Cancel();
+            if (command.CommandText.Contains("FROM vocabulary AS", StringComparison.Ordinal)) cancelled.Cancel();
             return ValueTask.FromResult(result);
         }
     }
@@ -215,7 +213,7 @@ public sealed class AudioReadRepositoryTests
         public override async ValueTask<DbDataReader> ReaderExecutedAsync(DbCommand command, CommandExecutedEventData eventData,
             DbDataReader result, CancellationToken cancellationToken = default)
         {
-            if (!Changed && command.CommandText.Contains("FROM \"vocabulary\" AS", StringComparison.Ordinal))
+            if (!Changed && command.CommandText.Contains("FROM vocabulary AS", StringComparison.Ordinal))
             {
                 Changed = true;
                 await using var writer = file.Open();

@@ -28,7 +28,7 @@ public sealed partial class EnrichmentTargetExecutorTests
         Assert.Empty((await admin.ListAsync(new(), c, f.Clock.Now, Ct)).Items);
         Assert.Null(await admin.DetailAsync("unknown", 1, 2, c, f.Clock.Now, Ct));
         Assert.Equal(before, await Dump(f.Db)); Assert.Equal(0, f.Http.TextCalls); Assert.Equal(0, f.Http.SpeechCalls);
-        await f.Db.Database.ExecuteSqlRawAsync("UPDATE vocabulary_meaning SET phonetic_us=char(9,160) WHERE id='meaning'", Ct);
+        await f.Db.Database.ExecuteSqlRawAsync("UPDATE vocabulary_meaning SET phonetic_us=chr(9)||chr(160) WHERE id='meaning'", Ct);
         Assert.Equal(5, (await admin.SummaryAsync(new(), c, f.Clock.Now, Ct)).ApplicableTargets);
         // A nonempty specific target is required even when its IPA equals the
         // default. Empty other-accent specifics never add demands.
@@ -179,7 +179,6 @@ public sealed partial class EnrichmentTargetExecutorTests
     {
         await using var f = await Fixture.Create(fields: false);
         await f.Ensure(Key()); await f.Ensure(Key(locale: AudioLocale.EnUs));
-        await f.Db.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL", Ct);
         var c = await AdminConfig(f); var fired = false;
         await using var reading = f.Open(new AfterAdminCount(async () =>
         {
@@ -244,7 +243,7 @@ public sealed partial class EnrichmentTargetExecutorTests
         private int _updates;
         public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command, CommandEventData eventData, InterceptionResult<int> result, CancellationToken token = default)
         {
-            if (command.CommandText.StartsWith("UPDATE \"enrichment_target\"", StringComparison.Ordinal) && ++_updates == 2)
+            if (command.CommandText.Contains("UPDATE enrichment_target", StringComparison.Ordinal) && ++_updates == 2)
                 throw new InvalidOperationException("Synthetic retry dependency failure.");
             return ValueTask.FromResult(result);
         }
@@ -253,7 +252,7 @@ public sealed partial class EnrichmentTargetExecutorTests
     {
         public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command, CommandEventData eventData, InterceptionResult<int> result, CancellationToken token = default)
         {
-            if (command.CommandText.StartsWith("UPDATE \"enrichment_target\"", StringComparison.Ordinal)) source.Cancel();
+            if (command.CommandText.Contains("UPDATE enrichment_target", StringComparison.Ordinal)) source.Cancel();
             return ValueTask.FromResult(result);
         }
     }
@@ -262,7 +261,7 @@ public sealed partial class EnrichmentTargetExecutorTests
         private bool _done;
         public override async ValueTask<DbDataReader> ReaderExecutedAsync(DbCommand command, CommandExecutedEventData eventData, DbDataReader result, CancellationToken token = default)
         {
-            if (!_done && command.CommandText.StartsWith("SELECT COUNT(*)", StringComparison.Ordinal)) { _done = true; await write(); }
+            if (!_done && command.CommandText.StartsWith("SELECT COUNT(*)", StringComparison.OrdinalIgnoreCase)) { _done = true; await write(); }
             return result;
         }
     }
@@ -275,7 +274,7 @@ public sealed partial class EnrichmentTargetExecutorTests
             var names = new List<string>();
             await using (var cmd = connection.CreateCommand())
             {
-                cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name";
+                cmd.CommandText = "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE' ORDER BY table_name";
                 await using var r = await cmd.ExecuteReaderAsync(Ct); while (await r.ReadAsync(Ct)) names.Add(r.GetString(0));
             }
             var data = new List<object>();

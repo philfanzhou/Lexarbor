@@ -4,9 +4,10 @@
 # .NET build under QEMU emulation. Nothing either stage produces is
 # architecture-specific: the frontend emits static assets, and the backend
 # publishes framework-dependent IL with UseAppHost=false and no
-# RuntimeIdentifier, so native dependencies such as SQLitePCLRaw ship as
-# runtimes/<rid>/native/ and are selected when the application loads. Only the
-# runtime stage below is pulled per target architecture.
+# RuntimeIdentifier, so any native dependency ships as runtimes/<rid>/native/
+# and is selected when the application loads. Only the runtime stage below is
+# pulled per target architecture. The image contains no database: a deployment
+# supplies ConnectionStrings__Default for a PostgreSQL server.
 
 # ========== Stage 1: Build Frontend ==========
 FROM --platform=$BUILDPLATFORM node:20-alpine AS frontend-build
@@ -62,7 +63,8 @@ VOLUME ["/app/data"]
 EXPOSE 5008
 
 # Nothing here needs root: the application listens on 5008, which is above the
-# privileged range, and writes only under /app/data. Running as root meant any
+# privileged range, and writes only under /app/data (the persistent
+# configuration and, unless one is injected, the Data Protection root key). Running as root meant any
 # flaw that reached code execution started as root, one namespace away from the
 # host, for no capability the application ever used.
 USER $APP_UID
@@ -70,7 +72,7 @@ USER $APP_UID
 # The probe is this same assembly with an argument rather than a curl call,
 # because the runtime image ships no HTTP client and adding one would hand a
 # future remote-code-execution the download tool this image currently lacks.
-# start-period covers migrations on a first start.
+# start-period covers creating and migrating the database on a first start.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD ["dotnet", "Lexarbor.Host.dll", "--health-check"]
 
 ENTRYPOINT ["dotnet", "Lexarbor.Host.dll"]

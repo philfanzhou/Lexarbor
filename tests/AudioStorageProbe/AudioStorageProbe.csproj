@@ -6,6 +6,12 @@
     <ProjectReference Include="../../src/Lexarbor.Host/Lexarbor.Host.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="Testcontainers.PostgreSql" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../Shared/PostgreSqlTestServer.cs" Link="Shared/PostgreSqlTestServer.cs" />
+  </ItemGroup>
+  <ItemGroup>
     <None Include="Fixtures/tone.mp3" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

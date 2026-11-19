@@ -24,7 +24,7 @@ public sealed class VocabularyCleanupService(IVocabularyCleanupRepository reposi
     {
         selection = Validate(selection, true);
         cancellationToken.ThrowIfCancellationRequested();
-        return unitOfWork.ExecuteInTransactionAsync(async () =>
+        return unitOfWork.ExecuteCatalogWriteAsync(async () =>
         {
             // All state checks occur after the write lock and transaction. Once
             // admitted, request cancellation cannot leave a partial cleanup.

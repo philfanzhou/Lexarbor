@@ -130,16 +130,19 @@ POST /api/vocabulary/learning-question
 X-Api-Key: <issued-api-key>
 Content-Type: application/json
 
-{"wordId":"went-id","bookId":"book-id","meaningId":"went-meaning-id","mode":"review","relation":{"sourceWordId":"go-id","type":"past_tense"}}
+{"wordId":"went-id","bookId":"book-id","meaningId":"went-meaning-id","mode":"review","relation":{"sourceWordId":"go-id","type":"past_tense","relationId":"go-went-id","sourceMeaningId":"go-meaning-id"}}
 ```
 
-`relation` is optional. When present, it must be an object with a nonblank
-`sourceWordId` and one of the [eleven relation codes](VocabularyRelations.md#types).
-Malformed `relation` returns `400` with `QUESTION_INVALID_REQUEST` in both modes.
-A confirmed relation from `sourceWordId` to `wordId` makes related types eligible
-in `review`. A missing, pending or reverse-only link leaves the other eligible
-review types in the draw. In `new`, the relation is validated
-and the question follows the usual English-to-Chinese rules.
+`relation` is optional. It takes a nonblank `sourceWordId` and one of the
+[eleven relation codes](VocabularyRelations.md#types). Supply `relationId`
+and `sourceMeaningId` together from an outgoing
+[family meaning pair](VocabularyFamilies.md#single-word). Lexarbor checks the
+confirmed relation, its direction and type, both books' enabled status, and the
+exact directed pair ending at the requested `wordId`, `bookId` and `meaningId`.
+The legacy two-field request and a well-formed reference to a missing, pending,
+reverse or mismatched pair use the ordinary review draw. A malformed object
+returns `400` with `QUESTION_INVALID_REQUEST` in both modes. In `new`, the
+object is validated and the usual English-to-Chinese rules apply.
 
 `FormChoice` asks for the target spelling given the source and relation type.
 Wrong options can include the source spelling, its other confirmed targets,
@@ -225,9 +228,10 @@ Common single labels such as `n.`, `vt.`, `adj.` and `adv.` map to those codes.
 The requested `wordId`, `bookId` and `meaningId` still determine the answer.
 
 The clue must have a different spelling and a recognized, different part of
-speech in an enabled book. It can come from either end of a confirmed derivative
-relation or from a sibling linked by confirmed derivative relations to a shared
-source. Wrong options first come from the target's confirmed family in enabled
+speech in an enabled book. It can come from a meaning directly linked to the
+requested target meaning by a confirmed derivative relation in either direction,
+or from a sibling meaning linked by confirmed derivative relations to the same
+source meaning. Wrong options first come from the target's confirmed family in enabled
 books. The ordinary book, unit, entry-kind and supplementary-book rules fill any
 remaining slots. The clue, duplicate spellings and alternatives matching the
 definition and part of speech are excluded. A missing or unrecognized label on

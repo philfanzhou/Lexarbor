@@ -26,13 +26,15 @@ jobs:
   backend:
     name: Backend tests
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # The tests run against a real PostgreSQL server and the identity step
+    # publishes and starts six hosts; together they take 11-15 minutes.
+    timeout-minutes: 25
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up .NET
-        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           dotnet-version: 10.0.x
 
@@ -107,7 +109,7 @@ jobs:
         run: npm ci
 
       - name: Audit dependencies
-        run: npm audit --audit-level=moderate --registry=https://registry.npmjs.org/
+        run: node ../.github/scripts/check-npm-audit.mjs
 
       - name: Lint
         run: npm run lint
@@ -210,7 +212,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up .NET
-        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           dotnet-version: 10.0.x
       - name: Set up Node.js

@@ -3,7 +3,6 @@ using Lexarbor.Domain.Exceptions;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 using Lexarbor.Domain.Services;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 namespace Lexarbor.Database.Repositories;
@@ -17,8 +16,7 @@ public sealed class EnrichmentExecutionRepository(VocabularyDbContext context, I
         await context.Database.OpenConnectionAsync(token);
         try
         {
-            await using var transaction = ((SqliteConnection)context.Database.GetDbConnection()).BeginTransaction(deferred: true);
-            await using var enlisted = await context.Database.UseTransactionAsync(transaction, token);
+            await using var transaction = await ReadSnapshot.BeginAsync(context, token);
             var result = await ReadCoreAsync(target, token);
             await transaction.CommitAsync(token);
             return result;
@@ -107,7 +105,7 @@ public sealed class EnrichmentExecutionRepository(VocabularyDbContext context, I
                 await context.EnrichmentRounds.Where(row => row.TargetId == guard.TargetId && row.Number == guard.Round)
                     .ExecuteUpdateAsync(set => set.SetProperty(row => row.PlanJson, json));
                 return new(advanced, stored, conflicts);
-            }, token);
+            }, token, ct => WriteLocks.EnrichmentTargetAsync(context, guard.TargetId, ct));
         }
         catch (LostExecutionException) { return null; }
     }

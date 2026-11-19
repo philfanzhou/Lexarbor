@@ -3,7 +3,6 @@ using Lexarbor.Domain.Exceptions;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 using Lexarbor.Domain.Services;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 namespace Lexarbor.Database.Repositories;
@@ -197,8 +196,7 @@ public sealed partial class VocabularyPublicQueryRepository(VocabularyDbContext 
         {
             // BEGIN (deferred), not UnitOfWork's serialized BEGIN IMMEDIATE,
             // so the counts and the page read one instant of the book.
-            await using var transaction = ((SqliteConnection)context.Database.GetDbConnection()).BeginTransaction(deferred: true);
-            await using var enlisted = await context.Database.UseTransactionAsync(transaction, cancellationToken);
+            await using var transaction = await ReadSnapshot.BeginAsync(context, cancellationToken);
             var result = await read();
             await transaction.CommitAsync(cancellationToken);
             return result;

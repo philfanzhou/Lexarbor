@@ -13,7 +13,7 @@ public sealed class VocabularyMeaningPhoneticEditService(VocabularyMeaningEditSe
     public Task ReplaceAsync(string bookId, string wordId, string meaningId, string? partOfSpeech,
         string? meaning, string? example, IReadOnlyList<MeaningPhoneticEdit> edits,
         MeaningPhoneticWorkVersions versions, long now, CancellationToken token = default) =>
-        unitOfWork.ExecuteInTransactionAsync(async () =>
+        unitOfWork.ExecuteWordWriteAsync(wordId, [], async () =>
         {
             if (edits.Any(edit => edit.BookId != bookId || edit.WordId != wordId || edit.MeaningId != meaningId))
                 throw new ArgumentException("Phonetic edits must belong to the requested meaning.", nameof(edits));

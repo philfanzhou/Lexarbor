@@ -13,7 +13,7 @@ namespace Lexarbor.Service.Tests;
 /// <summary>
 /// Endpoint-level combination of the W/M replacement PUTs and the C cleanup
 /// commands on one real pipeline instance (routing, VocabularyAdmin
-/// authorization, unified failure envelope, and the shared real SQLite
+/// authorization, unified failure envelope, and the shared PostgreSQL
 /// connection), per the parent model in #96's end-to-end scenario 6: editing
 /// first means the cleanup deletes the current row; cleaning up first makes the
 /// later edit 404 without revival or partial writes.

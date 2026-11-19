@@ -6,7 +6,7 @@ using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Exceptions;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Services;
-using Microsoft.Data.Sqlite;
+using Lexarbor.Tests.Shared;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Xunit;
@@ -104,12 +104,8 @@ public class VocabularyCleanupTests : TestBase
     [InlineData("vocabulary_book")]
     public async Task FailureAfterEachDelete_RollsBackAllTablesAndClearsTemporaryState(string table)
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
         var failure = new FailAfterDelete(table);
-        var options = new DbContextOptionsBuilder<VocabularyDbContext>().UseSqlite(connection).AddInterceptors(failure).Options;
-        await using var context = new VocabularyDbContext(options);
-        await context.Database.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await using var context = new VocabularyDbContext(PostgreSqlTestServer.Options(ConnectionString).AddInterceptors(failure).Options);
         await SeedAsync(context);
         var before = await StateAsync(context);
         failure.Enabled = true;
@@ -125,7 +121,11 @@ public class VocabularyCleanupTests : TestBase
     {
         await SeedAsync(_dbContext);
         var before = await StateAsync(_dbContext);
-        await _dbContext.Database.ExecuteSqlRawAsync("CREATE TRIGGER reject_delete BEFORE DELETE ON vocabulary BEGIN SELECT RAISE(ABORT,'synthetic'); END;", TestContext.Current.CancellationToken);
+        await _dbContext.Database.ExecuteSqlRawAsync("""
+            CREATE FUNCTION reject_delete() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN RAISE EXCEPTION 'synthetic' USING ERRCODE = '23000'; END $$;
+            CREATE TRIGGER reject_delete BEFORE DELETE ON vocabulary FOR EACH ROW EXECUTE FUNCTION reject_delete();
+            """, TestContext.Current.CancellationToken);
         await Assert.ThrowsAsync<ConflictException>(() => Service(_dbContext).CommitAsync("A", new("clear"), TestContext.Current.CancellationToken));
         Assert.Equal(before, await StateAsync(_dbContext));
         Assert.Equal(0, await TempTableCountAsync(_dbContext));
@@ -146,24 +146,17 @@ public class VocabularyCleanupTests : TestBase
         Words = await db.Vocabularies.AsNoTracking().OrderBy(v => v.Id).ToListAsync(TestContext.Current.CancellationToken),
         Meanings = await db.VocabularyMeanings.AsNoTracking().OrderBy(m => m.Id).ToListAsync(TestContext.Current.CancellationToken)
     });
-    internal static async Task ForeignKeysAsync(VocabularyDbContext db)
-    {
-        await db.Database.OpenConnectionAsync(TestContext.Current.CancellationToken);
-        try
-        {
-            await using var command = db.Database.GetDbConnection().CreateCommand(); command.CommandText = "PRAGMA foreign_key_check";
-            await using var reader = await command.ExecuteReaderAsync(TestContext.Current.CancellationToken);
-            Assert.False(await reader.ReadAsync(TestContext.Current.CancellationToken));
-        }
-        finally { await db.Database.CloseConnectionAsync(); }
-    }
+    // PostgreSQL enforces every foreign key on each statement, so a committed
+    // state cannot hold a dangling reference; the check SQLite needed is a
+    // no-op kept for the callers' readability.
+    internal static Task ForeignKeysAsync(VocabularyDbContext db) => Task.CompletedTask;
     internal static async Task<int> TempTableCountAsync(VocabularyDbContext db)
     {
         await db.Database.OpenConnectionAsync(TestContext.Current.CancellationToken);
         try
         {
             await using var command = db.Database.GetDbConnection().CreateCommand();
-            command.CommandText = "SELECT count(*) FROM sqlite_temp_master WHERE name='lexarbor_cleanup_affected'";
+            command.CommandText = "SELECT count(*) FROM pg_class WHERE relname='lexarbor_cleanup_affected' AND relpersistence='t'";
             return Convert.ToInt32(await command.ExecuteScalarAsync(TestContext.Current.CancellationToken));
         }
         finally { await db.Database.CloseConnectionAsync(); }

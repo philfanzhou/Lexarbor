@@ -51,7 +51,7 @@ internal static class LearningQuestionEndpoints
         try
         {
             relation = value.Deserialize<LearningQuestionRelation>(JsonSerializerOptions.Web);
-            return relation != null && !string.IsNullOrWhiteSpace(relation.SourceWordId) && VocabularyRelationTypes.IsValid(relation.Type);
+            return relation?.IsValid() == true;
         }
         catch (JsonException) { return false; }
     }

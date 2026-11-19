@@ -6,11 +6,11 @@ using Lexarbor.Domain.Repositories;
 using Lexarbor.Domain.Services;
 using Lexarbor.Host;
 using Lexarbor.Host.Integration;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Npgsql;
 
 namespace Lexarbor.Service.Tests;
 
@@ -25,29 +25,23 @@ public sealed partial class EnrichmentTargetExecutorTests
         await using var db = f.Open(capture);
         await new EnrichmentSchedulerRepository(db).PlanAsync(20, f.Clock.Now, [], Ct);
         Assert.NotNull(capture.Sql);
-        await db.Database.OpenConnectionAsync(Ct);
-        await using var command = db.Database.GetDbConnection().CreateCommand();
-        command.CommandText = "EXPLAIN QUERY PLAN " + capture.Sql;
-        command.Parameters.AddRange(capture.Parameters);
-        await using var reader = await command.ExecuteReaderAsync(Ct);
-        var plan = new List<string>();
-        while (await reader.ReadAsync(Ct)) plan.Add(reader.GetString(3));
-        Assert.Contains(plan, p => p.Contains("USING INDEX IX_enrichment_target_word_id_locale_step", StringComparison.Ordinal));
-        Assert.Contains(plan, p => p.Contains("USING INDEX IX_enrichment_target_word_id_meaning_id_locale_step", StringComparison.Ordinal));
-        Assert.DoesNotContain(plan, p => p.Contains("SCAN pt", StringComparison.Ordinal));
+        var plan = await Lexarbor.Tests.Shared.PostgreSqlPlan.ExplainAsync(db.Database.GetConnectionString()!, capture.Sql, capture.Parameters);
+        Assert.Contains("IX_enrichment_target_word_id_locale_step", plan, StringComparison.Ordinal);
+        Assert.Contains("IX_enrichment_target_word_id_meaning_id_locale_step", plan, StringComparison.Ordinal);
+        Assert.DoesNotContain("Seq Scan on enrichment_target pt", plan, StringComparison.Ordinal);
     }
 
     private sealed class DispatchQueryCapture : DbCommandInterceptor
     {
         public string? Sql;
-        public SqliteParameter[] Parameters = [];
+        public DbParameter[] Parameters = [];
         public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command,
             CommandEventData eventData, InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
         {
             if (command.CommandText.Contains("WITH recent AS", StringComparison.Ordinal))
             {
                 Sql = command.CommandText;
-                Parameters = command.Parameters.Cast<DbParameter>().Select(p => new SqliteParameter(p.ParameterName, p.Value)).ToArray();
+                Parameters = command.Parameters.Cast<DbParameter>().ToArray();
             }
             return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
         }

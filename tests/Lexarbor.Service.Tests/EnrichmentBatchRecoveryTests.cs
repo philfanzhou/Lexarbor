@@ -5,9 +5,10 @@ using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 using Lexarbor.Host;
 using Lexarbor.Host.Integration;
-using Microsoft.Data.Sqlite;
+using Lexarbor.Tests.Shared;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Npgsql;
 
 namespace Lexarbor.Service.Tests;
 
@@ -145,7 +146,7 @@ public sealed partial class EnrichmentTargetExecutorTests
         public override ValueTask<InterceptionResult> TransactionCommittingAsync(DbTransaction transaction, TransactionEventData eventData,
             InterceptionResult result, CancellationToken cancellationToken = default)
         {
-            if (Remaining-- > 0) throw new SqliteException("Synthetic busy commit.", 5);
+            if (Remaining-- > 0) throw SyntheticStorageErrors.Busy("Synthetic busy commit.");
             return ValueTask.FromResult(result);
         }
     }
@@ -155,7 +156,7 @@ public sealed partial class EnrichmentTargetExecutorTests
         public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command, CommandEventData eventData,
             InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
         {
-            if (command.CommandText.Contains("INSERT INTO \"ai_request_batch\"", StringComparison.Ordinal))
+            if (command.CommandText.Contains("INSERT INTO ai_request_batch", StringComparison.Ordinal))
                 throw new InvalidOperationException("Synthetic batch begin failure.");
             return ValueTask.FromResult(result);
         }

@@ -12,6 +12,7 @@ using Lexarbor.Host;
 using Lexarbor.Host.Configuration;
 using Lexarbor.Host.Integration;
 using Lexarbor.Service.Tests.TestInfrastructure;
+using Lexarbor.Tests.Shared;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
@@ -444,39 +445,6 @@ public sealed partial class AutomaticMeaningSubmissionReviewTests
         Assert.Equal(id, record.SubmissionId); Assert.True(record.Applied); Assert.Equal(500, record.Meaning!.Length);
     }
 
-    [Fact]
-    public async Task Migration_UpDownPreserveProposalsAndPermanentRecords_RetryStateSurvivesReopen()
-    {
-        var root = Directory.CreateTempSubdirectory("lexarbor-auto-migration-").FullName;
-        var options = new DbContextOptionsBuilder<VocabularyDbContext>().UseSqlite($"Data Source={Path.Combine(root, "fixture.db")};Pooling=False").Options;
-        try
-        {
-            await using (var db = new VocabularyDbContext(options))
-            {
-                var migrator = db.GetService<IMigrator>();
-                await migrator.MigrateAsync("20261102043902_AddMeaningSubmissionReviews", Ct);
-                await db.Database.ExecuteSqlRawAsync("INSERT INTO meaning_submission(id,source,word,meaning,status,created_at_unix_ms,updated_at_unix_ms) VALUES ('retained','synthetic','Word','original',0,1,2)", Ct);
-                await db.Database.ExecuteSqlRawAsync("INSERT INTO meaning_submission_ai_review(id,attempt_id,submission_id,verdict,model,reviewed_at_unix_ms,applied) VALUES ('record','old-attempt','retained','reject','old-model',2,0)", Ct);
-                await migrator.MigrateAsync(cancellationToken: Ct); Assert.False(db.Database.HasPendingModelChanges());
-                Assert.Equal("original", (await db.MeaningSubmissions.SingleAsync(Ct)).Meaning);
-                Assert.Equal("old-model", (await db.MeaningSubmissionAiReviews.SingleAsync(Ct)).Model);
-                Assert.Empty(await db.MeaningSubmissionAutoReviews.ToListAsync(Ct));
-                var repo = new MeaningSubmissionAutoReviewRepository(db, TimeProvider.System);
-                var lease = (await repo.ClaimAsync("old-process", TimeSpan.FromSeconds(60), Ct))!;
-                await repo.FinishAsync(lease, "rate_limited", TimeSpan.FromMinutes(10), Ct);
-            }
-            await using var restarted = new VocabularyDbContext(options);
-            Assert.Equal("rate_limited", (await restarted.MeaningSubmissionAutoReviews.SingleAsync(Ct)).LastFailureCode);
-            await restarted.GetService<IMigrator>().MigrateAsync("20261102043902_AddMeaningSubmissionReviews", Ct);
-            Assert.Equal("original", (await restarted.MeaningSubmissions.SingleAsync(Ct)).Meaning);
-            Assert.Equal("old-model", (await restarted.MeaningSubmissionAiReviews.SingleAsync(Ct)).Model);
-            await restarted.Database.OpenConnectionAsync(Ct);
-            using var command = restarted.Database.GetDbConnection().CreateCommand(); command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE name='meaning_submission_auto_review'";
-            Assert.Equal(0L, await command.ExecuteScalarAsync(Ct));
-        }
-        finally { Directory.Delete(root, true); }
-    }
-
     private sealed class Fixture : IAsyncDisposable
     {
         private readonly string _root = VocabularyWebApplicationFactory.CreateGateSafeDirectory("auto-review-" + Guid.NewGuid().ToString("N"));
@@ -519,7 +487,7 @@ public sealed partial class AutomaticMeaningSubmissionReviewTests
         public MeaningSubmissionReviewWorker NewWorker() => new(Provider.GetRequiredService<IServiceScopeFactory>(), Runtime, _submissionSettings, Notifications, Clock, Client, NullLogger<MeaningSubmissionReviewWorker>.Instance);
         public MeaningSubmissionReviewBatchExecutor BatchWorker() => new(Provider.GetRequiredService<IServiceScopeFactory>(), Runtime, _submissionSettings,
             new AiTextBatchClient(Clients, Clock), Client, Clock);
-        public VocabularyDbContext Open() => new(new DbContextOptionsBuilder<VocabularyDbContext>().UseSqlite($"Data Source={Path.Combine(_root, "fixture.db")};Pooling=False").AddInterceptors(Fault).Options);
+        public VocabularyDbContext Open() => new(new DbContextOptionsBuilder<VocabularyDbContext>().UseNpgsql(SharedTestDatabases.ConnectionString(Path.Combine(_root, "fixture.db"))).AddInterceptors(Fault).Options);
         public (MeaningSubmissionService Submissions, VocabularyDomainService Vocabulary) Service(VocabularyDbContext db)
         {
             var submissions = new MeaningSubmissionRepository(db); var words = new VocabularyRepository(db); var meanings = new VocabularyMeaningRepository(db); var uow = new UnitOfWork(db);
@@ -551,9 +519,9 @@ public sealed partial class AutomaticMeaningSubmissionReviewTests
         public bool Enabled; public bool Triggered; public CancellationTokenSource? Cancel;
         public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result, CancellationToken token = default)
         {
-            if (Cancel != null && !Triggered && command.CommandText.StartsWith("INSERT INTO \"meaning_submission_ai_review\"", StringComparison.Ordinal))
+            if (Cancel != null && !Triggered && command.CommandText.Contains("INSERT INTO meaning_submission_ai_review", StringComparison.Ordinal))
             { Triggered = true; Cancel.Cancel(); token.ThrowIfCancellationRequested(); }
-            if (Enabled && command.CommandText.StartsWith("INSERT INTO \"meaning_submission_ai_review\"", StringComparison.Ordinal))
+            if (Enabled && command.CommandText.Contains("INSERT INTO meaning_submission_ai_review", StringComparison.Ordinal))
             { Triggered = true; throw new InvalidOperationException("Synthetic commit failure."); }
             return ValueTask.FromResult(result);
         }

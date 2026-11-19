@@ -7,6 +7,15 @@ internal static class VocabularyRelationModelConfiguration
 {
     public static void Configure(ModelBuilder modelBuilder)
     {
+        var meaning = modelBuilder.Entity<VocabularyRelationMeaningEntity>();
+        meaning.HasKey(pair => new { pair.RelationId, pair.SourceMeaningId, pair.TargetMeaningId });
+        meaning.HasOne<VocabularyRelationEntity>().WithMany().HasForeignKey(pair => pair.RelationId)
+            .OnDelete(DeleteBehavior.Cascade);
+        meaning.HasOne<VocabularyMeaningEntity>().WithMany().HasForeignKey(pair => pair.SourceMeaningId)
+            .OnDelete(DeleteBehavior.Cascade);
+        meaning.HasOne<VocabularyMeaningEntity>().WithMany().HasForeignKey(pair => pair.TargetMeaningId)
+            .OnDelete(DeleteBehavior.Cascade);
+
         var entity = modelBuilder.Entity<VocabularyRelationEntity>();
         entity.Property(r => r.Status).HasDefaultValue("needs_review");
         // Explicit null means confirmed. Do not let EF substitute the database default.
@@ -34,8 +43,8 @@ internal static class VocabularyRelationModelConfiguration
             table.HasCheckConstraint("CK_vocabulary_relation_confirmation", "(status = 'confirmed' AND review_reason IS NULL AND last_confirmed_at_unix_ms IS NOT NULL) OR (status = 'needs_review' AND review_reason IS NOT NULL)");
             table.HasCheckConstraint("CK_vocabulary_relation_origin", "origin_kind IN ('manual', 'import', 'generated')");
             table.HasCheckConstraint("CK_vocabulary_relation_origin_reference", "origin_reference IS NULL OR (length(origin_reference) BETWEEN 1 AND 200 AND origin_reference = trim(origin_reference))");
-            table.HasCheckConstraint("CK_vocabulary_relation_version", "typeof(version) = 'integer' AND version >= 1");
-            table.HasCheckConstraint("CK_vocabulary_relation_times", "typeof(created_at_unix_ms) = 'integer' AND created_at_unix_ms >= 0 AND typeof(updated_at_unix_ms) = 'integer' AND updated_at_unix_ms >= created_at_unix_ms AND (last_confirmed_at_unix_ms IS NULL OR (typeof(last_confirmed_at_unix_ms) = 'integer' AND last_confirmed_at_unix_ms >= created_at_unix_ms AND last_confirmed_at_unix_ms <= updated_at_unix_ms))");
+            table.HasCheckConstraint("CK_vocabulary_relation_version", "version >= 1");
+            table.HasCheckConstraint("CK_vocabulary_relation_times", "created_at_unix_ms >= 0 AND updated_at_unix_ms >= created_at_unix_ms AND (last_confirmed_at_unix_ms IS NULL OR (last_confirmed_at_unix_ms >= created_at_unix_ms AND last_confirmed_at_unix_ms <= updated_at_unix_ms))");
         });
     }
 }

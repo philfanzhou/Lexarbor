@@ -7,6 +7,7 @@ using Lexarbor.Database;
 using Lexarbor.Database.Entities;
 using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Models;
+using Lexarbor.Host.Authentication;
 using Lexarbor.Service.Tests.TestInfrastructure;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -14,6 +15,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 
 namespace Lexarbor.Service.Tests;
 
@@ -144,9 +146,12 @@ public sealed class VocabularyFamilyEndpointTests
         var connectionString = original.Database.GetConnectionString();
         await using var configured = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
         {
+            var sessionCleanup = services.FirstOrDefault(descriptor => descriptor.ServiceType == typeof(IHostedService)
+                && descriptor.ImplementationType == typeof(AdminSessionCleanupService));
+            if (sessionCleanup != null) services.Remove(sessionCleanup);
             services.RemoveAll<VocabularyDbContext>();
             services.AddScoped(_ => new VocabularyDbContext(new DbContextOptionsBuilder<VocabularyDbContext>()
-                .UseSqlite(connectionString).AddInterceptors(probe).Options));
+                .UseNpgsql(connectionString).AddInterceptors(probe).Options));
         }));
         using var client = configured.CreateClient();
         await Seed(configured.Services);
@@ -360,7 +365,8 @@ public sealed class VocabularyFamilyEndpointTests
         public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command,
             CommandEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
         {
-            if (Record) Commands.Add(command.CommandText);
+            // The read snapshot's own READ ONLY marker is not a write.
+            if (Record && command.CommandText != "SET TRANSACTION READ ONLY") Commands.Add(command.CommandText);
             return base.NonQueryExecutingAsync(command, eventData, result, cancellationToken);
         }
 

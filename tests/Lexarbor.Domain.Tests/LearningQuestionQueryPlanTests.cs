@@ -2,7 +2,7 @@ using System.Data.Common;
 using Lexarbor.Database;
 using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Models;
-using Microsoft.Data.Sqlite;
+using Lexarbor.Tests.Shared;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Xunit;
@@ -15,12 +15,9 @@ public sealed class LearningQuestionQueryPlanTests
     public async Task ChineseToEnglishChecksEquivalentAnswersByIndexedCandidateSpelling()
     {
         var token = TestContext.Current.CancellationToken;
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync(token);
+        await using var database = new PostgreSqlTestDatabase();
         var capture = new ChoiceQueryCapture();
-        await using var db = new VocabularyDbContext(new DbContextOptionsBuilder<VocabularyDbContext>()
-            .UseSqlite(connection).AddInterceptors(capture).Options);
-        await db.Database.EnsureCreatedAsync(token);
+        await using var db = database.Open(capture);
         db.VocabularyBooks.Add(new() { Id = "book", BookName = "Book", Status = true });
         db.Vocabularies.Add(new() { Id = "target", Word = "went" });
         db.VocabularyMeanings.Add(new() { Id = "meaning", VocabularyId = "target", BookId = "book", Meaning = "去了" });
@@ -50,27 +47,20 @@ public sealed class LearningQuestionQueryPlanTests
         Assert.Equal(new[] { "go", "going", "gone" }, options.Select(option => option.Text).Order());
 
         var (sql, parameters) = Assert.Single(capture.Commands);
-        await using var command = connection.CreateCommand();
-        command.CommandText = "EXPLAIN QUERY PLAN " + sql;
-        command.Parameters.AddRange(parameters);
-        await using var reader = await command.ExecuteReaderAsync(token);
-        var plan = new List<string>();
-        while (await reader.ReadAsync(token)) plan.Add(reader.GetString(3));
-        Assert.Contains(plan, step => step.Contains("CORRELATED SCALAR SUBQUERY", StringComparison.Ordinal));
-        Assert.Contains(plan, step => step.Contains("USING INDEX IX_vocabulary_normalized_word (normalized_word=?)", StringComparison.Ordinal));
-        Assert.Contains(plan, step => step.Contains("IX_vocabulary_meaning_vocabulary_id (vocabulary_id=?)", StringComparison.Ordinal));
+        var plan = await PostgreSqlPlan.ExplainAsync(database.ConnectionString, sql, parameters);
+        Assert.Contains("IX_vocabulary_normalized_word", plan, StringComparison.Ordinal);
+        Assert.Contains("IX_vocabulary_meaning_vocabulary_id", plan, StringComparison.Ordinal);
     }
 
     private sealed class ChoiceQueryCapture : DbCommandInterceptor
     {
-        public List<(string Sql, SqliteParameter[] Parameters)> Commands { get; } = [];
+        public List<(string Sql, DbParameter[] Parameters)> Commands { get; } = [];
 
         public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command,
             CommandEventData eventData, InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
         {
             if (command.CommandText.Contains("random()", StringComparison.OrdinalIgnoreCase))
-                Commands.Add((command.CommandText, command.Parameters.Cast<DbParameter>()
-                    .Select(parameter => new SqliteParameter(parameter.ParameterName, parameter.Value)).ToArray()));
+                Commands.Add((command.CommandText, command.Parameters.Cast<DbParameter>().ToArray()));
             return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
         }
     }

@@ -1,7 +1,6 @@
 using Lexarbor.Domain.Exceptions;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 namespace Lexarbor.Database.Repositories;
@@ -17,8 +16,7 @@ public sealed class MeaningSubmissionReviewAdminRepository(VocabularyDbContext c
         if (!wasOpen) await context.Database.OpenConnectionAsync(cancellationToken);
         try
         {
-            await using var transaction = ((SqliteConnection)context.Database.GetDbConnection()).BeginTransaction(deferred: true);
-            await using var enlisted = await context.Database.UseTransactionAsync(transaction, cancellationToken);
+            await using var transaction = await ReadSnapshot.BeginAsync(context, cancellationToken);
             var rows = from review in context.MeaningSubmissionAiReviews.AsNoTracking()
                        join submission in context.MeaningSubmissions.AsNoTracking() on review.SubmissionId equals submission.Id
                        join check in context.MeaningSubmissionReviewChecks.AsNoTracking() on review.Id equals check.RecordId into checks

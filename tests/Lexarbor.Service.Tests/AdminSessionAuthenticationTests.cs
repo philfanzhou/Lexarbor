@@ -8,15 +8,16 @@ using Lexarbor.Database;
 using Lexarbor.Database.Repositories;
 using Lexarbor.Host.Authentication;
 using Lexarbor.Service.Tests.TestInfrastructure;
+using Lexarbor.Tests.Shared;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
+using Npgsql;
 using ServiceMantle.Web.Management;
 
 namespace Lexarbor.Service.Tests;
@@ -363,13 +364,13 @@ public sealed class AdminSessionAuthenticationTests
         public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command,
             CommandEventData eventData, InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
         {
-            if (Enabled && !revoke && command.CommandText.Contains("admin_session", StringComparison.Ordinal)) throw new SqliteException("synthetic-storage-secret", code);
+            if (Enabled && !revoke && command.CommandText.Contains("admin_session", StringComparison.Ordinal)) throw (code == 5 ? SyntheticStorageErrors.Busy("synthetic-storage-secret") : SyntheticStorageErrors.Failure("synthetic-storage-secret"));
             return ValueTask.FromResult(result);
         }
         public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command,
             CommandEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
         {
-            if (Enabled && revoke && command.CommandText.StartsWith("DELETE", StringComparison.Ordinal) && command.CommandText.Contains("admin_session", StringComparison.Ordinal)) throw new SqliteException("synthetic-storage-secret", code);
+            if (Enabled && revoke && command.CommandText.StartsWith("DELETE", StringComparison.Ordinal) && command.CommandText.Contains("admin_session", StringComparison.Ordinal)) throw (code == 5 ? SyntheticStorageErrors.Busy("synthetic-storage-secret") : SyntheticStorageErrors.Failure("synthetic-storage-secret"));
             return ValueTask.FromResult(result);
         }
     }

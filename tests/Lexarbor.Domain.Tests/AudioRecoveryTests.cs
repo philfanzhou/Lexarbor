@@ -87,7 +87,7 @@ public sealed class AudioRecoveryTests
     }
 
     [Fact]
-    public async Task MultipleWorkersAndBlockedStorage_UseSqliteClaimsWithoutHoldingWriterLock()
+    public async Task MultipleWorkersAndBlockedStorage_UseDatabaseClaimsWithoutHoldingWriterLock()
     {
         using var file = new AudioTestDatabase(); await using var firstDb = file.Open(); await Init(firstDb);
         await using var secondDb = file.Open(); var clock = new Clock(); var first = new AudioUploadRepository(firstDb, clock);

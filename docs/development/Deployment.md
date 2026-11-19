@@ -10,7 +10,7 @@ docker build -t lexarbor:latest .
 
 The multi-stage build compiles the Vue frontend, publishes the .NET backend, and copies the static files into the Host output. The runtime image exposes HTTP port 5008 and stores durable state in `/app/data`:
 
-- `/app/data/vocabulary.db` contains the SQLite database.
+- The database lives on a PostgreSQL server, not in the image or under `/app/data`; see [Database](#database).
 - `/app/data/appsettings.json` contains the operator-managed application configuration.
 - `/app/data/data-protection-root-key` holds the Data Protection root key (unless `LEXARBOR_DATA_PROTECTION_ROOT_KEY` injects one).
 
@@ -67,7 +67,7 @@ bash scripts/start.sh
 | `LEXARBOR_PORT` | `5008` | Host port mapped to container port 5008 |
 | `LEXARBOR_DATA_DIR` | `<repository>/data` | Host directory mounted at `/app/data` |
 
-The deployment is single-instance only. Do not mount the same SQLite file into multiple running containers.
+Run one serving container per deployment. Rate limiting and background scheduling still use process-local state. PostgreSQL coordinates concurrent writes from independent requests. `LEXARBOR_DATABASE_CONNECTION_STRING` is required; see [PostgreSQL configuration](#postgresql-configuration).
 
 ### Container user and file ownership
 
@@ -204,39 +204,126 @@ The service identifier is fixed at `lexarbor` and is not configurable. Every dep
 
 ## Database
 
-| Configuration key | Default | Purpose |
-|---|---|---|
-| `ConnectionStrings:Default` | `Data Source=data/vocabulary.db` | SQLite data source; relative paths use the Host content root |
-| `Database:InitializeOnStartup` | `true` | Create a missing database and apply migrations |
+Lexarbor stores its data in PostgreSQL 16 or later; see
+[ADR-011](../adr/ADR-011-postgresql-only-storage.md). The image contains no
+database, so a deployment is the Lexarbor container plus a PostgreSQL server.
 
+| Configuration key | Environment variable (`scripts/start.sh`) | Default | Purpose |
+|---|---|---|---|
+| `ConnectionStrings:Default` | `LEXARBOR_DATABASE_CONNECTION_STRING` | none (required) | PostgreSQL connection string |
+| `Database:InitializeOnStartup` | — | `true` | Create a missing database and apply migrations |
 
-SQLite data-source resolution uses ServiceMantle 0.3.0 with the Host content root
-as its explicit absolute base directory, independently of the process working
-directory. Missing, null or blank configuration keeps `data/vocabulary.db`;
-relative paths and `..` segments normalize under that base, and absolute local
-paths keep their target. This pure parsing step performs no filesystem writes,
-creates no directory/database, and preserves other connection parameters.
-The driver's default or explicit 30-second timeout becomes 5 seconds; explicit
-values such as 7 or 0 remain unchanged.
+### PostgreSQL configuration
 
-Parsing preserves `:memory:` (case-insensitively) and `file:` URI sources. This
-does not enable them at runtime: the existing startup gate rejects these
-non-file targets before opening a database, and no literal URI filename is
-created. `|DataDirectory|` substitutions and invalid input are unsupported and
-fail with a safe diagnostic without echoing configuration or provider details.
-EF and the startup/migration gate use the same final connection string and
-canonical target identity. Paths through symbolic links or mount aliases are
-not resolved by parsing. No schema, seed, migration or container `/app/data`
-layout changes; rolling back application code neither moves nor rewrites data.
+`ConnectionStrings:Default` is an Npgsql connection string with at least a host
+and a database, for example
+`Host=postgres;Port=5432;Database=lexarbor;Username=lexarbor;Password=...`.
+Pass it as the environment variable `ConnectionStrings__Default` (or
+`LEXARBOR_DATABASE_CONNECTION_STRING` with `scripts/start.sh`) rather than
+writing the password into the persistent `appsettings.json`. Startup fails with
+a fixed diagnostic — never the value — when the setting is missing, cannot be
+parsed, has no host or database, or is still a SQLite connection string
+(`Data Source=...`).
 
-On first startup Lexarbor creates an empty database: it ships no vocabulary data, so administrators create books and add words themselves. Existing databases are migrated only; their rows are neither added to nor removed, so a database created by an earlier release keeps its `Starter English 300` book. The same holds for the schema migration that adds book units and meaning-to-unit assignments: it creates two empty tables and one index and rewrites no existing row, and words or meanings work exactly as before without any unit. Rolling back to such an earlier image does not reload that book into a database this release created, because the earlier release also only migrates an existing file. Stop writes before copying the database, or use a SQLite online-backup tool.
+Unless the connection string sets its own `-c lock_timeout=` in `Options`,
+Lexarbor adds `lock_timeout=5s`: a write that waits longer than that for a row
+or table lock answers `503` with `Retry-After` instead of holding the request,
+the same bound the SQLite releases applied through their busy timeout.
 
-Startup prepares the database through a fixed, fail-closed gate. Before any migration runs, the database's parent directory is created when absent (the `data/` directory of a fresh installation), a database that still carries the WAL header is normalized to the rollback journal (see below), and the database file is observed without being modified: a missing file — and only a missing file — is created atomically, and a database that cannot be used is refused instead of being repaired, with the process exiting non-zero and a log line that carries a ServiceMantle error code only (no path, connection string, or SQL). Two operational consequences:
+Every text column uses the `"C"` collation, so word ordering and paging are
+byte-wise and case folding in comparisons and searches covers ASCII letters
+only, exactly as under SQLite. This holds whatever collation the database
+itself was created with; no `initdb` locale setting is required.
 
-- **Strict file rules.** The database path must resolve to a plain local file. A path that passes through a symbolic link, a hard-linked database file, a `file:` URI or `:memory:` data source, or a read-only connection mode is rejected before anything is opened. Keep the data directory free of symbolic links.
-- **The upgrade check refuses newer schemas.** A database whose `__EFMigrationsHistory` records a migration the running build does not know — for example one already migrated by a newer image — stops startup with `migration.version_too_new` instead of being rewritten. Before rolling an image back, compare the newest `MigrationId` in the history table against the target image; the running build migrates only forward, never down.
+Startup runs the ServiceMantle PostgreSQL startup gate:
 
-With `Database:InitializeOnStartup=false` the gate is skipped entirely: the application performs no write at startup, keeps running, and readiness honestly reports `notStarted` while migrations are pending. A pre-mounted placeholder file is never rewritten in this mode.
+- **A missing database is created.** When the target database does not exist,
+  the gate connects to the `postgres` maintenance database with the same
+  credentials and creates it, owned by the connecting user. That user then needs
+  `CREATEDB`; an operator who creates the database in advance needs no such
+  privilege, and an existing database is only observed, never repaired.
+- **Migrations run once.** The orchestration takes a PostgreSQL advisory lock
+  derived from the service id, so two containers starting together migrate the
+  database once. This lock covers startup migrations. The supported deployment has one serving instance.
+- **The upgrade check refuses newer schemas.** A database whose
+  `__EFMigrationsHistory` records a migration the running build does not know
+  stops startup with `migration.version_too_new` instead of being rewritten.
+- **Failures are safe.** An unreachable server, rejected credentials and a
+  failing migration stop startup with a ServiceMantle error code only — no host,
+  connection string, or SQL in the log.
+
+On first startup the database is empty: Lexarbor ships no vocabulary data.
+With `Database:InitializeOnStartup=false` the gate is skipped entirely: the
+application performs no write at startup, keeps running, and readiness
+reports `notStarted` while migrations are pending.
+
+### Running with Docker Compose
+
+`scripts/compose.yaml` runs Lexarbor and a PostgreSQL 16 server, with the
+database on the named volume `postgres-data` and `/app/data` on
+`lexarbor-data`:
+
+```bash
+export LEXARBOR_DB_PASSWORD='<a long random value without semicolons>'
+docker compose -f scripts/compose.yaml up -d
+```
+
+`LEXARBOR_IMAGE`, `LEXARBOR_PORT`, and `LEXARBOR_POSTGRES_IMAGE` select the
+image, the published port, and the database image. Add further settings, such
+as administrator login or an injected `DataProtection__RootKey`, to the
+`lexarbor` service's `environment`.
+
+### Backups
+
+The database is no longer a file under `/app/data`. Back it up with `pg_dump`
+(for example `pg_dump --format=custom --file=lexarbor.dump lexarbor`), and for
+deployments that hold learner data use continuous archiving for point-in-time
+recovery. Back up the Data Protection root key (the injected value or
+`/app/data/data-protection-root-key`) separately from the dump, and restore the
+two together: the key rows inside the database are protected by that root key.
+
+### Recovering from enrichment scheduling timeouts
+
+If rc.2 or rc.3 logs a 30-second timeout during each enrichment discovery sweep,
+upgrade the application to `v0.2.0-rc.4` using the same PostgreSQL database and
+settings. The worker checks demand by word when selecting failed rounds and can
+resume eligible work on the next discovery sweep.
+
+### Upgrading from a SQLite release
+
+Upgrade an installation that still uses SQLite through
+[v0.2.0-rc.2](https://github.com/philfanzhou/Lexarbor/releases/tag/v0.2.0-rc.2).
+Stop the old service cleanly, back up its data directory and Data Protection
+root key, and configure an empty PostgreSQL database for rc.2. Keep the same
+data directory and key. Wait for rc.2 to report that it copied and verified
+the data. Then start this release against that PostgreSQL database.
+
+This release checks for `data/vocabulary.db` (or the path selected by
+`Database:LegacySqlitePath`, passed as `LEXARBOR_LEGACY_SQLITE_PATH` to
+`scripts/start.sh`). If the file exists, PostgreSQL must contain the
+`imported` outcome recorded by the transition release. A missing marker or
+`none` stops startup even with initialization disabled. The check leaves the
+old file untouched. A fresh installation needs only PostgreSQL. After the
+switch, back up PostgreSQL and the root key together. Returning to an older
+SQLite backup loses subsequent writes to PostgreSQL.
+
+### Earlier SQLite upgrade notes
+
+The upgrade notes that follow, and the per-feature upgrade sections later in
+this guide, describe the SQLite migration history of earlier releases. They
+still apply to an installation moving between those releases; the PostgreSQL
+baseline replaces that history, so a PostgreSQL installation has none of these
+migrations to apply, and "back up SQLite" there reads as "back up the database"
+under [Backups](#backups).
+
+### Rollback journal
+
+The SQLite releases ran the database under SQLite's rollback journal, where a
+committing write waited for every open reader and a write waited up to five
+seconds for the database before answering `503`. PostgreSQL has no journal
+mode to configure: readers and writers do not block each other, and the
+five-second bound now applies to row and table lock waits through
+`lock_timeout` (see [PostgreSQL configuration](#postgresql-configuration)).
 
 ### Meaning-specific phonetic upgrade
 
@@ -258,6 +345,15 @@ history; restore the pre-upgrade backup instead when that is the required recove
 point. Old-image direct access to an upgraded database is not supported.
 
 ### Vocabulary relation upgrade
+
+`20261116010236_AddVocabularyRelationMeanings` adds the table for confirmed
+meaning pairs. Existing word-level links stay available for browsing. Deploy
+Lexarbor before enabling the new Study requests. Legacy requests continue to
+receive ordinary review questions. Administrators can
+[recover proven pairs or confirm them explicitly](../api/VocabularyRelations.md#link-meanings).
+To roll back this migration, target `20261114040544_AddBusinessApiKeys` with
+current migration tooling after stopping writes and taking a backup. Down
+removes meaning pairs and their invalidation triggers.
 
 `20261105011010_AddVocabularyRelations` adds one empty relationship table and its
 indexes to the existing SQLite database. It requires no new configuration,
@@ -340,21 +436,9 @@ vocabulary and all prior audio data/receipts; no remote object is removed. Resto
 a matching pre-upgrade backup instead when historical queue data must be retained.
 Never start an old image directly against the upgraded database.
 
-### Rollback journal
-
-The database runs under SQLite's default rollback journal. The earlier releases kept it in write-ahead logging; this one normalizes every database back to the rollback journal before the startup gate observes it: opening a database that still carries the WAL header replays any committed frames of a leftover `vocabulary.db-wal` file, one checkpoint folds them into the database, the header switches to the rollback journal, and the sidecar files are deleted. Every committed transaction survives the conversion, a database restored later from an old WAL backup is converted the same way, and no operator action is needed. A database that is missing is created by the gate already in the rollback mode, and a normalization that cannot complete stops startup with a fixed safe diagnostic without changing the file.
-
-Three consequences for operators:
-
-- **The database is one file again.** `vocabulary.db` is no longer accompanied by `vocabulary.db-wal` and `vocabulary.db-shm` while the application runs. A backup taken with the application stopped needs only the one file; stop writes before copying, or use a SQLite online-backup tool, exactly as before. The shared-memory file WAL required beside the database is gone, and with it the WAL-specific restriction on network filesystems — an NFS or SMB mount of `/app/data` still cannot host a SQLite database safely, so a bind mount from the host or a Docker volume remains the supported layout.
-- **A committing write briefly holds off reads.** Under the rollback journal a write transaction's commit blocks concurrent readers for its duration. For this read-heavy service that window is the batch import (`POST /admin/vocabulary/batch`, up to 500 entries in one transaction), on the order of a hundred milliseconds; catalog reads that arrive during it queue and answer within their timeout instead of failing. This is the accepted cost of the rollback.
-- **Crash leftovers return to the single native shape.** A crash, a power loss, or a `kill -9` can leave a `vocabulary.db-journal` file behind; the next open rolls it back natively and startup continues, with no operator action. Sidecars without the main database file are not a crash to recover — startup refuses rather than creating a new file over them.
-
-`Default Timeout` in the connection string bounds how long a write waits for a database another connection is holding. Lexarbor lowers the driver's 30-second default to 5 seconds, so contention answers `503` with a `Retry-After` header instead of occupying a request thread for longer than the caller is prepared to wait. Set `Default Timeout=` explicitly in `ConnectionStrings:Default` to choose a different value.
-
 ## Data Protection key storage
 
-Data Protection keys live in the SQLite database itself, in the
+Data Protection keys live in the PostgreSQL database itself, in the
 `service_data_protection_keys` table, as ServiceMantle `sm:v1:` authenticated
 envelopes scoped to the `lexarbor` service id. The application name stays
 `Lexarbor` and the session purpose stays `Lexarbor.AdminSession.v1`; opaque
@@ -416,9 +500,9 @@ database and the root key — for example, an entire copied volume — and it do
 not provide root-key rotation tooling. Multi-instance deployments sharing one
 database share the key rows; single-instance remains the deployment contract.
 
-**Backup and restore.** Back up the SQLite database and the root key (the
+**Backup and restore.** Back up the database and the root key (the
 injected value or the root-key file) together, and store them separately from
-each other. Follow the SQLite consistency procedure above; include the
+each other. Use the [backup procedure](#backups) above; include the
 persistent configuration. Before starting after a historical database restore,
 clear `admin_session` as described below. Restoring the database without its
 matching root key refuses startup with the diagnostic above.
@@ -448,8 +532,8 @@ Precommit cancellation or failure rolls back; after commit begins, losing the re
 is an unknown outcome and callers must not automatically replay creation/replacement.
 This remains a single-instance guarantee, without upstream/global token revocation.
 
-**Restore procedure:** stop the application, restore SQLite consistently and the
-complete key ring together, then use a SQLite tool to run `DELETE FROM admin_session;`
+**Restore procedure:** stop the application, restore the database and the
+complete key ring together, then use `psql` to run `DELETE FROM admin_session;`
 against the restored database if the table exists, before restarting. Require all
 administrator sessions to sign in again. A historical backup can contain sessions
 revoked since the backup; clearing the table prevents their resurrection. Protect
@@ -562,9 +646,8 @@ Operational behavior to rely on:
   cleanup or query API for audit rows (the ServiceMantle keyset-pagination query
   surface is not exposed). Every failed callback writes one row, so the table grows
   with traffic; back it up with the database and prune old rows with your own
-  SQLite tooling when needed. The table's length CHECK constraints use
-  `octet_length`, which the bundled SQLite (3.45+) provides; querying with an
-  external SQLite older than 3.45 fails on those constraints only when writing.
+  SQL tooling when needed. The table's length CHECK constraints use
+  `octet_length`.
 
 ## Administration response headers
 
@@ -1158,7 +1241,7 @@ The health endpoints are provided by ServiceMantle and are anonymous and unmeter
 
 Readiness means: this process's startup initialization succeeded (or, when
 `Database:InitializeOnStartup` is `false`, a one-time startup check found no
-unapplied migrations) and one bounded read-only SQLite probe just answered. An
+unapplied migrations) and one bounded read-only database probe just answered. An
 unreadable or wedged database answers 503 with
 `"errorCode":"vocabulary.database_unreachable"`; unapplied migrations answer 503
 with `"migrationStatus":"notStarted"`. The response never contains a path,
@@ -1174,7 +1257,7 @@ The administrator shared-word replacement API requires no configuration or datab
 
 The book-owned meaning replacement API needs no configuration or schema migration. The same detail drawer edits one meaning at a time, scoped to its book, word, and meaning identifiers; a save that never answers re-reads the current detail instead of replaying. Back up SQLite consistently before maintenance. Rolling back application code removes the endpoint but does not restore edited definitions or examples; use a pre-operation backup for data recovery, and roll back dependent UI before the API. If a write response is lost, query current state before deciding on another write; disconnecting cannot promise that an admitted transaction was reversed.
 
-Administrator vocabulary GET routes include disabled-book and unassigned vocabulary for maintenance. These are read-only deferred SQLite snapshots; no configuration, schema migration, startup cleanup, or persistence-directory change is required. Rolling back the API removes these new reads without changing stored data. Back up the SQLite database consistently before any separate editing or cleanup operation; read requests themselves do not alter it.
+Administrator vocabulary GET routes include disabled-book and unassigned vocabulary for maintenance. These are read-only `REPEATABLE READ` snapshots; no configuration, schema migration, startup cleanup, or persistence-directory change is required. Rolling back the API removes these new reads without changing stored data. Back up the SQLite database consistently before any separate editing or cleanup operation; read requests themselves do not alter it.
 
 ## Vocabulary cleanup and recovery
 
@@ -1182,7 +1265,7 @@ Only authorized administrators can preview and commit book-scoped cleanup. Previ
 
 The administration frontend is the dependent UI for this API: 教材管理 offers 清空内容 and 删除教材及内容, the book word list removes the current page's checked words or one row, and the word detail drawer deletes a single meaning. Every entry previews first, shows the estimated counts, and requires the exact book name for a whole-book delete; the plain book delete keeps refusing a referenced book, so it never becomes a silent cascade. The frontend re-queries current state after an unknown commit outcome and never replays one; rolling back the frontend removes these entry points while the API remains.
 
-Take a consistent SQLite backup using the backup procedure above before destructive maintenance. Code rollback removes the API but does not restore deleted records: restore the pre-operation backup for recovery. Roll back dependent UI before the API. No configuration, schema migration, new persistent table, or volume change is required.
+Take a database backup using the backup procedure above before destructive maintenance. Code rollback removes the API but does not restore deleted records: restore the pre-operation backup for recovery. Roll back dependent UI before the API. No configuration, schema migration, new persistent table, or volume change is required.
 
 Recheck the current scope and exact book name before delete. Preview is only an estimate and concurrent imports can change final counts. If the connection drops or the response is lost, query current state before deciding on another operation. In particular, repeating clear can erase newly imported data. There is no automatic retry, idempotency key or undo; disconnecting after admission does not cancel an already committed write.
 

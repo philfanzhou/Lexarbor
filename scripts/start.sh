@@ -20,6 +20,11 @@ add_configuration_override() {
   fi
 }
 
+# Required: the PostgreSQL connection string. There is no default, and the
+# application refuses to start without one (or with a SQLite one).
+add_configuration_override LEXARBOR_DATABASE_CONNECTION_STRING ConnectionStrings__Default
+# Location checked for installations that still need the v0.2.0-rc.2 upgrade.
+add_configuration_override LEXARBOR_LEGACY_SQLITE_PATH Database__LegacySqlitePath
 add_configuration_override LEXARBOR_IDENTITY_AUTHORITY IdentityService__Authority
 if identity_issuer="$(printenv LEXARBOR_IDENTITY_ISSUER)"; then
   APP_ENVIRONMENT+=("-e" "IdentityService__Issuer=${identity_issuer}")
@@ -81,9 +86,9 @@ fi
 
 # The image runs as its own unprivileged user, which is right for a named or
 # anonymous volume. A host bind mount keeps the host's ownership instead, so the
-# container is run as the user who owns DATA_DIR. That also leaves the database
-# and configuration files owned by whoever runs this script rather than by root,
-# which is what made backing them up require sudo before.
+# container is run as the user who owns DATA_DIR. That also leaves the
+# configuration and root-key files owned by whoever runs this script rather
+# than by root, which is what made backing them up require sudo before.
 docker run -d \
   --name "$CONTAINER_NAME" \
   --restart unless-stopped \

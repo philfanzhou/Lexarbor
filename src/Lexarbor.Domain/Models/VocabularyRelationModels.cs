@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Lexarbor.Domain.Models;
 
 public sealed record VocabularyRelationType(string Code, string Description);
@@ -26,10 +28,17 @@ public static class VocabularyRelationTypes
 public sealed record VocabularyRelationModel(
     string Id, string SourceWordId, string TargetWordId, string Type, string? UsageNote,
     string Status, string? ReviewReason, string OriginKind, string? OriginReference,
-    long Version, long CreatedAtUnixMs, long UpdatedAtUnixMs, long? LastConfirmedAtUnixMs);
+    long Version, long CreatedAtUnixMs, long UpdatedAtUnixMs, long? LastConfirmedAtUnixMs)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<VocabularyRelationMeaningPair>? MeaningPairs { get; init; }
+}
+
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record VocabularyRelationMeaningPair(string SourceMeaningId, string TargetMeaningId);
 
 public sealed record VocabularyRelationInput(string SourceWordId, string TargetWordId, string Type,
-    string? UsageNote = null, bool Confirm = false);
+    string? UsageNote = null, bool Confirm = false, IReadOnlyList<VocabularyRelationMeaningPair?>? MeaningPairs = null);
 public sealed record VocabularyRelationQuery(string Direction = "both", string? Type = null,
     string? Status = null, int Page = 1, int Size = 20);
 public sealed record VocabularyRelationPage(IReadOnlyList<VocabularyRelationModel> Items, int TotalCount, int TotalPage);

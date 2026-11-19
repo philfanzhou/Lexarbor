@@ -8,7 +8,7 @@ Lexarbor/
 ├── .github/                 Actions, Dependabot, issue and PR templates, and CI-only scripts
 ├── docs/                    Architecture, ADRs, frontend specification, development and deployment docs
 ├── frontend/                Vue administration frontend with its type and browser tests
-├── scripts/                 Scripts a user or an operator runs deliberately
+├── scripts/                 Scripts and the Compose example a user or an operator runs deliberately
 ├── src/Lexarbor.Domain/     Domain model, rules, and repository abstractions
 ├── src/Lexarbor.Database/   EF Core, SQLite, migrations, and repository implementations
 ├── src/Lexarbor.Service/    HTTP contract, DTOs, conversions, and exception mapping
@@ -25,7 +25,8 @@ Lexarbor/
 - C# code that is deployable or referenced by a production project goes in `src/`, with the directory name matching the project name.
 - .NET unit and integration tests go in the root `tests/`; frontend-only tests stay inside `frontend/`.
 - Every document maintained over the long term belongs in `docs/`. The repository root keeps only the community files GitHub recognizes and the build entry points.
-- `.github/scripts/` serves GitHub Actions only; scripts a user runs deliberately go in `scripts/`.
+- `.github/scripts/` serves GitHub Actions only; scripts a user runs deliberately, and the `compose.yaml` example, go in `scripts/`.
+- Test helpers shared by the .NET test projects (the disposable PostgreSQL server) go in `tests/Shared/` and are linked into each project.
 - Frontend build output goes only to `frontend/dist/`, and is copied into the Host's `wwwroot` during the container build, so no static build directory appears at the repository root.
 - NuGet package versions are declared only in `Directory.Packages.props`; each `.csproj` expresses dependencies and project-specific metadata only.
 - A new architecture decision goes in `docs/adr/ADR-NNN-title.md`. Do not leave working design notes at the repository root.

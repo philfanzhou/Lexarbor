@@ -5,9 +5,9 @@ using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 using Lexarbor.Domain.Services;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Npgsql;
 using Xunit;
 
 namespace Lexarbor.Domain.Tests;
@@ -262,7 +262,7 @@ public sealed class AudioUploadRepositoryTests
         await using var other = file.Open(); var repo = new AudioUploadRepository(other, new ManualClock());
         var admitted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var holder = new UnitOfWork(db).ExecuteInTransactionAsync(async () => { admitted.SetResult(); await release.Task; return 0; });
+        var holder = new UnitOfWork(db).ExecuteWordWriteAsync("word", [], async () => { admitted.SetResult(); await release.Task; return 0; }, Token);
         await admitted.Task; using var cancelled = new CancellationTokenSource();
         var queued = repo.ReserveAsync(Request(), "owner", 1, 100, cancelled.Token); cancelled.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => queued); release.SetResult(); await holder;
@@ -331,13 +331,18 @@ public sealed class AudioUploadRepositoryTests
     }
 
     [Fact]
-    public async Task PublicationOwnsActualSqliteWriterReservationBeyondProcessSemaphore()
+    public async Task Publication_AbandonsWhenAWriterOutsideTheProcessChangedItsInput()
     {
         using var file = new AudioTestDatabase(); await using (var seed = file.Open()) await InitAsync(seed);
         var race = new AttemptExternalWrite(file); await using var db = file.Open(race); var repo = new AudioUploadRepository(db, new ManualClock());
         var upload = await ReserveAsync(repo, Request()); Assert.True(await repo.BeginTransferAsync(upload.Operation.IdempotencyKey, upload.Operation.UploadLease, 2, Token));
-        race.Enabled = true; Assert.Equal(AudioUploadState.Succeeded, (await repo.CompleteAsync(upload.Operation.IdempotencyKey, upload.Operation.UploadLease, 3, Token))!.State);
-        Assert.True(race.BlockedBySqlite);
+        // SQLite's single writer refused the external change, and the upload
+        // succeeded on the old input. PostgreSQL commits it first, so the
+        // publication sees an input that no longer matches its revision and
+        // abandons rather than binding audio to text it was not made for.
+        race.Enabled = true; Assert.Equal(AudioUploadState.Abandoned, (await repo.CompleteAsync(upload.Operation.IdempotencyKey, upload.Operation.UploadLease, 3, Token))!.State);
+        Assert.True(race.ExternalWriteCommitted);
+        Assert.Empty(await db.VocabularyAudioBindings.AsNoTracking().ToListAsync(Token));
     }
 
     [Fact]
@@ -349,7 +354,7 @@ public sealed class AudioUploadRepositoryTests
         await using var other = file.Open();
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var writer = new UnitOfWork(other).ExecuteInTransactionAsync(async () => { entered.SetResult(); await release.Task; return 0; });
+        var writer = new UnitOfWork(other).ExecuteWordWriteAsync("word", [], async () => { entered.SetResult(); await release.Task; return 0; }, Token);
         await entered.Task;
         var queued = repo.CompleteAsync(upload.Operation.IdempotencyKey, upload.Operation.UploadLease, 3, Token);
         clock.Now = 300_001; release.SetResult(); await writer;
@@ -360,7 +365,7 @@ public sealed class AudioUploadRepositoryTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task ConditionalDeleteAndPublishCompeteOnRealSqlite(bool publishFirst)
+    public async Task ConditionalDeleteAndPublishCompeteOnPostgreSql(bool publishFirst)
     {
         using var file = new AudioTestDatabase(); await using var db = file.Open(); await InitAsync(db);
         var repo = new AudioUploadRepository(db, new ManualClock()); var first = await ReserveAsync(repo, Request()); await PublishAsync(repo, first);
@@ -370,20 +375,29 @@ public sealed class AudioUploadRepositoryTests
         var deleting = new AudioUnbindService(new AudioUploadRepository(deleteDb, new ManualClock()));
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var holder = new UnitOfWork(holderDb).ExecuteInTransactionAsync(async () => { entered.SetResult(); await release.Task; return 0; });
+        var holder = new UnitOfWork(holderDb).ExecuteWordWriteAsync("word", [], async () => { entered.SetResult(); await release.Task; return 0; }, Token);
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(10), Token);
         Task<AudioUnbindDisposition> delete; Task<AudioUploadOperation?> publish;
-        if (publishFirst)
+        try
         {
-            publish = repo.CompleteAsync(replacing.Operation.IdempotencyKey, replacing.Operation.UploadLease, 3, Token);
-            delete = deleting.UnbindAsync("word", null, AudioLocale.EnGb, first.Asset.Id, Token);
+            if (publishFirst)
+            {
+                publish = repo.CompleteAsync(replacing.Operation.IdempotencyKey, replacing.Operation.UploadLease, 3, Token);
+                await WaitForBlockedWriterAsync(file, holderDb);
+                delete = deleting.UnbindAsync("word", null, AudioLocale.EnGb, first.Asset.Id, Token);
+            }
+            else
+            {
+                delete = deleting.UnbindAsync("word", null, AudioLocale.EnGb, first.Asset.Id, Token);
+                await WaitForBlockedWriterAsync(file, holderDb);
+                publish = repo.CompleteAsync(replacing.Operation.IdempotencyKey, replacing.Operation.UploadLease, 3, Token);
+            }
         }
-        else
+        finally
         {
-            delete = deleting.UnbindAsync("word", null, AudioLocale.EnGb, first.Asset.Id, Token);
-            publish = repo.CompleteAsync(replacing.Operation.IdempotencyKey, replacing.Operation.UploadLease, 3, Token);
+            release.TrySetResult();
+            await holder;
         }
-        release.SetResult(); await holder;
         Assert.Equal(publishFirst ? AudioUnbindDisposition.Conflict : AudioUnbindDisposition.Removed, await delete);
         var outcome = Assert.IsType<AudioUploadOperation>(await publish);
         Assert.Equal(publishFirst ? 200 : 409, outcome.Receipt!.StatusCode);
@@ -405,17 +419,50 @@ public sealed class AudioUploadRepositoryTests
         await using var other = file.Open(); await using var holderDb = file.Open();
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var holder = new UnitOfWork(holderDb).ExecuteInTransactionAsync(async () => { entered.SetResult(); await release.Task; return 0; });
+        var holder = new UnitOfWork(holderDb).ExecuteWordWriteAsync("word", [], async () => { entered.SetResult(); await release.Task; return 0; }, Token);
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(10), Token);
-        Task<int> RemoveTarget() => new UnitOfWork(other).ExecuteInTransactionAsync(async () =>
+        Task<int> RemoveTarget() => new UnitOfWork(other).ExecuteWordWriteAsync("word", [], async () =>
             meaning ? await other.VocabularyMeanings.Where(x => x.Id == "meaning").ExecuteDeleteAsync(Token)
                 : await other.Vocabularies.Where(x => x.Id == "word").ExecuteDeleteAsync(Token));
         Task<AudioUnbindDisposition> delete; Task<int> target;
-        if (targetFirst) { target = RemoveTarget(); delete = new AudioUnbindService(repo).UnbindAsync("word", meaning ? "meaning" : null, AudioLocale.EnGb, upload.Asset.Id, Token); }
-        else { delete = new AudioUnbindService(repo).UnbindAsync("word", meaning ? "meaning" : null, AudioLocale.EnGb, upload.Asset.Id, Token); target = RemoveTarget(); }
-        release.SetResult(); await holder; Assert.Equal(1, await target);
+        Task<AudioUnbindDisposition> Unbind() => new AudioUnbindService(repo)
+            .UnbindAsync("word", meaning ? "meaning" : null, AudioLocale.EnGb, upload.Asset.Id, Token);
+        try
+        {
+            if (targetFirst)
+            {
+                target = RemoveTarget();
+                await WaitForBlockedWriterAsync(file, holderDb);
+                delete = Unbind();
+            }
+            else
+            {
+                delete = Unbind();
+                await WaitForBlockedWriterAsync(file, holderDb);
+                target = RemoveTarget();
+            }
+        }
+        finally
+        {
+            release.TrySetResult();
+            await holder;
+        }
+        Assert.Equal(1, await target);
         Assert.Equal(targetFirst ? AudioUnbindDisposition.NotFound : AudioUnbindDisposition.Removed, await delete);
         Assert.Empty(await db.VocabularyAudioBindings.ToListAsync(Token)); Assert.Equal(history, await repo.GetAsync(upload.Operation.IdempotencyKey, Token));
+    }
+
+    private static async Task WaitForBlockedWriterAsync(AudioTestDatabase file, VocabularyDbContext holder)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(Token);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        await using var observer = new NpgsqlConnection(file.ConnectionString);
+        await observer.OpenAsync(timeout.Token);
+        await using var command = new NpgsqlCommand(
+            "SELECT EXISTS (SELECT FROM pg_stat_activity WHERE datname = current_database() AND $1 = ANY(pg_blocking_pids(pid)))", observer);
+        command.Parameters.AddWithValue(((NpgsqlConnection)holder.Database.GetDbConnection()).ProcessID);
+        while (!Equals(await command.ExecuteScalarAsync(timeout.Token), true))
+            await Task.Delay(10, timeout.Token);
     }
 
     [Fact]
@@ -440,7 +487,7 @@ public sealed class AudioUploadRepositoryTests
         await using var holderDb = file.Open();
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var holder = new UnitOfWork(holderDb).ExecuteInTransactionAsync(async () => { entered.SetResult(); await release.Task; return 0; });
+        var holder = new UnitOfWork(holderDb).ExecuteWordWriteAsync("word", [], async () => { entered.SetResult(); await release.Task; return 0; }, Token);
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(10), Token); using var queuedCancel = new CancellationTokenSource();
         var queued = service.UnbindAsync("word", null, AudioLocale.EnGb, upload.Asset.Id, queuedCancel.Token);
         queuedCancel.Cancel(); await Assert.ThrowsAnyAsync<OperationCanceledException>(() => queued); release.SetResult(); await holder;
@@ -458,7 +505,7 @@ public sealed class AudioUploadRepositoryTests
         public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command, CommandEventData eventData,
             InterceptionResult<int> result, CancellationToken cancellationToken = default)
         {
-            if (command.CommandText.StartsWith("DELETE FROM \"vocabulary_audio_binding\"", StringComparison.Ordinal)) source.Cancel();
+            if (command.CommandText.StartsWith("DELETE FROM vocabulary_audio_binding", StringComparison.Ordinal)) source.Cancel();
             return ValueTask.FromResult(result);
         }
     }
@@ -472,20 +519,20 @@ public sealed class AudioUploadRepositoryTests
     private sealed class AttemptExternalWrite(AudioTestDatabase file) : DbCommandInterceptor
     {
         public bool Enabled { get; set; }
-        public bool BlockedBySqlite { get; private set; }
+        public bool ExternalWriteCommitted { get; private set; }
         public override async ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command, CommandEventData eventData,
             InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
         {
-            if (Enabled && !BlockedBySqlite && command.CommandText.Contains("FROM \"vocabulary\" AS", StringComparison.Ordinal))
+            if (Enabled && !ExternalWriteCommitted && command.CommandText.Contains("FROM vocabulary AS", StringComparison.Ordinal))
             {
-                // Bypass UnitOfWork and its process semaphore entirely: SQLite
-                // itself must prevent an external writer from changing input.
-                await using var connection = new SqliteConnection($"Data Source={file.PathName};Pooling=False;Default Timeout=1");
+                // A raw SQL writer can commit before selection. The upload must
+                // use that committed input when deciding whether it can publish.
+                await using var connection = new NpgsqlConnection(file.ConnectionString);
                 await connection.OpenAsync(cancellationToken);
-                await using var change = connection.CreateCommand(); change.CommandTimeout = 1;
+                await using var change = connection.CreateCommand();
                 change.CommandText = "UPDATE vocabulary SET phonetic_uk='external-change' WHERE id='word'";
-                try { await change.ExecuteNonQueryAsync(cancellationToken); }
-                catch (SqliteException error) when (error.SqliteErrorCode == 5) { BlockedBySqlite = true; }
+                await change.ExecuteNonQueryAsync(cancellationToken);
+                ExternalWriteCommitted = true;
             }
             return result;
         }
@@ -497,7 +544,7 @@ public sealed class AudioUploadRepositoryTests
         public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command, CommandEventData eventData,
             InterceptionResult<int> result, CancellationToken cancellationToken = default)
         {
-            if (Enabled && command.CommandText.StartsWith("UPDATE \"audio_upload_operation\"", StringComparison.Ordinal)
+            if (Enabled && command.CommandText.StartsWith("UPDATE audio_upload_operation", StringComparison.Ordinal)
                 && command.CommandText.Contains("receipt_asset_id", StringComparison.Ordinal)) throw new InvalidOperationException("Injected success write failure.");
             return ValueTask.FromResult(result);
         }
@@ -507,7 +554,7 @@ public sealed class AudioUploadRepositoryTests
         public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command, CommandEventData eventData,
             InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
         {
-            if (command.CommandText.StartsWith("INSERT INTO \"audio_asset\"", StringComparison.Ordinal)) source.Cancel();
+            if (command.CommandText.StartsWith("INSERT INTO audio_asset", StringComparison.Ordinal)) source.Cancel();
             return ValueTask.FromResult(result);
         }
     }

@@ -61,6 +61,61 @@ public sealed class RelatedLearningQuestionEndpointTests
         }
     }
 
+    [Fact]
+    public async Task OnlyTheLinkedSeeSawMeaningCanProduceAFormQuestion()
+    {
+        await using var factory = new VocabularyWebApplicationFactory();
+        await using var host = PickFirst(factory, 5);
+        using var client = host.CreateClient();
+        await client.UseCatalogKeyAsync(host);
+        await Seed(host.Services);
+        using var scope = host.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+        AddWord(db, "see", "see", "看见", "other");
+        AddWord(db, "saw", "saw", "看见了", "book");
+        AddMeaning(db, "m-saw-cut", "saw", "用锯子锯", "book");
+        AddWord(db, "earlier-saw", "SAW", "看见了", "book");
+        db.VocabularyRelations.Add(Edge("see", "saw", "past_tense"));
+        AddPair(db, "see", "saw", "past_tense");
+        await db.SaveChangesAsync(Ct);
+
+        var family = await Success(await client.GetAsync("/api/vocabulary/see/relations", Ct));
+        var edge = Assert.Single(family.GetProperty("items").EnumerateArray());
+        Assert.Equal(2, edge.GetProperty("meanings").GetArrayLength());
+        var pair = Assert.Single(edge.GetProperty("meaningPairs").EnumerateArray());
+        Assert.Equal("m-see", pair.GetProperty("source").GetProperty("meaningId").GetString());
+        Assert.Equal("saw", pair.GetProperty("target").GetProperty("wordId").GetString());
+        Assert.Equal("m-saw", pair.GetProperty("target").GetProperty("meaningId").GetString());
+
+        var correct = Request("saw", "see", "past_tense");
+        var valid = await Success(await client.PostAsJsonAsync(Route, correct, Ct));
+        Assert.Equal("FormFill", valid.GetProperty("type").GetString());
+        Assert.Equal("看见了", valid.GetProperty("prompt").GetString());
+        foreach (var request in new[]
+        {
+            Request("saw", "see", "past_tense", meaningId: "m-saw-cut"),
+            Request("saw", "see", "past_tense", legacy: true),
+            new { wordId = "earlier-saw", bookId = "book", meaningId = "m-earlier-saw", mode = "review",
+                relation = new { sourceWordId = "see", sourceMeaningId = "m-see", relationId = "see:saw:past_tense", type = "past_tense" } }
+        })
+        {
+            var regular = await Success(await client.PostAsJsonAsync(Route, request, Ct));
+            Assert.Equal("FillLetters", regular.GetProperty("type").GetString());
+        }
+
+        await db.VocabularyBooks.Where(row => row.Id == "other")
+            .ExecuteUpdateAsync(set => set.SetProperty(row => row.Status, false), Ct);
+        Assert.Equal("FillLetters", (await Success(await client.PostAsJsonAsync(Route, correct, Ct))).GetProperty("type").GetString());
+        await db.VocabularyBooks.Where(row => row.Id == "other")
+            .ExecuteUpdateAsync(set => set.SetProperty(row => row.Status, true), Ct);
+        await db.VocabularyMeanings.Where(row => row.Id == "m-saw")
+            .ExecuteUpdateAsync(set => set.SetProperty(row => row.Meaning, "锯开"), Ct);
+        var changed = await Success(await client.PostAsJsonAsync(Route, correct, Ct));
+        Assert.Equal("FillLetters", changed.GetProperty("type").GetString());
+        family = await Success(await client.GetAsync("/api/vocabulary/see/relations", Ct));
+        Assert.Equal(0, Assert.Single(family.GetProperty("items").EnumerateArray()).GetProperty("meaningPairs").GetArrayLength());
+    }
+
     [Theory]
     [InlineData("happy", "happiness", "derived_noun", "happ_____", 5)]
     [InlineData("stop", "stopped", "past_tense", "stop___", 5)]
@@ -79,6 +134,7 @@ public sealed class RelatedLearningQuestionEndpointTests
             AddWord(db, "anchor", anchor, "原词", "other");
             AddWord(db, "target", target, "目标词", "book");
             db.VocabularyRelations.Add(Edge("anchor", "target", type));
+            AddPair(db, "anchor", "target", type);
             await db.SaveChangesAsync(Ct);
         }
         var data = await Success(await client.PostAsJsonAsync(Route, Request("target", "anchor", type), Ct));
@@ -182,6 +238,7 @@ public sealed class RelatedLearningQuestionEndpointTests
             {
                 AddWord(db, "cut", "cut", "切", "book");
                 db.VocabularyRelations.AddRange(Edge("cut", "cut", "past_tense"), Edge("cut", "cut", "past_participle"));
+                AddPair(db, "cut", "cut", "past_participle");
             }
             await db.SaveChangesAsync(Ct);
         }
@@ -227,14 +284,16 @@ public sealed class RelatedLearningQuestionEndpointTests
             });
         }));
 
-    private static object Request(string target, string anchor, string type, string mode = "review", string book = "book") => new
-    {
-        wordId = target,
-        bookId = book,
-        meaningId = "m-" + target,
-        mode,
-        relation = new { sourceWordId = anchor, type }
-    };
+    private static object Request(string target, string anchor, string type, string mode = "review", string book = "book",
+        string? meaningId = null, bool legacy = false) => new
+        {
+            wordId = target,
+            bookId = book,
+            meaningId = meaningId ?? "m-" + target,
+            mode,
+            relation = legacy ? (object)new { sourceWordId = anchor, type }
+            : new { sourceWordId = anchor, type, relationId = $"{anchor}:{target}:{type}", sourceMeaningId = "m-" + anchor }
+        };
 
     private static async Task Seed(IServiceProvider services, bool translation = false)
     {
@@ -250,6 +309,7 @@ public sealed class RelatedLearningQuestionEndpointTests
         AddWord(db, "goes", "goes", "移动", "other");
         db.VocabularyRelations.AddRange(Edge("go", "went", "past_tense"), Edge("go", "gone", "past_participle"),
             Edge("go", "going", "ing_form"), Edge("go", "goes", "third_person_singular"));
+        AddPair(db, "go", "went", "past_tense");
         if (translation)
         {
             AddWord(db, "local", "local", "本单元", "book");
@@ -275,6 +335,14 @@ public sealed class RelatedLearningQuestionEndpointTests
 
     private static void AddMeaning(VocabularyDbContext db, string id, string word, string meaning, string book) =>
         db.VocabularyMeanings.Add(new() { Id = id, VocabularyId = word, BookId = book, Meaning = meaning });
+
+    private static void AddPair(VocabularyDbContext db, string source, string target, string type, string? targetMeaning = null) =>
+        db.VocabularyRelationMeanings.Add(new()
+        {
+            RelationId = $"{source}:{target}:{type}",
+            SourceMeaningId = "m-" + source,
+            TargetMeaningId = targetMeaning ?? "m-" + target
+        });
 
     private static VocabularyRelationEntity Edge(string source, string target, string type, bool confirmed = true) => new()
     {

@@ -46,9 +46,9 @@ public sealed partial class EnrichmentSchedulerRepository(VocabularyDbContext co
             meaningCursor.Cursor = meanings.LastOrDefault() ?? "";
             if (words.Length == 0) wordCursor.UpperBound = "";
             if (meanings.Length == 0) meaningCursor.UpperBound = "";
-            var newest = await context.Vocabularies.FromSqlRaw("SELECT * FROM vocabulary ORDER BY rowid DESC LIMIT {0}", batchSize)
+            var newest = await context.Vocabularies.FromSqlRaw("SELECT * FROM vocabulary ORDER BY insertion_order DESC LIMIT {0}", batchSize)
                 .AsNoTracking().Select(w => w.Id).ToArrayAsync();
-            var newestMeanings = await context.VocabularyMeanings.FromSqlRaw("SELECT * FROM vocabulary_meaning ORDER BY rowid DESC LIMIT {0}", batchSize)
+            var newestMeanings = await context.VocabularyMeanings.FromSqlRaw("SELECT * FROM vocabulary_meaning ORDER BY insertion_order DESC LIMIT {0}", batchSize)
                 .AsNoTracking().Select(m => m.Id).ToArrayAsync();
             var notifiedMeanings = await context.VocabularyMeanings.AsNoTracking().Where(m => recentWordIds.Contains(m.VocabularyId))
                 .OrderBy(m => m.Id).Select(m => m.Id).Take(batchSize).ToArrayAsync();
@@ -62,7 +62,7 @@ public sealed partial class EnrichmentSchedulerRepository(VocabularyDbContext co
             await context.SaveChangesAsync();
             context.Entry(wordCursor).State = EntityState.Detached; context.Entry(meaningCursor).State = EntityState.Detached;
             return result.ToArray();
-        }, token);
+        }, token, ct => WriteLocks.KeyAsync(context, "enrichment-discovery", ct));
     }
 
     public async Task<EnrichmentDiscoveryProgress?> DiscoveryProgressAsync(CancellationToken token)
@@ -122,9 +122,9 @@ public sealed partial class EnrichmentSchedulerRepository(VocabularyDbContext co
                              && (round.NextAttemptAtUnixMs == null || round.NextAttemptAtUnixMs <= now)
                          orderby round.UpdatedAtUnixMs, target.Id
                          select new { target.Id, target.WordId, round.UpdatedAtUnixMs, round.CreatedAtUnixMs };
-        var newestWords = await context.Vocabularies.FromSqlRaw("SELECT * FROM vocabulary ORDER BY rowid DESC LIMIT {0}", limit)
+        var newestWords = await context.Vocabularies.FromSqlRaw("SELECT * FROM vocabulary ORDER BY insertion_order DESC LIMIT {0}", limit)
             .AsNoTracking().Select(w => w.Id).ToArrayAsync(token);
-        var newestMeanings = await context.VocabularyMeanings.FromSqlRaw("SELECT * FROM vocabulary_meaning ORDER BY rowid DESC LIMIT {0}", limit)
+        var newestMeanings = await context.VocabularyMeanings.FromSqlRaw("SELECT * FROM vocabulary_meaning ORDER BY insertion_order DESC LIMIT {0}", limit)
             .AsNoTracking().Select(m => m.VocabularyId).ToArrayAsync(token);
         var recentWords = newestWords.Concat(newestMeanings).Distinct(StringComparer.Ordinal).ToArray();
         var recent = await candidates.Where(c => recentWords.Contains(c.WordId)).OrderByDescending(c => c.CreatedAtUnixMs)
@@ -187,7 +187,7 @@ public sealed partial class EnrichmentSchedulerRepository(VocabularyDbContext co
             await context.SaveChangesAsync(); context.ChangeTracker.Clear();
             return new EnrichmentServiceAdmission(serviceId, configurationVersion, lease, probe, reason,
                 Math.Max(now + 1000, row.NextAttemptAtUnixMs));
-        }, token);
+        }, token, ct => WriteLocks.KeyAsync(context, "enrichment-service:" + serviceId, ct));
     }
 
     public Task<long> FinishServiceAsync(EnrichmentServiceAdmission admission, string outcome, string? errorCode,
@@ -255,7 +255,11 @@ public sealed partial class EnrichmentSchedulerRepository(VocabularyDbContext co
             }
             await context.SaveChangesAsync(); context.ChangeTracker.Clear();
             return row.NextAttemptAtUnixMs;
-        }, token);
+        }, token, async ct =>
+        {
+            if (completion is not null) await WriteLocks.EnrichmentTargetAsync(context, completion.Guard.TargetId, ct);
+            await WriteLocks.KeyAsync(context, "enrichment-service:" + admission.ServiceId, ct);
+        });
 
     public async Task<EnrichmentServiceStatus?> ServiceAsync(string serviceId, CancellationToken token)
     {

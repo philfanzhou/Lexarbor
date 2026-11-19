@@ -16,6 +16,7 @@ chmod +x "$probe_root/bin/docker"
 printf '%s' '{"existing":"unchanged"}' > "$probe_root/data/appsettings.json"
 PATH="$probe_root/bin:$PATH" LEXARBOR_MAPPING_PROBE="$probe_root/arguments" \
 LEXARBOR_DATA_DIR="$probe_root/data" LEXARBOR_ADMIN_AUTH_PROVIDER=OidcCode \
+LEXARBOR_DATABASE_CONNECTION_STRING='Host=db.test;Database=lexarbor;Username=lexarbor;Password=synthetic-db-secret' \
 LEXARBOR_OIDC_CODE_CLIENT_ID=synthetic-client \
 LEXARBOR_OIDC_CODE_CLIENT_SECRET=synthetic-code-secret \
 LEXARBOR_OIDC_CODE_REDIRECT_URI='https://lexarbor.test/admin/auth/callback' \
@@ -28,11 +29,14 @@ LEXARBOR_AUDIO_PLAYBACK_TTL_SECONDS=60 LEXARBOR_AUDIO_MAX_UPLOAD_BYTES=1048576 \
 LEXARBOR_AUDIO_MAX_CONCURRENT_UPLOADS=1 LEXARBOR_AUDIO_MAX_QUEUED_UPLOADS=0 \
 LEXARBOR_AUDIO_OPERATION_TIMEOUT_SECONDS=3 \
 LEXARBOR_OIDC_CODE_SCOPE='openid profile' \
+LEXARBOR_LEGACY_SQLITE_PATH=/app/data/legacy/vocabulary.db \
 bash scripts/start.sh >/dev/null
 python3 - "$probe_root/arguments" "$probe_root/data/appsettings.json" <<'PY'
 import pathlib, sys
 arguments = pathlib.Path(sys.argv[1]).read_bytes().decode().split('\0')
 expected = {
+    'ConnectionStrings__Default': 'Host=db.test;Database=lexarbor;Username=lexarbor;Password=synthetic-db-secret',
+    'Database__LegacySqlitePath': '/app/data/legacy/vocabulary.db',
     'Audio__Enabled': 'true',
     'Audio__InternalEndpoint': 'http://s3.test:8333/',
     'Audio__PublicEndpoint': 'https://audio.test/s3/',

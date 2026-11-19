@@ -1,7 +1,7 @@
 using System.Data.Common;
 using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Models;
-using Microsoft.Data.Sqlite;
+using Lexarbor.Tests.Shared;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 
@@ -22,19 +22,12 @@ public sealed partial class EnrichmentTargetExecutorTests
         // Both the state totals and the activity totals must avoid probing all
         // NULL-meaning targets for each word. A small fixture can hide that cost.
         Assert.Equal(2, capture.Commands.Count);
-        await db.Database.OpenConnectionAsync(Ct);
         foreach (var (sql, parameters) in capture.Commands)
         {
-            await using var command = db.Database.GetDbConnection().CreateCommand();
-            command.CommandText = "EXPLAIN QUERY PLAN " + sql;
-            command.Parameters.AddRange(parameters);
-            await using var reader = await command.ExecuteReaderAsync(Ct);
-            var plan = new List<string>();
-            while (await reader.ReadAsync(Ct)) plan.Add(reader.GetString(3));
-            Assert.Contains(plan, p => p.Contains("USING INDEX IX_enrichment_target_word_id_locale_step (word_id=? AND locale=? AND step=?)", StringComparison.Ordinal));
-            Assert.Contains(plan, p => p.Contains("USING INDEX IX_enrichment_target_word_id_meaning_id_locale_step (word_id=? AND meaning_id=? AND locale=? AND step=?)", StringComparison.Ordinal));
-            Assert.DoesNotContain(plan, p => p.Contains("SCAN matched", StringComparison.Ordinal)
-                || p.Contains("SEARCH matched USING AUTOMATIC", StringComparison.Ordinal));
+            var plan = await PostgreSqlPlan.ExplainAsync(db.Database.GetConnectionString()!, sql, parameters);
+            Assert.Contains("IX_enrichment_target_word_id_locale_step", plan, StringComparison.Ordinal);
+            Assert.Contains("IX_enrichment_target_word_id_meaning_id_locale_step", plan, StringComparison.Ordinal);
+            Assert.DoesNotContain("Seq Scan on enrichment_target matched", plan, StringComparison.Ordinal);
         }
     }
 
@@ -85,6 +78,40 @@ public sealed partial class EnrichmentTargetExecutorTests
     }
 
     [Fact]
+    public async Task AutomaticRecovery_FindsMissingWorkAmongCompletedCatalogDemands()
+    {
+        await using var f = await Fixture.Create();
+        var task = await f.Ensure(Key(EnrichmentStep.Prepare));
+        await FailLocally(f, task, "text.invalid_plan");
+        // Match the catalog size from #436. Older failed Fields rounds have
+        // already had their phonetics supplied, so none may consume the limit.
+        await f.Db.Database.ExecuteSqlRawAsync("""
+            INSERT INTO vocabulary (id, word, phonetic_uk, phonetic_us, created_at, updated_at)
+            SELECT 'bulk-' || i, 'bulk-' || i, 'a', 'a', now(), now() FROM generate_series(1, 7000) i;
+            INSERT INTO vocabulary_meaning (id, vocabulary_id, book_id, meaning, part_of_speech, created_at, updated_at)
+            SELECT id, id, 'book', 'meaning', 'n.', now(), now() FROM vocabulary WHERE id LIKE 'bulk-%';
+            INSERT INTO enrichment_target (id, word_id, locale, step, current_round, epoch, deleted)
+            SELECT w.id || l.locale || s.step, w.id, l.locale, s.step, 2, 1, false
+            FROM vocabulary w CROSS JOIN (VALUES ('en-GB'), ('en-US')) l(locale)
+            CROSS JOIN (VALUES ('Fields'), ('Audio')) s(step) WHERE w.id LIKE 'bulk-%';
+            INSERT INTO enrichment_round (target_id, number, state, error_code, input_revision, source_revision,
+                configuration_version, force_single, fields_not_required, failure_budget, request_count,
+                consumed_failures, lease_fence, created_at_unix_ms, updated_at_unix_ms)
+            SELECT id, n, CASE WHEN n=1 THEN 'Superseded' WHEN step='Fields' THEN 'Failed' ELSE 'Succeeded' END,
+                CASE WHEN n=2 AND step='Fields' THEN 'fields.candidates_missing' END,
+                repeat('a',64), repeat('b',64), 'bulk', false, false, 5, 1, 0, 0, 1, 1
+            FROM enrichment_target CROSS JOIN generate_series(1, 2) n WHERE word_id LIKE 'bulk-%';
+            ANALYZE vocabulary;
+            ANALYZE vocabulary_meaning;
+            ANALYZE enrichment_target;
+            ANALYZE enrichment_round;
+            """, Ct);
+
+        Assert.Equal(1, await f.Tasks.RecoverAsync(1, [], await AdminConfig(f), f.Clock.Now, Ct));
+        Assert.Equal(task.Id, (await f.Db.EnrichmentRecoveries.SingleAsync(Ct)).TargetId);
+    }
+
+    [Fact]
     public async Task AutomaticRecovery_RechecksOneIndexedWordInsideTheWriter()
     {
         await using var f = await Fixture.Create();
@@ -94,28 +121,21 @@ public sealed partial class EnrichmentTargetExecutorTests
         await using var db = f.Open(capture);
         Assert.Equal(1, await new EnrichmentTaskRepository(db, f.Clock).RecoverAsync(5, [], await AdminConfig(f), f.Clock.Now, Ct));
         var (sql, parameters) = Assert.Single(capture.Commands);
-        Assert.Contains(parameters, p => p.ParameterName == "@demandWord" && Equals(p.Value, "word"));
-        await db.Database.OpenConnectionAsync(Ct);
-        await using var command = db.Database.GetDbConnection().CreateCommand();
-        command.CommandText = "EXPLAIN QUERY PLAN " + sql; command.Parameters.AddRange(parameters);
-        await using var reader = await command.ExecuteReaderAsync(Ct);
-        var plan = new List<string>();
-        while (await reader.ReadAsync(Ct)) plan.Add(reader.GetString(3));
-        Assert.Contains(plan, p => p.Contains("SEARCH w USING INDEX", StringComparison.Ordinal));
-        Assert.DoesNotContain(plan, p => p.StartsWith("SCAN w", StringComparison.Ordinal));
+        var plan = await PostgreSqlPlan.ExplainAsync(db.Database.GetConnectionString()!, sql, parameters);
+        Assert.Contains("on vocabulary w", plan, StringComparison.Ordinal);
+        Assert.DoesNotContain("Seq Scan on vocabulary w", plan, StringComparison.Ordinal);
     }
 
     private sealed class SummaryQueryCapture : DbCommandInterceptor
     {
         public bool RecoveryOnly;
-        public List<(string Sql, SqliteParameter[] Parameters)> Commands { get; } = [];
+        public List<(string Sql, DbParameter[] Parameters)> Commands { get; } = [];
         public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command,
             CommandEventData eventData, InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
         {
             if (command.CommandText.Contains("WITH locales", StringComparison.Ordinal)
                 && (RecoveryOnly ? eventData.Context?.Database.CurrentTransaction != null : command.CommandText.Contains("GROUP BY", StringComparison.Ordinal)))
-                Commands.Add((command.CommandText, command.Parameters.Cast<DbParameter>()
-                    .Select(p => new SqliteParameter(p.ParameterName, p.Value)).ToArray()));
+                Commands.Add((command.CommandText, command.Parameters.Cast<DbParameter>().ToArray()));
             return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
         }
     }

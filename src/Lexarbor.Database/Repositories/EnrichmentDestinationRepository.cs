@@ -44,6 +44,6 @@ public sealed class EnrichmentDestinationRepository(VocabularyDbContext context)
             await context.SaveChangesAsync(token);
             context.ChangeTracker.Clear();
             return new EnrichmentDestination(book.Id, "Ready", true);
-        }, token);
+        }, token, ct => WriteLocks.CatalogAsync(context, ct));
     }
 }

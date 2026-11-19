@@ -1,39 +1,15 @@
 using Lexarbor.Domain.Exceptions;
 using Lexarbor.Domain.Repositories;
-using Microsoft.Data.Sqlite;
+using Npgsql;
 
 namespace Lexarbor.Database.Repositories;
 
 public class UnitOfWork : IUnitOfWork
 {
-    /// <summary>SQLITE_BUSY: another connection holds the database.</summary>
-    private const int SqliteBusyErrorCode = 5;
-
-    /// <summary>SQLITE_LOCKED: a table in this database is locked.</summary>
-    private const int SqliteLockedErrorCode = 6;
-
-    /// <summary>SQLITE_CONSTRAINT: a unique or foreign key constraint failed.</summary>
-    private const int SqliteConstraintErrorCode = 19;
-
-    /// <summary>
-    /// SQLite admits one writer at a time, and a single instance is the
-    /// deployment this service documents, so writes are serialized here rather
-    /// than left to collide in the database and be retried by the driver.
-    /// </summary>
-    private static readonly SemaphoreSlim WriteLock = new(1, 1);
-
-    /// <summary>
-    /// Marks an async flow that already holds <see cref="WriteLock"/>. The
-    /// semaphore is not reentrant, so without this a SaveChangesAsync nested
-    /// inside an ExecuteInTransactionAsync would wait on a lock its own caller
-    /// is holding and never wake. It is assigned only in the two methods that
-    /// take the lock: an AsyncLocal written inside a helper is not visible to
-    /// the caller that has to clear it again.
-    /// </summary>
-    private static readonly AsyncLocal<bool> HoldsWriteLock = new();
-    internal static bool IsWriteInProgress => HoldsWriteLock.Value;
+    // Ownership follows the async call chain. Independent requests have independent transactions.
     private static readonly AsyncLocal<VocabularyDbContext?> WriteContext = new();
-    internal static bool OwnsWriteContext(VocabularyDbContext context) => HoldsWriteLock.Value && ReferenceEquals(WriteContext.Value, context);
+    internal static bool IsWriteInProgress => WriteContext.Value is not null;
+    internal static bool OwnsWriteContext(VocabularyDbContext context) => ReferenceEquals(WriteContext.Value, context);
 
     private readonly VocabularyDbContext _dbContext;
 
@@ -48,37 +24,53 @@ public class UnitOfWork : IUnitOfWork
     public Task<T> ExecuteInTransactionAsync<T>(Func<Task<T>> action, CancellationToken cancellationToken) =>
         ExecuteTransactionAsync(action, cancellationToken, false);
 
-    // Audio operations honour cancellation while queued, then finish the short
-    // database commit just like existing vocabulary services once admitted.
-    internal Task<T> ExecuteAdmittedTransactionAsync<T>(Func<Task<T>> action, CancellationToken cancellationToken) =>
-        ExecuteTransactionAsync(action, cancellationToken, true);
+    public Task<T> ExecuteCatalogWriteAsync<T>(Func<Task<T>> action, CancellationToken cancellationToken = default) =>
+        ExecuteTransactionAsync(action, cancellationToken, false, token => WriteLocks.CatalogAsync(_dbContext, token));
 
-    private async Task<T> ExecuteTransactionAsync<T>(Func<Task<T>> action, CancellationToken cancellationToken, bool finishAfterAdmission)
+    public Task<T> ExecuteBookWriteAsync<T>(string bookId, Func<Task<T>> action, CancellationToken cancellationToken = default) =>
+        ExecuteTransactionAsync(action, cancellationToken, false, token => WriteLocks.BookAsync(_dbContext, bookId, token));
+
+    public Task<T> ExecuteWordWriteAsync<T>(string? wordId, IReadOnlyCollection<string> normalizedSpellings,
+        Func<Task<T>> action, CancellationToken cancellationToken = default) =>
+        ExecuteTransactionAsync(action, cancellationToken, false,
+            token => WriteLocks.WordsAsync(_dbContext, wordId, normalizedSpellings, token));
+
+    public Task<T> ExecuteWordSetWriteAsync<T>(IReadOnlyCollection<string> wordIds, Func<Task<T>> action) =>
+        ExecuteTransactionAsync(action, CancellationToken.None, false, token => WriteLocks.WordSetAsync(_dbContext, wordIds, token));
+
+    public Task<T> ExecuteMeaningWriteAsync<T>(string meaningId, Func<Task<T>> action) =>
+        ExecuteTransactionAsync(action, CancellationToken.None, false, token => WriteLocks.MeaningAsync(_dbContext, meaningId, token));
+
+    internal Task<T> ExecuteAdmittedTransactionAsync<T>(Func<Task<T>> action, CancellationToken cancellationToken,
+        Func<CancellationToken, Task>? acquire = null) =>
+        ExecuteTransactionAsync(action, cancellationToken, true, acquire);
+
+    private async Task<T> ExecuteTransactionAsync<T>(Func<Task<T>> action, CancellationToken cancellationToken,
+        bool finishAfterAdmission, Func<CancellationToken, Task>? acquire = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (HoldsWriteLock.Value)
+        if (IsWriteInProgress)
         {
-            // Already inside a serialized write on this context. Join it: a
-            // second BeginTransactionAsync on the same connection is rejected,
-            // and the enclosing transaction is the scope that should commit.
+            if (!OwnsWriteContext(_dbContext))
+                throw new InvalidOperationException("A nested write must use the owning database context.");
+            if (acquire is not null) await acquire(cancellationToken);
             return await action();
         }
 
-        await WriteLock.WaitAsync(cancellationToken);
-        if (finishAfterAdmission) cancellationToken = CancellationToken.None;
-        HoldsWriteLock.Value = true;
-        WriteContext.Value = _dbContext;
+        await _dbContext.TransactionSlot.WaitAsync(cancellationToken);
         var committed = false;
+        WriteContext.Value = _dbContext;
         try
         {
             return await TranslateStorageErrorsAsync(async () =>
             {
-                await using var transaction =
-                    await _dbContext.Database.BeginTransactionAsync(cancellationToken);
-                var result = await action();
+                await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+                if (acquire is not null) await acquire(cancellationToken);
                 cancellationToken.ThrowIfCancellationRequested();
-                // Once commit starts its outcome may be unknown to a disconnected caller.
-                await transaction.CommitAsync(cancellationToken);
+                var commitToken = finishAfterAdmission ? CancellationToken.None : cancellationToken;
+                var result = await action();
+                commitToken.ThrowIfCancellationRequested();
+                await transaction.CommitAsync(commitToken);
                 committed = true;
                 return result;
             });
@@ -86,43 +78,17 @@ public class UnitOfWork : IUnitOfWork
         finally
         {
             WriteContext.Value = null;
-            HoldsWriteLock.Value = false;
-            WriteLock.Release();
-            _dbContext.FinishEnrichmentChanges(committed);
+            try { _dbContext.FinishEnrichmentChanges(committed); }
+            finally { _dbContext.TransactionSlot.Release(); }
         }
     }
 
     public Task<int> SaveChangesAsync() => SaveChangesAsync(CancellationToken.None);
 
-    public async Task<int> SaveChangesAsync(CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        // Taking the lock here as well as in ExecuteInTransactionAsync is the
-        // point: the book write paths call this directly, so they used to reach
-        // SQLite unserialized while the import path was being protected.
-        if (HoldsWriteLock.Value)
-        {
-            return await TranslateStorageErrorsAsync(() => _dbContext.SaveChangesAsync(cancellationToken));
-        }
-
-        await WriteLock.WaitAsync(cancellationToken);
-        HoldsWriteLock.Value = true;
-        WriteContext.Value = _dbContext;
-        var committed = false;
-        try
-        {
-            var count = await TranslateStorageErrorsAsync(() => _dbContext.SaveChangesAsync(cancellationToken));
-            committed = true;
-            return count;
-        }
-        finally
-        {
-            WriteContext.Value = null;
-            HoldsWriteLock.Value = false;
-            WriteLock.Release();
-            _dbContext.FinishEnrichmentChanges(committed);
-        }
-    }
+    public Task<int> SaveChangesAsync(CancellationToken cancellationToken) =>
+        OwnsWriteContext(_dbContext)
+            ? TranslateStorageErrorsAsync(() => _dbContext.SaveChangesAsync(cancellationToken))
+            : ExecuteInTransactionAsync(() => _dbContext.SaveChangesAsync(cancellationToken), cancellationToken);
 
     private static async Task<T> TranslateStorageErrorsAsync<T>(Func<Task<T>> operation)
     {
@@ -130,15 +96,13 @@ public class UnitOfWork : IUnitOfWork
         {
             return await operation();
         }
-        catch (Exception exception)
-            when (HasSqliteErrorCode(exception, SqliteConstraintErrorCode))
+        catch (Exception exception) when (StorageErrors.IsConstraintViolation(exception) || StorageErrors.IsSerializationFailure(exception))
         {
             throw new ConflictException(
                 "The requested vocabulary data conflicts with existing data.",
                 exception);
         }
-        catch (Exception exception)
-            when (HasSqliteErrorCode(exception, SqliteBusyErrorCode, SqliteLockedErrorCode))
+        catch (Exception exception) when (StorageErrors.IsBusy(exception))
         {
             // Reported separately from a conflict because it is not about the
             // data: nothing is wrong with the request and retrying it works.
@@ -147,16 +111,49 @@ public class UnitOfWork : IUnitOfWork
                 exception);
         }
     }
+}
+
+/// <summary>
+/// Classifies PostgreSQL failures into the two storage answers the
+/// application gives: a data conflict and a retryable busy database.
+/// </summary>
+internal static class StorageErrors
+{
+    /// <summary>
+    /// SQLSTATE class 23, integrity constraint violation: unique, foreign key,
+    /// check, not-null, and exclusion constraints.
+    /// </summary>
+    internal static bool IsConstraintViolation(Exception exception) =>
+        FindPostgresException(exception)?.SqlState is { } state
+        && state.StartsWith("23", StringComparison.Ordinal);
+
+    internal static bool IsSerializationFailure(Exception exception) =>
+        FindPostgresException(exception)?.SqlState == PostgresErrorCodes.SerializationFailure;
 
     /// <summary>
-    /// A lock or constraint failure arrives wrapped in a DbUpdateException from
-    /// SaveChanges but bare from a commit, so both shapes are checked.
+    /// A lock wait that ran past <c>lock_timeout</c> (55P03) or a deadlock
+    /// (40P01) is a retryable busy database.
     /// </summary>
-    private static bool HasSqliteErrorCode(Exception exception, params int[] errorCodes)
+    internal static bool IsBusy(Exception exception) =>
+        FindPostgresException(exception)?.SqlState is PostgresErrorCodes.LockNotAvailable
+            or PostgresErrorCodes.DeadlockDetected;
+
+    /// <summary>
+    /// A failure arrives bare from a commit or a raw command, wrapped in a
+    /// DbUpdateException from SaveChanges, and — when Npgsql classifies it as
+    /// transient, as it does a lock timeout or a deadlock — wrapped once more
+    /// by the execution strategy, so the whole chain is searched.
+    /// </summary>
+    private static PostgresException? FindPostgresException(Exception exception)
     {
-        var sqliteException = exception as SqliteException
-                              ?? exception.InnerException as SqliteException;
-        return sqliteException != null
-               && Array.IndexOf(errorCodes, sqliteException.SqliteErrorCode) >= 0;
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is PostgresException postgres)
+            {
+                return postgres;
+            }
+        }
+
+        return null;
     }
 }

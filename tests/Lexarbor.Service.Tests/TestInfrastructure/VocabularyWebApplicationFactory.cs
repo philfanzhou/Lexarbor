@@ -5,6 +5,7 @@ using System.Text;
 using Lexarbor.Database;
 using Lexarbor.Host;
 using Lexarbor.Host.Authentication;
+using Lexarbor.Tests.Shared;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -88,37 +89,36 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
         _includeAppCredentials = includeAppCredentials;
         _provider = provider;
         _extraConfiguration = extraConfiguration ?? new Dictionary<string, string?>();
-        // The startup gate accepts real files only (:memory: is an invalid
-        // target), so every host — the default included — works on its own
-        // file under the gate-safe directory. Like production, the hosts get
-        // the connection string rather than one shared open connection: with
-        // Pooling=False every operation opens and closes its own connection,
-        // so SQLite checkpoints the write-ahead log away between operations
-        // and a second host (WithWebHostBuilder) starts against a file the
-        // strict gate can observe — a held-open connection would keep the
-        // -wal/-shm sidecars alive and look like an unrecovered crash. A test
-        // may instead supply the whole connection string through
-        // ConnectionStrings:Default, which is how non-default options such as
-        // Default Timeout reach the gate unchanged.
-        _databaseDirectory = databasePath is null
-            ? CreateGateSafeDirectory($"lexarbor-host-{Guid.NewGuid():N}")
-            : null;
-        _databasePath = databasePath ?? Path.Combine(_databaseDirectory!, "vocabulary.db");
-        _databaseConnectionString =
-            extraConfiguration is not null
+        // Every host works on its own PostgreSQL database on the shared test
+        // server, created from the migrated template and dropped with the
+        // factory. A test that runs several hosts over the same data (a
+        // restart, a second instance) names that data with databasePath, which
+        // maps to one shared database for the run. A test may instead supply
+        // the whole connection string through ConnectionStrings:Default.
+        if (extraConfiguration is not null
             && extraConfiguration.TryGetValue("ConnectionStrings:Default", out var configured)
-            && !string.IsNullOrWhiteSpace(configured)
-                ? configured
-                : $"Data Source={_databasePath};Pooling=False";
+            && !string.IsNullOrWhiteSpace(configured))
+        {
+            _databaseConnectionString = configured;
+        }
+        else if (databasePath is not null)
+        {
+            _databaseConnectionString = SharedTestDatabases.ConnectionString(databasePath);
+        }
+        else
+        {
+            _ownedDatabase = new PostgreSqlTestDatabase();
+            _databaseConnectionString = _ownedDatabase.ConnectionString;
+        }
     }
 
-    private readonly string? _databaseDirectory;
-    private readonly string _databasePath;
+    private readonly PostgreSqlTestDatabase? _ownedDatabase;
     private readonly string _databaseConnectionString;
-    private string DatabaseConnectionString => _databaseConnectionString;
+    /// <summary>The connection string of the database this host serves from.</summary>
+    public string DatabaseConnectionString => _databaseConnectionString;
 
     /// <summary>
-    /// A database directory whose every path segment from the root is a real
+    /// A directory whose every path segment from the root is a real
     /// directory: the strict startup gate rejects paths that resolve through
     /// symbolic links, which on macOS rules out <see cref="Path.GetTempPath"/>
     /// (it lives under /var). The test output directory inside the repository
@@ -154,8 +154,10 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
         // instance id are read at that point, so expose those values during host
         // construction only. The explicit production-database mode also passes
         // the connection setting before Program captures it, retaining its real
-        // DbContext registration. Serialize factory startup to keep process
-        // environment changes isolated.
+        // DbContext registration. The connection string always rides the same
+        // passthrough: Program validates ConnectionStrings:Default before any
+        // test override applies, and it has no default. Serialize factory
+        // startup to keep process environment changes isolated.
         lock (NetworkConfigurationLock)
         {
             // Telemetry keys ride the same locked environment-variable
@@ -171,7 +173,9 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
                     || entry.Key.StartsWith("LEXARBOR_", StringComparison.Ordinal)
                     || (_useProductionDatabase && entry.Key.StartsWith("ConnectionStrings:", StringComparison.Ordinal)))
                 .Select(entry => (Name: entry.Key.Replace(":", "__", StringComparison.Ordinal), entry.Value))
-                .ToArray();
+                .ToList();
+            if (!networkSettings.Any(entry => entry.Name == "ConnectionStrings__Default"))
+                networkSettings.Add(("ConnectionStrings__Default", _databaseConnectionString));
             var previous = networkSettings
                 .Select(entry => (entry.Name, Value: Environment.GetEnvironmentVariable(entry.Name)))
                 .ToArray();
@@ -320,6 +324,10 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
                 // Each test factory instance owns its root-key file, isolating
                 // the ServiceMantle key repository per test.
                 ["DataProtection:RootKeyFile"] = Path.Combine(_keyContentRoot, "root-key"),
+                // A legacy SQLite source the test owns, absent unless the test
+                // creates it, so a developer's old src/Lexarbor.Host/data
+                // database never reaches a test host.
+                ["Database:LegacySqlitePath"] = Path.Combine(_keyContentRoot, "vocabulary.db"),
                 ["IdentityService:Authority"] = "http://127.0.0.1:8080",
                 ["IdentityService:Issuer"] = Issuer,
                 ["IdentityService:Audience"] = Audience,
@@ -348,7 +356,7 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
                 services.RemoveAll<IDbContextFactory<VocabularyDbContext>>();
                 services.RemoveAll<VocabularyDbContext>();
                 services.AddDbContextFactory<VocabularyDbContext>(options =>
-                    options.UseSqlite(DatabaseConnectionString));
+                    options.UseNpgsql(DatabaseConnectionString));
                 services.AddScoped(serviceProvider =>
                     serviceProvider.GetRequiredService<IDbContextFactory<VocabularyDbContext>>().CreateDbContext());
             }
@@ -410,18 +418,7 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
                 Directory.Delete(_keyContentRoot, recursive: true);
             }
 
-            if (_databaseDirectory is not null && Directory.Exists(_databaseDirectory))
-            {
-                try
-                {
-                    Directory.Delete(_databaseDirectory, recursive: true);
-                }
-                catch (IOException)
-                {
-                    // A WAL sidecar that SQLite still holds is left behind with
-                    // the directory; the next run never reuses this name.
-                }
-            }
+            _ownedDatabase?.Dispose();
         }
     }
 }

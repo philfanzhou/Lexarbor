@@ -33,7 +33,7 @@ internal static class EnrichmentModelConfiguration
         {
             table.HasCheckConstraint("CK_enrichment_round_state", "state IN ('Pending','Running','Waiting','Succeeded','Failed','Superseded','Cancelled')");
             table.HasCheckConstraint("CK_enrichment_round_counts", "failure_budget BETWEEN 1 AND 20 AND consumed_failures BETWEEN 0 AND failure_budget AND request_count >= consumed_failures AND lease_fence >= 0");
-            table.HasCheckConstraint("CK_enrichment_round_input", "length(input_revision) = 64 AND input_revision NOT GLOB '*[^0-9a-f]*' AND length(source_revision) = 64 AND source_revision NOT GLOB '*[^0-9a-f]*'");
+            table.HasCheckConstraint("CK_enrichment_round_input", "length(input_revision) = 64 AND input_revision !~ '[^0-9a-f]' AND length(source_revision) = 64 AND source_revision !~ '[^0-9a-f]'");
             table.HasCheckConstraint("CK_enrichment_round_config", "length(configuration_version) BETWEEN 1 AND 128");
             table.HasCheckConstraint("CK_enrichment_round_plan", "plan_json IS NULL OR length(plan_json) <= 16384");
             table.HasCheckConstraint("CK_enrichment_round_lease", "(state = 'Running' AND lease_owner IS NOT NULL AND lease_fence > 0 AND lease_expires_at_unix_ms IS NOT NULL) OR (state != 'Running' AND lease_owner IS NULL AND lease_expires_at_unix_ms IS NULL)");

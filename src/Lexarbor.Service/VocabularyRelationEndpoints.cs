@@ -35,7 +35,7 @@ public static class VocabularyRelationEndpoints
             VocabularyHttpResponse.Ok(await service.ListAsync(null,
                 new(Type: type, Status: status, Page: page ?? 1, Size: size ?? 20), token)));
         relations.MapGet("/{relationId}", async (string relationId, VocabularyRelationService service, CancellationToken token) =>
-            VocabularyHttpResponse.Ok(await service.GetAsync(relationId, token)));
+            VocabularyHttpResponse.Ok(await service.GetWithMeaningPairsAsync(relationId, token)));
         relations.MapPost("/", async (HttpRequest request, VocabularyRelationService service, CancellationToken token) =>
         {
             var input = await ReadAsync<VocabularyRelationRequest>(request, token);
@@ -48,6 +48,9 @@ public static class VocabularyRelationEndpoints
             var input = await ReadAsync<VocabularyRelationReplaceRequest>(request, token);
             return VocabularyHttpResponse.Ok(await service.ReplaceAsync(relationId, input.ToInput(), input.ExpectedVersion, token));
         }).WithMetadata(new RequestSizeLimitAttribute(MaxRequestBytes));
+        relations.MapPost("/{relationId}/meaning-pairs/recover", async (string relationId, long expectedVersion,
+            VocabularyRelationService service, CancellationToken token) =>
+            VocabularyHttpResponse.Ok(await service.RecoverMeaningPairAsync(relationId, expectedVersion, token)));
         relations.MapDelete("/{relationId}", async (string relationId, long expectedVersion,
             VocabularyRelationService service, CancellationToken token) =>
         {
