@@ -1,10 +1,10 @@
 using System.Data;
-using Microsoft.EntityFrameworkCore;
-using Npgsql;
 using Lexarbor.Learning.Database.Entities;
 using Lexarbor.Learning.Domain.Models;
 using Lexarbor.Learning.Domain.Repositories;
 using Lexarbor.Learning.Domain.Services;
+using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace Lexarbor.Learning.Database.Repositories;
 
@@ -200,11 +200,19 @@ public sealed class VocabNotebookRepository : IVocabNotebookRepository
             entity.FamilySources.RemoveAll(prior => !SourceModel(prior).HasMeaningPair && SourceModel(prior).SameRelation(source));
             entity.FamilySources.Add(new()
             {
-                Id = Guid.NewGuid(), NotebookItemId = item.Id,
-                SourceWordKey = source.WordKey, SourceWord = source.Word, SourceWordId = source.WordId,
-                RelationType = source.RelationType, Direction = source.Direction, RelationId = source.RelationId,
-                SourceMeaningId = source.MeaningId ?? string.Empty, SourceBookId = source.BookId ?? string.Empty,
-                TargetWordId = source.Target!.WordId, TargetBookId = source.Target.BookId, TargetMeaningId = source.Target.MeaningId,
+                Id = Guid.NewGuid(),
+                NotebookItemId = item.Id,
+                SourceWordKey = source.WordKey,
+                SourceWord = source.Word,
+                SourceWordId = source.WordId,
+                RelationType = source.RelationType,
+                Direction = source.Direction,
+                RelationId = source.RelationId,
+                SourceMeaningId = source.MeaningId ?? string.Empty,
+                SourceBookId = source.BookId ?? string.Empty,
+                TargetWordId = source.Target!.WordId,
+                TargetBookId = source.Target.BookId,
+                TargetMeaningId = source.Target.MeaningId,
             });
         }
         entity.FamilyOnly = item.FamilyOnly;

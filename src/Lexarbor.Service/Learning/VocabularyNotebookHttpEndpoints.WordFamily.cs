@@ -1,9 +1,9 @@
+using Lexarbor.Learning.Domain.Models;
+using Lexarbor.Learning.Domain.Services;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
-using Lexarbor.Learning.Domain.Models;
-using Lexarbor.Learning.Domain.Services;
 
 namespace Lexarbor.Learning.Service;
 

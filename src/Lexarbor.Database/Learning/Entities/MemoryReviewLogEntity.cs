@@ -2,6 +2,7 @@ using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Lexarbor.Learning.Database.Entities;
+
 [Table("vocab_review_log")]
 public class MemoryReviewLogEntity
 {

@@ -1,4 +1,5 @@
 namespace Lexarbor.Learning.Domain.Services;
+
 public sealed class VocabularyLearningOptions
 {
     public const string SectionName = "VocabularyLearning";

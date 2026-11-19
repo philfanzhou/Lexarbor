@@ -138,8 +138,13 @@ public sealed class VocabularyFamilyService(IVocabularyWordListRepository words,
         return new(sources.OrderByDescending(word => word.LastReviewedAt).ThenBy(word => word.Key, StringComparer.Ordinal).ToArray(), learned);
 
         bool IsEligible(VocabularyWordListCard card) => actor.Type == VocabNotebookActorType.Teacher
-            || memory.GetStage(new MemoryCardModel { StudentId = studentId, WordKey = card.WordKey,
-                MeaningKey = card.MeaningKey, Stability = card.Stability }) >= MemoryStage.Familiar;
+            || memory.GetStage(new MemoryCardModel
+            {
+                StudentId = studentId,
+                WordKey = card.WordKey,
+                MeaningKey = card.MeaningKey,
+                Stability = card.Stability
+            }) >= MemoryStage.Familiar;
     }
 
     private static IReadOnlyList<VocabularyFamilyCandidate> BuildCandidates(Source source, IReadOnlyList<VocabularyFamilyRelation> relations,

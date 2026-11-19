@@ -1,4 +1,5 @@
 namespace Lexarbor.Learning.Domain.Services;
+
 public sealed class VocabularyFsrsOptions
 {
     public const string SectionName = "VocabularyLearning:Fsrs";

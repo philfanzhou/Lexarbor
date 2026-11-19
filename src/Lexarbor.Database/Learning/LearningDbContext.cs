@@ -1,5 +1,5 @@
-using Microsoft.EntityFrameworkCore;
 using Lexarbor.Learning.Database.Entities;
+using Microsoft.EntityFrameworkCore;
 
 namespace Lexarbor.Learning.Database;
 
@@ -125,9 +125,18 @@ public class LearningDbContext : DbContext
             entity.HasOne(source => source.NotebookItem).WithMany(item => item.FamilySources)
                 .HasForeignKey(source => source.NotebookItemId).OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("FK_vocab_notebook_family_source_item");
-            entity.HasIndex(source => new { source.NotebookItemId, source.SourceWordId, source.RelationType,
-                source.Direction, source.TargetBookId, source.TargetWordId, source.TargetMeaningId,
-                source.SourceBookId, source.SourceMeaningId }).IsUnique().HasDatabaseName("IX_vocab_notebook_family_source_identity");
+            entity.HasIndex(source => new
+            {
+                source.NotebookItemId,
+                source.SourceWordId,
+                source.RelationType,
+                source.Direction,
+                source.TargetBookId,
+                source.TargetWordId,
+                source.TargetMeaningId,
+                source.SourceBookId,
+                source.SourceMeaningId
+            }).IsUnique().HasDatabaseName("IX_vocab_notebook_family_source_identity");
         });
 
         modelBuilder.Entity<VocabNotebookItemEntity>(entity =>

@@ -1,4 +1,5 @@
 namespace Lexarbor.Learning.Domain.Models;
+
 public enum MemoryCardState
 {
     New = 0,

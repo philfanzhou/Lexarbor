@@ -1,16 +1,16 @@
-using System.Data;
 using System.Buffers;
+using System.Data;
 using System.Globalization;
 using System.Text;
-using Npgsql;
-using NpgsqlTypes;
 using System.Text.Json;
+using Lexarbor.Learning.Domain.Models;
+using Lexarbor.Learning.Domain.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage;
-using Lexarbor.Learning.Domain.Models;
-using Lexarbor.Learning.Domain.Repositories;
+using Npgsql;
+using NpgsqlTypes;
 
 namespace Lexarbor.Learning.Database.Repositories;
 
@@ -40,12 +40,17 @@ public sealed class VocabularyPlanStatsRepository(LearningDbContext context) : I
                 while (await rows.ReadAsync(cancellationToken).ConfigureAwait(false))
                 {
                     var id = reader.GetGuid(0);
-                    plans.Add(new VocabPlanModel {
-                        Id = id, StudentId = reader.GetGuid(1), Version = reader.GetInt32(11),
+                    plans.Add(new VocabPlanModel
+                    {
+                        Id = id,
+                        StudentId = reader.GetGuid(1),
+                        Version = reader.GetInt32(11),
                         Segments = VocabPlanRepository.DeserializeSegments(reader.GetString(4), reader.GetString(2),
                             reader.IsDBNull(3) ? null : reader.GetString(3)),
-                        Status = (VocabPlanStatus)reader.GetInt32(5), TotalWords = reader.GetInt32(6),
-                        CreatedAt = reader.GetFieldValue<DateTimeOffset>(7), UpdatedAt = reader.GetFieldValue<DateTimeOffset>(8),
+                        Status = (VocabPlanStatus)reader.GetInt32(5),
+                        TotalWords = reader.GetInt32(6),
+                        CreatedAt = reader.GetFieldValue<DateTimeOffset>(7),
+                        UpdatedAt = reader.GetFieldValue<DateTimeOffset>(8),
                     });
                     if (!reader.IsDBNull(9) && !reader.IsDBNull(10))
                         reactivations.Add(id, new(reader.GetFieldValue<DateTimeOffset>(10), reader.GetFieldValue<DateTimeOffset>(9)));

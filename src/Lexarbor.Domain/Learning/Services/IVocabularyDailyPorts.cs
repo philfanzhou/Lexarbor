@@ -1,6 +1,7 @@
 using Lexarbor.Learning.Domain.Models;
 
 namespace Lexarbor.Learning.Domain.Services;
+
 public sealed record VocabularyScopeEntry(
     string WordId,
     string NormalizedWord,

@@ -1,12 +1,13 @@
+using Lexarbor.Learning.Domain.Models;
+using Lexarbor.Learning.Domain.Services;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
-using Lexarbor.Learning.Domain.Models;
-using Lexarbor.Learning.Domain.Services;
 using static Lexarbor.Learning.Service.VocabularyCatalogErrorCodes;
 
 namespace Lexarbor.Learning.Service;
+
 public static class VocabularyPlanHttpEndpoints
 {
     public static IEndpointRouteBuilder MapVocabularyPlanHttpEndpoints(this IEndpointRouteBuilder app)

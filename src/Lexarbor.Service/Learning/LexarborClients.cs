@@ -1,7 +1,7 @@
+using Lexarbor.Learning.Domain.Services;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
-using Lexarbor.Learning.Domain.Services;
 
 namespace Lexarbor.Learning.Service;
 

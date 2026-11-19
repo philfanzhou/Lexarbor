@@ -78,7 +78,7 @@ internal static class LearningEndpoints
             Results.Ok(new { storeId = await db.Database.SqlQueryRaw<Guid>("SELECT store_id AS \"Value\" FROM learning_schema_version").SingleAsync(ct) })).WithMetadata(new StoreIdentityRoute());
         group.MapPost("/plan-owners", async (Guid[] ids, LearningDbContext db, CancellationToken ct) =>
             ids.Length is < 1 or > 100 ? Results.BadRequest() : Results.Ok(await db.VocabPlans.AsNoTracking()
-                .Where(plan => ids.Contains(plan.Id)).Select(plan => new {plan.Id, plan.StudentId}).ToListAsync(ct)));
+                .Where(plan => ids.Contains(plan.Id)).Select(plan => new { plan.Id, plan.StudentId }).ToListAsync(ct)));
         group.MapPut("/learners/{id:guid}", async (Guid id, LearningDbContext db, CancellationToken ct) =>
         {
             if (id == Guid.Empty) return Results.BadRequest();

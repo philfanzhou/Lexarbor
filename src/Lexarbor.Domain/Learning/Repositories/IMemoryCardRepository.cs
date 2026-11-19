@@ -1,6 +1,7 @@
 using Lexarbor.Learning.Domain.Models;
 
 namespace Lexarbor.Learning.Domain.Repositories;
+
 public interface IMemoryCardRepository
 {
 

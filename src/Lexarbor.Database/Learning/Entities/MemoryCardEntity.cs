@@ -2,6 +2,7 @@ using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Lexarbor.Learning.Database.Entities;
+
 [Table("vocab_memory_card")]
 public class MemoryCardEntity
 {

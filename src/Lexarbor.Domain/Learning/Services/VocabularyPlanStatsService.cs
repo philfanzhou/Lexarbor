@@ -1,8 +1,7 @@
 using System.Text.Json;
+using Lexarbor.Learning.Domain.Calendar;
 using Lexarbor.Learning.Domain.Models;
 using Lexarbor.Learning.Domain.Repositories;
-
-using Lexarbor.Learning.Domain.Calendar;
 
 namespace Lexarbor.Learning.Domain.Services;
 

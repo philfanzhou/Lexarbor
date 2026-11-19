@@ -1,10 +1,10 @@
 using System.Buffers;
 using System.Text;
 using System.Text.Json;
+using Lexarbor.Learning.Domain.Models;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage;
-using Lexarbor.Learning.Domain.Models;
 
 namespace Lexarbor.Learning.Database.Repositories;
 

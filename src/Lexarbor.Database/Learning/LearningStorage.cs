@@ -22,7 +22,8 @@ public sealed class LearningStorage(string catalogConnection)
 
     public NpgsqlConnection OpenGate(string callerId) => new(new NpgsqlConnectionStringBuilder(catalogConnection)
     {
-        SearchPath = Schema(callerId), ApplicationName = "Lexarbor learning request gate"
+        SearchPath = Schema(callerId),
+        ApplicationName = "Lexarbor learning request gate"
     }.ConnectionString);
 
     public async Task EnsureAsync(string callerId, CancellationToken token)

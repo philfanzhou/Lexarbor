@@ -1,4 +1,5 @@
 namespace Lexarbor.Learning.Domain.Services;
+
 public sealed class MemoryCardConflictException : Exception
 {
     public MemoryCardConflictException()

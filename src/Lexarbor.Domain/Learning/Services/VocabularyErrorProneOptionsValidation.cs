@@ -1,5 +1,5 @@
-using Microsoft.Extensions.Options;
 using Lexarbor.Learning.Domain.Models;
+using Microsoft.Extensions.Options;
 
 namespace Lexarbor.Learning.Domain.Services;
 

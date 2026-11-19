@@ -1,11 +1,11 @@
 using System.Data;
 using System.Globalization;
 using System.Text.Json;
+using Lexarbor.Learning.Domain.Models;
+using Lexarbor.Learning.Domain.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Npgsql;
-using Lexarbor.Learning.Domain.Models;
-using Lexarbor.Learning.Domain.Repositories;
 
 namespace Lexarbor.Learning.Database.Repositories;
 

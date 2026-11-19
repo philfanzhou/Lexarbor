@@ -1,8 +1,9 @@
-using Microsoft.Extensions.Logging;
 using Lexarbor.Learning.Domain.Models;
 using Lexarbor.Learning.Domain.Repositories;
+using Microsoft.Extensions.Logging;
 
 namespace Lexarbor.Learning.Domain.Services;
+
 public sealed class VocabularyNotebookService : IVocabularyNotebookSource
 {
     private const int LookupChunkSize = 100;
@@ -227,8 +228,11 @@ public sealed class VocabularyNotebookService : IVocabularyNotebookSource
         var source = sources[Random.Shared.Next(sources.Length)];
         var location = Location(item);
         if (source.Target is { } target)
-            location = location with { BookId = target.BookId,
-                Entry = location.Entry with { WordId = target.WordId, MeaningId = target.MeaningId } };
+            location = location with
+            {
+                BookId = target.BookId,
+                Entry = location.Entry with { WordId = target.WordId, MeaningId = target.MeaningId }
+            };
         return (location, source);
     }
 
@@ -252,7 +256,7 @@ public sealed class VocabularyNotebookService : IVocabularyNotebookSource
 
     private static VocabularyPlanScopeEntry Location(VocabNotebookItemModel item) => new(item.BookId!, false,
         new VocabularyScopeEntry(item.WordId!, item.WordKey, item.MeaningId!, item.MeaningKey, null))
-        { FamilyOnly = item.FamilyOnly, FromNotebook = true, InPlanScope = false };
+    { FamilyOnly = item.FamilyOnly, FromNotebook = true, InPlanScope = false };
 
     private async Task TrySyncPendingAsync(Guid studentId, CancellationToken cancellationToken)
     {

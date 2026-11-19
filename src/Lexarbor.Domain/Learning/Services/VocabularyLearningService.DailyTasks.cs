@@ -19,8 +19,11 @@ public sealed partial class VocabularyLearningService
         var now = DateTimeOffset.UtcNow;
         day ??= new VocabPlanDayModel
         {
-            PlanId = plan.Id, LocalDate = date, NewWordsTarget = plan.DailyNewWords,
-            CreatedAt = now, UpdatedAt = now,
+            PlanId = plan.Id,
+            LocalDate = date,
+            NewWordsTarget = plan.DailyNewWords,
+            CreatedAt = now,
+            UpdatedAt = now,
         };
         var tasks = new VocabDailyTasks();
         try

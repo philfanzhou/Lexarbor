@@ -1,10 +1,10 @@
 using System.Data;
+using Lexarbor.Learning.Domain.Models;
+using Lexarbor.Learning.Domain.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage;
-using Lexarbor.Learning.Domain.Models;
-using Lexarbor.Learning.Domain.Repositories;
 
 namespace Lexarbor.Learning.Database.Repositories;
 
@@ -41,15 +41,19 @@ public sealed class VocabularyOverviewRepository(LearningDbContext context) : IV
             {
                 plan = new VocabPlanModel
                 {
-                    StudentId = reader.GetGuid(0), Id = reader.GetGuid(1),
+                    StudentId = reader.GetGuid(0),
+                    Id = reader.GetGuid(1),
                     Segments = VocabPlanRepository.DeserializeSegments(reader.GetString(13), reader.GetString(2),
                         reader.IsDBNull(3) ? null : reader.GetString(3)),
                     DailyNewWords = reader.GetInt32(4),
                     Controller = (VocabPlanController)reader.GetInt32(5),
                     ControllerTeacherId = reader.IsDBNull(6) ? null : reader.GetGuid(6),
-                    Status = (VocabPlanStatus)reader.GetInt32(7), StartDate = reader.GetFieldValue<DateOnly>(8),
-                    TotalWords = reader.GetInt32(9), Version = reader.GetInt32(10),
-                    CreatedAt = reader.GetFieldValue<DateTimeOffset>(11), UpdatedAt = reader.GetFieldValue<DateTimeOffset>(12),
+                    Status = (VocabPlanStatus)reader.GetInt32(7),
+                    StartDate = reader.GetFieldValue<DateOnly>(8),
+                    TotalWords = reader.GetInt32(9),
+                    Version = reader.GetInt32(10),
+                    CreatedAt = reader.GetFieldValue<DateTimeOffset>(11),
+                    UpdatedAt = reader.GetFieldValue<DateTimeOffset>(12),
                 };
             }
             return new Snapshot(context, transaction, studentId, exists, plan);
@@ -97,8 +101,11 @@ public sealed class VocabularyOverviewRepository(LearningDbContext context) : IV
             {
                 cards.Add(new MemoryCardModel
                 {
-                    StudentId = studentId, WordKey = reader.GetString(0), MeaningKey = reader.GetString(1),
-                    Stability = reader.IsDBNull(2) ? null : reader.GetDouble(2), DueAt = reader.GetFieldValue<DateTimeOffset>(3),
+                    StudentId = studentId,
+                    WordKey = reader.GetString(0),
+                    MeaningKey = reader.GetString(1),
+                    Stability = reader.IsDBNull(2) ? null : reader.GetDouble(2),
+                    DueAt = reader.GetFieldValue<DateTimeOffset>(3),
                 });
             }
             return cards;

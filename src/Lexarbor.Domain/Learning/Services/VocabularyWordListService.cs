@@ -34,7 +34,7 @@ public sealed class VocabularyWordListService(IVocabularyWordListRepository repo
         {
             cancellationToken.ThrowIfCancellationRequested();
             staged.Add((card, memory.GetStage(new MemoryCardModel
-                { StudentId = studentId, WordKey = card.WordKey, MeaningKey = card.MeaningKey, Stability = card.Stability })));
+            { StudentId = studentId, WordKey = card.WordKey, MeaningKey = card.MeaningKey, Stability = card.Stability })));
         }
         var masteredWords = staged.GroupBy(entry => entry.Card.WordKey, StringComparer.Ordinal)
             .Where(group => group.Any(entry => entry.Stage == MemoryStage.Mastered)).ToArray();

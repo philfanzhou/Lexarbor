@@ -1,8 +1,8 @@
 using System.Text;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using Lexarbor.Learning.Domain.Models;
 using Lexarbor.Learning.Domain.Repositories;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Lexarbor.Learning.Domain.Services;
 
@@ -668,8 +668,11 @@ public sealed partial class VocabularyLearningService
                 {
                     var linkedRequest = request with
                     {
-                        WordId = verified.Location.Entry.WordId, BookId = verified.Location.BookId,
-                        MeaningId = verified.Location.Entry.MeaningId, UnitId = null, Relation = relation
+                        WordId = verified.Location.Entry.WordId,
+                        BookId = verified.Location.BookId,
+                        MeaningId = verified.Location.Entry.MeaningId,
+                        UnitId = null,
+                        Relation = relation
                     };
                     var linked = await _questionGenerator.CreateAsync(linkedRequest, cancellationToken).ConfigureAwait(false);
                     if (linked is not null) return (linkedRequest, linked);

@@ -1,10 +1,10 @@
 using System.Data;
+using Lexarbor.Learning.Domain.Models;
+using Lexarbor.Learning.Domain.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage;
-using Lexarbor.Learning.Domain.Models;
-using Lexarbor.Learning.Domain.Repositories;
 
 namespace Lexarbor.Learning.Database.Repositories;
 

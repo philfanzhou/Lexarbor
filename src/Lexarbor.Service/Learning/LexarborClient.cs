@@ -1,12 +1,13 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Lexarbor.Learning.Domain.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Lexarbor.Learning.Domain.Services;
 using static Lexarbor.Learning.Service.VocabularyCatalogErrorCodes;
 
 namespace Lexarbor.Learning.Service;
+
 public sealed partial class LexarborClient : ILexarborClient
 {
     private static readonly JsonSerializerOptions ReadJsonOptions = new(JsonSerializerDefaults.Web);

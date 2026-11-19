@@ -1,4 +1,5 @@
 namespace Lexarbor.Learning.Domain.Models;
+
 public sealed record VocabPlanSegment(string BookId, List<string>? UnitIds)
 {
 

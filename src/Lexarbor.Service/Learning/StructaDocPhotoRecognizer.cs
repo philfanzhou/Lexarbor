@@ -1,10 +1,11 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
-using Microsoft.Extensions.Logging;
 using Lexarbor.Learning.Domain.Services;
+using Microsoft.Extensions.Logging;
 
 namespace Lexarbor.Learning.Service;
+
 public sealed class StructaDocPhotoRecognizer : IVocabularyPhotoRecognizer
 {
     public const string HttpClientName = "StructaDocRecognition";

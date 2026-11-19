@@ -1,8 +1,8 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using Lexarbor.Learning.Domain.Services;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using Lexarbor.Learning.Domain.Services;
 
 namespace Lexarbor.Learning.Service;
 

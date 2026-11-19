@@ -1,6 +1,7 @@
 using Lexarbor.Learning.Domain.Models;
 
 namespace Lexarbor.Learning.Domain.Services;
+
 public sealed record VocabularyPlanScopeEntry(string BookId, bool UnitScoped, VocabularyScopeEntry Entry)
 {
     public bool FamilyOnly { get; init; }

@@ -23,7 +23,7 @@ public sealed class LearningHandoffTests
         client.DefaultRequestHeaders.Add("X-Api-Key", await host.SeedKeyAsync());
         Assert.Equal(HttpStatusCode.Forbidden, (await client.PutAsync($"{Root}/learners/{student}", null, Ct)).StatusCode);
         client.DefaultRequestHeaders.Remove("X-Api-Key");
-        client.DefaultRequestHeaders.Add("X-Api-Key", await host.SeedKeyAsync("first", catalog:false, learning:true));
+        client.DefaultRequestHeaders.Add("X-Api-Key", await host.SeedKeyAsync("first", catalog: false, learning: true));
         Assert.Equal(HttpStatusCode.NoContent, (await client.PutAsync($"{Root}/learners/{student}", null, Ct)).StatusCode);
         var storage = host.Services.GetRequiredService<LearningStorage>();
         await using var db = new LearningDbContext(storage.Options("first"));
@@ -37,14 +37,20 @@ public sealed class LearningHandoffTests
                 {options},{option},now(),now()+interval '1 hour')
             """, Ct);
         var path = $"{Root}/api/vocabulary/questions/{question}/answer";
-        var answer = new { studentId = student, optionId = option, elapsedMs = 800,
-            localDate = DateTime.UtcNow.ToString("yyyy-MM-dd"), tzOffsetMinutes = 480 };
+        var answer = new
+        {
+            studentId = student,
+            optionId = option,
+            elapsedMs = 800,
+            localDate = DateTime.UtcNow.ToString("yyyy-MM-dd"),
+            tzOffsetMinutes = 480
+        };
         using var other = host.CreateClient();
-        other.DefaultRequestHeaders.Add("X-Api-Key", await host.SeedKeyAsync("second", catalog:false, learning:true));
+        other.DefaultRequestHeaders.Add("X-Api-Key", await host.SeedKeyAsync("second", catalog: false, learning: true));
         Assert.Equal(HttpStatusCode.NoContent, (await other.PutAsync($"{Root}/learners/{student}", null, Ct)).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await other.PostAsJsonAsync(path, answer, Ct)).StatusCode);
         client.DefaultRequestHeaders.Remove("X-Api-Key");
-        client.DefaultRequestHeaders.Add("X-Api-Key", await host.SeedKeyAsync("first", catalog:false, learning:true));
+        client.DefaultRequestHeaders.Add("X-Api-Key", await host.SeedKeyAsync("first", catalog: false, learning: true));
         var submissions = await Task.WhenAll(client.PostAsJsonAsync(path, answer, Ct), client.PostAsJsonAsync(path, answer, Ct));
         foreach (var response in submissions) Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(1, await db.VocabAttempts.CountAsync(Ct));

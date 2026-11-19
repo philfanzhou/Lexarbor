@@ -1,4 +1,5 @@
 namespace Lexarbor.Learning.Domain.Models;
+
 public sealed class VocabPlanModel
 {
     public Guid Id { get; set; }

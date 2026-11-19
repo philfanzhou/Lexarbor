@@ -1,4 +1,5 @@
 namespace Lexarbor.Learning.Domain.Models;
+
 public sealed class MemoryCardModel
 {
     public required Guid StudentId { get; init; }

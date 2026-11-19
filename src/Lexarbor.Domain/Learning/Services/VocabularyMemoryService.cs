@@ -1,8 +1,9 @@
-using Microsoft.Extensions.Options;
 using Lexarbor.Learning.Domain.Models;
 using Lexarbor.Learning.Domain.Repositories;
+using Microsoft.Extensions.Options;
 
 namespace Lexarbor.Learning.Domain.Services;
+
 public sealed class VocabularyMemoryService
 {
     private readonly IMemoryCardRepository _cardRepository;

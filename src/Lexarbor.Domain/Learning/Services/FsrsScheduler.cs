@@ -1,6 +1,7 @@
 using Lexarbor.Learning.Domain.Models;
 
 namespace Lexarbor.Learning.Domain.Services;
+
 public sealed class FsrsScheduler
 {
 
@@ -62,160 +63,160 @@ public sealed class FsrsScheduler
         switch (state)
         {
             case MemoryCardState.Learning:
-            {
-                if (stability is null || difficulty is null)
                 {
-                    stability = InitialStability(rating);
-                    difficulty = InitialDifficulty(rating, clamp: true);
-                }
-                else if (daysSinceLastReview is int days && days < 1)
-                {
-                    stability = ShortTermStability(stability.Value, rating);
-                    difficulty = NextDifficulty(difficulty.Value, rating);
-                }
-                else
-                {
-                    stability = NextStability(difficulty.Value, stability.Value, Retrievability(stability.Value, lastReview, now), rating);
-                    difficulty = NextDifficulty(difficulty.Value, rating);
-                }
-
-                if (LearningSteps.Count == 0 ||
-                    (step >= LearningSteps.Count && rating != ReviewRating.Again))
-                {
-                    state = MemoryCardState.Review;
-                    step = null;
-                    nextInterval = TimeSpan.FromDays(NextInterval(stability.Value));
-                }
-                else
-                {
-                    switch (rating)
+                    if (stability is null || difficulty is null)
                     {
-                        case ReviewRating.Again:
-                            step = 0;
-                            nextInterval = LearningSteps[0];
-                            break;
-                        case ReviewRating.Hard:
-
-                            nextInterval = HardStepInterval(LearningSteps, step!.Value);
-                            break;
-                        case ReviewRating.Good:
-                            if (step!.Value + 1 == LearningSteps.Count)
-                            {
-                                state = MemoryCardState.Review;
-                                step = null;
-                                nextInterval = TimeSpan.FromDays(NextInterval(stability.Value));
-                            }
-                            else
-                            {
-                                step += 1;
-                                nextInterval = LearningSteps[step.Value];
-                            }
-
-                            break;
-                        case ReviewRating.Easy:
-                            state = MemoryCardState.Review;
-                            step = null;
-                            nextInterval = TimeSpan.FromDays(NextInterval(stability.Value));
-                            break;
-                        default:
-                            throw new ArgumentOutOfRangeException(nameof(rating), rating, "Unknown rating.");
+                        stability = InitialStability(rating);
+                        difficulty = InitialDifficulty(rating, clamp: true);
                     }
-                }
-
-                break;
-            }
-
-            case MemoryCardState.Review:
-            {
-                if (daysSinceLastReview is int days && days < 1)
-                {
-                    stability = ShortTermStability(stability!.Value, rating);
-                }
-                else
-                {
-                    stability = NextStability(difficulty!.Value, stability!.Value, Retrievability(stability.Value, lastReview, now), rating);
-                }
-
-                difficulty = NextDifficulty(difficulty!.Value, rating);
-
-                if (rating == ReviewRating.Again)
-                {
-                    if (RelearningSteps.Count == 0)
+                    else if (daysSinceLastReview is int days && days < 1)
                     {
+                        stability = ShortTermStability(stability.Value, rating);
+                        difficulty = NextDifficulty(difficulty.Value, rating);
+                    }
+                    else
+                    {
+                        stability = NextStability(difficulty.Value, stability.Value, Retrievability(stability.Value, lastReview, now), rating);
+                        difficulty = NextDifficulty(difficulty.Value, rating);
+                    }
+
+                    if (LearningSteps.Count == 0 ||
+                        (step >= LearningSteps.Count && rating != ReviewRating.Again))
+                    {
+                        state = MemoryCardState.Review;
+                        step = null;
                         nextInterval = TimeSpan.FromDays(NextInterval(stability.Value));
                     }
                     else
                     {
-                        state = MemoryCardState.Relearning;
-                        step = 0;
-                        nextInterval = RelearningSteps[0];
-                    }
-                }
-                else
-                {
-                    nextInterval = TimeSpan.FromDays(NextInterval(stability.Value));
-                }
+                        switch (rating)
+                        {
+                            case ReviewRating.Again:
+                                step = 0;
+                                nextInterval = LearningSteps[0];
+                                break;
+                            case ReviewRating.Hard:
 
-                break;
-            }
+                                nextInterval = HardStepInterval(LearningSteps, step!.Value);
+                                break;
+                            case ReviewRating.Good:
+                                if (step!.Value + 1 == LearningSteps.Count)
+                                {
+                                    state = MemoryCardState.Review;
+                                    step = null;
+                                    nextInterval = TimeSpan.FromDays(NextInterval(stability.Value));
+                                }
+                                else
+                                {
+                                    step += 1;
+                                    nextInterval = LearningSteps[step.Value];
+                                }
 
-            case MemoryCardState.Relearning:
-            {
-                if (daysSinceLastReview is int days && days < 1)
-                {
-                    stability = ShortTermStability(stability!.Value, rating);
-                    difficulty = NextDifficulty(difficulty!.Value, rating);
-                }
-                else
-                {
-                    stability = NextStability(difficulty!.Value, stability!.Value, Retrievability(stability.Value, lastReview, now), rating);
-                    difficulty = NextDifficulty(difficulty!.Value, rating);
-                }
-
-                if (RelearningSteps.Count == 0 ||
-                    (step >= RelearningSteps.Count && rating != ReviewRating.Again))
-                {
-                    state = MemoryCardState.Review;
-                    step = null;
-                    nextInterval = TimeSpan.FromDays(NextInterval(stability.Value));
-                }
-                else
-                {
-                    switch (rating)
-                    {
-                        case ReviewRating.Again:
-                            step = 0;
-                            nextInterval = RelearningSteps[0];
-                            break;
-                        case ReviewRating.Hard:
-                            nextInterval = HardStepInterval(RelearningSteps, step!.Value);
-                            break;
-                        case ReviewRating.Good:
-                            if (step!.Value + 1 == RelearningSteps.Count)
-                            {
+                                break;
+                            case ReviewRating.Easy:
                                 state = MemoryCardState.Review;
                                 step = null;
                                 nextInterval = TimeSpan.FromDays(NextInterval(stability.Value));
-                            }
-                            else
-                            {
-                                step += 1;
-                                nextInterval = RelearningSteps[step.Value];
-                            }
-
-                            break;
-                        case ReviewRating.Easy:
-                            state = MemoryCardState.Review;
-                            step = null;
-                            nextInterval = TimeSpan.FromDays(NextInterval(stability.Value));
-                            break;
-                        default:
-                            throw new ArgumentOutOfRangeException(nameof(rating), rating, "Unknown rating.");
+                                break;
+                            default:
+                                throw new ArgumentOutOfRangeException(nameof(rating), rating, "Unknown rating.");
+                        }
                     }
+
+                    break;
                 }
 
-                break;
-            }
+            case MemoryCardState.Review:
+                {
+                    if (daysSinceLastReview is int days && days < 1)
+                    {
+                        stability = ShortTermStability(stability!.Value, rating);
+                    }
+                    else
+                    {
+                        stability = NextStability(difficulty!.Value, stability!.Value, Retrievability(stability.Value, lastReview, now), rating);
+                    }
+
+                    difficulty = NextDifficulty(difficulty!.Value, rating);
+
+                    if (rating == ReviewRating.Again)
+                    {
+                        if (RelearningSteps.Count == 0)
+                        {
+                            nextInterval = TimeSpan.FromDays(NextInterval(stability.Value));
+                        }
+                        else
+                        {
+                            state = MemoryCardState.Relearning;
+                            step = 0;
+                            nextInterval = RelearningSteps[0];
+                        }
+                    }
+                    else
+                    {
+                        nextInterval = TimeSpan.FromDays(NextInterval(stability.Value));
+                    }
+
+                    break;
+                }
+
+            case MemoryCardState.Relearning:
+                {
+                    if (daysSinceLastReview is int days && days < 1)
+                    {
+                        stability = ShortTermStability(stability!.Value, rating);
+                        difficulty = NextDifficulty(difficulty!.Value, rating);
+                    }
+                    else
+                    {
+                        stability = NextStability(difficulty!.Value, stability!.Value, Retrievability(stability.Value, lastReview, now), rating);
+                        difficulty = NextDifficulty(difficulty!.Value, rating);
+                    }
+
+                    if (RelearningSteps.Count == 0 ||
+                        (step >= RelearningSteps.Count && rating != ReviewRating.Again))
+                    {
+                        state = MemoryCardState.Review;
+                        step = null;
+                        nextInterval = TimeSpan.FromDays(NextInterval(stability.Value));
+                    }
+                    else
+                    {
+                        switch (rating)
+                        {
+                            case ReviewRating.Again:
+                                step = 0;
+                                nextInterval = RelearningSteps[0];
+                                break;
+                            case ReviewRating.Hard:
+                                nextInterval = HardStepInterval(RelearningSteps, step!.Value);
+                                break;
+                            case ReviewRating.Good:
+                                if (step!.Value + 1 == RelearningSteps.Count)
+                                {
+                                    state = MemoryCardState.Review;
+                                    step = null;
+                                    nextInterval = TimeSpan.FromDays(NextInterval(stability.Value));
+                                }
+                                else
+                                {
+                                    step += 1;
+                                    nextInterval = RelearningSteps[step.Value];
+                                }
+
+                                break;
+                            case ReviewRating.Easy:
+                                state = MemoryCardState.Review;
+                                step = null;
+                                nextInterval = TimeSpan.FromDays(NextInterval(stability.Value));
+                                break;
+                            default:
+                                throw new ArgumentOutOfRangeException(nameof(rating), rating, "Unknown rating.");
+                        }
+                    }
+
+                    break;
+                }
 
             default:
                 throw new ArgumentOutOfRangeException(nameof(card), card.State, "Unknown card state.");

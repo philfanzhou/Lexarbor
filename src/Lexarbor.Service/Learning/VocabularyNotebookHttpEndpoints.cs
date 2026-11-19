@@ -1,11 +1,12 @@
+using Lexarbor.Learning.Domain.Models;
+using Lexarbor.Learning.Domain.Services;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
-using Lexarbor.Learning.Domain.Models;
-using Lexarbor.Learning.Domain.Services;
 
 namespace Lexarbor.Learning.Service;
+
 public static partial class VocabularyNotebookHttpEndpoints
 {
     public static IEndpointRouteBuilder MapVocabularyNotebookHttpEndpoints(this IEndpointRouteBuilder app)
@@ -171,7 +172,7 @@ public static partial class VocabularyNotebookHttpEndpoints
             ? new { original.Word, original.PartOfSpeech, original.Meaning }
             : null,
         familySources = entry.Item.FamilySources.Select(source => new
-            { source.Word, source.RelationType, source.Direction }).Distinct().ToArray(),
+        { source.Word, source.RelationType, source.Direction }).Distinct().ToArray(),
         familySource = entry.Item.FamilySources.FirstOrDefault(source => source.HasMeaningPair) is { } family
             ? new { family.Word, family.RelationType, family.Direction }
             : null,

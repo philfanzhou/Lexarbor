@@ -1,6 +1,6 @@
-using Microsoft.Extensions.Logging;
 using Lexarbor.Learning.Domain.Models;
 using Lexarbor.Learning.Domain.Repositories;
+using Microsoft.Extensions.Logging;
 
 namespace Lexarbor.Learning.Domain.Services;
 

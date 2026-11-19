@@ -56,8 +56,11 @@ public sealed partial class VocabularyLearningService
                     plan.DailyNewWords, plan.DailyNewWords);
                 batch = new VocabExtraBatch
                 {
-                    Id = requestedId ?? Guid.NewGuid(), Target = plan.DailyNewWords, Required = selected.Count,
-                    PlanVersion = plan.Version, AllRemainingSelected = selected.Count == words.Count,
+                    Id = requestedId ?? Guid.NewGuid(),
+                    Target = plan.DailyNewWords,
+                    Required = selected.Count,
+                    PlanVersion = plan.Version,
+                    AllRemainingSelected = selected.Count == words.Count,
                     Words = selected.SelectMany(SnapshotNewWord).ToList(),
                 };
                 batches.Add(batch);

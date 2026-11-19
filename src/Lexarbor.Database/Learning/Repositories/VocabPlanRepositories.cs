@@ -1,8 +1,8 @@
 using System.Text.Json;
-using Microsoft.EntityFrameworkCore;
 using Lexarbor.Learning.Database.Entities;
 using Lexarbor.Learning.Domain.Models;
 using Lexarbor.Learning.Domain.Repositories;
+using Microsoft.EntityFrameworkCore;
 
 namespace Lexarbor.Learning.Database.Repositories;
 

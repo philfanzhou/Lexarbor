@@ -1,5 +1,5 @@
-using Microsoft.EntityFrameworkCore;
 using Lexarbor.Learning.Domain.Repositories;
+using Microsoft.EntityFrameworkCore;
 
 namespace Lexarbor.Learning.Database.Repositories;
 

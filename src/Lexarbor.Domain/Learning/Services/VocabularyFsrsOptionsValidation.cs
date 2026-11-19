@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Options;
 
 namespace Lexarbor.Learning.Domain.Services;
+
 public sealed class VocabularyFsrsOptionsValidation : IValidateOptions<VocabularyFsrsOptions>
 {
     public ValidateOptionsResult Validate(string? name, VocabularyFsrsOptions options)

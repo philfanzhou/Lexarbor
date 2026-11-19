@@ -2,6 +2,7 @@ using Lexarbor.Learning.Domain.Models;
 using Lexarbor.Learning.Domain.Services;
 
 namespace Lexarbor.Learning.Service;
+
 public sealed class LexarborScopeEntryReader : IVocabularyScopeEntryReader
 {
 

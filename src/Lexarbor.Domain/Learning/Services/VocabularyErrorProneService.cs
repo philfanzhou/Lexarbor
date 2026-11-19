@@ -1,6 +1,6 @@
-using Microsoft.Extensions.Options;
 using Lexarbor.Learning.Domain.Models;
 using Lexarbor.Learning.Domain.Repositories;
+using Microsoft.Extensions.Options;
 
 namespace Lexarbor.Learning.Domain.Services;
 
@@ -41,8 +41,14 @@ public sealed class VocabularyErrorProneService(IVocabularyErrorProneRepository 
         {
             cancellationToken.ThrowIfCancellationRequested();
             var row = displays.TryGetValue(new CardKey(projection.WordKey, projection.MeaningKey), out var display)
-                ? projection with { SnapshotDirection = display.Direction, Prompt = display.Prompt,
-                    OptionsSnapshot = display.OptionsSnapshot, CorrectOptionId = display.CorrectOptionId, AnswerWord = display.AnswerWord } : projection;
+                ? projection with
+                {
+                    SnapshotDirection = display.Direction,
+                    Prompt = display.Prompt,
+                    OptionsSnapshot = display.OptionsSnapshot,
+                    CorrectOptionId = display.CorrectOptionId,
+                    AnswerWord = display.AnswerWord
+                } : projection;
             var (word, meaning, incomplete) = ReadDisplay(row);
             var insufficient = row.Coverage.IsInsufficient(start);
             var reasons = new List<string>();
