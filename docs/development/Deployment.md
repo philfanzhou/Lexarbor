@@ -282,6 +282,13 @@ recovery. Back up the Data Protection root key (the injected value or
 `/app/data/data-protection-root-key`) separately from the dump, and restore the
 two together: the key rows inside the database are protected by that root key.
 
+### Recovering from enrichment scheduling timeouts
+
+If rc.2 or rc.3 logs a 30-second timeout during each enrichment discovery sweep,
+upgrade the application to `v0.2.0-rc.4` using the same PostgreSQL database and
+settings. The worker checks demand by word when selecting failed rounds and can
+resume eligible work on the next discovery sweep.
+
 ### Upgrading from a SQLite release
 
 Upgrade an installation that still uses SQLite through

@@ -13,7 +13,7 @@ internal static class EnrichmentAdminQueries
     // characters btrim() removes are exactly .NET's Unicode white space.
     private const string WhiteSpace = "chr(9)||chr(10)||chr(11)||chr(12)||chr(13)||chr(32)||chr(133)||chr(160)||chr(5760)||chr(8192)||chr(8193)||chr(8194)||chr(8195)||chr(8196)||chr(8197)||chr(8198)||chr(8199)||chr(8200)||chr(8201)||chr(8202)||chr(8232)||chr(8233)||chr(8239)||chr(8287)||chr(12288)";
 
-    private static string DemandCte(bool scoped) => $$"""
+    private static string DemandCte(bool perTarget) => $$"""
         WITH locales(locale) AS (VALUES ('en-GB'), ('en-US')),
         defaults AS (
           SELECT w.id AS word_id, w.word, l.locale,
@@ -22,7 +22,7 @@ internal static class EnrichmentAdminQueries
             (btrim(coalesce(CASE l.locale WHEN 'en-GB' THEN w.phonetic_uk ELSE w.phonetic_us END,''),{{WhiteSpace}})='' OR
               EXISTS (SELECT 1 FROM vocabulary_meaning m WHERE m.vocabulary_id=w.id AND btrim(coalesce(m.part_of_speech,''),{{WhiteSpace}})=''
                 AND NOT EXISTS (SELECT 1 FROM vocabulary_meaning_unit p WHERE p.meaning_id=m.id AND p.entry_kind='phrase'))) AS fields_missing
-          FROM vocabulary w CROSS JOIN locales l {{(scoped ? "WHERE w.id=@demandWord" : "")}}
+          FROM vocabulary w CROSS JOIN locales l {{(perTarget ? "WHERE w.id=t.word_id" : "")}}
         ), demands AS (
           SELECT word_id, word, NULL AS meaning_id, NULL AS meaning, locale, 'Fields' AS step, fields_missing AS missing
           FROM defaults d WHERE fields_applicable AND NOT EXISTS (
@@ -38,7 +38,7 @@ internal static class EnrichmentAdminQueries
             (SELECT 1 FROM vocabulary_audio_binding b WHERE b.word_id=m.vocabulary_id AND b.meaning_id=m.id AND b.locale=l.locale)
           FROM vocabulary_meaning m JOIN vocabulary w ON w.id=m.vocabulary_id CROSS JOIN locales l
           WHERE btrim(coalesce(CASE l.locale WHEN 'en-GB' THEN m.phonetic_uk ELSE m.phonetic_us END,''),{{WhiteSpace}})!=''
-            {{(scoped ? "AND w.id=@demandWord" : "")}}
+            {{(perTarget ? "AND w.id=t.word_id" : "")}}
           UNION ALL
           SELECT m.vocabulary_id,w.word,m.id,m.meaning,NULL,'Expand',NOT EXISTS
             (SELECT 1 FROM enrichment_target t JOIN enrichment_round r ON r.target_id=t.id AND r.number=t.current_round
@@ -46,7 +46,7 @@ internal static class EnrichmentAdminQueries
           FROM vocabulary_meaning m JOIN vocabulary w ON w.id=m.vocabulary_id
           WHERE NOT EXISTS (SELECT 1 FROM enrichment_generated_word g WHERE g.word_id=w.id)
             AND NOT EXISTS (SELECT 1 FROM vocabulary_meaning_unit p WHERE p.meaning_id=m.id AND p.entry_kind='phrase')
-            {{(scoped ? "AND w.id=@demandWord" : "")}}
+            {{(perTarget ? "AND w.id=t.word_id" : "")}}
         )
         """;
     private const string RoundColumns = """
@@ -76,27 +76,30 @@ internal static class EnrichmentAdminQueries
         coalesce(r.created_at_unix_ms,0) AS CreatedAtUnixMs, coalesce(r.updated_at_unix_ms,0) AS UpdatedAtUnixMs
         """;
 
-    internal static IQueryable<EnrichmentAdminRow> Rows(VocabularyDbContext context, EnrichmentAdminConfiguration c, long now, bool tasks,
-        string? wordId = null)
+    internal static IQueryable<EnrichmentAdminRow> Rows(VocabularyDbContext context, EnrichmentAdminConfiguration c, long now, bool tasks)
     {
-        // Split default/specific lookups so the planner can use the partial unique
-        // indexes. A null-safe multi-column join can choose an automatic index
-        // without word_id and repeatedly scan all default targets per demand,
-        // holding the report's read transaction open against writer commits.
+        // For persisted tasks, compute both demand flags from the indexed word.
+        // A shared catalog-wide demands CTE would be rescanned for every target.
+        // For catalog reports, split default/specific target lookups so PostgreSQL
+        // can use each partial unique index.
         var source = tasks ? $$"""
             SELECT t.id AS Id,t.word_id AS WordId,w.word AS Word,t.meaning_id AS MeaningId,m.meaning AS Meaning,t.locale AS Locale,t.step AS Step,
-              NOT t.deleted AND EXISTS (SELECT 1 FROM demands d WHERE d.word_id=t.word_id AND d.meaning_id IS NOT DISTINCT FROM t.meaning_id AND d.locale IS NOT DISTINCT FROM t.locale
-                AND (d.step=t.step OR t.step='Prepare' AND d.missing)) AS Applicable,
-              NOT t.deleted AND EXISTS (SELECT 1 FROM demands d WHERE d.word_id=t.word_id AND d.meaning_id IS NOT DISTINCT FROM t.meaning_id AND d.locale IS NOT DISTINCT FROM t.locale
-                AND (d.step=t.step OR t.step='Prepare') AND d.missing) AS Missing,
+              NOT t.deleted AND demand.applicable AS Applicable, NOT t.deleted AND demand.missing AS Missing,
               t.step!='Expand' AND m.id IS NOT NULL AND btrim(coalesce(CASE t.locale WHEN 'en-GB' THEN m.phonetic_uk ELSE m.phonetic_us END,''),{{WhiteSpace}})='' AS InheritsDefault,
-            """ + RoundColumns + "\n" + """
+            {{RoundColumns}}
             FROM enrichment_target t LEFT JOIN vocabulary w ON w.id=t.word_id LEFT JOIN vocabulary_meaning m ON m.id=t.meaning_id AND m.vocabulary_id=t.word_id
             JOIN enrichment_round r ON r.target_id=t.id AND r.number=t.current_round
-            """ : """
+            LEFT JOIN LATERAL (
+              {{DemandCte(perTarget: true)}}
+              SELECT count(*) > 0 AS applicable, coalesce(bool_or(d.missing), false) AS missing
+              FROM demands d
+              WHERE d.meaning_id IS NOT DISTINCT FROM t.meaning_id AND d.locale IS NOT DISTINCT FROM t.locale
+                AND (d.step=t.step OR t.step='Prepare' AND d.missing)
+            ) demand ON true
+            """ : $$"""
             SELECT t.id AS Id,d.word_id AS WordId,d.word AS Word,d.meaning_id AS MeaningId,d.meaning AS Meaning,d.locale AS Locale,d.step AS Step,
               true AS Applicable,d.missing AS Missing,false AS InheritsDefault,
-            """ + RoundColumns + "\n" + """
+            {{RoundColumns}}
             FROM demands d LEFT JOIN enrichment_target t ON t.id=CASE WHEN d.meaning_id IS NULL THEN
               (SELECT matched.id FROM enrichment_target matched
                 WHERE matched.word_id=d.word_id AND matched.meaning_id IS NULL
@@ -106,7 +109,7 @@ internal static class EnrichmentAdminQueries
                   AND matched.locale IS NOT DISTINCT FROM d.locale AND matched.step=d.step AND NOT matched.deleted) END
             LEFT JOIN enrichment_round r ON r.target_id=t.id AND r.number=t.current_round
             """;
-        var sql = DemandCte(wordId != null) + ", source AS (" + source + """
+        var sql = (tasks ? "WITH " : DemandCte(perTarget: false) + ", ") + "source AS (" + source + """
             ), availability AS (
               SELECT s.*,
                 CASE WHEN Step IN ('Fields','Expand') THEN @fields WHEN Step='Audio' OR MeaningId IS NOT NULL THEN @audio ELSE @fields OR @audio END AS Enabled,
@@ -150,7 +153,7 @@ internal static class EnrichmentAdminQueries
             new NpgsqlParameter("@textId",c.TextServiceId),new NpgsqlParameter("@textVersion",c.TextServiceVersion),
             new NpgsqlParameter("@ttsId",c.TtsServiceId),new NpgsqlParameter("@ttsVersion",c.TtsServiceVersion),
             new NpgsqlParameter("@recoveryErrors",EnrichmentRecoveryPolicy.Recoverable.ToArray()),
-            new NpgsqlParameter("@recoveryPolicy",EnrichmentRecoveryPolicy.ReceiptSuffix),new NpgsqlParameter("@demandWord",wordId ?? "")];
+            new NpgsqlParameter("@recoveryPolicy",EnrichmentRecoveryPolicy.ReceiptSuffix)];
         return context.Database.SqlQueryRaw<EnrichmentAdminRow>(sql, parameters);
     }
 }
