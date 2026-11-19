@@ -15,6 +15,7 @@ interface KeyMetadata {
 const path = '/admin/api-keys'
 const items = ref<KeyMetadata[]>([])
 const callerId = ref('')
+const learning = ref(false)
 const catalog = ref(false)
 const meaningSubmissions = ref(false)
 const issuedKey = ref('')
@@ -24,7 +25,7 @@ const generation = sessionGeneration.value
 const controller = new AbortController()
 const isCurrent = () => !controller.signal.aborted && generation === sessionGeneration.value
 const config = { signal: controller.signal, lxIsCurrent: isCurrent }
-const scopeLabels: Record<string, string> = { catalog: '词汇目录与出题', 'meaning-submissions': '释义投稿' }
+const scopeLabels: Record<string, string> = { learning: '学生词汇学习', catalog: '词汇目录与出题', 'meaning-submissions': '释义投稿' }
 const time = (unixMs: number) => new Date(unixMs).toLocaleString()
 
 async function refresh() {
@@ -46,8 +47,9 @@ async function run(action: () => Promise<void>, failure: string) {
 }
 
 async function issue() {
-  if (issuedKey.value || !callerId.value.trim() || (!catalog.value && !meaningSubmissions.value)) return
+  if (issuedKey.value || !callerId.value.trim() || (!catalog.value && !meaningSubmissions.value && !learning.value)) return
   const scopes: string[] = []
+  if (learning.value) scopes.push('learning')
   if (catalog.value) scopes.push('catalog')
   if (meaningSubmissions.value) scopes.push('meaning-submissions')
   await run(async () => {
@@ -88,11 +90,12 @@ onMounted(() => { void run(refresh, '无法读取 API Key 列表。') })
         <el-input id="api-key-caller" v-model="callerId" :disabled="busy" :maxlength="2048" autocomplete="off" />
         <fieldset>
           <legend>权限</legend>
+          <label><input v-model="learning" type="checkbox" :disabled="busy"> 学生词汇学习</label>
           <label><input v-model="catalog" type="checkbox" :disabled="busy"> 词汇目录与出题</label>
           <label><input v-model="meaningSubmissions" type="checkbox" :disabled="busy"> 释义投稿</label>
         </fieldset>
         <p>轮换时使用相同标识签发新 Key，接入方切换后再撤销旧 Key。</p>
-        <el-button type="primary" native-type="submit" :disabled="busy || !!issuedKey || !callerId.trim() || (!catalog && !meaningSubmissions)">签发 Key</el-button>
+        <el-button type="primary" native-type="submit" :disabled="busy || !!issuedKey || !callerId.trim() || (!catalog && !meaningSubmissions && !learning)">签发 Key</el-button>
       </form>
       <p role="status" aria-live="polite" aria-label="API Key 状态">{{ notice }}</p>
       <div v-if="issuedKey" class="one-time-key">

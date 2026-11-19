@@ -4,7 +4,7 @@ Lexarbor selects and generates one complete question for a caller's target meani
 The catalog and submission routes share regular question types and letter-hiding
 rules. Catalog review also uses vocabulary relations.
 The single-question, batch-question and submission `/question` routes share the
-[business API key requirements](BusinessApiKeys.md). No student ID, history, question batch, answer or schedule is stored.
+[business API key requirements](BusinessApiKeys.md). These generator routes are stateless. Persisted sessions and answer scheduling use the [learner progress API](LearnerProgress.md).
 
 ## Routes and requests
 

@@ -1,2 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
+    <InternalsVisibleTo Include="Lexarbor.Service" />
+    <InternalsVisibleTo Include="Lexarbor.Host" />
+    <InternalsVisibleTo Include="Lexarbor.Domain.Tests" />
+  </ItemGroup>
 </Project>

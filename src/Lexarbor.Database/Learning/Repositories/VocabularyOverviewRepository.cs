@@ -1,0 +1,110 @@
+using System.Data;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Storage;
+using Lexarbor.Learning.Domain.Models;
+using Lexarbor.Learning.Domain.Repositories;
+
+namespace Lexarbor.Learning.Database.Repositories;
+
+public sealed class VocabularyOverviewRepository(LearningDbContext context) : IVocabularyOverviewRepository
+{
+    public async Task<IVocabularyOverviewSnapshot> OpenAsync(Guid studentId, CancellationToken cancellationToken = default)
+    {
+        await using var live = await OpenLiveAsync(studentId, cancellationToken).ConfigureAwait(false);
+        var cards = live.StudentExists ? await live.ReadCardsAsync(cancellationToken).ConfigureAwait(false) : [];
+        // Materialize the consistent database snapshot before the caller waits for catalog HTTP.
+        return new MaterializedSnapshot(live.StudentExists, live.ActivePlan, cards);
+    }
+
+    private async Task<IVocabularyOverviewSnapshot> OpenLiveAsync(Guid studentId, CancellationToken cancellationToken)
+    {
+        var transaction = await context.Database.BeginTransactionAsync(IsolationLevel.RepeatableRead, cancellationToken)
+            .ConfigureAwait(false);
+        try
+        {
+            await context.Database.ExecuteSqlRawAsync("SET TRANSACTION READ ONLY", cancellationToken).ConfigureAwait(false);
+            // Fixed projections use EF's relational command pipeline without per-request query compilation.
+            await using var rows = await ExecuteReaderAsync(context, """
+                SELECT s.id, p.id, p.book_id, p.unit_ids, p.daily_new_words, p.controller::integer,
+                    p.controller_teacher_id, p.status::integer, p.start_date, p.total_words,
+                    p.version, p.created_at, p.updated_at, p.segments
+                FROM learner_identity s
+                LEFT JOIN vocab_plan p ON p.student_id = s.id AND p.status = 1
+                WHERE s.id = {0}
+                """, studentId, cancellationToken).ConfigureAwait(false);
+            var exists = await rows.ReadAsync(cancellationToken).ConfigureAwait(false);
+            var reader = rows.DbDataReader;
+            VocabPlanModel? plan = null;
+            if (exists && !reader.IsDBNull(1))
+            {
+                plan = new VocabPlanModel
+                {
+                    StudentId = reader.GetGuid(0), Id = reader.GetGuid(1),
+                    Segments = VocabPlanRepository.DeserializeSegments(reader.GetString(13), reader.GetString(2),
+                        reader.IsDBNull(3) ? null : reader.GetString(3)),
+                    DailyNewWords = reader.GetInt32(4),
+                    Controller = (VocabPlanController)reader.GetInt32(5),
+                    ControllerTeacherId = reader.IsDBNull(6) ? null : reader.GetGuid(6),
+                    Status = (VocabPlanStatus)reader.GetInt32(7), StartDate = reader.GetFieldValue<DateOnly>(8),
+                    TotalWords = reader.GetInt32(9), Version = reader.GetInt32(10),
+                    CreatedAt = reader.GetFieldValue<DateTimeOffset>(11), UpdatedAt = reader.GetFieldValue<DateTimeOffset>(12),
+                };
+            }
+            return new Snapshot(context, transaction, studentId, exists, plan);
+        }
+        catch
+        {
+            await transaction.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    private static Task<RelationalDataReader> ExecuteReaderAsync(LearningDbContext context, string sql,
+        Guid studentId, CancellationToken cancellationToken)
+    {
+        var command = context.GetService<IRawSqlCommandBuilder>().Build(sql, [studentId]);
+        return command.RelationalCommand.ExecuteReaderAsync(new RelationalCommandParameterObject(
+            context.GetService<IRelationalConnection>(), command.ParameterValues, null, context,
+            context.GetService<IRelationalCommandDiagnosticsLogger>()), cancellationToken);
+    }
+
+    private sealed class MaterializedSnapshot(bool exists, VocabPlanModel? plan, IReadOnlyList<MemoryCardModel> cards) : IVocabularyOverviewSnapshot
+    {
+        public bool StudentExists => exists;
+        public VocabPlanModel? ActivePlan => plan;
+        public Task<IReadOnlyList<MemoryCardModel>> ReadCardsAsync(CancellationToken cancellationToken = default)
+        { cancellationToken.ThrowIfCancellationRequested(); return Task.FromResult(cards); }
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class Snapshot(LearningDbContext context, IDbContextTransaction transaction,
+        Guid studentId, bool exists, VocabPlanModel? plan) : IVocabularyOverviewSnapshot
+    {
+        public bool StudentExists => exists;
+        public VocabPlanModel? ActivePlan => plan;
+
+        public async Task<IReadOnlyList<MemoryCardModel>> ReadCardsAsync(CancellationToken cancellationToken = default)
+        {
+            await using var rows = await ExecuteReaderAsync(context, """
+                SELECT word_key, meaning_key, stability, due_at
+                FROM vocab_memory_card WHERE student_id = {0}
+                """, studentId, cancellationToken).ConfigureAwait(false);
+            var cards = new List<MemoryCardModel>();
+            var reader = rows.DbDataReader;
+            while (await rows.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                cards.Add(new MemoryCardModel
+                {
+                    StudentId = studentId, WordKey = reader.GetString(0), MeaningKey = reader.GetString(1),
+                    Stability = reader.IsDBNull(2) ? null : reader.GetDouble(2), DueAt = reader.GetFieldValue<DateTimeOffset>(3),
+                });
+            }
+            return cards;
+        }
+
+        // No commit or SaveChanges: disposing rolls back the read-only transaction on every path.
+        public ValueTask DisposeAsync() => transaction.DisposeAsync();
+    }
+}

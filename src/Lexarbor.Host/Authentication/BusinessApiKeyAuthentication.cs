@@ -37,6 +37,8 @@ public sealed class BusinessApiKeyAuthentication(
 
         var identity = new ClaimsIdentity(SchemeName);
         identity.AddClaim(new Claim(BusinessApiAuthorization.CallerClaim, caller.CallerId));
+        if (caller.Learning)
+            identity.AddClaim(new Claim(BusinessApiAuthorization.ScopeClaim, BusinessApiAuthorization.Learning));
         if (caller.Catalog)
             identity.AddClaim(new Claim(BusinessApiAuthorization.ScopeClaim, BusinessApiAuthorization.Catalog));
         if (caller.MeaningSubmissions)
