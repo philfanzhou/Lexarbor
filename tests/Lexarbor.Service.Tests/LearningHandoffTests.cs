@@ -25,6 +25,12 @@ public sealed class LearningHandoffTests
         client.DefaultRequestHeaders.Remove("X-Api-Key");
         client.DefaultRequestHeaders.Add("X-Api-Key", await host.SeedKeyAsync("first", catalog: false, learning: true));
         Assert.Equal(HttpStatusCode.NoContent, (await client.PutAsync($"{Root}/learners/{student}", null, Ct)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/api/vocabulary-books/all", Ct)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/integration/vocabulary/search?keyword=example", Ct)).StatusCode);
+        var routes = host.Services.GetRequiredService<Microsoft.AspNetCore.Routing.EndpointDataSource>().Endpoints
+            .OfType<Microsoft.AspNetCore.Routing.RouteEndpoint>().Select(route => route.RoutePattern.RawText);
+        Assert.DoesNotContain(Root + "/api/vocabulary/catalog/books", routes);
+        Assert.DoesNotContain(Root + "/api/vocabulary/notebook/search", routes);
         var storage = host.Services.GetRequiredService<LearningStorage>();
         await using var db = new LearningDbContext(storage.Options("first"));
         // A free review has no plan. This issued snapshot survives catalog changes and provider outages.

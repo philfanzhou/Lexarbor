@@ -3,18 +3,6 @@ using Lexarbor.Learning.Domain.Services;
 
 namespace Lexarbor.Learning.Service;
 
-public sealed record LexarborBook(
-    string Id,
-    string BookName,
-    string? Description,
-    string? Category,
-    string? EducationLevel,
-    string? Grade,
-    string? Publisher,
-    int? DisplayOrder,
-    bool? Status,
-    string? IconUrl);
-
 public sealed record LexarborUnit(string Id, int Number, string? Title, int WordCount, int MeaningCount);
 
 public sealed record LexarborEntryPosition(string UnitId, int UnitNumber, string? Section, string? EntryKind);
@@ -53,6 +41,5 @@ public sealed record LexarborLearningQuestionRequest(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     VocabQuestionRelation? Relation = null);
 
-internal sealed record LexarborBookList(List<LexarborBook> Books);
 
 internal sealed record LexarborUnitList(List<LexarborUnit> Units);

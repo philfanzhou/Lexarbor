@@ -9,8 +9,6 @@ public interface ILexarborClient
     Task<LexarborAudio> GetAudioAsync(string wordId, string bookId, string meaningId, string locale,
         CancellationToken cancellationToken = default);
 
-    Task<IReadOnlyList<LexarborBook>> GetBooksAsync(CancellationToken cancellationToken = default);
-
     Task<IReadOnlyList<LexarborUnit>> GetUnitsAsync(string bookId, CancellationToken cancellationToken = default);
     Task<LexarborEntryPage> GetEntriesAsync(string bookId, string? unitId, int page, int size, CancellationToken cancellationToken = default);
 

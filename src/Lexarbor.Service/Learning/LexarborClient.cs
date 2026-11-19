@@ -23,12 +23,6 @@ public sealed partial class LexarborClient : ILexarborClient
         _logger = logger;
     }
 
-    public async Task<IReadOnlyList<LexarborBook>> GetBooksAsync(CancellationToken cancellationToken = default)
-    {
-        var books = await GetListAsync<LexarborBookList, IReadOnlyList<LexarborBook>>("api/vocabulary-books/all", BookNotFound, static list => (IReadOnlyList<LexarborBook>)list.Books, cancellationToken).ConfigureAwait(false);
-        return books.Where(book => !IsSupplementary(book.Id)).ToList();
-    }
-
     public Task<IReadOnlyList<LexarborUnit>> GetUnitsAsync(string bookId, CancellationToken cancellationToken = default)
     {
         RejectSupplementary(bookId);

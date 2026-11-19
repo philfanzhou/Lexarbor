@@ -12,26 +12,12 @@ public static partial class VocabularyNotebookHttpEndpoints
     public static IEndpointRouteBuilder MapVocabularyNotebookHttpEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/vocabulary");
-        group.MapGet("/notebook/search", Search);
         group.MapGet("/students/{studentId:guid}/notebook", List);
         group.MapPost("/students/{studentId:guid}/notebook/items", Add);
         group.MapPost("/students/{studentId:guid}/notebook/items/{itemId:guid}/remove", Remove);
         group.MapPost("/students/{studentId:guid}/notebook/items/{itemId:guid}/resubmit", Resubmit);
         group.MapPost("/students/{studentId:guid}/notebook/photo", Photo).DisableAntiforgery();
         return app;
-    }
-
-    private static async Task<IResult> Search([FromQuery] string? keyword, VocabularyNotebookService service, CancellationToken cancellationToken)
-    {
-        try
-        {
-            var items = await service.SearchAsync(keyword, cancellationToken).ConfigureAwait(false);
-            return Results.Ok(new { success = true, data = new { items } });
-        }
-        catch (Exception error) when (IsMapped(error))
-        {
-            return MapError(error);
-        }
     }
 
     private static async Task<IResult> List(Guid studentId, VocabularyNotebookService service, CancellationToken cancellationToken)

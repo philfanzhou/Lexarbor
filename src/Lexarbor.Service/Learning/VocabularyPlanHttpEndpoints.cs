@@ -14,9 +14,6 @@ public static class VocabularyPlanHttpEndpoints
     {
         var group = app.MapGroup("/api/vocabulary");
 
-        group.MapGet("/catalog/books", GetCatalogBooks);
-        group.MapGet("/catalog/books/{bookId}/units", GetCatalogBookUnits);
-
         group.MapGet("/students/{studentId:guid}/plan", GetStudentPlan);
         group.MapPost("/students/{studentId:guid}/plans", CreatePlan);
         group.MapPut("/plans/{planId:guid}", UpdatePlan);
@@ -26,41 +23,6 @@ public static class VocabularyPlanHttpEndpoints
         group.MapPost("/plans/batch-get", BatchGetPlans);
 
         return app;
-    }
-
-
-    private static async Task<IResult> GetCatalogBooks(ILexarborClient lexarbor, CancellationToken cancellationToken)
-    {
-        try
-        {
-            var books = await lexarbor.GetBooksAsync(cancellationToken).ConfigureAwait(false);
-            return Results.Ok(new { success = true, data = new { books } });
-        }
-        catch (Exception error)
-        {
-            return MapDomainError(error);
-        }
-    }
-
-    private static async Task<IResult> GetCatalogBookUnits(
-        string bookId,
-        ILexarborClient lexarbor,
-        CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(bookId))
-        {
-            return Error(400, "VOCAB_BOOK_ID_REQUIRED", "Book id is required.");
-        }
-
-        try
-        {
-            var units = await lexarbor.GetUnitsAsync(bookId.Trim(), cancellationToken).ConfigureAwait(false);
-            return Results.Ok(new { success = true, data = new { units } });
-        }
-        catch (Exception error)
-        {
-            return MapDomainError(error);
-        }
     }
 
 
