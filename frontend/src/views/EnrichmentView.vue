@@ -35,6 +35,7 @@ const retryable = computed(() => detail.value && detail.value.task.applicable &&
   && detail.value.task.state === 'Failed' && detail.value.task.current.state === 'Failed')
 const historyTotal = computed(() => detail.value ? Math.max(...[detail.value.rounds, detail.value.calls, detail.value.waits, detail.value.cleanup].map(p => p.totalCount)) : 0)
 function time(value: number | null) { return value === null ? '未安排' : new Date(value).toLocaleString() }
+function taskActionLabel(task: EnrichmentTask) { return task.state === 'Failed' ? '查看并处理' : '查看详情' }
 function nextTime(task: EnrichmentTask) { if (task.automaticRecoveryAvailable) return '后台即将自动恢复'; if (task.current.automaticRecovery && task.state === 'Failed') return '自动恢复已停止，待复核'; return !task.missing || !task.applicable ? '无需处理' : task.state === 'Failed' ? '处理原因后可重试' : task.waitReason === 'PreparationPending' ? '前置发音准备完成后自动继续' : task.waitReason === 'ConfigurationMissing' || task.waitReason === 'StorageDisabled' ? '配置就绪后自动继续' : task.current.nextAttemptAtUnixMs ? time(task.current.nextAttemptAtUnixMs) : task.state === 'Running' ? '正在处理' : '后台自动安排' }
 function focusStep(step: string) { filters.step = filters.step === step ? '' : step; search() }
 function quick(value: string) { attentionOnly.value = value === 'attention'; filters.state = value === 'attention' ? '' : value; search() }
@@ -229,7 +230,7 @@ onBeforeUnmount(() => { stop(); document.removeEventListener('visibilitychange',
                   <td><strong class="word">{{ task.word ?? '词条已删除' }}</strong><p v-if="task.meaning" class="meaning">{{ task.meaning }}</p><span class="muted">{{ activityLabels[task.step] ?? stepLabels[task.step] }} · {{ task.locale === null ? '不限口音' : task.locale === 'en-GB' ? '英式 UK' : '美式 US' }}{{ task.step === 'Audio' && task.meaningId ? ' · 释义专用' : '' }}</span></td>
                   <td><span class="badge" :class="task.state === 'Failed' && !task.automaticRecoveryAvailable ? 'attention' : task.state === 'Succeeded' ? 'success' : 'neutral'">{{ taskStateLabel(task) }}</span><p>{{ !task.applicable || !task.missing ? taskLabel(task) : task.automaticRecoveryAvailable || task.current.automaticRecovery ? taskLabel(task) : task.current.errorCode && task.state === 'Failed' ? errorLabel(task.current.errorCode) : task.waitReason ? reasonLabel(task.waitReason) : taskLabel(task) }}</p><p v-if="task.cleanup.waiting || task.cleanup.running" class="muted">旧音频在后台清理，不影响本次生成结果。</p></td>
                   <td class="muted">{{ nextTime(task) }}</td>
-                  <td><button ref="taskButtons" :data-task-id="task.id" type="button" class="text-button" :disabled="mutating || !!pending && pending.id !== task.id" :aria-label="`查看 ${task.word ?? task.wordId} ${task.locale ?? '不限口音'} ${stepLabels[task.step]} 详情`" @click="select(task)">{{ task.state === 'Failed' ? '查看并处理' : '查看详情' }}</button></td>
+                  <td><button ref="taskButtons" :data-task-id="task.id" type="button" class="text-button" :disabled="mutating || !!pending && pending.id !== task.id" :aria-label="`${taskActionLabel(task)}，${task.word ?? task.wordId} ${task.locale ?? '不限口音'} ${stepLabels[task.step]}`" @click="select(task)">{{ taskActionLabel(task) }}</button></td>
                 </tr>
               </tbody>
             </table>
