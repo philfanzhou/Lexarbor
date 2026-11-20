@@ -45,8 +45,13 @@ public sealed class LearningStorage(string catalogConnection)
             await database.Database.ExecuteSqlRawAsync("CREATE TABLE learning_schema_version (version integer PRIMARY KEY, store_id uuid NOT NULL DEFAULT gen_random_uuid(), generation uuid); INSERT INTO learning_schema_version (version) VALUES (1)", token);
         }
         var current = await database.Database.SqlQueryRaw<int>("SELECT version AS \"Value\" FROM learning_schema_version").SingleAsync(token);
-        if (current == 1) await ApplyAsync(database, "ArchiveV2.sql", token);
-        else if (current != 2) throw new InvalidOperationException("Unsupported learner storage version.");
+        if (current == 1)
+        {
+            await ApplyAsync(database, "ArchiveV2.sql", token);
+            current = 2;
+        }
+        if (current == 2) await ApplyAsync(database, "UnitPracticeV3.sql", token);
+        else if (current != 3) throw new InvalidOperationException("Unsupported learner storage version.");
         await transaction.CommitAsync(token);
         initialized.TryAdd(schema, true);
     }

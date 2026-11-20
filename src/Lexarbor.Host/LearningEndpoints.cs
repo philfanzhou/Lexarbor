@@ -22,6 +22,7 @@ internal static class LearningEndpoints
                 ?? throw new InvalidOperationException("Missing learner caller identity.");
             return new LearningDbContext(provider.GetRequiredService<LearningStorage>().Options(caller));
         });
+        services.AddScoped<UnitPracticeRepository>();
         services.AddScoped<ILearnerDirectory, LearnerDirectory>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<IMemoryCardRepository, MemoryCardRepository>();
@@ -90,6 +91,7 @@ internal static class LearningEndpoints
             await db.Learners.Where(row => row.Id == id).ExecuteDeleteAsync(ct);
             return Results.NoContent();
         });
+        group.MapUnitPractice();
         group.MapVocabularyPlanHttpEndpoints();
         group.MapVocabularyNotebookHttpEndpoints();
         group.MapVocabularyFamilyHttpEndpoints();

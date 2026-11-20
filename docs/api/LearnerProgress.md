@@ -15,6 +15,31 @@ A trusted backend sends its issued secret in `X-Api-Key` over HTTPS. The key nee
 
 For example, a caller can register a learner with `PUT /learning/v1/learners/629f852c-c0f8-46a5-9ac7-355c00ba28f3` and fetch `GET /learning/v1/api/vocabulary/students/629f852c-c0f8-46a5-9ac7-355c00ba28f3/plan`. Vocabulary responses use the existing `success` and `data` envelope. Errors include a message and may include a business error code. For a previously issued choice question, post `studentId`, `optionId`, `elapsedMs`, `localDate` and `tzOffsetMinutes` to its answer route. Retry using the original question ID.
 
+## Unit practice
+
+Use `/learning/v1/api/vocabulary/students/{studentId}/unit-practice` as the base path. Register the learner first. A learner can practice a unit without an active daily plan. Each learner has one current session across devices. Starting a replacement removes the previous session and its answers.
+
+| Method and relative path | Request | Result |
+| --- | --- | --- |
+| `GET` at the base path | No body | The current session, or `data: null` |
+| `POST` at the base path | `sessionId` (a fresh client-generated UUID), `bookId`, `unitId`, optional `previousSessionId` | Starts round 1. Repeat with the same UUID and scope to resume. To replace a session, supply its UUID as `previousSessionId`. |
+| `POST /{sessionId}/answers` | `questionId` and either `answer` (the full English spelling) or `unknown: true` | Returns `questionId`, `correct` and the target word and meaning. The first submission for a question wins. |
+| `PUT /{sessionId}/rounds/{round}` | No body | Starts the next round of outstanding mistakes. Round numbers start at 2 for the first retry. Repeating the current retry round resumes it. |
+
+The start request snapshots distinct word and meaning pairs from the selected unit, including previously learned words. A catalog error or empty unit leaves the current session intact. Reading and answering an existing session work during catalog outages. Practice answers have their own question IDs and never enter daily tasks, check-ins, FSRS scheduling or review logs.
+
+For example, a start request can send:
+
+```json
+{"sessionId":"eeeed4a4-706e-44df-944b-370c6a50e909","bookId":"book-1","unitId":"unit-3"}
+```
+
+Display the meaning and optional part of speech from `nextQuestion` and ask for the English spelling. When multiple targets have the same prompt, display the optional `spellingHint`, which shows the word length and distinguishes competing spellings. Submit its opaque `questionId` with the answer. Grading ignores surrounding whitespace and letter case. Fetch the current session after answering to obtain the next prompt. `total`, `answered` and `firstPassCorrect` refer to distinct meaning targets in the first pass. `roundTotal` and `roundAnswered` describe the current round. A null `nextQuestion` means that round is complete. The end-of-round `mistakes` list contains first-pass misses and marks those corrected during retries. A new retry round gets fresh question IDs for the remaining misses. First-pass question IDs stay valid for the lifetime of the session. A new retry for a target replaces its previous retry question ID.
+
+To add a missed meaning to the notebook, send its returned `target.word` and `target.meaningId` to the existing `POST /learning/v1/api/vocabulary/students/{studentId}/notebook/items` route with an authorized actor after the student selects it.
+
+An invalid body returns 400. An unknown learner, session or question returns 404. A stale replacement or invalid round transition returns 409. An empty unit or disabled book returns 422. A catalog outage during session creation returns 503.
+
 ## Migration-aware backends
 
 Bind the discovered store UUID with `X-Learning-Store` and verify the response header of the same name. A store with a published generation requires its UUID in `X-Learning-Generation`. During an operator-controlled rotation a gateway can include the pending UUID in `X-Learning-Pending` while blocking the learner being transferred. A mismatched binding or stale generation returns 409 before executing the operation. Storage discovery is available across generation changes. On delivery errors, retry against the current authoritative store.
