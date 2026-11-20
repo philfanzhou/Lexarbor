@@ -104,7 +104,7 @@ public static class UnitPracticeEndpoints
             return Error(status, error.ErrorCode, error.Message);
         }
         catch (DbUpdateException error) when (error.InnerException is PostgresException
-               { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: "vocab_unit_practice_session_id_key" })
+        { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: "vocab_unit_practice_session_id_key" })
         {
             return Conflict();
         }

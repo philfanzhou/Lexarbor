@@ -26,10 +26,22 @@ public static class UnitPracticeSpelling
                 var others = spellings.Where(s => s.Letters.Length == letters.Length
                     && !string.Equals(s.Target.Word, target.Word, StringComparison.OrdinalIgnoreCase)).ToList();
                 var hint = Enumerable.Repeat("_", letters.Length).ToArray();
+                var revealed = 0;
                 for (var i = 0; i < letters.Length && others.Count > 0; i++)
                 {
+                    // If every position is needed, describe the remaining alternatives at
+                    // the last position. Showing that letter would give away the full answer.
+                    if (i == letters.Length - 1 && revealed == i)
+                    {
+                        var excluded = others.Select(s => Rune.ToUpperInvariant(s.Letters[i])).Distinct();
+                        hint[i] = $"[≠{string.Join("/", excluded)}]";
+                        break;
+                    }
                     if (others.RemoveAll(s => Rune.ToUpperInvariant(s.Letters[i]) != Rune.ToUpperInvariant(letters[i])) > 0)
+                    {
                         hint[i] = letters[i].ToString();
+                        revealed++;
+                    }
                 }
                 hints[target.MeaningId] = string.Concat(hint);
             }
