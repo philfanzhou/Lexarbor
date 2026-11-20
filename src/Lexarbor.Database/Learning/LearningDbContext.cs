@@ -13,6 +13,8 @@ public class LearningDbContext : DbContext
     }
 
     public DbSet<LearnerIdentity> Learners => Set<LearnerIdentity>();
+    public DbSet<UnitPracticeSession> UnitPracticeSessions => Set<UnitPracticeSession>();
+    public DbSet<UnitPracticeItem> UnitPracticeItems => Set<UnitPracticeItem>();
     public DbSet<MemoryCardEntity> MemoryCards => Set<MemoryCardEntity>();
     public DbSet<MemoryReviewLogEntity> MemoryReviewLogs => Set<MemoryReviewLogEntity>();
     public DbSet<VocabPlanEntity> VocabPlans => Set<VocabPlanEntity>();
@@ -65,6 +67,11 @@ public class LearningDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        modelBuilder.Entity<UnitPracticeSession>().HasOne<LearnerIdentity>().WithMany()
+            .HasForeignKey(s => s.StudentId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<UnitPracticeItem>().HasOne<UnitPracticeSession>().WithMany()
+            .HasForeignKey(i => i.SessionId).HasPrincipalKey(s => s.SessionId).OnDelete(DeleteBehavior.Cascade);
 
         modelBuilder.Entity<MemoryCardEntity>(entity =>
         {

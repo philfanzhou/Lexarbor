@@ -2206,3 +2206,5 @@ must be recovered. Older-image schema-version refusal still applies.
 ## Learner progress
 
 Before connecting a learning backend, configure the catalog and submission clients, match its scheduler settings and verify the authenticated store binding. Include every learner schema in backup and restore rehearsals. See [Learner progress](../api/LearnerProgress.md).
+
+The first authorized learning request after upgrading migrates that caller's learner schema to version 3 in a transaction. The migration adds the latest unit practice session and its targets. Existing learners, daily plans, memory cards, pending questions, store UUID and generation are preserved. Include both new tables in learner backups and transfers. An older learning host that supports only version 2 rejects version 3. Restore a matching pre-upgrade database backup when rolling back.
