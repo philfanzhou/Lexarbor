@@ -31,9 +31,15 @@ public sealed class UnitPracticeRepository(LearningDbContext db)
         var hints = UnitPracticeSpelling.Hints(targets);
         db.UnitPracticeItems.AddRange(targets.Select((target, index) => new UnitPracticeItem
         {
-            SessionId = sessionId, Position = index + 1, WordId = target.WordId, MeaningId = target.MeaningId,
-            Word = target.Word, Meaning = target.Meaning, PartOfSpeech = target.PartOfSpeech,
-            SpellingHint = hints.GetValueOrDefault(target.MeaningId), FirstQuestionId = Guid.NewGuid()
+            SessionId = sessionId,
+            Position = index + 1,
+            WordId = target.WordId,
+            MeaningId = target.MeaningId,
+            Word = target.Word,
+            Meaning = target.Meaning,
+            PartOfSpeech = target.PartOfSpeech,
+            SpellingHint = hints.GetValueOrDefault(target.MeaningId),
+            FirstQuestionId = Guid.NewGuid()
         }));
         await db.SaveChangesAsync(ct);
         return session;
@@ -45,8 +51,11 @@ public sealed class UnitPracticeRepository(LearningDbContext db)
         var round = session.Round;
         var count = await items.GroupBy(i => i.SessionId).Select(g => new
         {
-            Total = g.Count(), Answered = g.Count(i => i.FirstCorrect != null), Correct = g.Count(i => i.FirstCorrect == true),
-            RetryTotal = g.Count(i => i.RetryRound == round), RetryAnswered = g.Count(i => i.RetryRound == round && i.RetryCorrect != null)
+            Total = g.Count(),
+            Answered = g.Count(i => i.FirstCorrect != null),
+            Correct = g.Count(i => i.FirstCorrect == true),
+            RetryTotal = g.Count(i => i.RetryRound == round),
+            RetryAnswered = g.Count(i => i.RetryRound == round && i.RetryCorrect != null)
         }).SingleAsync(ct);
         var next = await items.Where(i => round == 1 ? i.FirstCorrect == null : i.RetryRound == round && i.RetryCorrect == null)
             .OrderBy(i => i.Position).Select(i => new UnitPracticeQuestion(round == 1 ? i.FirstQuestionId : i.RetryQuestionId!.Value,
