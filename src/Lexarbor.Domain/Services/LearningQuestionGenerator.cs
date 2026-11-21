@@ -13,7 +13,8 @@ public sealed class LearningQuestionGenerator(Func<int, int>? pickIndex = null)
         Func<bool, CancellationToken, Task<VocabularyQuestionModel?>> createChoice,
         CancellationToken cancellationToken = default,
         Func<LearningQuestionType, LearningQuestion?>? createRelated = null,
-        Func<CancellationToken, Task<LearningQuestion?>>? createPartOfSpeechChoice = null)
+        Func<CancellationToken, Task<LearningQuestion?>>? createPartOfSpeechChoice = null,
+        IReadOnlySet<LearningQuestionType>? allowedTypes = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (!Enum.IsDefined(mode)) throw new DomainValidationException("Mode must be new or review.");
@@ -29,6 +30,8 @@ public sealed class LearningQuestionGenerator(Func<int, int>? pickIndex = null)
                 types.AddRange([LearningQuestionType.FormChoice, LearningQuestionType.RelationChoice, LearningQuestionType.FormFill]);
             if (createPartOfSpeechChoice != null) types.Add(LearningQuestionType.PartOfSpeechChoice);
         }
+        // An allowlist narrows the draw; the remaining types keep equal weight.
+        if (allowedTypes != null) types.RemoveAll(type => !allowedTypes.Contains(type));
 
         // A uniform permutation makes the first available type uniform among
         // available types, without querying distractors for a chosen FillLetters.

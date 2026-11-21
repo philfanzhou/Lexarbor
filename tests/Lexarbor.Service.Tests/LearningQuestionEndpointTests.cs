@@ -70,12 +70,41 @@ public sealed class LearningQuestionEndpointTests
     }
 
     [Theory]
+    [InlineData(0, "ChineseToEnglish")]
+    [InlineData(1, "FillLetters")]
+    public async Task TypesRestrictTheReviewDraw(int pick, string expected)
+    {
+        using var factory = new VocabularyWebApplicationFactory();
+        using var host = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+        {
+            services.RemoveAll<LearningQuestionGenerator>();
+            services.AddScoped(_ => new LearningQuestionGenerator(max => pick % max));
+        }));
+        using var client = host.CreateClient();
+        await client.UseCatalogKeyAsync(host);
+        await Seed(host.Services);
+        var body = new { wordId = "w", bookId = "b", meaningId = "m", mode = "review", types = new[] { "ChineseToEnglish", "FillLetters" } };
+        var data = await Success(await client.PostAsJsonAsync(Path, body, Ct));
+        Assert.Equal(expected, data.GetProperty("type").GetString());
+        AssertStructure(data);
+        await Error(await client.PostAsJsonAsync(Path, new { wordId = "w", bookId = "b", meaningId = "m", mode = "new", types = new[] { "ChineseToEnglish" } }, Ct),
+            HttpStatusCode.UnprocessableEntity, "QUESTION_UNAVAILABLE");
+    }
+
+    [Theory]
     [InlineData("{}")]
     [InlineData("null")]
     [InlineData("{")]
     [InlineData("{\"wordId\":\"w\",\"bookId\":\"b\",\"meaningId\":\"m\"}")]
     [InlineData("{\"wordId\":\"w\",\"bookId\":\"b\",\"meaningId\":\"m\",\"mode\":\"Review\"}")]
     [InlineData("{\"wordId\":\"w\",\"bookId\":\"b\",\"meaningId\":\"m\",\"mode\":\"new\",\"sameEntryKind\":\"true\"}")]
+    [InlineData("{\"wordId\":\"w\",\"bookId\":\"b\",\"meaningId\":\"m\",\"mode\":\"review\",\"types\":[]}")]
+    [InlineData("{\"wordId\":\"w\",\"bookId\":\"b\",\"meaningId\":\"m\",\"mode\":\"review\",\"types\":\"FillLetters\"}")]
+    [InlineData("{\"wordId\":\"w\",\"bookId\":\"b\",\"meaningId\":\"m\",\"mode\":\"review\",\"types\":[\"fillLetters\"]}")]
+    [InlineData("{\"wordId\":\"w\",\"bookId\":\"b\",\"meaningId\":\"m\",\"mode\":\"review\",\"types\":[\"3\"]}")]
+    [InlineData("{\"wordId\":\"w\",\"bookId\":\"b\",\"meaningId\":\"m\",\"mode\":\"review\",\"types\":[\"FillLetters\",\"FillLetters\"]}")]
+    [InlineData("{\"wordId\":\"w\",\"bookId\":\"b\",\"meaningId\":\"m\",\"mode\":\"review\",\"types\":[2]}")]
+    [InlineData("{\"wordId\":\"w\",\"bookId\":\"b\",\"meaningId\":\"m\",\"mode\":\"review\",\"types\":null}")]
     public async Task InvalidBodyHasLocal400Envelope(string json)
     {
         using var factory = new VocabularyWebApplicationFactory();

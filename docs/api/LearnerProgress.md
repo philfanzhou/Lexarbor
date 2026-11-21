@@ -22,8 +22,8 @@ Use `/learning/v1/api/vocabulary/students/{studentId}/unit-practice` as the base
 | Method and relative path | Request | Result |
 | --- | --- | --- |
 | `GET` at the base path | No body | The current session, or `data: null` |
-| `POST` at the base path | `sessionId` (a fresh client-generated UUID), `bookId`, `unitId`, optional `previousSessionId` | Starts round 1. Repeat with the same UUID and scope to resume. To replace a session, supply its UUID as `previousSessionId`. |
-| `POST /{sessionId}/answers` | `questionId` and either `answer` (the full English spelling) or `unknown: true` | Returns `questionId`, `correct` and the target word and meaning. The first submission for a question wins. |
+| `POST` at the base path | `sessionId` (a fresh client-generated UUID), `bookId`, `unitId`, optional `mode` and `previousSessionId` | Starts round 1. Repeat with the same UUID, scope and mode to resume. To replace a session, supply its UUID as `previousSessionId`. |
+| `POST /{sessionId}/answers` | `questionId` and exactly one of `answer` (the full English spelling), `optionId`, `letters` or `unknown: true`, matching the question type | Returns `questionId`, `correct`, the target word and meaning, and `correctOptionId` for a choice. The first submission for a question wins. |
 | `PUT /{sessionId}/rounds/{round}` | No body | Starts the next round of outstanding mistakes. Round numbers start at 2 for the first retry. Repeating the current retry round resumes it. |
 
 The start request snapshots distinct word and meaning pairs from the selected unit, including previously learned words. A catalog error or empty unit leaves the current session intact. Reading and answering an existing session work during catalog outages. Practice answers have their own question IDs and never enter daily tasks, check-ins, FSRS scheduling or review logs.
@@ -34,11 +34,37 @@ For example, a start request can send:
 {"sessionId":"eeeed4a4-706e-44df-944b-370c6a50e909","bookId":"book-1","unitId":"unit-3"}
 ```
 
-Display the meaning and optional part of speech from `nextQuestion` and ask for the English spelling. When multiple targets have the same prompt, display the optional `spellingHint`, which shows the word length and distinguishes competing spellings. A bracket such as `[≠R/P]` marks one position where the letter differs from both R and P. This keeps at least one letter hidden even when every position is needed to distinguish the target. Submit its opaque `questionId` with the answer. Grading ignores surrounding whitespace and letter case. Fetch the current session after answering to obtain the next prompt. `total`, `answered` and `firstPassCorrect` refer to distinct meaning targets in the first pass. `roundTotal` and `roundAnswered` describe the current round. A null `nextQuestion` means that round is complete. The end-of-round `mistakes` list contains first-pass misses and marks those corrected during retries. A new retry round gets fresh question IDs for the remaining misses. First-pass question IDs stay valid for the lifetime of the session. A new retry for a target replaces its previous retry question ID.
+### Practice modes
+
+`mode` is `spelling` (the default when omitted), `choice` or `mixed`. Every response reports the session's `mode`. Retry rounds keep it. Starting with a different mode requires a replacement session.
+
+| Mode | Questions |
+| --- | --- |
+| `spelling` | The learner reads the Chinese meaning and writes the full English spelling. |
+| `choice` | A [`ChineseToEnglish`](LearningQuestions.md#selection-and-response-contract) choice for every target. |
+| `mixed` | The catalog `review` draw for every target: `EnglishToChinese`, `ChineseToEnglish`, `FillLetters` or `PartOfSpeechChoice`. Unit practice sends no `relation`, so the three related types do not occur. |
+
+Choice and mixed sessions generate the whole first pass when the session starts. Lexarbor first draws distractors from the selected unit, then from the whole book. A target that still has no question is asked as a spelling question. A catalog outage while generating returns 503 and leaves the current session intact. Each retry round asks the catalog for new questions, so a mixed retry can use a different type than the first pass. If the catalog is unavailable or cannot serve a target, the retry reissues the first-pass question with new option IDs in a new order.
+
+`nextQuestion.type` is `Spelling` or one of those question types. Each question also has `questionId` and `position`. A spelling question has `meaning`, `partOfSpeech` and `spellingHint`, as before modes existed. Other types have `prompt` and follow the [learning-question shapes](LearningQuestions.md#selection-and-response-contract). Choices have four `options` with `optionId` and `text`. `FillLetters` has `pattern`. `PartOfSpeechChoice` also has `anchorWord` and the `partOfSpeech` code. Correct flags and answer words are never sent. Answer a spelling question with `answer`, a choice with one of its `optionId` values and `FillLetters` with `letters`, which holds one letter for each null in `pattern`. `unknown: true` answers any type. A mismatched or malformed answer returns 400.
+
+For example, a choice session starts with:
+
+```json
+{"sessionId":"4e0f1f4c-5b0f-4c55-9a43-1f0d6b8c2e10","bookId":"book-1","unitId":"unit-3","mode":"choice"}
+```
+
+### Spelling questions
+
+Display the meaning and optional part of speech from `nextQuestion` and ask for the English spelling. When multiple targets have the same prompt, display the optional `spellingHint`, which shows the word length and distinguishes competing spellings. A bracket such as `[≠R/P]` marks one position where the letter differs from both R and P. This keeps at least one letter hidden even when every position is needed to distinguish the target. Submit its opaque `questionId` with the answer. Grading ignores surrounding whitespace and letter case.
+
+### Rounds and progress
+
+Fetch the current session after answering to obtain the next prompt. `total`, `answered` and `firstPassCorrect` refer to distinct meaning targets in the first pass. `roundTotal` and `roundAnswered` describe the current round. A null `nextQuestion` means that round is complete. The end-of-round `mistakes` list contains first-pass misses and marks those corrected during retries. A new retry round gets fresh question IDs for the remaining misses. First-pass question IDs stay valid for the lifetime of the session. A new retry for a target replaces its previous retry question ID.
 
 To add a missed meaning to the notebook, send its returned `target.word` and `target.meaningId` to the existing `POST /learning/v1/api/vocabulary/students/{studentId}/notebook/items` route with an authorized actor after the student selects it.
 
-An invalid body returns 400. An unknown learner, session or question returns 404. A stale replacement or invalid round transition returns 409. An empty unit or disabled book returns 422. A catalog outage during session creation returns 503.
+An invalid body or unknown mode returns 400. An unknown learner, session or question returns 404. A stale replacement or invalid round transition returns 409. An empty unit or disabled book returns 422. A catalog outage during session creation returns 503.
 
 ## Migration-aware backends
 

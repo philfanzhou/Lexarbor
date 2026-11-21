@@ -15,9 +15,10 @@ internal static class LearningQuestionEndpoints
         var body = await ReadAsync<LearningQuestionRequest>(request, cancellationToken);
         if (body is null || !TryMode(body.Mode, out var mode)
             || string.IsNullOrWhiteSpace(body.WordId) || string.IsNullOrWhiteSpace(body.BookId)
-            || string.IsNullOrWhiteSpace(body.MeaningId) || !TryRelation(body.Relation, out var relation)) return Invalid();
+            || string.IsNullOrWhiteSpace(body.MeaningId) || !TryRelation(body.Relation, out var relation)
+            || !TryTypes(body.Types, out var types)) return Invalid();
         return await Generate(() => service.CreateLearningQuestionAsync(
-            body.WordId, body.BookId, body.MeaningId, mode, body.UnitId, body.SameEntryKind ?? false, cancellationToken, relation));
+            body.WordId, body.BookId, body.MeaningId, mode, body.UnitId, body.SameEntryKind ?? false, cancellationToken, relation, types));
     }
 
     internal static async Task<IResult> Submission(string id, HttpRequest request, MeaningSubmissionService service, CancellationToken cancellationToken)
@@ -54,6 +55,23 @@ internal static class LearningQuestionEndpoints
             return relation?.IsValid() == true;
         }
         catch (JsonException) { return false; }
+    }
+
+    // Absent means every type the mode allows. Otherwise a nonempty array of distinct, exact type names.
+    private static bool TryTypes(JsonElement value, out IReadOnlySet<LearningQuestionType>? types)
+    {
+        types = null;
+        if (value.ValueKind == JsonValueKind.Undefined) return true;
+        if (value.ValueKind != JsonValueKind.Array || value.GetArrayLength() == 0) return false;
+        var allowed = new HashSet<LearningQuestionType>();
+        foreach (var item in value.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.String || !Enum.TryParse<LearningQuestionType>(item.GetString(), false, out var type)
+                || !Enum.IsDefined(type) || item.GetString() != type.ToString() || !allowed.Add(type))
+                return false;
+        }
+        types = allowed;
+        return true;
     }
 
     private static async Task<IResult> Generate(Func<Task<LearningQuestion>> create)

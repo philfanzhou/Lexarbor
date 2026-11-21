@@ -117,6 +117,43 @@ public sealed class LearningQuestionGeneratorTests
     }
 
     [Fact]
+    public async Task AllowedTypesNarrowTheDrawAndKeepEqualWeight()
+    {
+        HashSet<LearningQuestionType> allowed = [LearningQuestionType.ChineseToEnglish, LearningQuestionType.FillLetters];
+        var counts = new Dictionary<LearningQuestionType, int>();
+        for (var first = 0; first < 2; first++)
+        {
+            var initial = true;
+            var generator = new LearningQuestionGenerator(max =>
+            {
+                if (!initial) return 0;
+                initial = false;
+                Assert.Equal(2, max);
+                return first;
+            });
+            var result = await generator.CreateAsync("happily", "快乐地", LearningQuestionMode.Review,
+                (direction, _) =>
+                {
+                    Assert.True(direction);
+                    return Task.FromResult<VocabularyQuestionModel?>(Choice(direction));
+                }, Ct, _ => throw new InvalidOperationException("Related types are not allowed."),
+                _ => throw new InvalidOperationException("Part-of-speech choice is not allowed."), allowed);
+            counts[result.Type] = counts.GetValueOrDefault(result.Type) + 1;
+        }
+        Assert.Equal([LearningQuestionType.ChineseToEnglish, LearningQuestionType.FillLetters], counts.Keys.Order());
+    }
+
+    [Fact]
+    public async Task AllowedTypesOutsideTheModeAreUnavailable()
+    {
+        var generator = new LearningQuestionGenerator(_ => 0);
+        var failure = await Assert.ThrowsAsync<LearningQuestionException>(() => generator.CreateAsync(
+            "explode", "爆炸", LearningQuestionMode.New, (_, _) => throw new InvalidOperationException("No type may be tried."), Ct,
+            allowedTypes: new HashSet<LearningQuestionType> { LearningQuestionType.ChineseToEnglish }));
+        Assert.Equal(LearningQuestionFailure.Unavailable, failure.Failure);
+    }
+
+    [Fact]
     public async Task NewAttemptsOnlyEnglishToChineseAndDoesNotFallBack()
     {
         var calls = 0;

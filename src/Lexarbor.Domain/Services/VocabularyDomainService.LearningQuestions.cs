@@ -14,8 +14,8 @@ public partial class VocabularyDomainService
     public Task<LearningQuestion> CreateLearningQuestionAsync(
         string wordId, string bookId, string meaningId, LearningQuestionMode mode,
         string? unitId = null, bool sameEntryKind = false, CancellationToken cancellationToken = default,
-        LearningQuestionRelation? relation = null) =>
-        CreateLearningQuestionCoreAsync(wordId, bookId, meaningId, mode, unitId, sameEntryKind, relation, useFamily: true, cancellationToken);
+        LearningQuestionRelation? relation = null, IReadOnlySet<LearningQuestionType>? types = null) =>
+        CreateLearningQuestionCoreAsync(wordId, bookId, meaningId, mode, unitId, sameEntryKind, relation, useFamily: true, cancellationToken, types);
 
     internal Task<LearningQuestion> CreateSubmissionLearningQuestionAsync(
         string wordId, string bookId, string meaningId, LearningQuestionMode mode, CancellationToken cancellationToken) =>
@@ -23,7 +23,8 @@ public partial class VocabularyDomainService
 
     private async Task<LearningQuestion> CreateLearningQuestionCoreAsync(
         string wordId, string bookId, string meaningId, LearningQuestionMode mode, string? unitId, bool sameEntryKind,
-        LearningQuestionRelation? relation, bool useFamily, CancellationToken cancellationToken)
+        LearningQuestionRelation? relation, bool useFamily, CancellationToken cancellationToken,
+        IReadOnlySet<LearningQuestionType>? types = null)
     {
         if (string.IsNullOrWhiteSpace(wordId) || string.IsNullOrWhiteSpace(bookId) || string.IsNullOrWhiteSpace(meaningId))
             throw new DomainValidationException("Word ID, book ID and meaning ID are required.");
@@ -42,7 +43,7 @@ public partial class VocabularyDomainService
                 ? BuildReviewQuestionAsync(word, meaning, scope, direction, token)
                 : BuildQuestionAsync(word, meaning, scope, direction, token),
             cancellationToken, related == null ? null : type => BuildRelatedQuestion(type, word, meaning, relation!, related),
-            partOfSpeech == null ? null : token => BuildPartOfSpeechChoiceAsync(word, meaning, partOfSpeech, scope, token));
+            partOfSpeech == null ? null : token => BuildPartOfSpeechChoiceAsync(word, meaning, partOfSpeech, scope, token), types);
     }
 
     private async Task<LearningQuestion?> BuildPartOfSpeechChoiceAsync(VocabularyModel word, VocabularyMeaningModel meaning,

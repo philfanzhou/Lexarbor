@@ -29,7 +29,8 @@ public sealed record LexarborEntryPage(
 /// <summary>
 /// On-demand question request (Lexarbor POST /api/vocabulary/learning-question). Mode is exactly
 /// "new" or "review"; MeaningId selects the meaning; UnitId limits choice candidates to that unit;
-/// SameEntryKind=true keeps choice candidates of the same entry kind as the target.
+/// SameEntryKind=true keeps choice candidates of the same entry kind as the target; Types, when present,
+/// restricts the draw to those question type names.
 /// </summary>
 public sealed record LexarborLearningQuestionRequest(
     string WordId,
@@ -39,7 +40,9 @@ public sealed record LexarborLearningQuestionRequest(
     string? UnitId,
     bool? SameEntryKind,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    VocabQuestionRelation? Relation = null);
+    VocabQuestionRelation? Relation = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<string>? Types = null);
 
 
 internal sealed record LexarborUnitList(List<LexarborUnit> Units);
