@@ -23,6 +23,7 @@ internal static class LearningEndpoints
             return new LearningDbContext(provider.GetRequiredService<LearningStorage>().Options(caller));
         });
         services.AddScoped<UnitPracticeRepository>();
+        services.AddScoped<UnitPracticeQuestionSource>();
         services.AddScoped<ILearnerDirectory, LearnerDirectory>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<IMemoryCardRepository, MemoryCardRepository>();

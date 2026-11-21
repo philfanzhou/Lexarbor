@@ -96,6 +96,7 @@ internal static class LexarborLearningQuestionReader
             default: return null;
         }
         if (request.Mode == NewMode && direction != VocabQuestionDirection.EnglishToChinese) return null;
+        if (request.Types is { } allowed && !allowed.Contains(type)) return null;
         if (direction.IsLinked())
             return request.Mode == ReviewMode && request.Relation is { } relation
                 ? DecodeLinked(data, direction, prompt, relation.Type) : null;

@@ -12,6 +12,7 @@ public sealed class UnitPracticeSession
     [Column("book_id")] public required string BookId { get; set; }
     [Column("unit_id")] public required string UnitId { get; set; }
     [Column("round")] public int Round { get; set; } = 1;
+    [Column("mode")] public string Mode { get; set; } = "spelling";
 }
 
 [Table("vocab_unit_practice_item")]
@@ -31,4 +32,7 @@ public sealed class UnitPracticeItem
     [Column("retry_question_id")] public Guid? RetryQuestionId { get; set; }
     [Column("retry_round")] public int RetryRound { get; set; }
     [Column("retry_correct")] public bool? RetryCorrect { get; set; }
+    // Generated questions as JSON; null means a full-spelling question built from this row.
+    [Column("first_question", TypeName = "jsonb")] public string? FirstQuestion { get; set; }
+    [Column("retry_question", TypeName = "jsonb")] public string? RetryQuestion { get; set; }
 }

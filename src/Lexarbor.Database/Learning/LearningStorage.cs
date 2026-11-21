@@ -50,8 +50,13 @@ public sealed class LearningStorage(string catalogConnection)
             await ApplyAsync(database, "ArchiveV2.sql", token);
             current = 2;
         }
-        if (current == 2) await ApplyAsync(database, "UnitPracticeV3.sql", token);
-        else if (current != 3) throw new InvalidOperationException("Unsupported learner storage version.");
+        if (current == 2)
+        {
+            await ApplyAsync(database, "UnitPracticeV3.sql", token);
+            current = 3;
+        }
+        if (current == 3) await ApplyAsync(database, "UnitPracticeModesV4.sql", token);
+        else if (current != 4) throw new InvalidOperationException("Unsupported learner storage version.");
         await transaction.CommitAsync(token);
         initialized.TryAdd(schema, true);
     }

@@ -13,6 +13,7 @@ public sealed class LearningQuestionRequest
     public string? UnitId { get; set; }
     public bool? SameEntryKind { get; set; }
     public JsonElement Relation { get; set; }
+    public JsonElement Types { get; set; }
 }
 
 public sealed class SubmissionLearningQuestionRequest

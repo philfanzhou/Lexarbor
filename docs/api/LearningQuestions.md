@@ -10,7 +10,7 @@ The single-question, batch-question and submission `/question` routes share the
 
 | Route | JSON body | Access |
 | --- | --- | --- |
-| `POST /api/vocabulary/learning-question` | Required `wordId`, `bookId`, `meaningId`, `mode`; optional `unitId`, `sameEntryKind`, `relation` | `X-Api-Key` with `catalog` scope |
+| `POST /api/vocabulary/learning-question` | Required `wordId`, `bookId`, `meaningId`, `mode`; optional `unitId`, `sameEntryKind`, `relation`, `types` | `X-Api-Key` with `catalog` scope |
 | `POST /integration/meaning-submissions/{id}/learning-question` | Required `mode` | `X-Api-Key` with `meaning-submissions` scope; configured `MeaningSubmissions:BookId` |
 
 `mode` is exactly `new` or `review`. IDs must be nonblank. The catalog meaning
@@ -95,6 +95,15 @@ Examples show one possible ordering and pattern, not stable output.
   random ordering tries each type at most once, stopping at the first available
   one. Target/source errors, authentication, storage faults and cancellation
   propagate.
+- The optional catalog `types` field limits the draw to the listed types. It is a
+  nonempty array of distinct, case-sensitive type names from the table below. The
+  draw keeps equal weight among the listed types that can be generated. A listed
+  type outside the mode, such as `ChineseToEnglish` with `new`, is not available.
+  When none of the listed types can be generated, the request returns
+  `QUESTION_UNAVAILABLE`. Any other value, including `null`, returns
+  `QUESTION_INVALID_REQUEST`. For example,
+  `{"wordId":"w","bookId":"b","meaningId":"m","mode":"review","types":["ChineseToEnglish"]}`
+  always asks for a Chinese-to-English choice.
 - With three available types each has probability 1/3. With all seven, each has 1/7.
   Requests have no daily quota, history exclusion, rotation or guaranteed finite
   coverage. They need not produce the same question or a different question.
