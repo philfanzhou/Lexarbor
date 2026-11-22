@@ -10,39 +10,30 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Lexarbor.Service.Tests;
 
-public sealed class DailyNotebookSourceTests
+public sealed class DailyNotebookSourceTests : IAsyncDisposable
 {
+    private readonly List<IAsyncDisposable> _hosts = [];
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
+    public async ValueTask DisposeAsync()
+    {
+        foreach (var host in Enumerable.Reverse(_hosts)) await host.DisposeAsync();
+    }
 
     [Fact]
     public async Task NotebookWordInsidePlanScopeKeepsPlanLocationAndSyncsNotebookOnce()
     {
         var catalog = new DailyCatalog();
         var notebook = new NotebookCatalog();
-        await using var factory = new VocabularyWebApplicationFactory();
-        await using var host = factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
-        {
-            services.AddSingleton<ILexarborClient>(catalog);
-            services.AddSingleton<IVocabularyNotebookCatalog>(notebook);
-        }));
-        using var client = host.CreateClient();
-        client.DefaultRequestHeaders.Add("X-Api-Key", await host.SeedKeyAsync("daily-notebook", catalog: false, learning: true));
-        var student = Guid.NewGuid();
-        var root = $"/learning/v1/api/vocabulary/students/{student}";
-        var actor = new { type = "student" };
-        (await client.PutAsync($"/learning/v1/learners/{student}", null, Ct)).EnsureSuccessStatusCode();
-        await Data(await client.PostAsJsonAsync($"{root}/plans",
-            new { actor, bookId = "book", unitIds = new[] { "one" }, dailyNewWords = 5 }, Ct));
+        var (client, root) = await StudentWithPlanAsync(catalog, notebook);
 
         // The student saves apple from another book; the plan's unit has the same word and meaning.
-        await Data(await client.PostAsJsonAsync($"{root}/notebook/items", new { actor, word = "apple", meaningId = "other-apple-m" }, Ct));
+        await Data(await client.PostAsJsonAsync($"{root}/notebook/items", new { actor = Student, word = "apple", meaningId = "other-apple-m" }, Ct));
         // A pending submission makes every notebook read ask Lexarbor for review results.
-        await Data(await client.PostAsJsonAsync($"{root}/notebook/items", new { actor, word = "plum", meaning = "李子" }, Ct));
+        await Data(await client.PostAsJsonAsync($"{root}/notebook/items", new { actor = Student, word = "plum", meaning = "李子" }, Ct));
         notebook.Lookups = 0;
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd");
-        var next = await Data(await client.PostAsJsonAsync($"{root}/questions/next?localDate={today}&tzOffsetMinutes=0",
-            new { mode = "new" }, Ct));
+        var next = await NextNewAsync(client, root);
         Assert.Equal("apple", next.GetProperty("question").GetProperty("prompt").GetString());
 
         // The notebook keeps its priority, but the question uses the plan's book and unit for its distractors.
@@ -51,15 +42,67 @@ public sealed class DailyNotebookSourceTests
         Assert.Equal(1, notebook.Lookups);
     }
 
+    [Fact]
+    public async Task NotebookLocationStandsInWhenThePlanLocationGivesNoQuestion()
+    {
+        // The plan's book cannot ask the saved meaning, while another meaning of the same word still works.
+        var catalog = new DailyCatalog
+        {
+            Entries = [Entry("pear", "梨"), Entry("apple", "苹果"), Entry("apple", "苹果树", "apple-tree-m")],
+            Unavailable = request => request is { BookId: "book", MeaningId: "apple-m" },
+        };
+        var (client, root) = await StudentWithPlanAsync(catalog, new NotebookCatalog());
+        await Data(await client.PostAsJsonAsync($"{root}/notebook/items", new { actor = Student, word = "apple", meaningId = "other-apple-m" }, Ct));
+
+        await NextNewAsync(client, root);
+
+        Assert.Equal(new[] { ("book", "apple-tree-m"), ("other", "other-apple-m") },
+            catalog.Issued.Select(request => (request.BookId, request.MeaningId)).Order().ToArray());
+    }
+
+    private static readonly object Student = new { type = "student" };
+
+    private async Task<(HttpClient Client, string Root)> StudentWithPlanAsync(DailyCatalog catalog, NotebookCatalog notebook)
+    {
+        var factory = new VocabularyWebApplicationFactory();
+        var host = factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+        {
+            services.AddSingleton<ILexarborClient>(catalog);
+            services.AddSingleton<IVocabularyNotebookCatalog>(notebook);
+        }));
+        _hosts.Add(factory);
+        _hosts.Add(host);
+        var client = host.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Api-Key", await host.SeedKeyAsync("daily-notebook", catalog: false, learning: true));
+        var student = Guid.NewGuid();
+        var root = $"/learning/v1/api/vocabulary/students/{student}";
+        (await client.PutAsync($"/learning/v1/learners/{student}", null, Ct)).EnsureSuccessStatusCode();
+        await Data(await client.PostAsJsonAsync($"{root}/plans",
+            new { actor = Student, bookId = "book", unitIds = new[] { "one" }, dailyNewWords = 5 }, Ct));
+        return (client, root);
+    }
+
+    private static async Task<JsonElement> NextNewAsync(HttpClient client, string root)
+    {
+        var today = DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd");
+        return await Data(await client.PostAsJsonAsync($"{root}/questions/next?localDate={today}&tzOffsetMinutes=0",
+            new { mode = "new" }, Ct));
+    }
+
+    private static LexarborEntry Entry(string word, string meaning, string? meaningId = null) =>
+        new(word, word, word, null, null, meaningId ?? word + "-m", "noun", meaning, meaning, null, [new("one", 1, null, null)]);
+
     private sealed class DailyCatalog : ILexarborClient
     {
+        public List<LexarborEntry> Entries { get; init; } = [Entry("pear", "梨"), Entry("apple", "苹果")];
+        public Func<LexarborLearningQuestionRequest, bool> Unavailable { get; init; } = _ => false;
         public ConcurrentQueue<LexarborLearningQuestionRequest> Requests { get; } = new();
+        public ConcurrentQueue<LexarborLearningQuestionRequest> Issued { get; } = new();
 
         public Task<LexarborEntryPage> GetEntriesAsync(string bookId, string? unitId, int page, int size, CancellationToken cancellationToken)
         {
             Assert.Equal("book", bookId);
-            List<LexarborEntry> entries = [Entry("pear", "梨"), Entry("apple", "苹果")];
-            return Task.FromResult(new LexarborEntryPage(entries, 1, entries.Count, entries.Count));
+            return Task.FromResult(new LexarborEntryPage(Entries, 1, Entries.Count, Entries.Select(entry => entry.Word).Distinct().Count()));
         }
 
         public Task<IReadOnlyList<LexarborUnit>> GetUnitsAsync(string bookId, CancellationToken cancellationToken) =>
@@ -71,12 +114,11 @@ public sealed class DailyNotebookSourceTests
         public Task<VocabGeneratedQuestion?> GetLearningQuestionAsync(LexarborLearningQuestionRequest request, CancellationToken cancellationToken)
         {
             Requests.Enqueue(request);
+            if (Unavailable(request)) return Task.FromResult<VocabGeneratedQuestion?>(null);
+            Issued.Enqueue(request);
             return Task.FromResult<VocabGeneratedQuestion?>(new(VocabQuestionDirection.EnglishToChinese, request.WordId,
                 [new("苹果", true), new("梨", false), new("李子", false), new("葡萄", false)]));
         }
-
-        private static LexarborEntry Entry(string word, string meaning) =>
-            new(word, word, word, null, null, word + "-m", "noun", meaning, meaning, null, [new("one", 1, null, null)]);
     }
 
     private sealed class NotebookCatalog : IVocabularyNotebookCatalog

@@ -446,7 +446,8 @@ public sealed partial class VocabularyLearningService
         foreach (var item in scope) planned.TryAdd(ScopeKey(item), item);
         var seen = new HashSet<CardKey>();
         // A notebook meaning the plan also covers keeps its notebook priority but is learned at the plan's
-        // location first, so its question keeps the plan's book and unit; the notebook location is the fallback.
+        // location, so its question keeps the plan's book and unit. Its notebook location takes the place only
+        // once the plan location is unavailable (IssueFromRosterAsync also tries it directly).
         return notebook.OrderBy(item => item.FamilyOnly)
             .SelectMany(item => planned.TryGetValue(ScopeKey(item), out var plannedItem)
                 ? [plannedItem with { FamilyOnly = item.FamilyOnly, FromNotebook = true }, item with { InPlanScope = true }]
@@ -569,6 +570,7 @@ public sealed partial class VocabularyLearningService
     {
         var unavailableLocations = unavailable.ToHashSet();
         roster.RemoveAll(word => unavailableLocations.Contains(word with { UsesFamilyQuota = null }));
+        IReadOnlyList<VocabularyPlanScopeEntry>? notebook = null;
         foreach (var chunk in roster.GroupBy(word => word.WordKey, StringComparer.Ordinal).ToList().Chunk(WordChunkSize))
         {
             var keys = chunk.SelectMany(word => word).Select(word => new CardKey(word.WordKey, word.MeaningKey)).ToList();
@@ -586,6 +588,23 @@ public sealed partial class VocabularyLearningService
                     var entry = new VocabularyScopeEntry(meaning.WordId, meaning.WordKey, meaning.MeaningId, meaning.MeaningKey, meaning.UnitId);
                     var question = await CreateQuestionAsync(plan.StudentId, plan.Id, meaning.BookId, kind, entry,
                         meaning.UnitId, issuedAt, cancellationToken).ConfigureAwait(false);
+                    if (question is null && _notebookSource is not null)
+                    {
+                        // A notebook meaning the plan also covers is learned at the plan's location; when that
+                        // location gives no question, its notebook location still can.
+                        notebook ??= await _notebookSource.ReadNewWordSourcesAsync(plan.StudentId, cancellationToken).ConfigureAwait(false);
+                        var fallback = notebook.Select(item => ToDailyWord(item) with { UsesFamilyQuota = meaning.UsesFamilyQuota })
+                            .FirstOrDefault(item => item.WordKey == meaning.WordKey && item.MeaningKey == meaning.MeaningKey
+                                && item != meaning && !unavailableLocations.Contains(item with { UsesFamilyQuota = null }));
+                        if (fallback is not null)
+                        {
+                            question = await CreateQuestionAsync(plan.StudentId, plan.Id, fallback.BookId, kind,
+                                new VocabularyScopeEntry(fallback.WordId, fallback.WordKey, fallback.MeaningId, fallback.MeaningKey, null),
+                                null, issuedAt, cancellationToken).ConfigureAwait(false);
+                            if (question is null) unavailable.Add(fallback with { UsesFamilyQuota = null });
+                            else roster[roster.IndexOf(meaning)] = fallback;
+                        }
+                    }
                     if (question is null)
                     {
                         unavailable.Add(meaning with { UsesFamilyQuota = null });

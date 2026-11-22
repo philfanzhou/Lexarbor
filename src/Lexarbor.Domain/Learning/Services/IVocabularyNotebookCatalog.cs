@@ -48,6 +48,7 @@ public interface IVocabularyNotebookCatalog
 
     Task<IReadOnlyList<VocabMeaningSubmission>> LookupAsync(IReadOnlyCollection<string> ids, CancellationToken cancellationToken = default);
 }
+
 /// <summary>A student's ready notebook items in the order they were added, and the card keys of pending items.</summary>
 public sealed record VocabNotebookLearningSources(
     IReadOnlyList<VocabularyPlanScopeEntry> NewWords,
