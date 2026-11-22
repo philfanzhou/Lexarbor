@@ -19,6 +19,8 @@ For example, a caller can register a learner with `PUT /learning/v1/learners/629
 
 Use `/learning/v1/api/vocabulary/students/{studentId}/unit-practice` as the base path. Register the learner first. A learner can practice a unit without an active daily plan. Each learner has one current session across devices. Starting a replacement removes the previous session and its answers.
 
+Populate the book picker with `GET /api/vocabulary-books/unit-practice` using a catalog-scoped key. It returns enabled books in display order under `data.books` and excludes the book Lexarbor created for automatic vocabulary expansion. A manually imported book remains eligible even if an administrator configures it as the expansion destination. Use `GET /api/vocabulary-books/{bookId}/units` to load the selected book’s units.
+
 | Method and relative path | Request | Result |
 | --- | --- | --- |
 | `GET` at the base path | No body | The current session, or `data: null` |

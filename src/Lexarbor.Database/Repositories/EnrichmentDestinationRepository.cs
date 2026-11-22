@@ -7,7 +7,7 @@ namespace Lexarbor.Database.Repositories;
 public sealed class EnrichmentDestinationRepository(VocabularyDbContext context) : IEnrichmentDestinationRepository
 {
     private readonly UnitOfWork _writer = new(context);
-    private const string Role = "expansion";
+    internal const string ExpansionRole = "expansion";
 
     public async Task<EnrichmentDestination> ReadAsync(string? configuredBookId, CancellationToken token)
     {
@@ -15,7 +15,7 @@ public sealed class EnrichmentDestinationRepository(VocabularyDbContext context)
         var configured = string.IsNullOrWhiteSpace(configuredBookId) ? null
             : await context.VocabularyBooks.AsNoTracking().SingleOrDefaultAsync(b => b.Id == configuredBookId, token);
         if (configured != null) return new(configured.Id, configured.Status ? "Ready" : "Disabled", false);
-        var id = await context.EnrichmentDestinations.AsNoTracking().Where(d => d.Id == Role).Select(d => d.BookId).SingleOrDefaultAsync(token);
+        var id = await context.EnrichmentDestinations.AsNoTracking().Where(d => d.Id == ExpansionRole).Select(d => d.BookId).SingleOrDefaultAsync(token);
         var managed = id == null ? null : await context.VocabularyBooks.AsNoTracking().SingleOrDefaultAsync(b => b.Id == id, token);
         return managed == null ? new(null, "Missing", true) : new(managed.Id, managed.Status ? "Ready" : "Disabled", true);
     }
@@ -38,8 +38,8 @@ public sealed class EnrichmentDestinationRepository(VocabularyDbContext context)
                 UpdatedAt = DateTimeOffset.FromUnixTimeMilliseconds(now)
             };
             context.VocabularyBooks.Add(book);
-            var destination = await context.EnrichmentDestinations.SingleOrDefaultAsync(d => d.Id == Role, token);
-            if (destination == null) context.EnrichmentDestinations.Add(new() { Id = Role, BookId = book.Id });
+            var destination = await context.EnrichmentDestinations.SingleOrDefaultAsync(d => d.Id == ExpansionRole, token);
+            if (destination == null) context.EnrichmentDestinations.Add(new() { Id = ExpansionRole, BookId = book.Id });
             else destination.BookId = book.Id;
             await context.SaveChangesAsync(token);
             context.ChangeTracker.Clear();
