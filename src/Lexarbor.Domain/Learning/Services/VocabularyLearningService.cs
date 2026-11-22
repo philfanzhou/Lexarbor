@@ -448,10 +448,10 @@ public sealed partial class VocabularyLearningService
         // A notebook meaning the plan also covers keeps its notebook priority but is learned at the plan's
         // location, so its question keeps the plan's book and unit. Its notebook location takes the place only
         // once the plan location is unavailable (IssueFromRosterAsync also tries it directly).
-        return notebook.OrderBy(item => item.FamilyOnly)
+        return notebook.OrderBy(item => item.Source == VocabularySourceKind.NotebookFamily)
             .SelectMany(item => planned.TryGetValue(ScopeKey(item), out var plannedItem)
-                ? [plannedItem with { FamilyOnly = item.FamilyOnly, FromNotebook = true }, item with { InPlanScope = true }]
-                : new[] { item with { InPlanScope = false } })
+                ? [plannedItem with { Source = item.Source }, item with { CoveredByPlan = true }]
+                : new[] { item with { CoveredByPlan = false } })
             .Concat(scope)
             .Where(item => unavailable?.Contains(ToDailyWord(item)) != true)
             .Where(item => seen.Add(ScopeKey(item)))
@@ -476,7 +476,7 @@ public sealed partial class VocabularyLearningService
     private static List<IGrouping<string, VocabularyPlanScopeEntry>> SelectNewWords(
         IReadOnlyList<IGrouping<string, VocabularyPlanScopeEntry>> eligible, int target, int groupSize)
     {
-        var familyRemaining = eligible.Any(word => word.Any(item => item.InPlanScope)) ? Math.Max(1, groupSize / 3) : int.MaxValue;
+        var familyRemaining = eligible.Any(word => word.Any(item => item.CoveredByPlan)) ? Math.Max(1, groupSize / 3) : int.MaxValue;
         var selected = new List<IGrouping<string, VocabularyPlanScopeEntry>>();
         foreach (var word in OrderNewWords(eligible))
         {
@@ -492,10 +492,10 @@ public sealed partial class VocabularyLearningService
     }
 
     private static bool ManualNotebookWord(IEnumerable<VocabularyPlanScopeEntry> word) =>
-        word.Any(item => item.FromNotebook && !item.FamilyOnly);
+        word.Any(item => item.Source == VocabularySourceKind.Notebook);
 
     private static bool UsesFamilyQuota(IEnumerable<VocabularyPlanScopeEntry> word) =>
-        word.Any(item => item.FamilyOnly) && !ManualNotebookWord(word) && !word.Any(item => item.InPlanScope);
+        word.Any(item => item.Source == VocabularySourceKind.NotebookFamily) && !ManualNotebookWord(word) && !word.Any(item => item.CoveredByPlan);
 
     private static IEnumerable<IGrouping<string, VocabularyPlanScopeEntry>> OrderNewWords(
         IEnumerable<IGrouping<string, VocabularyPlanScopeEntry>> words) =>
@@ -538,7 +538,7 @@ public sealed partial class VocabularyLearningService
         var unlearned = sources.Where(item => !existing.Contains(new(item.Entry.NormalizedWord, item.Entry.MeaningKey))).ToList();
         var assigned = roster.Select(word => word.WordKey).Concat(learnedWords).Concat(reviewKeys.Select(key => key.WordKey))
             .ToHashSet(StringComparer.Ordinal);
-        var familyLimit = unlearned.Any(item => item.InPlanScope) ? Math.Max(1, groupSize / 3) : int.MaxValue;
+        var familyLimit = unlearned.Any(item => item.CoveredByPlan) ? Math.Max(1, groupSize / 3) : int.MaxValue;
         var familyWords = sources.GroupBy(item => item.Entry.NormalizedWord, StringComparer.Ordinal)
             .Where(UsesFamilyQuota).Select(word => word.Key).ToHashSet(StringComparer.Ordinal);
         var familyUsed = roster.Where(word => word.UsesFamilyQuota ?? familyWords.Contains(word.WordKey))
@@ -552,7 +552,7 @@ public sealed partial class VocabularyLearningService
         if (questions.Count == 0 && familyUsed >= familyLimit)
         {
             var failedLocations = unavailable.ToHashSet();
-            if (!unlearned.Any(item => item.InPlanScope && !failedLocations.Contains(ToDailyWord(item))))
+            if (!unlearned.Any(item => item.CoveredByPlan && !failedLocations.Contains(ToDailyWord(item))))
             {
                 // The last eligible plan meanings failed during this scan. The family quota no longer applies.
                 reserve = candidates.Where(UsesFamilyQuota).SelectMany(SnapshotNewWord).ToList();
