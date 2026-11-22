@@ -503,7 +503,11 @@ failed and cannot be claimed again after service recovery. Unsupported capabilit
 or invalid configuration can stop without making a request. Disabled, missing
 configuration/storage and service-pause waits consume neither requests nor failure
 budget. Every wait event retains its reason, time and next attempt separately from
-the latest round state. Network I/O and waiting occur outside writer transactions.
+the latest round state. A wait that the worker records while polling (a busy local
+permit, an unfinished preparation, missing configuration or storage, or a paused
+service) extends the round's latest wait instead of adding a row when its reason and
+error code match. Waits that follow a call or a reclaimed lease always add a row.
+Network I/O and waiting occur outside writer transactions.
 
 `ClaimAsync` atomically admits only one owner and increments its fencing token;
 expiry is exclusive. It can reclaim an expired running round without clearing its
