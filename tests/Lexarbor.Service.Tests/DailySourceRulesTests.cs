@@ -130,24 +130,91 @@ public sealed class DailySourceRulesTests : IAsyncDisposable
         Assert.Equal(["m2", "f1", "p3"], batch.Words.Select(word => word.WordKey).Distinct().ToArray());
     }
 
+    [Fact]
+    public async Task ACreatedCardRecordsWhereAndFromWhichSourceItWasLearned()
+    {
+        var learner = await LearnerAsync(new SourceCatalog(Plan("p1", "p2", "p3")), dailyNewWords: 4);
+        await learner.AddNotebookAsync(Manual("m1"), Family("f1"), Family("p3", Meaning("p3")));
+
+        for (var answered = 0; answered < 4; answered++) await learner.AnswerAsync(await learner.NextNewAsync());
+
+        Assert.Equal(new Dictionary<string, (string, string, string, VocabularySourceKind?)>
+        {
+            ["m1"] = ("other", "m1-w", "m1-other-m", VocabularySourceKind.Notebook),
+            ["f1"] = ("other", "f1-w", "f1-other-m", VocabularySourceKind.NotebookFamily),
+            // Learned at the plan's location, but it came from the notebook.
+            ["p3"] = ("book", "p3", "p3-m", VocabularySourceKind.NotebookFamily),
+            ["p1"] = ("book", "p1", "p1-m", VocabularySourceKind.Plan),
+        }, await learner.LocationsAsync());
+    }
+
+    [Fact]
+    public async Task ANotebookWordLearnedAtItsNotebookLocationKeepsTheNotebookSource()
+    {
+        var catalog = new SourceCatalog(Plan("p1")) { Unavailable = request => request is { BookId: "book", MeaningId: "p1-m" } };
+        var learner = await LearnerAsync(catalog, dailyNewWords: 1);
+        await learner.AddNotebookAsync(Manual("p1", Meaning("p1")));
+
+        await learner.AnswerAsync(await learner.NextNewAsync());
+
+        Assert.Equal(("other", "p1-w", "p1-other-m", (VocabularySourceKind?)VocabularySourceKind.Notebook),
+            (await learner.LocationsAsync())["p1"]);
+    }
+
+    [Fact]
+    public async Task AReviewUsesTheSavedLocationWhateverQuestionsCameLater()
+    {
+        var catalog = new SourceCatalog(Plan("p1"));
+        var learner = await LearnerAsync(catalog, dailyNewWords: 1);
+        await learner.AnswerAsync(await learner.NextNewAsync());
+        await learner.AddLaterQuestionAsync("p1", "expired-elsewhere", answered: false);
+        await learner.AddLaterQuestionAsync("p1", "answered-elsewhere", answered: true);
+        learner.NextDay();
+
+        var review = await learner.NextReviewAsync();
+
+        Assert.Equal("question", review.GetProperty("status").GetString());
+        Assert.Equal(("book", "p1-m"), (catalog.Requests.Last().BookId, catalog.Requests.Last().MeaningId));
+    }
+
+    [Fact]
+    public async Task TheLatestAnsweredLocationStandsInWithoutMovingTheSavedOne()
+    {
+        var catalog = new SourceCatalog(Plan("p1"));
+        var learner = await LearnerAsync(catalog, dailyNewWords: 1);
+        await learner.AnswerAsync(await learner.NextNewAsync());
+        await learner.AddLaterQuestionAsync("p1", "answered-elsewhere", answered: true);
+        await learner.AddLaterQuestionAsync("p1", "expired-elsewhere", answered: false);
+        learner.NextDay();
+        catalog.Unavailable = request => request.BookId == "book";
+
+        var review = await learner.NextReviewAsync();
+
+        Assert.Equal("question", review.GetProperty("status").GetString());
+        Assert.Equal("answered-elsewhere", catalog.Requests.Last().BookId);
+        Assert.Equal("book", (await learner.LocationsAsync())["p1"].Item1);
+    }
+
     private static List<LexarborEntry> Plan(params string[] words) => words.Select(word =>
         new LexarborEntry(word, word, word, null, null, word + "-m", "noun", Meaning(word), Meaning(word), null, [new("one", 1, null, null)]))
         .ToList();
 
     private static string Meaning(string word) => word + " meaning";
 
-    private static NotebookSeed Manual(string word) => new(word, Meaning(word), FamilyOnly: false, WithFamily: false);
+    private static NotebookSeed Manual(string word, string? meaning = null) => new(word, meaning ?? Meaning(word), FamilyOnly: false, WithFamily: false);
 
     private static NotebookSeed Family(string word, string? meaning = null, bool familyOnly = true) =>
         new(word, meaning ?? Meaning(word), familyOnly, WithFamily: true);
 
     private async Task<Learner> LearnerAsync(SourceCatalog catalog, int dailyNewWords)
     {
+        var clock = new Clock();
         var factory = new VocabularyWebApplicationFactory();
         var host = factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
         {
             services.AddSingleton<ILexarborClient>(catalog);
             services.AddSingleton<IVocabularyNotebookCatalog>(new EmptyNotebookCatalog());
+            services.AddSingleton<TimeProvider>(clock);
         }));
         _hosts.Add(factory);
         _hosts.Add(host);
@@ -155,7 +222,7 @@ public sealed class DailySourceRulesTests : IAsyncDisposable
         client.DefaultRequestHeaders.Add("X-Api-Key", await host.SeedKeyAsync(Caller, catalog: false, learning: true));
         var student = Guid.NewGuid();
         (await client.PutAsync($"/learning/v1/learners/{student}", null, Ct)).EnsureSuccessStatusCode();
-        var learner = new Learner(host, client, student);
+        var learner = new Learner(host, client, student, clock);
         await Data(await client.PostAsJsonAsync($"{learner.Root}/plans",
             new { actor = Student, bookId = "book", unitIds = new[] { "one" }, dailyNewWords }, Ct));
         return learner;
@@ -163,12 +230,19 @@ public sealed class DailySourceRulesTests : IAsyncDisposable
 
     private sealed record NotebookSeed(string Word, string Meaning, bool FamilyOnly, bool WithFamily);
 
-    private sealed class Learner(WebApplicationFactory<Program> host, HttpClient client, Guid student)
+    /// <summary>The server's learning calendar follows this clock, so a test can move to the next day.</summary>
+    private sealed class Clock : TimeProvider
     {
-        // The server's learning calendar uses Beijing dates, which differ from UTC dates for part of each day.
-        private static DateOnly Day => LearningDay.Today();
+        public DateTimeOffset Now { get; set; } = DateTimeOffset.UtcNow;
 
-        private static string Today => Day.ToString("yyyy-MM-dd");
+        public override DateTimeOffset GetUtcNow() => Now;
+    }
+
+    private sealed class Learner(WebApplicationFactory<Program> host, HttpClient client, Guid student, Clock clock)
+    {
+        private DateOnly Day => LearningDay.Today(clock);
+
+        private string Today => Day.ToString("yyyy-MM-dd");
         private DateTimeOffset _addedAt = DateTimeOffset.UtcNow.AddHours(-1);
 
         public string Root { get; } = $"/learning/v1/api/vocabulary/students/{student}";
@@ -237,6 +311,37 @@ public sealed class DailySourceRulesTests : IAsyncDisposable
         public async Task<string[]> RosterAsync() =>
             (await TasksAsync()).NewWords.Select(word => word.WordKey).Distinct().ToArray();
 
+        public async Task<Dictionary<string, (string, string, string, VocabularySourceKind?)>> LocationsAsync()
+        {
+            await using var db = Open();
+            return await db.VocabCardLocations.AsNoTracking().Where(row => row.StudentId == student)
+                .ToDictionaryAsync(row => row.WordKey,
+                    row => (row.BookId, row.WordId, row.MeaningId, (VocabularySourceKind?)row.Source), Ct);
+        }
+
+        /// <summary>A question for the word after it was learned, at another book.</summary>
+        public async Task AddLaterQuestionAsync(string word, string bookId, bool answered)
+        {
+            await using var db = Open();
+            var option = Guid.NewGuid();
+            var options = JsonSerializer.Serialize(new[] { new { optionId = option.ToString("D"), text = "right" } });
+            DateTimeOffset? answeredAt = answered ? DateTimeOffset.UtcNow.AddMinutes(1) : null;
+            await db.Database.ExecuteSqlAsync($"""
+                INSERT INTO vocab_issued_question(id, student_id, kind, word_key, meaning_key, word_id, meaning_id, book_id,
+                    direction, prompt, options_snapshot, correct_option_id, issued_at, expires_at, answered_at)
+                VALUES ({Guid.NewGuid()}, {student}, 2, {word}, {Meaning(word)}, {word + "-x"}, {word + "-x-m"}, {bookId},
+                    1, {word}, {options}, {option}, now() + interval '1 minute', now() + interval '2 minutes', {answeredAt})
+                """, Ct);
+            if (!answered)
+                await db.Database.ExecuteSqlAsync(
+                    $"UPDATE vocab_issued_question SET expires_at = now() - interval '1 minute' WHERE book_id = {bookId}", Ct);
+        }
+
+        /// <summary>Moves to the next learning day, whose daily reviews include every learned card.</summary>
+        public void NextDay() => clock.Now = clock.Now.AddDays(1);
+
+        public Task<JsonElement> NextReviewAsync() => NextAsync("review");
+
         private async Task<JsonElement> NextAsync(string mode) =>
             await Data(await client.PostAsJsonAsync($"{Root}/questions/next?localDate={Today}&tzOffsetMinutes=0", new { mode }, Ct));
 
@@ -246,7 +351,7 @@ public sealed class DailySourceRulesTests : IAsyncDisposable
 
     private sealed class SourceCatalog(List<LexarborEntry> entries) : ILexarborClient
     {
-        public Func<LexarborLearningQuestionRequest, bool> Unavailable { get; init; } = _ => false;
+        public Func<LexarborLearningQuestionRequest, bool> Unavailable { get; set; } = _ => false;
         public ConcurrentQueue<LexarborLearningQuestionRequest> Requests { get; } = new();
 
         public Task<LexarborEntryPage> GetEntriesAsync(string bookId, string? unitId, int page, int size, CancellationToken cancellationToken)

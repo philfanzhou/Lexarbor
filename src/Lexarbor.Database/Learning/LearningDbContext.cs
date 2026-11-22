@@ -16,6 +16,7 @@ public class LearningDbContext : DbContext
     public DbSet<UnitPracticeSession> UnitPracticeSessions => Set<UnitPracticeSession>();
     public DbSet<UnitPracticeItem> UnitPracticeItems => Set<UnitPracticeItem>();
     public DbSet<MemoryCardEntity> MemoryCards => Set<MemoryCardEntity>();
+    public DbSet<VocabCardLocationEntity> VocabCardLocations => Set<VocabCardLocationEntity>();
     public DbSet<MemoryReviewLogEntity> MemoryReviewLogs => Set<MemoryReviewLogEntity>();
     public DbSet<VocabPlanEntity> VocabPlans => Set<VocabPlanEntity>();
     public DbSet<VocabPlanChangeEntity> VocabPlanChanges => Set<VocabPlanChangeEntity>();
@@ -72,6 +73,9 @@ public class LearningDbContext : DbContext
             .HasForeignKey(s => s.StudentId).OnDelete(DeleteBehavior.Cascade);
         modelBuilder.Entity<UnitPracticeItem>().HasOne<UnitPracticeSession>().WithMany()
             .HasForeignKey(i => i.SessionId).HasPrincipalKey(s => s.SessionId).OnDelete(DeleteBehavior.Cascade);
+
+        // The table and its foreign key to the card come from CardLocationV6.sql.
+        modelBuilder.Entity<VocabCardLocationEntity>(entity => entity.HasKey(e => new { e.StudentId, e.WordKey, e.MeaningKey }));
 
         modelBuilder.Entity<MemoryCardEntity>(entity =>
         {

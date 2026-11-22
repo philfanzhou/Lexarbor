@@ -168,14 +168,8 @@ public sealed partial class VocabularyLearningService
             var batch = new List<VocabIssuedQuestionModel>();
             foreach (var key in word)
             {
-                var latest = await _questionRepository.FindLatestByCardKeyAsync(plan.StudentId, key.WordKey, key.MeaningKey, cancellationToken).ConfigureAwait(false);
-                VocabIssuedQuestionModel? question = null;
-                if (latest is not null && !string.IsNullOrWhiteSpace(latest.BookId) && !string.IsNullOrWhiteSpace(latest.WordId) && !string.IsNullOrWhiteSpace(latest.MeaningId))
-                {
-                    var card = await _cardRepository.FindAsync(plan.StudentId, key.WordKey, key.MeaningKey, cancellationToken).ConfigureAwait(false);
-                    question = await CreateQuestionAsync(plan.StudentId, plan.Id, latest.BookId, VocabQuestionKind.Review,
-                        new(latest.WordId, key.WordKey, latest.MeaningId, key.MeaningKey, null), null, now, cancellationToken, card?.State).ConfigureAwait(false);
-                }
+                var card = await _cardRepository.FindAsync(plan.StudentId, key.WordKey, key.MeaningKey, cancellationToken).ConfigureAwait(false);
+                var question = await CreateReviewQuestionAsync(plan.StudentId, plan.Id, key, card?.State, now, cancellationToken).ConfigureAwait(false);
                 if (question is null) unavailable.Add(key);
                 else batch.Add(question);
             }

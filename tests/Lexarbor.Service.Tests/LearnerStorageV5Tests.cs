@@ -35,7 +35,7 @@ public sealed class LearnerStorageV5Tests
         await storage.EnsureAsync(caller, Ct);
         await new LearningStorage(database.ConnectionString).EnsureAsync(caller, Ct);
 
-        Assert.Equal(5, await db.Database.SqlQuery<int>($"SELECT version AS \"Value\" FROM learning_schema_version").SingleAsync(Ct));
+        Assert.Equal(6, await db.Database.SqlQuery<int>($"SELECT version AS \"Value\" FROM learning_schema_version").SingleAsync(Ct));
         Assert.Empty(await db.Database.SqlQuery<string>($"""
             SELECT column_name AS "Value" FROM information_schema.columns
             WHERE table_schema = current_schema()
@@ -179,7 +179,7 @@ public sealed class LearnerStorageV5Tests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => storage.EnsureAsync(caller, abandoned.Token));
 
         var deadline = DateTime.UtcNow.AddSeconds(30);
-        while (await db.Database.SqlQuery<int>($"SELECT version AS \"Value\" FROM learning_schema_version").SingleAsync(Ct) != 5)
+        while (await db.Database.SqlQuery<int>($"SELECT version AS \"Value\" FROM learning_schema_version").SingleAsync(Ct) != 6)
         {
             Assert.True(DateTime.UtcNow < deadline, "The upgrade did not finish after its request was abandoned.");
             await Task.Delay(100, Ct);

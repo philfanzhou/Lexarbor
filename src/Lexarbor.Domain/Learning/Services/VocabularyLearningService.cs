@@ -26,6 +26,7 @@ public sealed partial class VocabularyLearningService
     private readonly IVocabIssuedQuestionRepository _questionRepository;
     private readonly IVocabAttemptRepository _attemptRepository;
     private readonly IMemoryCardRepository _cardRepository;
+    private readonly IVocabCardLocationRepository _cardLocationRepository;
     private readonly VocabularyMemoryService _memoryService;
     private readonly VocabularyPlanService _planService;
     private readonly IVocabularyScopeEntryReader _scopeEntryReader;
@@ -42,6 +43,7 @@ public sealed partial class VocabularyLearningService
         IVocabIssuedQuestionRepository questionRepository,
         IVocabAttemptRepository attemptRepository,
         IMemoryCardRepository cardRepository,
+        IVocabCardLocationRepository cardLocationRepository,
         VocabularyMemoryService memoryService,
         VocabularyPlanService planService,
         IVocabularyScopeEntryReader scopeEntryReader,
@@ -58,6 +60,7 @@ public sealed partial class VocabularyLearningService
         _questionRepository = questionRepository;
         _attemptRepository = attemptRepository;
         _cardRepository = cardRepository;
+        _cardLocationRepository = cardLocationRepository;
         _memoryService = memoryService;
         _planService = planService;
         _scopeEntryReader = scopeEntryReader;
@@ -228,8 +231,16 @@ public sealed partial class VocabularyLearningService
                     await _questionRepository.MarkAnsweredAsync(question.Id, now, cancellationToken).ConfigureAwait(false);
                     await _attemptRepository.AddAsync(attempt, cancellationToken).ConfigureAwait(false);
                     await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-                    var card = await _memoryService.RecordAsync(
+                    var (card, created) = await _memoryService.RecordAsync(
                         studentId, question.WordKey, question.MeaningKey, rating, now, question.PlanId, cancellationToken).ConfigureAwait(false);
+                    if (created && question.Kind is (VocabQuestionKind.New or VocabQuestionKind.Extra))
+                    {
+                        // The card is reviewed where it was learned; later questions never move it (#443).
+                        await _cardLocationRepository.AddAsync(new VocabCardLocation(studentId,
+                            new CardKey(question.WordKey, question.MeaningKey), question.BookId, question.WordId, question.MeaningId,
+                            question.Source, question.Id, now), cancellationToken).ConfigureAwait(false);
+                        await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                    }
                     await ApplyDayProgressAsync(question, attempt, cancellationToken).ConfigureAwait(false);
                     return new VocabAnswerResult(question.Id, result, question.CorrectOptionId, rating, card.DueAt,
                         fillLetters ? question.AnswerWord : null);
@@ -508,7 +519,7 @@ public sealed partial class VocabularyLearningService
     private static IEnumerable<VocabDailyWord> SnapshotNewWord(IGrouping<string, VocabularyPlanScopeEntry> word)
     {
         var usesFamilyQuota = UsesFamilyQuota(word);
-        return word.Select(item => ToDailyWord(item) with { UsesFamilyQuota = usesFamilyQuota });
+        return word.Select(item => ToDailyWord(item) with { UsesFamilyQuota = usesFamilyQuota, Source = item.Source });
     }
 
     /// <summary>Cards keyed by a pending notebook item wait for approval and are not scheduled (ADR-0027).</summary>
@@ -569,7 +580,7 @@ public sealed partial class VocabularyLearningService
         DateTimeOffset now, CancellationToken cancellationToken)
     {
         var unavailableLocations = unavailable.ToHashSet();
-        roster.RemoveAll(word => unavailableLocations.Contains(word with { UsesFamilyQuota = null }));
+        roster.RemoveAll(word => unavailableLocations.Contains(word.LocationOnly()));
         IReadOnlyList<VocabularyPlanScopeEntry>? notebook = null;
         foreach (var chunk in roster.GroupBy(word => word.WordKey, StringComparer.Ordinal).ToList().Chunk(WordChunkSize))
         {
@@ -593,25 +604,27 @@ public sealed partial class VocabularyLearningService
                         // A notebook meaning the plan also covers is learned at the plan's location; when that
                         // location gives no question, its notebook location still can.
                         notebook ??= await _notebookSource.ReadNewWordSourcesAsync(plan.StudentId, cancellationToken).ConfigureAwait(false);
-                        var fallback = notebook.Select(item => ToDailyWord(item) with { UsesFamilyQuota = meaning.UsesFamilyQuota })
+                        // The word still comes from the notebook: only its location changes.
+                        var fallback = notebook.Select(item => ToDailyWord(item) with { UsesFamilyQuota = meaning.UsesFamilyQuota, Source = meaning.Source })
                             .FirstOrDefault(item => item.WordKey == meaning.WordKey && item.MeaningKey == meaning.MeaningKey
-                                && item != meaning && !unavailableLocations.Contains(item with { UsesFamilyQuota = null }));
+                                && item != meaning && !unavailableLocations.Contains(item.LocationOnly()));
                         if (fallback is not null)
                         {
                             question = await CreateQuestionAsync(plan.StudentId, plan.Id, fallback.BookId, kind,
                                 new VocabularyScopeEntry(fallback.WordId, fallback.WordKey, fallback.MeaningId, fallback.MeaningKey, null),
                                 null, issuedAt, cancellationToken).ConfigureAwait(false);
-                            if (question is null) unavailable.Add(fallback with { UsesFamilyQuota = null });
+                            if (question is null) unavailable.Add(fallback.LocationOnly());
                             else roster[roster.IndexOf(meaning)] = fallback;
                         }
                     }
                     if (question is null)
                     {
-                        unavailable.Add(meaning with { UsesFamilyQuota = null });
+                        unavailable.Add(meaning.LocationOnly());
                         roster.Remove(meaning);
                     }
                     else
                     {
+                        question.Source = meaning.Source;
                         questions.Add(question);
                     }
                 }
@@ -819,12 +832,9 @@ public sealed partial class VocabularyLearningService
             foreach (var card in dueCards)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (paused.Contains(new CardKey(card.WordKey, card.MeaningKey))) continue;
-                var latest = await _questionRepository.FindLatestByCardKeyAsync(studentId, card.WordKey, card.MeaningKey, cancellationToken).ConfigureAwait(false);
-                if (latest is null || string.IsNullOrWhiteSpace(latest.BookId)
-                    || string.IsNullOrWhiteSpace(latest.WordId) || string.IsNullOrWhiteSpace(latest.MeaningId)) continue;
-                var entry = new VocabularyScopeEntry(latest.WordId, card.WordKey, latest.MeaningId, card.MeaningKey, null);
-                var question = await CreateQuestionAsync(studentId, planId, latest.BookId, VocabQuestionKind.Review, entry, null, now, cancellationToken, card.State).ConfigureAwait(false);
+                var key = new CardKey(card.WordKey, card.MeaningKey);
+                if (paused.Contains(key)) continue;
+                var question = await CreateReviewQuestionAsync(studentId, planId, key, card.State, now, cancellationToken).ConfigureAwait(false);
                 if (question is null) continue;
                 cancellationToken.ThrowIfCancellationRequested();
                 await _questionRepository.AddRangeAsync([question], cancellationToken).ConfigureAwait(false);
@@ -834,6 +844,36 @@ public sealed partial class VocabularyLearningService
             var last = dueCards[^1];
             cursor = new MemoryCardCursor(last.DueAt, last.WordKey, last.MeaningKey);
         }
+    }
+
+    /// <summary>
+    /// Reviews a card at the location saved when it was created (#443). Without one, or when it gives no
+    /// question, the latest answered question's location stands in for this question only; the saved
+    /// location never moves. Null when neither gives a question.
+    /// </summary>
+    private async Task<VocabIssuedQuestionModel?> CreateReviewQuestionAsync(Guid studentId, Guid? planId, CardKey key,
+        MemoryCardState? state, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        var saved = await _cardLocationRepository.FindAsync(studentId, key, cancellationToken).ConfigureAwait(false);
+        if (saved is not null)
+        {
+            var question = await CreateQuestionAsync(studentId, planId, saved.BookId, VocabQuestionKind.Review,
+                new(saved.WordId, key.WordKey, saved.MeaningId, key.MeaningKey, null), null, now, cancellationToken, state).ConfigureAwait(false);
+            if (question is not null) return question;
+        }
+        var latest = await _questionRepository.FindLatestAnsweredByCardKeyAsync(studentId, key.WordKey, key.MeaningKey, cancellationToken).ConfigureAwait(false);
+        if (latest is not null && !string.IsNullOrWhiteSpace(latest.BookId) && !string.IsNullOrWhiteSpace(latest.WordId)
+            && !string.IsNullOrWhiteSpace(latest.MeaningId)
+            && (saved is null || (saved.BookId, saved.WordId, saved.MeaningId) != (latest.BookId, latest.WordId, latest.MeaningId)))
+        {
+            var question = await CreateQuestionAsync(studentId, planId, latest.BookId, VocabQuestionKind.Review,
+                new(latest.WordId, key.WordKey, latest.MeaningId, key.MeaningKey, null), null, now, cancellationToken, state).ConfigureAwait(false);
+            if (question is not null) return question;
+        }
+        _logger?.LogInformation(
+            "Vocabulary review skipped (plan {PlanId}): saved location {HasSaved}, answered location {HasAnswered}, no question.",
+            planId, saved is not null, latest is not null);
+        return null;
     }
 
     private async Task<VocabAnswerResult> LoadFirstResultAsync(VocabIssuedQuestionModel question, CancellationToken cancellationToken)

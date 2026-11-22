@@ -103,6 +103,9 @@ public sealed class VocabIssuedQuestionModel
     public string? RelationType { get; set; }
     public VocabFamilyHint? FamilySource { get; set; }
 
+    /// <summary>Where a new or extra question's word came from; null on reviews and on questions issued before V6.</summary>
+    public VocabularySourceKind? Source { get; set; }
+
     public List<VocabQuestionOption> Options { get; set; } = [];
 
     public Guid? CorrectOptionId { get; set; }
