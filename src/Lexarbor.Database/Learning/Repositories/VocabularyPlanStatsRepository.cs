@@ -26,7 +26,7 @@ public sealed class VocabularyPlanStatsRepository(LearningDbContext context) : I
             var reactivations = new Dictionary<Guid, VocabularyPlanReactivation>();
             // One plan query also reads each plan's latest reactivate and the latest complete before it (ADR-0019 continuous plans).
             await using (var rows = await ExecuteReaderAsync(context, """
-                SELECT p.id, p.student_id, p.book_id, p.unit_ids, p.segments, p.status::integer, p.total_words, p.created_at, p.updated_at,
+                SELECT p.id, p.student_id, p.segments, p.status::integer, p.total_words, p.created_at, p.updated_at,
                     r.created_at, c.created_at, p.version
                 FROM vocab_plan p
                 LEFT JOIN LATERAL (SELECT max(created_at) AS created_at FROM vocab_plan_change
@@ -44,16 +44,15 @@ public sealed class VocabularyPlanStatsRepository(LearningDbContext context) : I
                     {
                         Id = id,
                         StudentId = reader.GetGuid(1),
-                        Version = reader.GetInt32(11),
-                        Segments = VocabPlanRepository.DeserializeSegments(reader.GetString(4), reader.GetString(2),
-                            reader.IsDBNull(3) ? null : reader.GetString(3)),
-                        Status = (VocabPlanStatus)reader.GetInt32(5),
-                        TotalWords = reader.GetInt32(6),
-                        CreatedAt = reader.GetFieldValue<DateTimeOffset>(7),
-                        UpdatedAt = reader.GetFieldValue<DateTimeOffset>(8),
+                        Version = reader.GetInt32(9),
+                        Segments = VocabPlanRepository.DeserializeSegments(reader.GetString(2)),
+                        Status = (VocabPlanStatus)reader.GetInt32(3),
+                        TotalWords = reader.GetInt32(4),
+                        CreatedAt = reader.GetFieldValue<DateTimeOffset>(5),
+                        UpdatedAt = reader.GetFieldValue<DateTimeOffset>(6),
                     });
-                    if (!reader.IsDBNull(9) && !reader.IsDBNull(10))
-                        reactivations.Add(id, new(reader.GetFieldValue<DateTimeOffset>(10), reader.GetFieldValue<DateTimeOffset>(9)));
+                    if (!reader.IsDBNull(7) && !reader.IsDBNull(8))
+                        reactivations.Add(id, new(reader.GetFieldValue<DateTimeOffset>(8), reader.GetFieldValue<DateTimeOffset>(7)));
                 }
             }
             return new Snapshot(context, transaction, plans, reactivations);

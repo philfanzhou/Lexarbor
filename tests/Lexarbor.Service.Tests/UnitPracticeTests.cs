@@ -130,7 +130,7 @@ public sealed class UnitPracticeTests
         await db.Database.ExecuteSqlAsync($"INSERT INTO learner_identity(id) VALUES ({student})", Ct);
         await storage.EnsureAsync(caller, Ct);
         await new LearningStorage(database.ConnectionString).EnsureAsync(caller, Ct);
-        Assert.True(await db.Database.SqlQuery<bool>($"SELECT (version=4 AND store_id={storeId} AND generation={generation}) AS \"Value\" FROM learning_schema_version").SingleAsync(Ct));
+        Assert.True(await db.Database.SqlQuery<bool>($"SELECT (version=5 AND store_id={storeId} AND generation={generation}) AS \"Value\" FROM learning_schema_version").SingleAsync(Ct));
         Assert.True(await db.Learners.AnyAsync(s => s.Id == student, Ct));
         Assert.Empty(await db.UnitPracticeSessions.ToListAsync(Ct));
     }
@@ -293,7 +293,7 @@ public sealed class UnitPracticeTests
             VALUES ({session}, 1, 'apple', 'apple-m', 'apple', '苹果', {Guid.NewGuid()})
             """, Ct);
         await storage.EnsureAsync(caller, Ct);
-        Assert.True(await db.Database.SqlQuery<bool>($"SELECT (version=4) AS \"Value\" FROM learning_schema_version").SingleAsync(Ct));
+        Assert.True(await db.Database.SqlQuery<bool>($"SELECT (version=5) AS \"Value\" FROM learning_schema_version").SingleAsync(Ct));
         var saved = await db.UnitPracticeSessions.SingleAsync(Ct);
         Assert.Equal("spelling", saved.Mode);
         var progress = await new UnitPracticeRepository(db).ProgressAsync(saved, Ct);

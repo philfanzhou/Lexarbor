@@ -66,8 +66,6 @@ public class VocabPlanRepository : IVocabPlanRepository
             throw new InvalidOperationException($"Vocabulary plan {plan.Id} is not loaded and cannot be updated.");
         }
 
-        entity.BookId = plan.BookId;
-        entity.UnitIds = SerializeUnitIds(plan.UnitIds);
         entity.Segments = SerializeSegments(plan.Segments);
         entity.DailyNewWords = plan.DailyNewWords;
         entity.Controller = (int)plan.Controller;
@@ -84,36 +82,15 @@ public class VocabPlanRepository : IVocabPlanRepository
         JsonSerializer.Serialize(segments.Select(segment => new VocabPlanSegment(
             segment.BookId, segment.UnitIds is { Count: > 0 } ? segment.UnitIds : null)), UnitIdsJsonOptions);
 
-    /// <summary>Preserve review-only scopes; retain legacy one-book fallback when a book id exists.</summary>
-    internal static List<VocabPlanSegment> DeserializeSegments(string? segments, string bookId, string? unitIds)
-    {
-        var parsed = string.IsNullOrEmpty(segments) ? null : JsonSerializer.Deserialize<List<VocabPlanSegment>>(segments, UnitIdsJsonOptions);
-        if (parsed is null || (parsed.Count == 0 && !string.IsNullOrWhiteSpace(bookId)))
-        {
-            return string.IsNullOrWhiteSpace(bookId) ? [] : [new VocabPlanSegment(bookId, DeserializeUnitIds(unitIds))];
-        }
-        return parsed.Select(segment => segment with { UnitIds = segment.UnitIds is { Count: > 0 } ? segment.UnitIds : null }).ToList();
-    }
-
-    private static string? SerializeUnitIds(List<string>? unitIds) =>
-        unitIds is null || unitIds.Count == 0 ? null : JsonSerializer.Serialize(unitIds, UnitIdsJsonOptions);
-
-    internal static List<string>? DeserializeUnitIds(string? unitIds)
-    {
-        if (string.IsNullOrEmpty(unitIds))
-        {
-            return null;
-        }
-        var parsed = JsonSerializer.Deserialize<List<string>>(unitIds, UnitIdsJsonOptions);
-        return parsed is null || parsed.Count == 0 ? null : parsed;
-    }
+    /// <summary>An empty list is a review-only scope. Learner storage version 5 moved one-book legacy scopes here.</summary>
+    internal static List<VocabPlanSegment> DeserializeSegments(string segments) =>
+        (JsonSerializer.Deserialize<List<VocabPlanSegment>>(segments, UnitIdsJsonOptions) ?? [])
+            .Select(segment => segment with { UnitIds = segment.UnitIds is { Count: > 0 } ? segment.UnitIds : null }).ToList();
 
     private static VocabPlanEntity ToEntity(VocabPlanModel model) => new()
     {
         Id = model.Id,
         StudentId = model.StudentId,
-        BookId = model.BookId,
-        UnitIds = SerializeUnitIds(model.UnitIds),
         Segments = SerializeSegments(model.Segments),
         DailyNewWords = model.DailyNewWords,
         Controller = (int)model.Controller,
@@ -130,7 +107,7 @@ public class VocabPlanRepository : IVocabPlanRepository
     {
         Id = entity.Id,
         StudentId = entity.StudentId,
-        Segments = DeserializeSegments(entity.Segments, entity.BookId, entity.UnitIds),
+        Segments = DeserializeSegments(entity.Segments),
         DailyNewWords = entity.DailyNewWords,
         Controller = (VocabPlanController)entity.Controller,
         ControllerTeacherId = entity.ControllerTeacherId,

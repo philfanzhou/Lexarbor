@@ -175,6 +175,15 @@ public class LearningDbContext : DbContext
             entity.Property(e => e.Direction).HasColumnType("smallint");
             entity.HasIndex(e => new { e.StudentId, e.Kind, e.IssuedAt });
             entity.HasIndex(e => new { e.StudentId, e.WordKey, e.Kind });
+            entity.HasIndex(e => new { e.PlanId, e.Kind, e.IssuedAt, e.Id })
+                  .HasDatabaseName("ix_vocab_issued_question_plan_open")
+                  .HasFilter("answered_at IS NULL");
+            entity.HasIndex(e => new { e.StudentId, e.Kind, e.IssuedAt, e.Id })
+                  .HasDatabaseName("ix_vocab_issued_question_student_open")
+                  .HasFilter("answered_at IS NULL");
+            entity.HasIndex(e => new { e.StudentId, e.WordKey, e.MeaningKey, e.IssuedAt, e.Id })
+                  .HasDatabaseName("ix_vocab_issued_question_student_card")
+                  .IsDescending(false, false, false, true, true);
             entity.HasOne(e => e.Student)
                   .WithMany()
                   .HasForeignKey(e => e.StudentId)

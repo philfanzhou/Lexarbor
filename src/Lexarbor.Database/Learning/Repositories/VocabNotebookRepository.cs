@@ -132,24 +132,14 @@ public sealed class VocabNotebookRepository : IVocabNotebookRepository
             Original = entity.OriginalWord is null || entity.OriginalMeaning is null
                 ? null
                 : new VocabNotebookOriginal(entity.OriginalWord, entity.OriginalPartOfSpeech, entity.OriginalMeaning),
-            FamilySource = entity.FamilySourceWordKey is { } key && entity.FamilySourceWord is { } word
-                && entity.FamilySourceWordId is { } wordId && entity.FamilyRelationType is { } relation && entity.FamilyDirection is { } direction
-                ? new VocabNotebookFamilySource(key, word, wordId, relation, direction,
-                    entity.FamilyRelationId, entity.FamilySourceMeaningId, entity.FamilySourceBookId,
-                    entity.WordId is null || entity.BookId is null || entity.MeaningId is null ? null
-                        : new(entity.WordId, entity.BookId, entity.MeaningId)) : null,
             FamilyOnly = entity.FamilyOnly,
             AddedBy = (VocabNotebookActorType)entity.AddedBy,
             AddedByTeacherId = entity.AddedByTeacherId,
             AddedAt = entity.AddedAt,
             UpdatedAt = entity.UpdatedAt,
         };
-        if (entity.FamilySources.Count > 0)
-        {
-            item.FamilySources.Clear();
-            item.FamilySources.AddRange(entity.FamilySources.OrderBy(source => source.RelationType, StringComparer.Ordinal)
-                .ThenBy(source => source.Id).Select(SourceModel));
-        }
+        item.FamilySources.AddRange(entity.FamilySources.OrderBy(source => source.RelationType, StringComparer.Ordinal)
+            .ThenBy(source => source.Id).Select(SourceModel));
         return item;
     }
 
@@ -177,14 +167,6 @@ public sealed class VocabNotebookRepository : IVocabNotebookRepository
         entity.OriginalWord = item.Original?.Word;
         entity.OriginalPartOfSpeech = item.Original?.PartOfSpeech;
         entity.OriginalMeaning = item.Original?.Meaning;
-        entity.FamilySourceWordKey = item.FamilySource?.WordKey;
-        entity.FamilySourceWord = item.FamilySource?.Word;
-        entity.FamilySourceWordId = item.FamilySource?.WordId;
-        entity.FamilyRelationType = item.FamilySource?.RelationType;
-        entity.FamilyDirection = item.FamilySource?.Direction;
-        entity.FamilyRelationId = item.FamilySource is { HasMeaningPair: true } verified ? verified.RelationId : null;
-        entity.FamilySourceMeaningId = item.FamilySource?.HasMeaningPair == true ? item.FamilySource.MeaningId : null;
-        entity.FamilySourceBookId = item.FamilySource?.HasMeaningPair == true ? item.FamilySource.BookId : null;
         foreach (var original in item.FamilySources)
         {
             var source = original with { Target = original.Target ?? new(item.WordId!, item.BookId!, item.MeaningId!) };
