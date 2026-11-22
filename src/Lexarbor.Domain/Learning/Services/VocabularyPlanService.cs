@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Lexarbor.Learning.Domain.Calendar;
 using Lexarbor.Learning.Domain.Models;
 using Lexarbor.Learning.Domain.Repositories;
 
@@ -18,14 +19,17 @@ public sealed class VocabularyPlanService
     private readonly IVocabPlanDayRepository _dayRepository;
     private readonly IVocabularyPlanScopeReader _scopeReader;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly LearningCalendar _calendar;
 
     public VocabularyPlanService(
         IVocabPlanRepository planRepository,
         IVocabPlanChangeRepository changeRepository,
         IVocabPlanDayRepository dayRepository,
         IVocabularyPlanScopeReader scopeReader,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        LearningCalendar calendar)
     {
+        _calendar = calendar;
         _planRepository = planRepository;
         _changeRepository = changeRepository;
         _dayRepository = dayRepository;
@@ -80,7 +84,7 @@ public sealed class VocabularyPlanService
             Controller = VocabPlanController.Student,
             ControllerTeacherId = null,
             Status = VocabPlanStatus.Active,
-            StartDate = Lexarbor.Learning.Domain.Calendar.LearningDay.From(now),
+            StartDate = _calendar.From(now),
             TotalWords = scope.WordCount,
             Version = 0,
             CreatedAt = now,

@@ -8,7 +8,8 @@ public sealed class VocabularyOverviewService(
     IVocabularyOverviewRepository repository,
     IVocabularyScopeEntryReader scopeReader,
     VocabularyMemoryService memoryService,
-    TimeProvider clock)
+    TimeProvider clock,
+    LearningCalendar calendar)
 {
     public async Task<VocabularyOverview?> GetAsync(
         Guid studentId, int tzOffsetMinutes = 0, CancellationToken cancellationToken = default)
@@ -16,9 +17,9 @@ public sealed class VocabularyOverviewService(
         if (studentId == Guid.Empty) throw new ArgumentException("Student id is required.", nameof(studentId));
         if (tzOffsetMinutes is < -720 or > 840)
             throw new ArgumentOutOfRangeException(nameof(tzOffsetMinutes));
-        tzOffsetMinutes = LearningDay.OffsetMinutes;
         cancellationToken.ThrowIfCancellationRequested();
         var now = clock.GetUtcNow().ToUniversalTime();
+        tzOffsetMinutes = calendar.OffsetMinutes(now);
         await using var snapshot = await repository.OpenAsync(studentId, cancellationToken).ConfigureAwait(false);
         if (!snapshot.StudentExists) return null;
         var plan = snapshot.ActivePlan;
@@ -62,7 +63,7 @@ public sealed class VocabularyOverviewService(
             }
         }
         return new VocabularyOverview(studentId, now,
-            DateOnly.FromDateTime(now.AddMinutes(tzOffsetMinutes).DateTime), tzOffsetMinutes,
+            calendar.From(now), tzOffsetMinutes,
             mastered, new VocabularyOverviewStages(newWords, learning, familiar, mastered), due, plan);
     }
 }

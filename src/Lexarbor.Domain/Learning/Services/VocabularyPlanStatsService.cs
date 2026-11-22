@@ -6,7 +6,7 @@ using Lexarbor.Learning.Domain.Repositories;
 namespace Lexarbor.Learning.Domain.Services;
 
 public sealed class VocabularyPlanStatsService(IVocabularyPlanStatsRepository repository,
-    IVocabularyScopeEntryReader scopeReader, TimeProvider clock)
+    IVocabularyScopeEntryReader scopeReader, TimeProvider clock, LearningCalendar calendar)
 {
     public async Task<IReadOnlyList<VocabularyPlanStats>> GetAsync(IReadOnlyList<Guid> planIds,
         int tzOffsetMinutes = 0, CancellationToken cancellationToken = default)
@@ -75,9 +75,9 @@ public sealed class VocabularyPlanStatsService(IVocabularyPlanStatsRepository re
         plans.OrderBy(plan => plan.Id).Select(plan => new
         { plan.Id, plan.StudentId, plan.Version, plan.Status, plan.TotalWords, plan.CreatedAt, plan.UpdatedAt, plan.Segments }));
 
-    private static DateOnly LocalDate(DateTimeOffset instant, int tzOffsetMinutes) =>
-        LearningDay.From(instant);
-    private static int GapDays(IVocabularyPlanStatsSnapshot snapshot, Guid planId, VocabularyPlanStatsScope window, int tzOffsetMinutes)
+    private DateOnly LocalDate(DateTimeOffset instant, int tzOffsetMinutes) =>
+        calendar.From(instant);
+    private int GapDays(IVocabularyPlanStatsSnapshot snapshot, Guid planId, VocabularyPlanStatsScope window, int tzOffsetMinutes)
     {
         if (!snapshot.Reactivations.TryGetValue(planId, out var reactivation)) return 0;
         var first = LocalDate(reactivation.CompletedAt, tzOffsetMinutes).AddDays(1);
