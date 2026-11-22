@@ -107,9 +107,20 @@ public sealed class LearnerStorageV5Tests
         var notebook = new VocabNotebookRepository(db);
         var added = new VocabNotebookItemModel
         {
-            Id = Guid.NewGuid(), StudentId = Student, WordKey = "happiness", MeaningKey = "幸福", Word = "happiness", Meaning = "幸福",
-            Status = VocabNotebookItemStatus.Ready, BookId = "book", WordId = "happiness-w", MeaningId = "happiness-m",
-            FamilyOnly = true, AddedBy = VocabNotebookActorType.Student, AddedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+            Id = Guid.NewGuid(),
+            StudentId = Student,
+            WordKey = "happiness",
+            MeaningKey = "幸福",
+            Word = "happiness",
+            Meaning = "幸福",
+            Status = VocabNotebookItemStatus.Ready,
+            BookId = "book",
+            WordId = "happiness-w",
+            MeaningId = "happiness-m",
+            FamilyOnly = true,
+            AddedBy = VocabNotebookActorType.Student,
+            AddedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
         };
         added.AttachFamily(new("happy", "happy", "happy-w", "derived_noun", "outgoing"));
         await notebook.AddAsync(added, Ct);
