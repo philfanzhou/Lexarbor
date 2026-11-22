@@ -257,7 +257,7 @@ public sealed class VocabularyNotebookService : IVocabularyNotebookSource
 
     private static VocabularyPlanScopeEntry Location(VocabNotebookItemModel item) => new(item.BookId!, false,
         new VocabularyScopeEntry(item.WordId!, item.WordKey, item.MeaningId!, item.MeaningKey, null))
-    { FamilyOnly = item.FamilyOnly, FromNotebook = true, InPlanScope = false };
+    { Source = item.FamilyOnly ? VocabularySourceKind.NotebookFamily : VocabularySourceKind.Notebook, CoveredByPlan = false };
 
     private async Task TrySyncPendingAsync(Guid studentId, CancellationToken cancellationToken)
     {

@@ -2,13 +2,25 @@ using Lexarbor.Learning.Domain.Models;
 
 namespace Lexarbor.Learning.Domain.Services;
 
+/// <summary>Where a new-word candidate comes from. Order, quotas and locations are decided per source.</summary>
+public enum VocabularySourceKind
+{
+    /// <summary>The plan's books and units.</summary>
+    Plan = 1,
+
+    /// <summary>A notebook item the student or a teacher added.</summary>
+    Notebook = 2,
+
+    /// <summary>A notebook item added only through a word family (the item's <c>FamilyOnly</c>).</summary>
+    NotebookFamily = 3,
+}
+
 public sealed record VocabularyPlanScopeEntry(string BookId, bool UnitScoped, VocabularyScopeEntry Entry)
 {
-    public bool FamilyOnly { get; init; }
+    public VocabularySourceKind Source { get; init; } = VocabularySourceKind.Plan;
 
-    public bool FromNotebook { get; init; }
-
-    public bool InPlanScope { get; init; } = true;
+    /// <summary>Whether the plan's scope also contains this meaning; always true for a plan entry.</summary>
+    public bool CoveredByPlan { get; init; } = true;
 
     public static async Task<IReadOnlyList<VocabularyPlanScopeEntry>> ReadAsync(
         IVocabularyScopeEntryReader reader, IReadOnlyList<VocabPlanSegment> segments, CancellationToken cancellationToken = default)
