@@ -2203,6 +2203,33 @@ migration removes only destination ownership and first-scan metadata; generated
 books and vocabulary remain. Restore a matched backup if the removed ownership
 must be recovered. Older-image schema-version refusal still applies.
 
+## Enrichment wait history upgrade
+
+`CoalesceEnrichmentWaits` shrinks `enrichment_wait`. Earlier versions added one row
+each time a worker polled a busy local permit or another automatic wait, roughly
+once a second for every queued target. A large backlog could leave hundreds of
+thousands of rows. Startup applies the migration in one transaction:
+
+- It finds each run of consecutive waits for one round with the same reason and
+  error code. It covers polling reasons only: `Disabled`, `ConfigurationMissing`,
+  `PreparationPending`, `StorageDisabled`, `ServicePaused`, and `Throttled`
+  without an error code.
+- It keeps the first row of each run and moves that row's next attempt to the run's
+  latest. It deletes the other rows of the run.
+- It keeps every supplier throttle that has an error code, every `Retry` and every
+  `LeaseExpired` row. Rounds, calls, assets and the current round state are not
+  changed.
+
+The statement reads the whole table once. On a deployment with about 340,000 wait
+rows, expect it to take seconds. The table's disk space is reused by later writes.
+Run `VACUUM (FULL) enrichment_wait` during a quiet period only if the space must
+return to the operating system. It locks the table while it runs.
+
+The removed rows cannot be restored. Back up the database before upgrading if the
+complete polling history matters. Down does nothing. An older image refuses the
+newer schema with `migration.version_too_new`. To roll back the application,
+restore the matching backup.
+
 ## Learner progress
 
 Before connecting a learning backend, configure the catalog and submission clients, match its scheduler settings and verify the authenticated store binding. Include every learner schema in backup and restore rehearsals. See [Learner progress](../api/LearnerProgress.md).
