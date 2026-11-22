@@ -434,16 +434,34 @@ public sealed partial class VocabularyLearningService
     {
         var notebook = _notebookSource is null ? [] :
             await _notebookSource.ReadNewWordSourcesAsync(plan.StudentId, cancellationToken).ConfigureAwait(false);
+        return WithNotebook(scope, notebook, unavailable);
+    }
+
+    private static IReadOnlyList<VocabularyPlanScopeEntry> WithNotebook(
+        IReadOnlyList<VocabularyPlanScopeEntry> scope, IReadOnlyList<VocabularyPlanScopeEntry> notebook,
+        IReadOnlySet<VocabDailyWord>? unavailable = null)
+    {
         if (notebook.Count == 0 && unavailable is null) return scope;
-        var planKeys = scope.Select(item => new CardKey(item.Entry.NormalizedWord, item.Entry.MeaningKey)).ToHashSet();
+        var planned = new Dictionary<CardKey, VocabularyPlanScopeEntry>();
+        foreach (var item in scope) planned.TryAdd(ScopeKey(item), item);
         var seen = new HashSet<CardKey>();
+        // A notebook meaning the plan also covers keeps its notebook priority but is learned at the plan's
+        // location first, so its question keeps the plan's book and unit; the notebook location is the fallback.
         return notebook.OrderBy(item => item.FamilyOnly)
-            .Select(item => item with { InPlanScope = planKeys.Contains(new(item.Entry.NormalizedWord, item.Entry.MeaningKey)) })
+            .SelectMany(item => planned.TryGetValue(ScopeKey(item), out var plannedItem)
+                ? [plannedItem with { FamilyOnly = item.FamilyOnly, FromNotebook = true }, item with { InPlanScope = true }]
+                : new[] { item with { InPlanScope = false } })
             .Concat(scope)
             .Where(item => unavailable?.Contains(ToDailyWord(item)) != true)
-            .Where(item => seen.Add(new CardKey(item.Entry.NormalizedWord, item.Entry.MeaningKey)))
+            .Where(item => seen.Add(ScopeKey(item)))
             .ToList();
     }
+
+    private static CardKey ScopeKey(VocabularyPlanScopeEntry item) => new(item.Entry.NormalizedWord, item.Entry.MeaningKey);
+
+    private async Task<VocabNotebookLearningSources> ReadNotebookAsync(Guid studentId, CancellationToken cancellationToken) =>
+        _notebookSource is null ? new([], new HashSet<CardKey>())
+            : await _notebookSource.ReadLearningSourcesAsync(studentId, cancellationToken).ConfigureAwait(false);
 
     private async Task<bool> HasUnlearnedNotebookMeaningsAsync(Guid studentId, CancellationToken cancellationToken)
     {
@@ -642,7 +660,9 @@ public sealed partial class VocabularyLearningService
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        var source = family is { } saved && IsTarget(saved.Location, spec) ? saved.Source : null;
+        // The family hint shown on a new question belongs to the card, not to one catalog location: a notebook
+        // meaning learned at the plan's location keeps its hint. Review questions never carry the hint.
+        var source = kind != VocabQuestionKind.Review ? family?.Source : null;
         if (bookId != spec.BookId || entry.WordId != spec.WordId || entry.MeaningId != spec.MeaningId)
         {
             bookId = spec.BookId;
