@@ -232,12 +232,13 @@ public class VocabIssuedQuestionRepository : IVocabIssuedQuestionRepository
         return entities.Select(key => new CardKey(key.WordKey, key.MeaningKey)).ToHashSet();
     }
 
-    public async Task<VocabIssuedQuestionModel?> FindLatestByCardKeyAsync(Guid studentId, string wordKey, string meaningKey, CancellationToken cancellationToken = default)
+    public async Task<VocabIssuedQuestionModel?> FindLatestAnsweredByCardKeyAsync(Guid studentId, string wordKey, string meaningKey, CancellationToken cancellationToken = default)
     {
         var entity = await _dbContext.VocabIssuedQuestions.AsNoTracking()
             .Where(question => question.StudentId == studentId
                 && question.WordKey == wordKey
-                && question.MeaningKey == meaningKey)
+                && question.MeaningKey == meaningKey
+                && question.AnsweredAt != null)
             .OrderByDescending(question => question.IssuedAt)
             .ThenByDescending(question => question.Id)
             .FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
@@ -297,6 +298,7 @@ public class VocabIssuedQuestionRepository : IVocabIssuedQuestionRepository
         FamilySourceWord = model.FamilySource?.Word,
         FamilySourceRelationType = model.FamilySource?.RelationType,
         FamilySourceDirection = model.FamilySource?.Direction,
+        Source = (short?)model.Source,
         OptionsSnapshot = model.Direction.IsSpelling() ? null : JsonSerializer.Serialize(
             model.Options.Select(option => new OptionJson(option.OptionId.ToString("N"), option.Text)), OptionsJson),
         CorrectOptionId = model.CorrectOptionId,
@@ -326,6 +328,7 @@ public class VocabIssuedQuestionRepository : IVocabIssuedQuestionRepository
         RelationType = entity.RelationType,
         FamilySource = entity.FamilySourceWord is { } word && entity.FamilySourceRelationType is { } relation
             && entity.FamilySourceDirection is { } direction ? new VocabFamilyHint(word, relation, direction) : null,
+        Source = (VocabularySourceKind?)entity.Source,
         Options = DeserializeOptions(entity.OptionsSnapshot),
         CorrectOptionId = entity.CorrectOptionId,
         LetterPattern = entity.LetterPattern is null ? null : JsonSerializer.Deserialize<List<string?>>(entity.LetterPattern),
@@ -387,4 +390,30 @@ public class VocabAttemptRepository : IVocabAttemptRepository
         AnsweredAt = entity.AnsweredAt,
         LocalDate = entity.LocalDate,
     };
+}
+
+public sealed class VocabCardLocationRepository(LearningDbContext dbContext) : IVocabCardLocationRepository
+{
+    public async Task<VocabCardLocation?> FindAsync(Guid studentId, CardKey key, CancellationToken cancellationToken = default)
+    {
+        var entity = await dbContext.VocabCardLocations.AsNoTracking()
+            .SingleOrDefaultAsync(row => row.StudentId == studentId && row.WordKey == key.WordKey && row.MeaningKey == key.MeaningKey,
+                cancellationToken).ConfigureAwait(false);
+        return entity is null ? null : new VocabCardLocation(entity.StudentId, new CardKey(entity.WordKey, entity.MeaningKey),
+            entity.BookId, entity.WordId, entity.MeaningId, (VocabularySourceKind?)entity.Source, entity.SourceQuestionId, entity.RecordedAt);
+    }
+
+    public Task AddAsync(VocabCardLocation location, CancellationToken cancellationToken = default) =>
+        dbContext.VocabCardLocations.AddAsync(new VocabCardLocationEntity
+        {
+            StudentId = location.StudentId,
+            WordKey = location.Key.WordKey,
+            MeaningKey = location.Key.MeaningKey,
+            BookId = location.BookId,
+            WordId = location.WordId,
+            MeaningId = location.MeaningId,
+            Source = (short?)location.Source,
+            SourceQuestionId = location.SourceQuestionId,
+            RecordedAt = location.RecordedAt,
+        }, cancellationToken).AsTask();
 }

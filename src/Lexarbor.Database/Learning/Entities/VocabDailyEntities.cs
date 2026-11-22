@@ -110,6 +110,9 @@ public class VocabIssuedQuestionEntity
     [Column("family_source_direction")]
     public string? FamilySourceDirection { get; set; }
 
+    [Column("source")]
+    public short? Source { get; set; }
+
     [Column("options_snapshot")]
     public string? OptionsSnapshot { get; set; }
 

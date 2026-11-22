@@ -2244,3 +2244,7 @@ Before upgrading:
    The upgrade keeps valid indexes with these names. It drops and rebuilds an index that a failed concurrent build left invalid.
 
 A host that supports only version 4 rejects version 5. To roll back, restore the matching pre-upgrade backup.
+
+Learner storage version 6 records where each memory card is reviewed. The first authorized learning request migrates the caller's schema from version 5 in one transaction, with the same upgrade behavior as version 5. It adds a nullable `source` column to `vocab_issued_question`, which changes table metadata only. It also creates `vocab_card_location` and fills it once. Each existing card gets the location of its earliest answered new or extra question. A card without one gets the location of its latest answered question. A card with no answered question gets no row. Filled rows have a null `source`, because earlier versions did not record sources. The fill reads each card's questions through `ix_vocab_issued_question_student_card`, so its duration grows with the number of cards.
+
+Some existing cards had been reviewed at a location that later questions had moved away from. After the upgrade they are reviewed at the location they were learned at again. Include `vocab_card_location` in learner backups and transfers. Back up before upgrading. A host that supports only version 5 rejects version 6. To roll back, restore the matching pre-upgrade backup. See [Review locations](../api/LearnerProgress.md#review-locations).

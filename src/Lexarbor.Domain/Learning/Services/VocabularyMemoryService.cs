@@ -24,7 +24,8 @@ public sealed class VocabularyMemoryService
         _options = options.Value;
         _scheduler = new FsrsScheduler(_options);
     }
-    public async Task<MemoryCardModel> RecordAsync(
+    /// <summary>Applies a rating; <c>Created</c> is true when this call created the card.</summary>
+    public async Task<(MemoryCardModel Card, bool Created)> RecordAsync(
         Guid studentId,
         string wordKey,
         string meaningKey,
@@ -68,7 +69,7 @@ public sealed class VocabularyMemoryService
             try
             {
                 await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-                return card;
+                return (card, existing is null);
             }
             catch (MemoryCardConflictException) when (attempt == 0)
             {

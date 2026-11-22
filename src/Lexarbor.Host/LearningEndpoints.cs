@@ -27,6 +27,7 @@ internal static class LearningEndpoints
         services.AddScoped<ILearnerDirectory, LearnerDirectory>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<IMemoryCardRepository, MemoryCardRepository>();
+        services.AddScoped<IVocabCardLocationRepository, VocabCardLocationRepository>();
         services.AddScoped<IMemoryReviewLogRepository, MemoryReviewLogRepository>();
         services.AddScoped<IVocabPlanRepository, VocabPlanRepository>();
         services.AddScoped<IVocabPlanChangeRepository, VocabPlanChangeRepository>();

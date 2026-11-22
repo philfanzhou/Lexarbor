@@ -30,7 +30,8 @@ public interface IVocabIssuedQuestionRepository
 
     Task<HashSet<CardKey>> FindPendingReviewCardKeysAsync(Guid studentId, DateTimeOffset now, CancellationToken cancellationToken = default);
 
-    Task<VocabIssuedQuestionModel?> FindLatestByCardKeyAsync(Guid studentId, string wordKey, string meaningKey, CancellationToken cancellationToken = default);
+    /// <summary>The latest answered question of a card; unanswered and expired questions are ignored.</summary>
+    Task<VocabIssuedQuestionModel?> FindLatestAnsweredByCardKeyAsync(Guid studentId, string wordKey, string meaningKey, CancellationToken cancellationToken = default);
 
     Task<bool> HasPendingForWordAsync(Guid studentId, string wordKey, DateTimeOffset now, CancellationToken cancellationToken = default);
 
@@ -45,4 +46,11 @@ public interface IVocabAttemptRepository
     Task<VocabAttemptModel?> FindByQuestionIdAsync(Guid questionId, CancellationToken cancellationToken = default);
 
     Task AddAsync(VocabAttemptModel attempt, CancellationToken cancellationToken = default);
+}
+
+public interface IVocabCardLocationRepository
+{
+    Task<VocabCardLocation?> FindAsync(Guid studentId, CardKey key, CancellationToken cancellationToken = default);
+
+    Task AddAsync(VocabCardLocation location, CancellationToken cancellationToken = default);
 }

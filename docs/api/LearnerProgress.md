@@ -15,6 +15,12 @@ A trusted backend sends its issued secret in `X-Api-Key` over HTTPS. The key nee
 
 For example, a caller can register a learner with `PUT /learning/v1/learners/629f852c-c0f8-46a5-9ac7-355c00ba28f3` and fetch `GET /learning/v1/api/vocabulary/students/629f852c-c0f8-46a5-9ac7-355c00ba28f3/plan`. Vocabulary responses use the existing `success` and `data` envelope. Errors include a message and may include a business error code. For a previously issued choice question, post `studentId`, `optionId`, `elapsedMs`, `localDate` and `tzOffsetMinutes` to its answer route. Retry using the original question ID.
 
+## Review locations
+
+A memory card is reviewed at the catalog location of the new or extra question that created it. Later questions do not change this location, including word-family questions and questions that expired unanswered. The card also records where the word came from: the plan, the notebook, or a notebook item added only through a word family. A notebook word learned at the plan's location still counts as a notebook word. Cards created before learner storage version 6 have no recorded source.
+
+When the saved location cannot produce a question, for example because its book is disabled or the meaning was removed, Lexarbor uses the location of the card's latest answered question for that review only. The saved location stays unchanged. If neither location produces a question, a daily review drops the card from that day's review group and a free review skips it, as before. Include the `vocab_card_location` table when backing up or transferring learner schemas. Without it, reviews fall back to the latest answered location.
+
 ## Unit practice
 
 Use `/learning/v1/api/vocabulary/students/{studentId}/unit-practice` as the base path. Register the learner first. A learner can practice a unit without an active daily plan. Each learner has one current session across devices. Starting a replacement removes the previous session and its answers.
