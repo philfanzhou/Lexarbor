@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Lexarbor.Learning.Database;
 using Lexarbor.Learning.Database.Repositories;
+using Lexarbor.Learning.Domain.Calendar;
 using Lexarbor.Learning.Domain.Models;
 using Lexarbor.Learning.Domain.Services;
 using Lexarbor.Learning.Service;
@@ -164,7 +165,10 @@ public sealed class DailySourceRulesTests : IAsyncDisposable
 
     private sealed class Learner(WebApplicationFactory<Program> host, HttpClient client, Guid student)
     {
-        private static readonly string Today = DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd");
+        // The server's learning calendar uses Beijing dates, which differ from UTC dates for part of each day.
+        private static DateOnly Day => LearningDay.Today();
+
+        private static string Today => Day.ToString("yyyy-MM-dd");
         private DateTimeOffset _addedAt = DateTimeOffset.UtcNow.AddHours(-1);
 
         public string Root { get; } = $"/learning/v1/api/vocabulary/students/{student}";
@@ -225,7 +229,7 @@ public sealed class DailySourceRulesTests : IAsyncDisposable
         {
             await using var db = Open();
             var plan = await db.VocabPlans.AsNoTracking().SingleAsync(row => row.StudentId == student, Ct);
-            var day = await new VocabPlanDayRepository(db).FindAsync(plan.Id, DateOnly.ParseExact(Today, "yyyy-MM-dd"), Ct);
+            var day = await new VocabPlanDayRepository(db).FindAsync(plan.Id, Day, Ct);
             return day!.Tasks!;
         }
 
