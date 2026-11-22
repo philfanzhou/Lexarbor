@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 using static Lexarbor.Learning.Service.VocabularyCatalogErrorCodes;
 
 namespace Lexarbor.Learning.Service;
@@ -77,7 +78,7 @@ public static class VocabularyLearningHttpEndpoints
             return Error(400, "VOCAB_REVIEW_QUERY_INVALID", "A student id, strict localDate and one valid tzOffsetMinutes are required.");
         try
         {
-            var snapshot = await learningService.GetFreeReviewsAsync(studentId, LearningDay.Today(request.HttpContext.RequestServices.GetService(typeof(TimeProvider)) as TimeProvider), cancellationToken).ConfigureAwait(false);
+            var snapshot = await learningService.GetFreeReviewsAsync(studentId, LearningToday(request.HttpContext), cancellationToken).ConfigureAwait(false);
             return Results.Ok(new { success = true, data = snapshot });
         }
         catch (Exception error) when (error is not OperationCanceledException) { return MapDomainError(error); }
@@ -113,7 +114,7 @@ public static class VocabularyLearningHttpEndpoints
 
         try
         {
-            var snapshot = await learningService.GetTodayAsync(studentId, LearningDay.Today(context.RequestServices.GetService(typeof(TimeProvider)) as TimeProvider), cancellationToken).ConfigureAwait(false);
+            var snapshot = await learningService.GetTodayAsync(studentId, LearningToday(context), cancellationToken).ConfigureAwait(false);
             return Results.Ok(new { success = true, data = ToDto(snapshot) });
         }
         catch (Exception error)
@@ -149,7 +150,7 @@ public static class VocabularyLearningHttpEndpoints
 
         try
         {
-            var outcome = await learningService.GetNextAsync(studentId, mode, LearningDay.Today(context.RequestServices.GetService(typeof(TimeProvider)) as TimeProvider), cancellationToken, batchId).ConfigureAwait(false);
+            var outcome = await learningService.GetNextAsync(studentId, mode, LearningToday(context), cancellationToken, batchId).ConfigureAwait(false);
             if (mode == VocabQuestionMode.Extra)
                 return outcome.Question is { } extra
                     ? Results.Ok(new { success = true, data = new { status = "question", question = ToDto(extra), extraBatch = outcome.ExtraBatch } })
@@ -210,7 +211,7 @@ public static class VocabularyLearningHttpEndpoints
         {
             var result = await learningService.AnswerAsync(
                 questionId, request.StudentId, request.OptionId, request.Unknown,
-                (int)Math.Min(request.ElapsedMs, int.MaxValue), LearningDay.Today(context.RequestServices.GetService(typeof(TimeProvider)) as TimeProvider), cancellationToken, letters).ConfigureAwait(false);
+                (int)Math.Min(request.ElapsedMs, int.MaxValue), LearningToday(context), cancellationToken, letters).ConfigureAwait(false);
             return Results.Ok(new { success = true, data = ToDto(result) });
         }
         catch (VocabOptionInvalidException) when (!request.Unknown && request.OptionId is null && letters is null)
@@ -223,6 +224,11 @@ public static class VocabularyLearningHttpEndpoints
         }
     }
 
+
+    /// <summary>The server decides the learning day; the client's localDate and offset are only range-checked.</summary>
+    private static DateOnly LearningToday(HttpContext context) =>
+        context.RequestServices.GetRequiredService<LearningCalendar>()
+            .Today(context.RequestServices.GetService<TimeProvider>() ?? TimeProvider.System);
 
     private static bool IsTimezoneInRange(int tzOffsetMinutes) =>
         tzOffsetMinutes >= MinTimezoneOffsetMinutes && tzOffsetMinutes <= MaxTimezoneOffsetMinutes;

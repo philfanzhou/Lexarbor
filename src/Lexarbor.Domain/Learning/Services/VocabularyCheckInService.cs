@@ -4,7 +4,8 @@ using Lexarbor.Learning.Domain.Repositories;
 
 namespace Lexarbor.Learning.Domain.Services;
 
-public sealed class VocabularyCheckInService(IVocabularyCheckInRepository repository, TimeProvider clock)
+public sealed class VocabularyCheckInService(IVocabularyCheckInRepository repository, TimeProvider clock,
+    LearningCalendar calendar)
 {
     public const int MaxRangeDays = 62;
     public const string CheckedIn = "checkedIn";
@@ -50,10 +51,10 @@ public sealed class VocabularyCheckInService(IVocabularyCheckInRepository reposi
         return new VocabularyCheckIns(studentId, today, firstPlanDate, checkedIn.Count, streak, days);
     }
 
-    private static DateOnly LocalDate(DateTimeOffset instant, int tzOffsetMinutes) =>
-        LearningDay.From(instant);
+    private DateOnly LocalDate(DateTimeOffset instant, int tzOffsetMinutes) =>
+        calendar.From(instant);
 
-    private static PlanCoverage Coverage(VocabularyCheckInPlan plan, DateOnly today, int tzOffsetMinutes)
+    private PlanCoverage Coverage(VocabularyCheckInPlan plan, DateOnly today, int tzOffsetMinutes)
     {
         var start = LocalDate(plan.CreatedAt, tzOffsetMinutes);
         var end = plan.Status == VocabPlanStatus.Active ? today : LocalDate(plan.UpdatedAt, tzOffsetMinutes);

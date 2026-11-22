@@ -2207,6 +2207,8 @@ must be recovered. Older-image schema-version refusal still applies.
 
 Before connecting a learning backend, configure the catalog and submission clients, match its scheduler settings and verify the authenticated store binding. Include every learner schema in backup and restore rehearsals. See [Learner progress](../api/LearnerProgress.md).
 
+Learning days start at midnight UTC+08:00 unless `VocabularyLearning:TimeZone` names another time zone. Upgrading without the setting keeps the existing day boundary. See [Learning days](../api/LearnerProgress.md#learning-days) before changing it.
+
 The first authorized learning request after upgrading migrates that caller's learner schema to version 3 in a transaction. The migration adds the latest unit practice session and its targets. Existing learners, daily plans, memory cards, pending questions, store UUID and generation are preserved. Include both new tables in learner backups and transfers. An older learning host that supports only version 2 rejects version 3. Restore a matching pre-upgrade database backup when rolling back.
 
 Unit practice modes migrate the learner schema from version 3 to version 4 on the first authorized learning request. The migration adds the session `mode` and the generated questions of each practice item. Existing sessions become `spelling` sessions and keep their answers. A host that supports only version 3 rejects version 4, so roll back by restoring a matching pre-upgrade backup. Choice and mixed sessions call the catalog's learning-question route with the learning service's catalog-scoped key, as daily learning does; the catalog must support the `types` field.

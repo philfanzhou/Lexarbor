@@ -240,7 +240,7 @@ public sealed class DailySourceRulesTests : IAsyncDisposable
 
     private sealed class Learner(WebApplicationFactory<Program> host, HttpClient client, Guid student, Clock clock)
     {
-        private DateOnly Day => LearningDay.Today(clock);
+        private DateOnly Day => host.Services.GetRequiredService<LearningCalendar>().Today(clock);
 
         private string Today => Day.ToString("yyyy-MM-dd");
         private DateTimeOffset _addedAt = DateTimeOffset.UtcNow.AddHours(-1);

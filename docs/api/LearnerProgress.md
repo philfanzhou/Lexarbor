@@ -81,3 +81,11 @@ Bind the discovered store UUID with `X-Learning-Store` and verify the response h
 ## Host configuration
 
 Set `Lexarbor:BaseUrl` to the reachable HTTPS catalog root, `Lexarbor:ApiKey` to a catalog key and `Lexarbor:Integration:ApiKey` to the existing meaning-submissions identity for the notebook integration. The API key issued to the learning backend is separate. Preserve deployment-specific `VocabularyLearning` options, including its `Fsrs` and `ErrorProne` sections, together with the existing catalog, submission configuration and data. If using photo import, preserve the `VocabularyPhotoImport` endpoint, scoped credential, limits and recognition timeout. Back up the complete PostgreSQL database and the deployment's protected key material.
+
+### Learning days
+
+Daily tasks, check-ins, plan statistics, the overview and plan start dates split time into learning days on the server. Set `VocabularyLearning:TimeZone` (for example `VocabularyLearning__TimeZone=Asia/Shanghai`) to a time zone ID that the host knows, such as `Asia/Shanghai`, `Asia/Tokyo` or `UTC`. When it is unset, a learning day starts at midnight UTC+08:00 with no daylight saving time, as in earlier releases. An unknown ID stops startup with an error naming the setting. The setting applies to every caller of the deployment.
+
+The `localDate` and `tzOffsetMinutes` values that clients send are still required and range-checked, but they do not change the learning day. The overview reports the server's `localDate` and the zone's current `tzOffsetMinutes`, which can change with daylight saving time.
+
+Changing the time zone moves the boundary between learning days. The day in progress can end early or run longer, and dates already stored, such as completed days and plan start dates, keep their values. Change it between learning days and tell learners about the shift.

@@ -1,5 +1,6 @@
 using Lexarbor.Learning.Database;
 using Lexarbor.Learning.Database.Repositories;
+using Lexarbor.Learning.Domain.Calendar;
 using Lexarbor.Learning.Domain.Models;
 using Lexarbor.Learning.Domain.Repositories;
 using Lexarbor.Learning.Domain.Services;
@@ -71,6 +72,8 @@ internal static class LearningEndpoints
         services.AddOptions<VocabularyLearningOptions>()
             .Bind(configuration.GetSection(VocabularyLearningOptions.SectionName)).ValidateOnStart();
         services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<VocabularyLearningOptions>, VocabularyLearningOptionsValidation>();
+        services.AddSingleton(provider => LearningCalendar.Create(
+            provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<VocabularyLearningOptions>>().Value.TimeZone));
     }
 
     internal static void MapLearnerEndpoints(this WebApplication app)
