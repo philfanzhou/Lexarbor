@@ -421,11 +421,15 @@ public class VocabularyBookRepository : IVocabularyBookRepository
         return entities.Adapt<List<VocabularyBookModel>>();
     }
 
-    public async Task<List<VocabularyBookModel>> GetActiveAsync()
+    public async Task<List<VocabularyBookModel>> GetActiveAsync(bool excludeManagedSupplement = false)
     {
-        var entities = await _context.VocabularyBooks
-            .AsNoTracking()
-            .Where(book => book.Status)
+        var query = _context.VocabularyBooks.AsNoTracking().Where(book => book.Status);
+        if (excludeManagedSupplement)
+        {
+            query = query.Where(book => !_context.EnrichmentDestinations.Any(destination =>
+                destination.Id == EnrichmentDestinationRepository.ExpansionRole && destination.BookId == book.Id));
+        }
+        var entities = await query
             .OrderBy(book => book.DisplayOrder)
             .ToListAsync();
         return entities.Adapt<List<VocabularyBookModel>>();

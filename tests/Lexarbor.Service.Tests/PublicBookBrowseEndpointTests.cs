@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using Lexarbor.Database;
 using Lexarbor.Database.Entities;
+using Lexarbor.Domain.Repositories;
 using Lexarbor.Service.Tests.TestInfrastructure;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -15,6 +16,42 @@ namespace Lexarbor.Service.Tests;
 /// </summary>
 public class PublicBookBrowseEndpointTests
 {
+    [Fact]
+    public async Task UnitPracticeBooks_ExcludesOnlyTheManagedSupplementFromEnabledBooks()
+    {
+        await using var factory = new VocabularyWebApplicationFactory();
+        using var scope = factory.Services.CreateScope();
+        var ct = TestContext.Current.CancellationToken;
+        var destinations = scope.ServiceProvider.GetRequiredService<IEnrichmentDestinationRepository>();
+        var managed = await destinations.EnsureAsync(null, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), ct);
+        var db = scope.ServiceProvider.GetRequiredService<VocabularyDbContext>();
+        var supplement = await db.VocabularyBooks.FindAsync([managed.BookId], ct);
+        Assert.NotNull(supplement);
+        supplement.BookName = "Renamed supplement";
+        db.VocabularyBooks.AddRange(
+            new VocabularyBookEntity { Id = "imported", BookName = "AI Vocabulary Supplement", Status = true },
+            new VocabularyBookEntity { Id = "disabled", BookName = "Disabled textbook", Status = false });
+        await db.SaveChangesAsync(ct);
+
+        using var client = factory.CreateClient();
+        await client.UseCatalogKeyAsync(factory);
+        async Task<string?[]> BookIds(string list)
+        {
+            using var response = await client.GetAsync($"/api/vocabulary-books/{list}", ct);
+            response.EnsureSuccessStatusCode();
+            using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+            return body.RootElement.GetProperty("data").GetProperty("books").EnumerateArray()
+                .Select(book => book.GetProperty("id").GetString()).ToArray();
+        }
+
+        var all = await BookIds("all");
+        Assert.Contains(managed.BookId, all);
+        var practice = await BookIds("unit-practice");
+        Assert.Contains("imported", practice);
+        Assert.DoesNotContain("disabled", practice);
+        Assert.DoesNotContain(managed.BookId, practice);
+    }
+
     [Fact]
     public async Task Units_EnabledBook_ListsUnitsByNumberWithCountsMatchingTheAdministrationRoute()
     {

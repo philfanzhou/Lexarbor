@@ -56,7 +56,7 @@ public interface IVocabularyBookRepository
     Task<VocabularyBookModel?> GetByIdAsync(string id);
     Task<VocabularyBookModel?> GetByIdAsync(string id, CancellationToken cancellationToken) => RepositoryRead.WithCancellation(() => GetByIdAsync(id), cancellationToken);
     Task<List<VocabularyBookModel>> GetAllAsync();
-    Task<List<VocabularyBookModel>> GetActiveAsync();
+    Task<List<VocabularyBookModel>> GetActiveAsync(bool excludeManagedSupplement = false);
     Task<(List<VocabularyBookModel> Items, int TotalCount)> SearchAsync(string? keyword, int page, int size);
     Task<List<VocabularyBookModel>> GetByCategoryAsync(string? category, string? grade);
     Task<List<string>> GetDistinctCategoriesAsync();

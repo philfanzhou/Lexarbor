@@ -48,6 +48,8 @@ public static partial class VocabularyHttpEndpoints
         apiGroup.MapPost("/vocabulary/questions", CreateQuestions)
             .WithMetadata(new RequestSizeLimitAttribute(MaxBatchRequestBytes));
         apiGroup.MapGet("/vocabulary-books/all", GetAllBooks);
+        apiGroup.MapGet("/vocabulary-books/unit-practice", (VocabularyBookDomainService bookService) =>
+            ListActiveBooks(bookService, excludeManagedSupplement: true));
         apiGroup.MapGet("/vocabulary-books/{bookId}/units", GetPublicBookUnits);
         apiGroup.MapGet("/vocabulary-books/{bookId}/entries", GetPublicBookEntries);
 
@@ -503,10 +505,13 @@ public static partial class VocabularyHttpEndpoints
         return VocabularyHttpResponse.Ok(result);
     }
 
-    private static async Task<IResult> GetAllBooks(
-        VocabularyBookDomainService bookService)
+    private static Task<IResult> GetAllBooks(VocabularyBookDomainService bookService) =>
+        ListActiveBooks(bookService, excludeManagedSupplement: false);
+
+    private static async Task<IResult> ListActiveBooks(
+        VocabularyBookDomainService bookService, bool excludeManagedSupplement)
     {
-        var books = await bookService.GetAllAsync();
+        var books = await bookService.GetAllAsync(excludeManagedSupplement);
         var result = new VocabularyBookListResponse();
         result.Books.AddRange(books.Select(book => book.ToDto()));
         return VocabularyHttpResponse.Ok(result);

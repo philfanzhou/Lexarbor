@@ -17,9 +17,9 @@ public class VocabularyBookDomainService
         _unitOfWork = unitOfWork;
     }
 
-    public Task<List<VocabularyBookModel>> GetAllAsync()
+    public Task<List<VocabularyBookModel>> GetAllAsync(bool excludeManagedSupplement = false)
     {
-        return _bookRepository.GetActiveAsync();
+        return _bookRepository.GetActiveAsync(excludeManagedSupplement);
     }
 
     public Task<List<VocabularyBookModel>> GetByCategoryAsync(string? category, string? grade)

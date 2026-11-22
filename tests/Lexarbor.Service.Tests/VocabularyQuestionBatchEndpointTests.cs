@@ -475,7 +475,7 @@ public class VocabularyQuestionBatchEndpointTests :
         }
 
         public Task<List<VocabularyBookModel>> GetAllAsync() => inner.GetAllAsync();
-        public Task<List<VocabularyBookModel>> GetActiveAsync() => inner.GetActiveAsync();
+        public Task<List<VocabularyBookModel>> GetActiveAsync(bool excludeManagedSupplement = false) => inner.GetActiveAsync(excludeManagedSupplement);
         public Task<(List<VocabularyBookModel> Items, int TotalCount)> SearchAsync(
             string? keyword, int page, int size) => inner.SearchAsync(keyword, page, size);
         public Task<List<VocabularyBookModel>> GetByCategoryAsync(
