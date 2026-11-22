@@ -27,9 +27,9 @@ public sealed class VocabularyOverviewRepository(LearningDbContext context) : IV
             await context.Database.ExecuteSqlRawAsync("SET TRANSACTION READ ONLY", cancellationToken).ConfigureAwait(false);
             // Fixed projections use EF's relational command pipeline without per-request query compilation.
             await using var rows = await ExecuteReaderAsync(context, """
-                SELECT s.id, p.id, p.book_id, p.unit_ids, p.daily_new_words, p.controller::integer,
+                SELECT s.id, p.id, p.segments, p.daily_new_words, p.controller::integer,
                     p.controller_teacher_id, p.status::integer, p.start_date, p.total_words,
-                    p.version, p.created_at, p.updated_at, p.segments
+                    p.version, p.created_at, p.updated_at
                 FROM learner_identity s
                 LEFT JOIN vocab_plan p ON p.student_id = s.id AND p.status = 1
                 WHERE s.id = {0}
@@ -43,17 +43,16 @@ public sealed class VocabularyOverviewRepository(LearningDbContext context) : IV
                 {
                     StudentId = reader.GetGuid(0),
                     Id = reader.GetGuid(1),
-                    Segments = VocabPlanRepository.DeserializeSegments(reader.GetString(13), reader.GetString(2),
-                        reader.IsDBNull(3) ? null : reader.GetString(3)),
-                    DailyNewWords = reader.GetInt32(4),
-                    Controller = (VocabPlanController)reader.GetInt32(5),
-                    ControllerTeacherId = reader.IsDBNull(6) ? null : reader.GetGuid(6),
-                    Status = (VocabPlanStatus)reader.GetInt32(7),
-                    StartDate = reader.GetFieldValue<DateOnly>(8),
-                    TotalWords = reader.GetInt32(9),
-                    Version = reader.GetInt32(10),
-                    CreatedAt = reader.GetFieldValue<DateTimeOffset>(11),
-                    UpdatedAt = reader.GetFieldValue<DateTimeOffset>(12),
+                    Segments = VocabPlanRepository.DeserializeSegments(reader.GetString(2)),
+                    DailyNewWords = reader.GetInt32(3),
+                    Controller = (VocabPlanController)reader.GetInt32(4),
+                    ControllerTeacherId = reader.IsDBNull(5) ? null : reader.GetGuid(5),
+                    Status = (VocabPlanStatus)reader.GetInt32(6),
+                    StartDate = reader.GetFieldValue<DateOnly>(7),
+                    TotalWords = reader.GetInt32(8),
+                    Version = reader.GetInt32(9),
+                    CreatedAt = reader.GetFieldValue<DateTimeOffset>(10),
+                    UpdatedAt = reader.GetFieldValue<DateTimeOffset>(11),
                 };
             }
             return new Snapshot(context, transaction, studentId, exists, plan);

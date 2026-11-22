@@ -12,13 +12,6 @@ public class VocabPlanEntity
     [Column("student_id")]
     public Guid StudentId { get; set; }
 
-    [Column("book_id")]
-    [Required]
-    public string BookId { get; set; } = string.Empty;
-
-    [Column("unit_ids")]
-    public string? UnitIds { get; set; }
-
     [Column("segments")]
     [Required]
     public string Segments { get; set; } = "[]";

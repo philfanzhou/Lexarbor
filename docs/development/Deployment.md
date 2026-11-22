@@ -2210,3 +2210,37 @@ Before connecting a learning backend, configure the catalog and submission clien
 The first authorized learning request after upgrading migrates that caller's learner schema to version 3 in a transaction. The migration adds the latest unit practice session and its targets. Existing learners, daily plans, memory cards, pending questions, store UUID and generation are preserved. Include both new tables in learner backups and transfers. An older learning host that supports only version 2 rejects version 3. Restore a matching pre-upgrade database backup when rolling back.
 
 Unit practice modes migrate the learner schema from version 3 to version 4 on the first authorized learning request. The migration adds the session `mode` and the generated questions of each practice item. Existing sessions become `spelling` sessions and keep their answers. A host that supports only version 3 rejects version 4, so roll back by restoring a matching pre-upgrade backup. Choice and mixed sessions call the catalog's learning-question route with the learning service's catalog-scoped key, as daily learning does; the catalog must support the `types` field.
+
+Learner storage version 5 keeps each learning fact in one place. On the first authorized learning request for a caller, Lexarbor migrates that caller's schema from version 4 in one transaction:
+
+- Plans read their scope only from `segments`. A plan written before multi-book scopes gets its book and units copied there, and the `book_id` and `unit_ids` columns are dropped.
+- Notebook items read their word-family sources only from `vocab_notebook_family_source`. A single source still held in the item's `family_*` columns is copied into that table, and the columns are dropped. A deferred constraint trigger now enforces the rules of the dropped item check when a transaction commits: a family-only item has a source, only a ready item has sources, and a source names a different word. A violation reports `CK_vocab_notebook_item_family`.
+- `vocab_issued_question` gains `ix_vocab_issued_question_plan_open` for the open daily questions of a plan, `ix_vocab_issued_question_student_open` for a learner's open free-review question and `ix_vocab_issued_question_student_card` for the questions of one card.
+
+API routes, JSON fields, plan scopes, notebook contents and daily tasks are unchanged. Only legacy rows are rewritten. Dropping columns changes table metadata only. The index builds take most of the time and grow with the number of issued questions. While they run, that caller's learning requests wait. The upgrade continues even if the request that started it is abandoned or times out, it has no command timeout, and later requests wait for the same upgrade. If it fails, the transaction rolls back, the schema stays at version 4, and the next request retries it.
+
+Before upgrading:
+
+1. Back up the complete PostgreSQL database and stop the old version. Lexarbor runs as a single instance. A host still running version 4 code would write the dropped columns.
+2. Optionally, check for legacy plan rows whose `unit_ids` value is not valid JSON. The migration cannot convert them and stops with an error. The version 4 host cannot read these plans either. Run this query in each learner schema (`SELECT nspname FROM pg_namespace WHERE nspname LIKE 'learn\_%'` lists them); it should return no rows:
+
+   ```sql
+   SELECT id FROM vocab_plan
+   WHERE segments IN ('', '[]', 'null') AND book_id ~ '[^[:space:]]'
+     AND unit_ids IS NOT NULL AND unit_ids <> '' AND NOT pg_input_is_valid(unit_ids, 'jsonb');
+   ```
+
+3. Optionally, on a large schema, build the indexes beforehand so that the upgrade does not block learning requests while they build. Use the same names, run outside a transaction, and set `search_path` to the learner schema:
+
+   ```sql
+   CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_vocab_issued_question_plan_open
+       ON vocab_issued_question (plan_id, kind, issued_at, id) WHERE answered_at IS NULL;
+   CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_vocab_issued_question_student_open
+       ON vocab_issued_question (student_id, kind, issued_at, id) WHERE answered_at IS NULL;
+   CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_vocab_issued_question_student_card
+       ON vocab_issued_question (student_id, word_key, meaning_key, issued_at DESC, id DESC);
+   ```
+
+   The upgrade keeps valid indexes with these names. It drops and rebuilds an index that a failed concurrent build left invalid.
+
+A host that supports only version 4 rejects version 5. To roll back, restore the matching pre-upgrade backup.

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Lexarbor.Learning.Database.Entities;
 using Lexarbor.Learning.Domain.Models;
 using Lexarbor.Learning.Domain.Repositories;
@@ -9,6 +10,10 @@ namespace Lexarbor.Learning.Database.Repositories;
 public class VocabPlanDayRepository : IVocabPlanDayRepository
 {
     private static readonly JsonSerializerOptions KeysJsonOptions = new(JsonSerializerDefaults.Web);
+
+    // Daily tasks have always been stored with the default options (PascalCase names); the
+    // extra-batch lookup builds its patterns with the same options.
+    private static readonly JsonSerializerOptions TasksJsonOptions = new();
 
     private readonly LearningDbContext _dbContext;
 
@@ -26,8 +31,17 @@ public class VocabPlanDayRepository : IVocabPlanDayRepository
 
     public async Task<VocabPlanDayModel?> FindExtraBatchDayAsync(Guid planId, Guid? batchOrQuestionId = null, CancellationToken cancellationToken = default)
     {
-        var marker = batchOrQuestionId?.ToString() ?? "\"CompletedAt\":null";
-        var candidates = _dbContext.VocabPlanDays.Where(day => day.PlanId == planId && day.DailyTasks != null && day.DailyTasks.Contains(marker))
+        // jsonb containment compares structure, so spacing and key order in the stored text do not matter.
+        string[] patterns = batchOrQuestionId is { } id
+            ? [ExtraBatchPattern(nameof(VocabExtraBatch.Id), JsonValue.Create(id)),
+                ExtraBatchPattern(nameof(VocabExtraBatch.RequestIds), new JsonArray(JsonValue.Create(id))),
+                ExtraBatchPattern(nameof(VocabExtraBatch.QuestionIds), new JsonArray(JsonValue.Create(id)))]
+            : [ExtraBatchPattern(nameof(VocabExtraBatch.CompletedAt), null)];
+        var candidates = _dbContext.VocabPlanDays.FromSql($"""
+                SELECT * FROM vocab_plan_day
+                WHERE plan_id = {planId} AND daily_tasks IS NOT NULL
+                    AND daily_tasks::jsonb @> ANY (CAST({patterns} AS jsonb[]))
+                """)
             .OrderByDescending(day => day.LocalDate).AsAsyncEnumerable();
         await foreach (var entity in candidates.WithCancellation(cancellationToken).ConfigureAwait(false))
         {
@@ -37,6 +51,13 @@ public class VocabPlanDayRepository : IVocabPlanDayRepository
         }
         return null;
     }
+
+    private static string ExtraBatchPattern(string property, JsonNode? value) => new JsonObject
+    {
+        [JsonName(nameof(VocabDailyTasks.ExtraBatches))] = new JsonArray(new JsonObject { [JsonName(property)] = value })
+    }.ToJsonString();
+
+    private static string JsonName(string property) => TasksJsonOptions.PropertyNamingPolicy?.ConvertName(property) ?? property;
 
     public Task AddAsync(VocabPlanDayModel day, CancellationToken cancellationToken = default)
     {
@@ -55,7 +76,7 @@ public class VocabPlanDayRepository : IVocabPlanDayRepository
                 $"Vocabulary plan day ({day.PlanId}, {day.LocalDate}) is not loaded and cannot be updated.");
         }
 
-        entity.DailyTasks = day.Tasks is null ? null : JsonSerializer.Serialize(day.Tasks);
+        entity.DailyTasks = day.Tasks is null ? null : JsonSerializer.Serialize(day.Tasks, TasksJsonOptions);
         entity.NewWordsTarget = day.NewWordsTarget;
         entity.NewWordsLearned = day.NewWordsLearned;
         entity.DueInScope = SerializeKeys(day.DueInScope);
@@ -86,7 +107,7 @@ public class VocabPlanDayRepository : IVocabPlanDayRepository
     {
         PlanId = model.PlanId,
         LocalDate = model.LocalDate,
-        DailyTasks = model.Tasks is null ? null : JsonSerializer.Serialize(model.Tasks),
+        DailyTasks = model.Tasks is null ? null : JsonSerializer.Serialize(model.Tasks, TasksJsonOptions),
         NewWordsTarget = model.NewWordsTarget,
         NewWordsLearned = model.NewWordsLearned,
         DueInScope = SerializeKeys(model.DueInScope),
@@ -102,7 +123,7 @@ public class VocabPlanDayRepository : IVocabPlanDayRepository
     {
         PlanId = entity.PlanId,
         LocalDate = entity.LocalDate,
-        Tasks = entity.DailyTasks is null ? null : JsonSerializer.Deserialize<VocabDailyTasks>(entity.DailyTasks),
+        Tasks = entity.DailyTasks is null ? null : JsonSerializer.Deserialize<VocabDailyTasks>(entity.DailyTasks, TasksJsonOptions),
         NewWordsTarget = entity.NewWordsTarget,
         NewWordsLearned = entity.NewWordsLearned,
         DueInScope = DeserializeKeys(entity.DueInScope),

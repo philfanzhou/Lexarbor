@@ -53,30 +53,6 @@ public class VocabNotebookItemEntity
     [Column("original_meaning")]
     public string? OriginalMeaning { get; set; }
 
-    [Column("family_source_word_key")]
-    public string? FamilySourceWordKey { get; set; }
-
-    [Column("family_source_word")]
-    public string? FamilySourceWord { get; set; }
-
-    [Column("family_source_word_id")]
-    public string? FamilySourceWordId { get; set; }
-
-    [Column("family_relation_type")]
-    public string? FamilyRelationType { get; set; }
-
-    [Column("family_direction")]
-    public string? FamilyDirection { get; set; }
-
-    [Column("family_relation_id")]
-    public string? FamilyRelationId { get; set; }
-
-    [Column("family_source_meaning_id")]
-    public string? FamilySourceMeaningId { get; set; }
-
-    [Column("family_source_book_id")]
-    public string? FamilySourceBookId { get; set; }
-
     [Column("family_only")]
     public bool FamilyOnly { get; set; }
 
