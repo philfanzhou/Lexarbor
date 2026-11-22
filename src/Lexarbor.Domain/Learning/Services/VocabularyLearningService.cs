@@ -11,6 +11,7 @@ public enum VocabQuestionMode
     New,
     Review,
     Extra,
+    ExtraReview,
 }
 public sealed partial class VocabularyLearningService
 {
@@ -82,6 +83,7 @@ public sealed partial class VocabularyLearningService
         var activeExtraDay = await _planDayRepository.FindExtraBatchDayAsync(plan.Id, cancellationToken: cancellationToken).ConfigureAwait(false);
         var extraBatch = activeExtraDay?.Tasks?.ExtraBatches.LastOrDefault(batch => batch.CompletedAt is null)
             ?? day.Tasks?.ExtraBatches.LastOrDefault();
+        var reviewBatch = await _planDayRepository.FindLatestReviewBatchAsync(plan.Id, cancellationToken).ConfigureAwait(false);
         var exhausted = day.NewWordsExhausted && !await HasUnlearnedNotebookMeaningsAsync(studentId, cancellationToken).ConfigureAwait(false);
         return new VocabTodaySnapshot(
             plan.Id,
@@ -100,7 +102,7 @@ public sealed partial class VocabularyLearningService
             day.Tasks is null ? 0 : VocabDailyTasks.WordCount(day.Tasks.FillReviews),
             day.Tasks is null ? 0 : VocabDailyTasks.CompletedWords(day.Tasks.FillReviews, day.Tasks.FillReviewed),
             plan.DailyNewWords,
-            extraBatch?.Snapshot());
+            extraBatch?.Snapshot(), plan.DailyNewWords * 2, reviewBatch);
     }
 
     public async Task<VocabNextQuestionOutcome> GetNextAsync(
@@ -109,6 +111,8 @@ public sealed partial class VocabularyLearningService
         var plan = await RequireActivePlanAsync(studentId, cancellationToken).ConfigureAwait(false);
         if (mode is VocabQuestionMode.New or VocabQuestionMode.Review)
             return await GetNextDailyAsync(plan, mode, localDate, cancellationToken).ConfigureAwait(false);
+        if (mode == VocabQuestionMode.ExtraReview)
+            return await GetNextExtraReviewAsync(plan, localDate, extraBatchId, cancellationToken).ConfigureAwait(false);
         return await GetNextExtraAsync(plan, localDate, extraBatchId, cancellationToken).ConfigureAwait(false);
     }
 
@@ -369,6 +373,7 @@ public sealed partial class VocabularyLearningService
     private async Task ApplyDayProgressAsync(VocabIssuedQuestionModel question, VocabAttemptModel attempt, CancellationToken cancellationToken)
     {
         if (question.PlanId is not { } planId) return;
+        if (question.Kind == VocabQuestionKind.Review && await RecordExtraReviewAsync(planId, question, attempt.AnsweredAt, cancellationToken).ConfigureAwait(false)) return;
         var day = await _planDayRepository.FindAsync(planId, attempt.LocalDate, cancellationToken).ConfigureAwait(false);
         var exists = day is not null;
         var learning = question.Kind is VocabQuestionKind.New or VocabQuestionKind.Extra;

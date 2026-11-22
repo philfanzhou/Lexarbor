@@ -130,6 +130,103 @@ public sealed class DailySourceRulesTests : IAsyncDisposable
         Assert.Equal(["m2", "f1", "p3"], batch.Words.Select(word => word.WordKey).Distinct().ToArray());
     }
 
+    [Theory]
+    [InlineData(0, 25)]
+    [InlineData(25, 50)]
+    public async Task ExtraReviewCountsDistinctLearnedWordsAndLeavesDailyProgressIntact(int priorWords, int required)
+    {
+        var learner = await LearnerAsync(new SourceCatalog(Plan(Enumerable.Range(0, 52).Select(n => $"plan{n:D2}").ToArray())), dailyNewWords: 25);
+        if (priorWords > 0)
+        {
+            for (var n = 0; n < priorWords; n++) await learner.AnswerAsync(await learner.NextNewAsync());
+            learner.NextDay();
+        }
+        for (var n = 0; n < 25; n++) await learner.AnswerAsync(await learner.NextNewAsync());
+        for (var n = 0; n < priorWords; n++) await learner.AnswerAsync(await learner.NextReviewAsync());
+        var before = await learner.TodayAsync();
+        Assert.True(before.GetProperty("dayCompleted").GetBoolean());
+        Assert.Equal(50, before.GetProperty("extraReviewBatchSize").GetInt32());
+        var batchId = Guid.NewGuid();
+        var first = await learner.NextExtraReviewAsync(batchId);
+        var alias = Guid.NewGuid();
+        var resumed = await learner.NextExtraReviewAsync(alias);
+        Assert.Equal(first.GetProperty("question").GetProperty("id").GetGuid(), resumed.GetProperty("question").GetProperty("id").GetGuid());
+        var prompts = new HashSet<string>();
+        for (var n = 0; n < required; n++)
+        {
+            var next = await learner.NextExtraReviewAsync(alias);
+            var batch = next.GetProperty("extraBatch");
+            Assert.Equal(batchId, batch.GetProperty("id").GetGuid());
+            Assert.Equal(required, batch.GetProperty("required").GetInt32());
+            Assert.Equal(n, batch.GetProperty("completed").GetInt32());
+            var question = next.GetProperty("question");
+            Assert.Equal("Review", question.GetProperty("kind").GetString());
+            Assert.True(prompts.Add(question.GetProperty("prompt").GetString()!));
+            await learner.AnswerAsync(next);
+            if (n == 0) await learner.AnswerAsync(next);
+        }
+        var done = await learner.NextExtraReviewAsync(batchId);
+        Assert.Equal("extra-batch-completed", done.GetProperty("reason").GetString());
+        var after = await learner.TodayAsync();
+        Assert.Equal(before.GetProperty("newWords").GetRawText(), after.GetProperty("newWords").GetRawText());
+        Assert.Equal(before.GetProperty("learning").GetRawText(), after.GetProperty("learning").GetRawText());
+        Assert.Equal(before.GetProperty("completedAt").GetString(), after.GetProperty("completedAt").GetString());
+        Assert.Equal(required, after.GetProperty("extraReviewBatch").GetProperty("completed").GetInt32());
+        Assert.Equal(0, (await learner.NextExtraReviewAsync(Guid.NewGuid())).GetProperty("extraBatch").GetProperty("completed").GetInt32());
+    }
+
+    [Fact]
+    public async Task NextDayAssignedReviewAndOpenExtraReviewKeepTheirOwnQuestionAndProgress()
+    {
+        var learner = await LearnerAsync(new SourceCatalog(Plan("p1", "p2", "p3")), dailyNewWords: 1);
+        await learner.AnswerAsync(await learner.NextNewAsync());
+        var batchId = Guid.NewGuid();
+        var extra = await learner.NextExtraReviewAsync(batchId);
+        var extraQuestion = extra.GetProperty("question").GetProperty("id").GetGuid();
+
+        learner.NextDay();
+        await learner.AnswerAsync(await learner.NextNewAsync());
+        var daily = await learner.NextReviewAsync();
+        var dailyQuestion = daily.GetProperty("question").GetProperty("id").GetGuid();
+        Assert.NotEqual(extraQuestion, dailyQuestion);
+        Assert.Equal(dailyQuestion, (await learner.NextReviewAsync()).GetProperty("question").GetProperty("id").GetGuid());
+        await learner.AnswerAsync(daily);
+        var resumed = await learner.NextExtraReviewAsync(batchId);
+        Assert.Equal(extraQuestion, resumed.GetProperty("question").GetProperty("id").GetGuid());
+        Assert.Equal(0, resumed.GetProperty("extraBatch").GetProperty("completed").GetInt32());
+        await learner.AnswerAsync(resumed);
+        var progress = (await learner.TodayAsync()).GetProperty("extraReviewBatch");
+        Assert.Equal(1, progress.GetProperty("completed").GetInt32());
+        Assert.Equal(batchId, progress.GetProperty("id").GetGuid());
+        Assert.Equal("extra-batch-completed", (await learner.NextExtraReviewAsync(batchId)).GetProperty("reason").GetString());
+    }
+
+    [Fact]
+    public async Task TwoDevicesShareOneExtraReviewQuestionAndOneBatch()
+    {
+        var learner = await LearnerAsync(new SourceCatalog(Plan("p1", "p2")), dailyNewWords: 1);
+        await learner.AnswerAsync(await learner.NextNewAsync());
+        var ids = new[] { Guid.NewGuid(), Guid.NewGuid() };
+        var issued = await Task.WhenAll(ids.Select(learner.NextExtraReviewAsync));
+        Assert.Equal(issued[0].GetProperty("question").GetProperty("id").GetGuid(), issued[1].GetProperty("question").GetProperty("id").GetGuid());
+        Assert.Single((await learner.TasksAsync()).ExtraReviewBatches);
+        await learner.AnswerAsync(issued[0]);
+        foreach (var id in ids)
+            Assert.Equal("extra-batch-completed", (await learner.NextExtraReviewAsync(id)).GetProperty("reason").GetString());
+    }
+
+    [Fact]
+    public async Task UnavailableLearnedWordsYieldAnEmptyReviewBatchEvenWithNewWordsInScope()
+    {
+        var catalog = new SourceCatalog(Plan("p1", "p2"));
+        var learner = await LearnerAsync(catalog, dailyNewWords: 1);
+        await learner.AnswerAsync(await learner.NextNewAsync());
+        catalog.Unavailable = _ => true;
+        var next = await learner.NextExtraReviewAsync(Guid.NewGuid());
+        Assert.Equal("no-reviewable-words", next.GetProperty("reason").GetString());
+        Assert.Equal(0, next.GetProperty("extraBatch").GetProperty("required").GetInt32());
+    }
+
     [Fact]
     public async Task ACreatedCardRecordsWhereAndFromWhichSourceItWasLearned()
     {
@@ -288,6 +385,11 @@ public sealed class DailySourceRulesTests : IAsyncDisposable
         }
 
         public Task<JsonElement> NextNewAsync() => NextAsync("new");
+
+        public async Task<JsonElement> TodayAsync() => await Data(await client.GetAsync($"{Root}/today?localDate={Today}&tzOffsetMinutes=0", Ct));
+
+        public async Task<JsonElement> NextExtraReviewAsync(Guid batchId) => await Data(await client.PostAsJsonAsync(
+            $"{Root}/questions/next?localDate={Today}&tzOffsetMinutes=0", new { mode = "extra-review", extraBatchId = batchId }, Ct));
 
         public Task<JsonElement> NextExtraAsync() => NextAsync("extra");
 

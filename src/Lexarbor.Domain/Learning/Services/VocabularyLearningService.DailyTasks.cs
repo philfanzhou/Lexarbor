@@ -106,6 +106,17 @@ public sealed partial class VocabularyLearningService
             var pendingKeys = servingNew ? tasks.NewKeys : reviewKeys.Except(reviewed).ToList();
             var pending = await _questionRepository.FindPendingDailyAsync(plan.Id,
                 servingNew ? VocabQuestionKind.New : VocabQuestionKind.Review, pendingKeys, now, cancellationToken).ConfigureAwait(false);
+            // A resumed extra review may target the same card on the following day. Keep the
+            // assigned review's own pending question and credit each answer to its issuing queue.
+            var excluded = new HashSet<Guid>();
+            while (!servingNew && pending is not null && !tasks.QuestionIds.Contains(pending.Id))
+            {
+                var owner = await _planDayRepository.FindExtraBatchDayAsync(plan.Id, pending.Id, cancellationToken, review: true).ConfigureAwait(false);
+                if (owner is null) break;
+                excluded.UnionWith(owner.Tasks!.ExtraReviewBatches.SelectMany(b => b.QuestionIds));
+                pending = await _questionRepository.FindPendingDailyAsync(plan.Id, VocabQuestionKind.Review,
+                    pendingKeys, now, cancellationToken, excluded).ConfigureAwait(false);
+            }
             if (servingNew && pending is null)
             {
                 var extraPending = await _questionRepository.FindPendingDailyAsync(plan.Id, VocabQuestionKind.Extra, pendingKeys, now, cancellationToken).ConfigureAwait(false);

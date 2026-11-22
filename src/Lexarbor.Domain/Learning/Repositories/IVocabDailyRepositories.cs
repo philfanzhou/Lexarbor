@@ -8,7 +8,8 @@ public interface IVocabPlanDayRepository
 
     Task AddAsync(VocabPlanDayModel day, CancellationToken cancellationToken = default);
 
-    Task<VocabPlanDayModel?> FindExtraBatchDayAsync(Guid planId, Guid? batchOrQuestionId = null, CancellationToken cancellationToken = default);
+    Task<VocabPlanDayModel?> FindExtraBatchDayAsync(Guid planId, Guid? batchOrQuestionId = null, CancellationToken cancellationToken = default, bool review = false);
+    Task<VocabExtraBatchSnapshot?> FindLatestReviewBatchAsync(Guid planId, CancellationToken cancellationToken);
     Task UpdateAsync(VocabPlanDayModel day, CancellationToken cancellationToken = default);
     Task ClearNewWordsExhaustedAsync(Guid planId, CancellationToken cancellationToken = default);
 }
@@ -36,7 +37,7 @@ public interface IVocabIssuedQuestionRepository
     Task<bool> HasPendingForWordAsync(Guid studentId, string wordKey, DateTimeOffset now, CancellationToken cancellationToken = default);
 
     Task<VocabIssuedQuestionModel?> FindPendingDailyAsync(Guid planId, VocabQuestionKind kind,
-        IReadOnlyCollection<CardKey> keys, DateTimeOffset now, CancellationToken cancellationToken = default);
+        IReadOnlyCollection<CardKey> keys, DateTimeOffset now, CancellationToken cancellationToken = default, IReadOnlySet<Guid>? excluded = null);
 
     Task AddRangeAsync(IReadOnlyCollection<VocabIssuedQuestionModel> questions, CancellationToken cancellationToken = default);
 }

@@ -134,12 +134,12 @@ public static class VocabularyLearningHttpEndpoints
     {
         if (!TryParseMode(request.Mode, out var mode))
         {
-            return Error(400, "VOCAB_MODE_INVALID", "Mode must be 'new', 'review' or 'extra'.");
+            return Error(400, "VOCAB_MODE_INVALID", "Mode must be 'new', 'review', 'extra' or 'extra-review'.");
         }
         Guid? batchId = null;
         if (request.ExtraBatchId is not null)
         {
-            if (mode != VocabQuestionMode.Extra || !Guid.TryParse(request.ExtraBatchId, out var parsed) || parsed == Guid.Empty)
+            if (mode is not (VocabQuestionMode.Extra or VocabQuestionMode.ExtraReview) || !Guid.TryParse(request.ExtraBatchId, out var parsed) || parsed == Guid.Empty)
                 return Error(400, "VOCAB_EXTRA_BATCH_INVALID", "Extra batch id must be a nonempty GUID in extra mode.");
             batchId = parsed;
         }
@@ -151,7 +151,7 @@ public static class VocabularyLearningHttpEndpoints
         try
         {
             var outcome = await learningService.GetNextAsync(studentId, mode, LearningToday(context), cancellationToken, batchId).ConfigureAwait(false);
-            if (mode == VocabQuestionMode.Extra)
+            if (mode is VocabQuestionMode.Extra or VocabQuestionMode.ExtraReview)
                 return outcome.Question is { } extra
                     ? Results.Ok(new { success = true, data = new { status = "question", question = ToDto(extra), extraBatch = outcome.ExtraBatch } })
                     : Results.Ok(new { success = true, data = new { status = "done", reason = outcome.DoneReason, extraBatch = outcome.ExtraBatch } });
@@ -243,6 +243,9 @@ public static class VocabularyLearningHttpEndpoints
             case "review":
                 parsed = VocabQuestionMode.Review;
                 return true;
+            case "extra-review":
+                parsed = VocabQuestionMode.ExtraReview;
+                return true;
             case "extra":
                 parsed = VocabQuestionMode.Extra;
                 return true;
@@ -280,6 +283,8 @@ public static class VocabularyLearningHttpEndpoints
         dayCompleted = snapshot.CompletedAt is not null,
         completedAt = snapshot.CompletedAt,
         canLearnExtra = snapshot.CanLearnExtra,
+        extraReviewBatchSize = snapshot.ExtraReviewBatchSize,
+        extraReviewBatch = snapshot.ExtraReviewBatch,
         extraBatchSize = snapshot.ExtraBatchSize,
         extraBatch = snapshot.ExtraBatch,
         teacherAdjustedAt = snapshot.TeacherAdjustedAt,
