@@ -196,24 +196,25 @@ public sealed class VocabularyNotebookService : IVocabularyNotebookSource
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task<IReadOnlyList<VocabularyPlanScopeEntry>> ReadNewWordSourcesAsync(Guid studentId, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<VocabularyPlanScopeEntry>> ReadNewWordSourcesAsync(Guid studentId, CancellationToken cancellationToken = default) =>
+        (await ReadLearningSourcesAsync(studentId, cancellationToken).ConfigureAwait(false)).NewWords;
+
+    public async Task<IReadOnlySet<CardKey>> ReadPausedCardKeysAsync(Guid studentId, CancellationToken cancellationToken = default) =>
+        (await ReadLearningSourcesAsync(studentId, cancellationToken).ConfigureAwait(false)).PausedKeys;
+
+    public async Task<VocabNotebookLearningSources> ReadLearningSourcesAsync(Guid studentId, CancellationToken cancellationToken = default)
     {
         await TrySyncPendingAsync(studentId, cancellationToken).ConfigureAwait(false);
         var items = await _notebookRepository.ListAsync(studentId, cancellationToken).ConfigureAwait(false);
         // Learning waits for approval: a pending item is learned once sync makes it ready; a rejected item never is.
-        return items
+        var newWords = items
             .Where(item => item.Status == VocabNotebookItemStatus.Ready)
             .OrderBy(item => item.AddedAt)
             .ThenBy(item => item.Id)
             .Select(Location)
             .ToList();
-    }
-
-    public async Task<IReadOnlySet<CardKey>> ReadPausedCardKeysAsync(Guid studentId, CancellationToken cancellationToken = default)
-    {
-        await TrySyncPendingAsync(studentId, cancellationToken).ConfigureAwait(false);
-        var items = await _notebookRepository.ListAsync(studentId, cancellationToken).ConfigureAwait(false);
-        return items.Where(item => item.Status == VocabNotebookItemStatus.Pending).Select(item => item.Key).ToHashSet();
+        var paused = items.Where(item => item.Status == VocabNotebookItemStatus.Pending).Select(item => item.Key).ToHashSet();
+        return new VocabNotebookLearningSources(newWords, paused);
     }
 
     public async Task<(VocabularyPlanScopeEntry Location, VocabNotebookFamilySource Source)?> ReadVerifiedFamilyAsync(

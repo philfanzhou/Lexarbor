@@ -48,6 +48,12 @@ public interface IVocabularyNotebookCatalog
 
     Task<IReadOnlyList<VocabMeaningSubmission>> LookupAsync(IReadOnlyCollection<string> ids, CancellationToken cancellationToken = default);
 }
+
+/// <summary>A student's ready notebook items in the order they were added, and the card keys of pending items.</summary>
+public sealed record VocabNotebookLearningSources(
+    IReadOnlyList<VocabularyPlanScopeEntry> NewWords,
+    IReadOnlySet<CardKey> PausedKeys);
+
 public interface IVocabularyNotebookSource
 {
     Task<(VocabularyPlanScopeEntry Location, VocabNotebookFamilySource Source)?> ReadVerifiedFamilyAsync(
@@ -61,6 +67,12 @@ public interface IVocabularyNotebookSource
     /// until their submission is approved.
     /// </summary>
     Task<IReadOnlySet<CardKey>> ReadPausedCardKeysAsync(Guid studentId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Both <see cref="ReadNewWordSourcesAsync"/> and <see cref="ReadPausedCardKeysAsync"/> from one sync and one read,
+    /// so a caller that needs both asks Lexarbor about pending submissions once.
+    /// </summary>
+    Task<VocabNotebookLearningSources> ReadLearningSourcesAsync(Guid studentId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// The catalog location for a card whose questions so far came from a meaning submission (book ID

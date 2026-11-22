@@ -28,7 +28,10 @@ public sealed partial class VocabularyLearningService
         var tasks = new VocabDailyTasks();
         try
         {
-            var scope = await WithNotebookAsync(plan, await ReadScopeAsync(plan, cancellationToken).ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+            var planScope = await ReadScopeAsync(plan, cancellationToken).ConfigureAwait(false);
+            // One notebook read gives both the new-word sources and the paused cards, so Lexarbor is asked once.
+            var notebook = await ReadNotebookAsync(plan.StudentId, cancellationToken).ConfigureAwait(false);
+            var scope = WithNotebook(planScope, notebook.NewWords);
             var keys = scope.Select(item => new CardKey(item.Entry.NormalizedWord, item.Entry.MeaningKey)).ToHashSet();
             var existing = await _cardRepository.FindExistingKeysAsync(plan.StudentId, keys, cancellationToken).ConfigureAwait(false);
             var newWords = scope.Where(item => (!existing.Contains(new(item.Entry.NormalizedWord, item.Entry.MeaningKey)) || item.Entry.NormalizedWord == answeredNewWord))
@@ -46,7 +49,7 @@ public sealed partial class VocabularyLearningService
             var newWordKeys = tasks.NewKeys.Select(key => key.WordKey).ToHashSet(StringComparer.Ordinal);
             var due = day.ReviewedInScope.Concat(day.DueInScope).Where(key => !newWordKeys.Contains(key.WordKey)).ToList();
             // Cards keyed by a pending notebook item wait for approval and are not scheduled.
-            var paused = await ReadPausedCardKeysAsync(plan.StudentId, cancellationToken).ConfigureAwait(false);
+            var paused = notebook.PausedKeys;
             var scanned = new List<CardKey>();
             MemoryCardCursor? cursor = null;
             while (true)
