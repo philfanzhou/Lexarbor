@@ -19,7 +19,9 @@ All successful responses use `{ "success": true, "data": ... }`. Errors use
 - `GET /admin/enrichment/tasks`: persisted steps, including preparation and old
   identities whose current target no longer applies.
 - `GET /admin/enrichment/tasks/{id}`: current task plus independently paged
-  `rounds`, `calls`, `waits`, and `cleanup` histories.
+  `rounds`, `calls`, `waits`, and `cleanup` histories. Consecutive polling waits
+  with the same reason and error code appear as one entry: `recordedAtUnixMs` is when the
+  wait began and `nextAttemptAtUnixMs` is the latest scheduled attempt.
 - `GET /admin/enrichment/summary`: current applicable field/audio/expansion requirements,
   separate persisted-task count, and current text/TTS service health.
 

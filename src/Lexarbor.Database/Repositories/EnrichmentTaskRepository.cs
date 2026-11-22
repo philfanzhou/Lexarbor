@@ -288,7 +288,7 @@ public sealed partial class EnrichmentTaskRepository(VocabularyDbContext context
                 .SetProperty(row => row.WaitReason, reason).SetProperty(row => row.NextAttemptAtUnixMs, nextAttemptAt)
                 .SetProperty(row => row.LeaseOwner, (string?)null).SetProperty(row => row.LeaseExpiresAtUnixMs, (long?)null)
                 .SetProperty(row => row.UpdatedAtUnixMs, now));
-            await AddWaitAsync(guard.TargetId, guard.Round, reason, null, now, Math.Max(now, nextAttemptAt));
+            await AddWaitAsync(guard.TargetId, guard.Round, reason, null, now, Math.Max(now, nextAttemptAt), coalesce: true);
             return true;
         }, cancellationToken);
     }
@@ -478,13 +478,27 @@ public sealed partial class EnrichmentTaskRepository(VocabularyDbContext context
             waits.Select(row => new EnrichmentWait(row.Round, row.Reason, row.ErrorCode, row.RecordedAtUnixMs, row.NextAttemptAtUnixMs)).ToArray());
     }
 
-    private async Task AddWaitAsync(string targetId, int round, EnrichmentWaitReason reason, string? code, long now, long next)
+    /// <summary>
+    /// Appends one wait to the round's history. A coalesced wait that repeats the round's latest
+    /// reason and code only extends that row's next attempt: a worker polling a busy permit or an
+    /// unfinished dependency once a second would otherwise add a row per poll. Waits that follow a
+    /// supplier call or a reclaimed lease are never coalesced, because each records a distinct event.
+    /// </summary>
+    private async Task AddWaitAsync(string targetId, int round, EnrichmentWaitReason reason, string? code, long now, long next,
+        bool coalesce = false)
     {
-        if (reason is EnrichmentWaitReason.ConfigurationMissing or EnrichmentWaitReason.StorageDisabled or EnrichmentWaitReason.Disabled)
+        if (coalesce)
         {
-            var previous = await context.EnrichmentWaits.AsNoTracking().Where(w => w.TargetId == targetId && w.Round == round)
+            var previous = await context.EnrichmentWaits.Where(w => w.TargetId == targetId && w.Round == round)
                 .OrderByDescending(w => w.RecordedAtUnixMs).ThenByDescending(w => w.Id).FirstOrDefaultAsync();
-            if (previous?.Reason == reason && previous.ErrorCode == code) return;
+            if (previous?.Reason == reason && previous.ErrorCode == code)
+            {
+                if (next > previous.NextAttemptAtUnixMs) previous.NextAttemptAtUnixMs = next;
+                try { await context.SaveChangesAsync(); }
+                finally { context.Entry(previous).State = EntityState.Detached; }
+                return;
+            }
+            if (previous != null) context.Entry(previous).State = EntityState.Detached;
         }
         var wait = new EnrichmentWaitEntity
         {
