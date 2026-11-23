@@ -2,12 +2,14 @@ using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Npgsql;
 
 namespace Lexarbor.Learning.Database;
 
 /// <summary>Each authenticated caller owns a separate PostgreSQL namespace, including every raw statistics query.</summary>
-public sealed class LearningStorage(string catalogConnection)
+/// <param name="interceptors">Applied to every learner context, such as the slow command log.</param>
+public sealed class LearningStorage(string catalogConnection, params IInterceptor[] interceptors)
 {
     // A completed upgrade stays cached; a failed one is removed so the next request retries it.
     private readonly ConcurrentDictionary<string, Lazy<Task>> upgrades = new(StringComparer.Ordinal);
@@ -18,7 +20,8 @@ public sealed class LearningStorage(string catalogConnection)
     public DbContextOptions<LearningDbContext> Options(string callerId)
     {
         var connection = new NpgsqlConnectionStringBuilder(catalogConnection) { SearchPath = Schema(callerId) };
-        return new DbContextOptionsBuilder<LearningDbContext>().UseNpgsql(connection.ConnectionString).Options;
+        return new DbContextOptionsBuilder<LearningDbContext>().UseNpgsql(connection.ConnectionString)
+            .AddInterceptors(interceptors).Options;
     }
 
     public NpgsqlConnection OpenGate(string callerId) => new(new NpgsqlConnectionStringBuilder(catalogConnection)

@@ -166,11 +166,13 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
             // host can observe them. LEXARBOR_-prefixed entries pass through as
             // literal container-variable names — they carry no ':' to remap —
             // which is how the OTLP authorization value reaches the resolver.
+            // The slow command threshold is read at the same point.
             var networkSettings = _extraConfiguration
                 .Where(entry => entry.Key.StartsWith("Network:", StringComparison.Ordinal)
                     || entry.Key.StartsWith("Service:", StringComparison.Ordinal)
                     || entry.Key.StartsWith("Telemetry:", StringComparison.Ordinal)
                     || entry.Key.StartsWith("LEXARBOR_", StringComparison.Ordinal)
+                    || entry.Key == Lexarbor.Database.Diagnostics.SlowCommandLog.ThresholdKey
                     || (_useProductionDatabase && entry.Key.StartsWith("ConnectionStrings:", StringComparison.Ordinal)))
                 .Select(entry => (Name: entry.Key.Replace(":", "__", StringComparison.Ordinal), entry.Value))
                 .ToList();

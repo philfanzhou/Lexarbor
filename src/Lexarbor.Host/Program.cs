@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Security.Cryptography;
 using Lexarbor.Database;
+using Lexarbor.Database.Diagnostics;
 using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Exceptions;
 using Lexarbor.Domain.Models;
@@ -91,9 +92,18 @@ var connectionString = PostgreSqlConnectionConfiguration.Build(
 // One registration path serves both the application and the ServiceMantle
 // Data Protection key repository: the factory creates the repository's own
 // contexts, and the scoped wrapper gives each request exactly one context.
-builder.Services.AddDbContextFactory<VocabularyDbContext>(options =>
+// Commands slower than Database:SlowCommandThresholdMilliseconds (500 ms unless configured, 0
+// turns it off) leave one warning with their parameterized SQL; see SlowCommandLog.
+var slowCommandThreshold = SlowCommandLog.ReadThreshold(builder.Configuration[SlowCommandLog.ThresholdKey]);
+if (slowCommandThreshold is { } threshold)
+{
+    builder.Services.AddSingleton(provider => new SlowCommandLog(threshold,
+        provider.GetRequiredService<ILogger<SlowCommandLog>>()));
+}
+builder.Services.AddDbContextFactory<VocabularyDbContext>((provider, options) =>
 {
     options.UseNpgsql(connectionString);
+    options.AddInterceptors(provider.GetServices<SlowCommandLog>());
 });
 builder.Services.AddScoped(serviceProvider =>
     serviceProvider.GetRequiredService<IDbContextFactory<VocabularyDbContext>>().CreateDbContext());
