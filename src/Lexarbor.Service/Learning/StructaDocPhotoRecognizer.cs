@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
@@ -10,14 +11,23 @@ public sealed class StructaDocPhotoRecognizer : IVocabularyPhotoRecognizer
 {
     public const string HttpClientName = "StructaDocRecognition";
 
+    /// <summary>How much of a refusal's body the trace keeps.</summary>
+    private const int RefusalBodyLimit = 64 * 1024;
+
+    /// <summary>A stalled refusal body must not turn the refusal into a timeout.</summary>
+    private static readonly TimeSpan RefusalReadTimeout = TimeSpan.FromSeconds(5);
+
     private readonly IHttpClientFactory _clients;
     private readonly VocabularyPhotoImportOptions _options;
+    private readonly VocabularyPhotoTrace _trace;
     private readonly ILogger<StructaDocPhotoRecognizer> _logger;
 
-    public StructaDocPhotoRecognizer(IHttpClientFactory clients, VocabularyPhotoImportOptions options, ILogger<StructaDocPhotoRecognizer> logger)
+    public StructaDocPhotoRecognizer(IHttpClientFactory clients, VocabularyPhotoImportOptions options, VocabularyPhotoTrace trace,
+        ILogger<StructaDocPhotoRecognizer> logger)
     {
         _clients = clients;
         _options = options;
+        _trace = trace;
         _logger = logger;
     }
 
@@ -27,6 +37,7 @@ public sealed class StructaDocPhotoRecognizer : IVocabularyPhotoRecognizer
 
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         budget.CancelAfter(TimeSpan.FromSeconds(_options.RecognitionBudgetSeconds));
+        var started = Stopwatch.GetTimestamp();
         try
         {
             using var form = new MultipartFormDataContent();
@@ -42,6 +53,9 @@ public sealed class StructaDocPhotoRecognizer : IVocabularyPhotoRecognizer
             using var response = await _clients.CreateClient(HttpClientName)
                 .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, budget.Token).ConfigureAwait(false);
             var status = (int)response.StatusCode;
+            _trace.RecognitionStatus = status;
+            if (response.StatusCode != HttpStatusCode.OK)
+                _trace.RecognitionResponse = await TryReadRefusalAsync(response.Content, cancellationToken).ConfigureAwait(false);
             if (response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.RequestEntityTooLarge or HttpStatusCode.UnsupportedMediaType)
             {
                 _logger.LogWarning("StructaDoc refused the vocabulary photo with status {Status}.", status);
@@ -55,6 +69,7 @@ public sealed class StructaDocPhotoRecognizer : IVocabularyPhotoRecognizer
             }
 
             var body = await ReadBoundedAsync(response.Content, _options.MaxResponseBytes, budget.Token).ConfigureAwait(false);
+            _trace.RecognitionResponse = body;
             var blocks = Parse(body);
             _logger.LogInformation("StructaDoc recognized {Blocks} blocks with {Lines} lines.", blocks.Count, blocks.Sum(block => block.Lines.Count));
             return blocks;
@@ -65,8 +80,15 @@ public sealed class StructaDocPhotoRecognizer : IVocabularyPhotoRecognizer
         }
         catch (Exception error) when (error is OperationCanceledException or HttpRequestException or IOException)
         {
+            _trace.RecognitionFailure = error is OperationCanceledException
+                ? $"No answer within {_options.RecognitionBudgetSeconds} seconds."
+                : $"{error.GetType().Name}: {error.Message}";
             _logger.LogWarning("StructaDoc image recognition failed: {Error}.", error.GetType().Name);
             throw new VocabPhotoImportUnavailableException();
+        }
+        finally
+        {
+            _trace.RecognitionMilliseconds = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds;
         }
     }
 
@@ -107,6 +129,31 @@ public sealed class StructaDocPhotoRecognizer : IVocabularyPhotoRecognizer
 
     private static string? OptionalText(JsonElement element, string name) =>
         element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+
+    /// <summary>
+    /// The start of a refusal's body for the trace. It has its own short deadline, apart from the recognition budget,
+    /// and failing to read it never changes how the refusal is answered; only the caller's cancellation stops it.
+    /// </summary>
+    private static async Task<byte[]?> TryReadRefusalAsync(HttpContent content, CancellationToken cancellationToken)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(RefusalReadTimeout);
+        try
+        {
+            await using var stream = await content.ReadAsStreamAsync(deadline.Token).ConfigureAwait(false);
+            var buffer = new byte[RefusalBodyLimit];
+            var length = 0;
+            int read;
+            while (length < buffer.Length && (read = await stream.ReadAsync(buffer.AsMemory(length), deadline.Token).ConfigureAwait(false)) > 0)
+                length += read;
+            return buffer[..length];
+        }
+        catch (Exception error) when (error is HttpRequestException or IOException
+                                          || (error is OperationCanceledException && !cancellationToken.IsCancellationRequested))
+        {
+            return null;
+        }
+    }
 
     private static async Task<byte[]> ReadBoundedAsync(HttpContent content, int limit, CancellationToken cancellationToken)
     {

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Lexarbor.Learning.Domain.Models;
 using Lexarbor.Learning.Domain.Services;
 using Microsoft.AspNetCore.Builder;
@@ -81,8 +82,8 @@ public static partial class VocabularyNotebookHttpEndpoints
             return MapError(error);
         }
     }
-    private static async Task<IResult> Photo(Guid studentId, HttpRequest request,
-        VocabularyPhotoImportService service, CancellationToken cancellationToken)
+    private static async Task<IResult> Photo(Guid studentId, HttpRequest request, VocabularyPhotoImportService service,
+        VocabularyPhotoTrace trace, VocabularyPhotoTraceStore traces, CancellationToken cancellationToken)
     {
         if (!request.HasFormContentType) return MapError(new VocabPhotoInvalidException());
         IFormFile? file;
@@ -99,19 +100,58 @@ public static partial class VocabularyNotebookHttpEndpoints
 
         if (file is null || file.Length is 0 or > VocabularyPhotoImportService.MaxPhotoBytes)
             return MapError(new VocabPhotoInvalidException());
+        byte[] photo;
+        using (var buffer = new MemoryStream((int)file.Length))
+        {
+            await file.CopyToAsync(buffer, cancellationToken).ConfigureAwait(false);
+            photo = buffer.ToArray();
+        }
+
+        var at = DateTimeOffset.UtcNow;
+        var started = Stopwatch.GetTimestamp();
+        var contentType = file.ContentType ?? string.Empty;
+        var outcome = "failed";
+        string? message = null;
+        List<object>? result = null;
         try
         {
-            using var buffer = new MemoryStream((int)file.Length);
-            await file.CopyToAsync(buffer, cancellationToken).ConfigureAwait(false);
-            var candidates = await service.PreviewAsync(studentId, new VocabPhoto(buffer.ToArray(), file.ContentType ?? string.Empty), cancellationToken)
-                .ConfigureAwait(false);
-            return Results.Ok(new { success = true, data = new { candidates = candidates.Select(ToDto).ToList() } });
+            var candidates = await service.PreviewAsync(studentId, new VocabPhoto(photo, contentType), cancellationToken).ConfigureAwait(false);
+            result = candidates.Select(ToDto).ToList();
+            outcome = "ok";
+            return Results.Ok(new { success = true, data = new { candidates = result } });
         }
         catch (Exception error) when (IsMapped(error))
         {
+            (outcome, message) = (TraceOutcome(error), error.Message);
             return MapError(error);
         }
+        catch (OperationCanceledException)
+        {
+            outcome = "canceled";
+            throw;
+        }
+        catch (Exception error)
+        {
+            // Only the type: an unexpected message is not known to be free of private details.
+            message = error.GetType().Name;
+            throw;
+        }
+        finally
+        {
+            // Only a request that reached StructaDoc says anything about recognition worth keeping.
+            if (trace.RecognitionMilliseconds is not null)
+                await traces.SaveAsync(new VocabularyPhotoTraceRecord(at, studentId, photo, contentType, outcome, message,
+                    (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds, trace, result)).ConfigureAwait(false);
+        }
     }
+
+    private static string TraceOutcome(Exception error) => error switch
+    {
+        VocabPhotoInvalidException => "invalid",
+        VocabPhotoImportUnavailableException => "unavailable",
+        VocabCatalogUnavailableException => "catalog-unavailable",
+        _ => "failed",
+    };
 
     private static object ToDto(VocabPhotoCandidate candidate) => new
     {
