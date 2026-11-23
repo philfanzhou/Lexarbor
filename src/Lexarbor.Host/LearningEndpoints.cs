@@ -1,3 +1,4 @@
+using Lexarbor.Database.Diagnostics;
 using Lexarbor.Learning.Database;
 using Lexarbor.Learning.Database.Repositories;
 using Lexarbor.Learning.Domain.Calendar;
@@ -15,7 +16,8 @@ internal static class LearningEndpoints
 {
     internal static void AddLearnerServices(this IServiceCollection services, IConfiguration configuration, string connection)
     {
-        services.AddSingleton(new LearningStorage(connection));
+        services.AddSingleton(provider => new LearningStorage(connection,
+            [.. provider.GetServices<SlowCommandLog>()]));
         services.AddScoped(provider =>
         {
             var request = provider.GetRequiredService<IHttpContextAccessor>().HttpContext;

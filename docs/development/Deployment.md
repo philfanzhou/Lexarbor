@@ -212,6 +212,7 @@ database, so a deployment is the Lexarbor container plus a PostgreSQL server.
 |---|---|---|---|
 | `ConnectionStrings:Default` | `LEXARBOR_DATABASE_CONNECTION_STRING` | none (required) | PostgreSQL connection string |
 | `Database:InitializeOnStartup` | — | `true` | Create a missing database and apply migrations |
+| `Database:SlowCommandThresholdMilliseconds` | — | `500` | Log a warning for each database command at least this slow; `0` turns it off |
 
 ### PostgreSQL configuration
 
@@ -256,6 +257,43 @@ On first startup the database is empty: Lexarbor ships no vocabulary data.
 With `Database:InitializeOnStartup=false` the gate is skipped entirely: the
 application performs no write at startup, keeps running, and readiness
 reports `notStarted` while migrations are pending.
+
+### Slow command log
+
+Each database command that takes at least
+`Database:SlowCommandThresholdMilliseconds` (500 ms unless configured) writes
+one `Warning` from the `Lexarbor.Database.Diagnostics.SlowCommandLog` category,
+event `SlowDatabaseCommand`. Set it with the environment variable
+`Database__SlowCommandThresholdMilliseconds`. For example:
+
+```text
+Database command completed after 812 ms (threshold 500 ms, LearningDbContext.ExecuteReader): SELECT ... WHERE c.vocabulary_id = @p0 ...
+```
+
+- The entry carries the elapsed and threshold milliseconds, the context
+  (`VocabularyDbContext` for the catalog and enrichment work,
+  `LearningDbContext` for learner progress), the execution method, and the
+  command text as sent, with placeholders such as `@p0`. **Parameter values are
+  never logged**, and commands run while administrator session storage is read
+  or written are not logged at all.
+- A command that fails after at least the threshold, such as one that hits the
+  `lock_timeout`, logs `failed after` instead of `completed after`; one that is
+  canceled, such as when the client disconnects, logs `canceled after`.
+- Command text longer than 4000 characters is cut and ends with `[truncated]`.
+- Startup migrations and learner schema upgrades go through the same contexts,
+  so a long migration step also appears here.
+- `0` turns the log off. A value that is not a whole number of milliseconds,
+  such as `-1` or `500ms`, stops startup with a message naming the key.
+- The elapsed time runs until PostgreSQL starts returning rows; reading a large
+  result afterwards is not included.
+- Not covered: the few statements Lexarbor sends without Entity Framework, such
+  as the learner request gate's lock and generation check and the vocabulary
+  cleanup's counts.
+- The log stays inside Lexarbor. It does not change the PostgreSQL server. Use
+  the server's own `log_min_duration_statement` or `pg_stat_statements` to see
+  every database on a shared server.
+- To silence it without changing the threshold, set
+  `Logging:LogLevel:Lexarbor.Database.Diagnostics.SlowCommandLog` to `Error`.
 
 ### Running with Docker Compose
 
@@ -1075,7 +1113,8 @@ Serilog provider: the request-scoped suppression of Entity Framework diagnostics
 while administrator session storage is being read or written, and the
 `LogLevel.None` rule for `Microsoft.AspNetCore.DataProtection` (framework
 diagnostics there can contain key XML). Remote log sinks (Loki) and OpenTelemetry
-log export are not enabled.
+log export are not enabled. Slow database commands have their own warning; see
+[Slow command log](#slow-command-log).
 
 The sensitive request-header registry uses ServiceMantle's built-in denied list
 (`Authorization`, `Proxy-Authorization`, `Cookie`, `Set-Cookie`, `X-Api-Key`,
