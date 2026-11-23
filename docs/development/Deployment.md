@@ -17,6 +17,7 @@ The multi-stage build compiles the Vue frontend, publishes the .NET backend, and
 - The database lives on a PostgreSQL server, not in the image or under `/app/data`; see [Database](#database).
 - `/app/data/appsettings.json` contains the operator-managed application configuration.
 - `/app/data/data-protection-root-key` holds the Data Protection root key (unless `LEXARBOR_DATA_PROTECTION_ROOT_KEY` injects one).
+- `/app/data/photo-import-traces/` keeps the 50 most recent notebook photo imports (each photo and a JSON trace) for troubleshooting; see [Photo import traces](../api/LearnerProgress.md#photo-import-traces).
 
 Tagged releases publish SBOM-enabled images with build provenance for AMD64 and ARM64 to `ghcr.io/philfanzhou/lexarbor`. For example:
 

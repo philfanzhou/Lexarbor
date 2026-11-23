@@ -4,7 +4,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Lexarbor.Learning.Domain.Services;
 
-/// <summary>One photo as uploaded: its bytes and declared media type. It is passed on and never stored.</summary>
+/// <summary>One photo as uploaded: its bytes and declared media type. The host may keep recent photos for analysis.</summary>
 public sealed record VocabPhoto(byte[] Content, string ContentType);
 
 /// <summary>One recognized line and its normalized position (top-left origin, 0..1).</summary>

@@ -66,7 +66,12 @@ internal static class LearningEndpoints
         services.AddSingleton(VocabularyPhotoImportOptions.Read(configuration));
         services.AddHttpClient(StructaDocPhotoRecognizer.HttpClientName)
             .ConfigureHttpClient(client => client.Timeout = Timeout.InfiniteTimeSpan);
-        services.AddSingleton<IVocabularyPhotoRecognizer, StructaDocPhotoRecognizer>();
+        services.AddScoped<VocabularyPhotoTrace>();
+        services.AddScoped<IVocabularyPhotoRecognizer, StructaDocPhotoRecognizer>();
+        // The latest photo imports stay under the persistent data/ directory for offline analysis.
+        services.AddSingleton(provider => new VocabularyPhotoTraceStore(
+            Path.Combine(provider.GetRequiredService<IHostEnvironment>().ContentRootPath, "data", VocabularyPhotoTraceStore.DirectoryName),
+            provider.GetRequiredService<ILogger<VocabularyPhotoTraceStore>>()));
         services.AddScoped<VocabularyPhotoImportService>();
         services.AddOptions<VocabularyFsrsOptions>()
             .Bind(configuration.GetSection(VocabularyFsrsOptions.SectionName)).ValidateOnStart();
