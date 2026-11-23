@@ -277,7 +277,8 @@ Database command completed after 812 ms (threshold 500 ms, LearningDbContext.Exe
   never logged**, and commands run while administrator session storage is read
   or written are not logged at all.
 - A command that fails after at least the threshold, such as one that hits the
-  `lock_timeout`, logs `failed after` instead of `completed after`.
+  `lock_timeout`, logs `failed after` instead of `completed after`; one that is
+  canceled, such as when the client disconnects, logs `canceled after`.
 - Command text longer than 4000 characters is cut and ends with `[truncated]`.
 - Startup migrations and learner schema upgrades go through the same contexts,
   so a long migration step also appears here.

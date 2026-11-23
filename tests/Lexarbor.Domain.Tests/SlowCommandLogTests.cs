@@ -64,6 +64,24 @@ public sealed class SlowCommandLogTests
     }
 
     [Fact]
+    public async Task ACanceledSlowCommandIsLoggedAsCanceled()
+    {
+        var log = new CapturingLogger();
+        using var file = new AudioTestDatabase();
+        await using var db = file.Open(new SlowCommandLog(TimeSpan.FromMilliseconds(20), log));
+        // The clock starts once the connection is open, so the command itself runs long enough.
+        await db.Database.OpenConnectionAsync(Ct);
+        using var cancel = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        cancel.CancelAfter(TimeSpan.FromMilliseconds(100));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => db.Database.ExecuteSqlRawAsync("SELECT pg_sleep(5)", cancel.Token));
+
+        var entry = Assert.Single(log.Entries);
+        Assert.Contains("canceled after", entry.Message);
+        Assert.True(entry.Elapsed >= 20, entry.Message);
+    }
+
+    [Fact]
     public async Task ALongCommandTextIsTruncated()
     {
         var log = new CapturingLogger();

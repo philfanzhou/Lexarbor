@@ -85,6 +85,18 @@ public sealed class SlowCommandLog(TimeSpan threshold, ILogger<SlowCommandLog> l
         return Task.CompletedTask;
     }
 
+    // A caller that gives up on a slow command, such as a request whose client disconnected,
+    // cancels it; that is the slow case this log exists for.
+    public override void CommandCanceled(DbCommand command, CommandEndEventData eventData) =>
+        Record(command, eventData, "canceled");
+
+    public override Task CommandCanceledAsync(DbCommand command, CommandEndEventData eventData,
+        CancellationToken cancellationToken = default)
+    {
+        Record(command, eventData, "canceled");
+        return Task.CompletedTask;
+    }
+
     private void Record(DbCommand command, CommandEndEventData eventData, string outcome)
     {
         if (eventData.Duration < Threshold || AdminSessionRepository.IsSessionOperation || !logger.IsEnabled(LogLevel.Warning))
