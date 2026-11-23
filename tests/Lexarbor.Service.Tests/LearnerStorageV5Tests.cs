@@ -159,7 +159,19 @@ public sealed class LearnerStorageV5Tests
             """);
         await AddDayAsync(db, plan, new DateOnly(2026, 11, 4), """{ "ExtraBatches": [] }""");
 
+        var priorReview = new DateOnly(2026, 11, 5);
+        var nextReview = priorReview.AddDays(1);
+        await AddDayAsync(db, plan, priorReview, $$"""
+            { "ExtraReviewBatches": [{ "Id": "{{open}}", "RequestIds": ["{{openRequest}}"], "QuestionIds": ["{{openQuestion}}"] }] }
+            """);
+        await AddDayAsync(db, plan, nextReview, $$"""
+            { "ExtraReviewBatches": [{ "Id": "{{openQuestion}}", "QuestionIds": ["{{openRequest}}"] }] }
+            """);
         var days = new VocabPlanDayRepository(db);
+        Assert.Equal(priorReview, (await days.FindReviewQuestionDayAsync(plan, openQuestion, Ct))?.LocalDate);
+        Assert.Equal(nextReview, (await days.FindReviewBatchDayAsync(plan, openQuestion, Ct))?.LocalDate);
+        Assert.Equal(priorReview, (await days.FindReviewBatchDayAsync(plan, openRequest, Ct))?.LocalDate);
+        Assert.Null(await days.FindReviewQuestionDayAsync(plan, open, Ct));
         foreach (var id in new Guid?[] { null, open, openRequest, openQuestion })
             Assert.Equal(new DateOnly(2026, 11, 3), (await days.FindExtraBatchDayAsync(plan, id, Ct))?.LocalDate);
         Assert.Equal(new DateOnly(2026, 11, 2), (await days.FindExtraBatchDayAsync(plan, done, Ct))?.LocalDate);

@@ -111,7 +111,7 @@ public sealed partial class VocabularyLearningService
             var excluded = new HashSet<Guid>();
             while (!servingNew && pending is not null && !tasks.QuestionIds.Contains(pending.Id))
             {
-                var owner = await _planDayRepository.FindExtraBatchDayAsync(plan.Id, pending.Id, cancellationToken, review: true).ConfigureAwait(false);
+                var owner = await _planDayRepository.FindReviewQuestionDayAsync(plan.Id, pending.Id, cancellationToken).ConfigureAwait(false);
                 if (owner is null) break;
                 excluded.UnionWith(owner.Tasks!.ExtraReviewBatches.SelectMany(b => b.QuestionIds));
                 pending = await _questionRepository.FindPendingDailyAsync(plan.Id, VocabQuestionKind.Review,

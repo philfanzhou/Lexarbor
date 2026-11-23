@@ -12,8 +12,8 @@ public sealed partial class VocabularyLearningService
             var today = await _planDayRepository.FindAsync(plan.Id, date, cancellationToken).ConfigureAwait(false);
             if (today?.CompletedAt is null) throw new VocabDayNotCompletedException();
             var requestedDay = requestedId is { } id
-                ? await _planDayRepository.FindExtraBatchDayAsync(plan.Id, id, cancellationToken, review: true).ConfigureAwait(false) : null;
-            var owner = requestedDay ?? await _planDayRepository.FindExtraBatchDayAsync(plan.Id, cancellationToken: cancellationToken, review: true).ConfigureAwait(false) ?? today;
+                ? await _planDayRepository.FindReviewBatchDayAsync(plan.Id, id, cancellationToken).ConfigureAwait(false) : null;
+            var owner = requestedDay ?? await _planDayRepository.FindReviewBatchDayAsync(plan.Id, null, cancellationToken).ConfigureAwait(false) ?? today;
             owner.Tasks ??= new VocabDailyTasks { LegacyDay = true };
             var batches = owner.Tasks.ExtraReviewBatches;
             var batch = batches.FirstOrDefault(b => b.Id == requestedId || requestedId is { } alias && b.RequestIds.Contains(alias))
@@ -102,7 +102,7 @@ public sealed partial class VocabularyLearningService
     private async Task<bool> RecordExtraReviewAsync(Guid planId, VocabIssuedQuestionModel question, DateTimeOffset answeredAt,
         CancellationToken cancellationToken)
     {
-        var owner = await _planDayRepository.FindExtraBatchDayAsync(planId, question.Id, cancellationToken, review: true).ConfigureAwait(false);
+        var owner = await _planDayRepository.FindReviewQuestionDayAsync(planId, question.Id, cancellationToken).ConfigureAwait(false);
         if (owner is null) return false;
         var batch = owner.Tasks!.ExtraReviewBatches.Single(b => b.QuestionIds.Contains(question.Id));
         if (batch.CompletedAt is null && batch.QuestionIds[^1] == question.Id)
