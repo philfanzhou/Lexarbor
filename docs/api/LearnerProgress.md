@@ -15,6 +15,12 @@ A trusted backend sends its issued secret in `X-Api-Key` over HTTPS. The key nee
 
 For example, a caller can register a learner with `PUT /learning/v1/learners/629f852c-c0f8-46a5-9ac7-355c00ba28f3` and fetch `GET /learning/v1/api/vocabulary/students/629f852c-c0f8-46a5-9ac7-355c00ba28f3/plan`. Vocabulary responses use the existing `success` and `data` envelope. Errors include a message and may include a business error code. For a previously issued choice question, post `studentId`, `optionId`, `elapsedMs`, `localDate` and `tzOffsetMinutes` to its answer route. Retry using the original question ID.
 
+## Extra review after check-in
+
+After completing the daily assignment, post `{"mode":"extra-review","extraBatchId":"<uuid>"}` to the learner's `/questions/next` route. The target is twice the plan's per-group count when the batch starts. A 25+25 assignment allows another 50 distinct learned words. Due cards are first, followed by the earliest scheduled cards. Paused cards, incomplete new words and unavailable locations are skipped. A short batch reports its actual word count.
+
+Today advertises `extraReviewBatchSize` and the current or latest `extraReviewBatch`. Issuance returns a Review question plus `extraBatch` with `id`, `target`, `required`, `completed` and `completedAt`. Each first answer updates the card and counts one word towards the batch. The daily assignment and check-in stay independent. Reuse the batch ID for every subsequent question and retry. Across devices, a second ID resumes the active batch. After completion the same ID returns `extra-batch-completed`; use a fresh ID to start another. With no eligible words the result is `no-reviewable-words` and zero required. An open batch can resume after the next day's check-in. Existing `extra` new-word batches have separate IDs and progress. Both collections are stored in the existing plan-day JSON.
+
 ## Review locations
 
 A memory card is reviewed at the catalog location of the new or extra question that created it. Later questions do not change this location, including word-family questions and questions that expired unanswered. The card also records where the word came from: the plan, the notebook, or a notebook item added only through a word family. A notebook word learned at the plan's location still counts as a notebook word. Cards created before learner storage version 6 have no recorded source.

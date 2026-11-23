@@ -1,5 +1,9 @@
 ﻿# Deployment and operations
 
+## Extra review batches
+
+Upgrade all services writing learner data before enabling `extra-review` in a client. A batch is stored in the existing plan-day JSON. An older writer can discard the review batch fields when it rewrites that day. Back up learner data before rolling back a writer after clients have started batches. See the [learner progress contract](../api/LearnerProgress.md#extra-review-after-check-in).
+
 ## Build the image
 
 The root of the repository is the Docker build context:

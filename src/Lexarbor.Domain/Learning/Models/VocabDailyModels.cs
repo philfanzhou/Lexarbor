@@ -162,7 +162,9 @@ public sealed record VocabTodaySnapshot(
     int FillReviewRequired = 0,
     int FillReviewCompleted = 0,
     int? ExtraBatchSize = null,
-    VocabExtraBatchSnapshot? ExtraBatch = null);
+    VocabExtraBatchSnapshot? ExtraBatch = null,
+    int? ExtraReviewBatchSize = null,
+    VocabExtraBatchSnapshot? ExtraReviewBatch = null);
 
 public sealed record VocabNextQuestionOutcome(
     VocabIssuedQuestionModel? Question,

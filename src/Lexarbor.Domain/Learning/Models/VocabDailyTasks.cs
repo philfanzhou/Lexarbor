@@ -5,6 +5,7 @@ public sealed class VocabDailyTasks
 {
     public bool LegacyDay { get; set; }
     public List<VocabExtraBatch> ExtraBatches { get; set; } = [];
+    public List<VocabReviewBatch> ExtraReviewBatches { get; set; } = [];
     public int NewRequired { get; set; }
     public List<VocabDailyWord> NewWords { get; set; } = [];
     public List<VocabDailyWord> UnavailableNewMeanings { get; set; } = [];

@@ -29,32 +29,61 @@ public class VocabPlanDayRepository : IVocabPlanDayRepository
         return entity is null ? null : ToModel(entity);
     }
 
-    public async Task<VocabPlanDayModel?> FindExtraBatchDayAsync(Guid planId, Guid? batchOrQuestionId = null, CancellationToken cancellationToken = default)
+    public Task<VocabPlanDayModel?> FindExtraBatchDayAsync(Guid planId, Guid? batchOrQuestionId = null, CancellationToken cancellationToken = default)
     {
-        // jsonb containment compares structure, so spacing and key order in the stored text do not matter.
+        const string collection = nameof(VocabDailyTasks.ExtraBatches);
         string[] patterns = batchOrQuestionId is { } id
-            ? [ExtraBatchPattern(nameof(VocabExtraBatch.Id), JsonValue.Create(id)),
-                ExtraBatchPattern(nameof(VocabExtraBatch.RequestIds), new JsonArray(JsonValue.Create(id))),
-                ExtraBatchPattern(nameof(VocabExtraBatch.QuestionIds), new JsonArray(JsonValue.Create(id)))]
-            : [ExtraBatchPattern(nameof(VocabExtraBatch.CompletedAt), null)];
-        var candidates = _dbContext.VocabPlanDays.FromSql($"""
+            ? [ExtraBatchPattern(collection, nameof(VocabExtraBatch.Id), JsonValue.Create(id)),
+                ExtraBatchPattern(collection, nameof(VocabExtraBatch.RequestIds), new JsonArray(JsonValue.Create(id))),
+                ExtraBatchPattern(collection, nameof(VocabExtraBatch.QuestionIds), new JsonArray(JsonValue.Create(id)))]
+            : [ExtraBatchPattern(collection, nameof(VocabExtraBatch.CompletedAt), null)];
+        return FindDayByBatchPatternsAsync(planId, patterns, cancellationToken);
+    }
+
+    public Task<VocabPlanDayModel?> FindReviewBatchDayAsync(Guid planId, Guid? batchId, CancellationToken cancellationToken)
+    {
+        const string collection = nameof(VocabDailyTasks.ExtraReviewBatches);
+        string[] patterns = batchId is { } id
+            ? [ExtraBatchPattern(collection, nameof(VocabReviewBatch.Id), JsonValue.Create(id)),
+                ExtraBatchPattern(collection, nameof(VocabReviewBatch.RequestIds), new JsonArray(JsonValue.Create(id)))]
+            : [ExtraBatchPattern(collection, nameof(VocabReviewBatch.CompletedAt), null)];
+        return FindDayByBatchPatternsAsync(planId, patterns, cancellationToken);
+    }
+
+    public Task<VocabPlanDayModel?> FindReviewQuestionDayAsync(Guid planId, Guid questionId, CancellationToken cancellationToken)
+    {
+        var pattern = ExtraBatchPattern(nameof(VocabDailyTasks.ExtraReviewBatches), nameof(VocabReviewBatch.QuestionIds),
+            new JsonArray(JsonValue.Create(questionId)));
+        return FindDayByBatchPatternsAsync(planId, [pattern], cancellationToken);
+    }
+
+    private async Task<VocabPlanDayModel?> FindDayByBatchPatternsAsync(Guid planId, string[] patterns, CancellationToken cancellationToken)
+    {
+        var owner = await _dbContext.VocabPlanDays.FromSql($"""
                 SELECT * FROM vocab_plan_day
                 WHERE plan_id = {planId} AND daily_tasks IS NOT NULL
                     AND daily_tasks::jsonb @> ANY (CAST({patterns} AS jsonb[]))
                 """)
-            .OrderByDescending(day => day.LocalDate).AsAsyncEnumerable();
-        await foreach (var entity in candidates.WithCancellation(cancellationToken).ConfigureAwait(false))
-        {
-            var day = ToModel(entity);
-            if (day.Tasks!.ExtraBatches.Any(batch => batchOrQuestionId is { } id
-                ? batch.Id == id || batch.RequestIds.Contains(id) || batch.QuestionIds.Contains(id) : batch.CompletedAt is null)) return day;
-        }
-        return null;
+            .OrderByDescending(day => day.LocalDate).FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        return owner is null ? null : ToModel(owner);
     }
 
-    private static string ExtraBatchPattern(string property, JsonNode? value) => new JsonObject
+    public async Task<VocabExtraBatchSnapshot?> FindLatestReviewBatchAsync(Guid planId, CancellationToken cancellationToken)
     {
-        [JsonName(nameof(VocabDailyTasks.ExtraBatches))] = new JsonArray(new JsonObject { [JsonName(property)] = value })
+        var anyBatch = new JsonObject { [nameof(VocabDailyTasks.ExtraReviewBatches)] = new JsonArray(new JsonObject()) }.ToJsonString();
+        var openBatch = ExtraBatchPattern(nameof(VocabDailyTasks.ExtraReviewBatches), nameof(VocabReviewBatch.CompletedAt), null);
+        var owner = await _dbContext.VocabPlanDays.FromSql($"""
+            SELECT * FROM vocab_plan_day WHERE plan_id = {planId} AND daily_tasks::jsonb @> CAST({anyBatch} AS jsonb)
+            ORDER BY (daily_tasks::jsonb @> CAST({openBatch} AS jsonb)) DESC, local_date DESC LIMIT 1
+            """).AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+        if (owner.Count == 0) return null;
+        var batches = ToModel(owner[0]).Tasks!.ExtraReviewBatches;
+        return (batches.LastOrDefault(b => b.CompletedAt is null) ?? batches[^1]).Snapshot();
+    }
+
+    private static string ExtraBatchPattern(string collection, string property, JsonNode? value) => new JsonObject
+    {
+        [JsonName(collection)] = new JsonArray(new JsonObject { [JsonName(property)] = value })
     }.ToJsonString();
 
     private static string JsonName(string property) => TasksJsonOptions.PropertyNamingPolicy?.ConvertName(property) ?? property;
@@ -256,7 +285,7 @@ public class VocabIssuedQuestionRepository : IVocabIssuedQuestionRepository
     }
 
     public async Task<VocabIssuedQuestionModel?> FindPendingDailyAsync(Guid planId, VocabQuestionKind kind,
-        IReadOnlyCollection<CardKey> keys, DateTimeOffset now, CancellationToken cancellationToken = default)
+        IReadOnlyCollection<CardKey> keys, DateTimeOffset now, CancellationToken cancellationToken = default, IReadOnlySet<Guid>? excluded = null)
     {
         if (keys.Count == 0) return null;
         var pending = await _dbContext.VocabIssuedQuestions.AsNoTracking()
@@ -264,7 +293,7 @@ public class VocabIssuedQuestionRepository : IVocabIssuedQuestionRepository
                 && question.AnsweredAt == null && question.ExpiresAt > now)
             .OrderBy(question => question.IssuedAt).ThenBy(question => question.Id)
             .ToListAsync(cancellationToken).ConfigureAwait(false);
-        var match = pending.FirstOrDefault(question => keys.Contains(new CardKey(question.WordKey, question.MeaningKey)));
+        var match = pending.FirstOrDefault(question => excluded?.Contains(question.Id) != true && keys.Contains(new CardKey(question.WordKey, question.MeaningKey)));
         return match is null ? null : ToModel(match);
     }
 
