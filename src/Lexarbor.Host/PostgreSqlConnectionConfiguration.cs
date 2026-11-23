@@ -34,6 +34,14 @@ internal static class PostgreSqlConnectionConfiguration
     /// </summary>
     internal const string DefaultLockTimeout = "5s";
 
+    /// <summary>
+    /// The planner estimates the catalog-wide administration reports far above
+    /// their real cost, so with JIT on it compiles them on every refresh, and the
+    /// compilation alone takes several times longer than the query. Lexarbor's
+    /// data is too small for JIT to ever pay off.
+    /// </summary>
+    internal const string DefaultJit = "off";
+
     private static readonly string[] SqliteOnlyKeywords = ["Data Source", "DataSource", "Filename"];
 
     internal static string Build(string? configuredConnectionString)
@@ -76,15 +84,20 @@ internal static class PostgreSqlConnectionConfiguration
             throw new InvalidOperationException(InvalidDiagnostic);
         }
 
-        // Keep the product's bounded lock wait unless the deployment chose its
-        // own. Every other parameter passes through unchanged.
+        // Keep the product's bounded lock wait and JIT setting unless the
+        // deployment chose its own. Every other parameter passes through unchanged.
         var options = builder.Options ?? string.Empty;
         if (!options.Contains("lock_timeout", StringComparison.OrdinalIgnoreCase))
         {
-            builder.Options = string.IsNullOrWhiteSpace(options)
-                ? $"-c lock_timeout={DefaultLockTimeout}"
-                : $"{options} -c lock_timeout={DefaultLockTimeout}";
+            options = Append(options, $"-c lock_timeout={DefaultLockTimeout}");
         }
+
+        if (!options.Contains("jit", StringComparison.OrdinalIgnoreCase))
+        {
+            options = Append(options, $"-c jit={DefaultJit}");
+        }
+
+        builder.Options = options;
 
         // Npgsql otherwise opens every connection by offering GSS encryption,
         // which needs the Kerberos libraries the runtime image does not ship
@@ -97,4 +110,7 @@ internal static class PostgreSqlConnectionConfiguration
 
         return builder.ConnectionString;
     }
+
+    private static string Append(string options, string option) =>
+        string.IsNullOrWhiteSpace(options) ? option : $"{options} {option}";
 }

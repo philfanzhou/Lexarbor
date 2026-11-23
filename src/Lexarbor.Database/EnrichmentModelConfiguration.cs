@@ -61,6 +61,8 @@ internal static class EnrichmentModelConfiguration
         call.Property(row => row.Result).HasConversion<string>();
         call.HasOne<EnrichmentRoundEntity>().WithMany().HasForeignKey(row => new { row.TargetId, row.Round }).OnDelete(DeleteBehavior.Cascade);
         call.HasIndex(row => new { row.TargetId, row.Round }).IsUnique().HasFilter("result = 'Started'");
+        // A task's call history is read by target in start order; the partial index above only covers open calls.
+        call.HasIndex(row => new { row.TargetId, row.StartedAtUnixMs });
         call.HasIndex(row => new { row.Service, row.Result, row.FinishedAtUnixMs });
         call.HasIndex(row => new { row.Result, row.FinishedAtUnixMs });
         call.HasIndex(row => row.UploadIdempotencyKey).IsUnique().HasFilter("upload_idempotency_key IS NOT NULL");

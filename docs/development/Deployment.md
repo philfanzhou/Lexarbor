@@ -235,6 +235,16 @@ Lexarbor adds `lock_timeout=5s`: a write that waits longer than that for a row
 or table lock answers `503` with `Retry-After` instead of holding the request,
 the same bound the SQLite releases applied through their busy timeout.
 
+Unless `Options` already names a `jit` setting, Lexarbor also adds `-c jit=off`.
+PostgreSQL estimates the catalog-wide enrichment reports, which the
+administration page refreshes every 10 seconds, far above their real cost. With
+JIT on, it compiles each of them before running it, and on a catalog of about
+7,000 words that compilation takes about 1.6 seconds while the query itself
+takes less than one. Lexarbor's data is too small for JIT to pay off. The
+setting applies only to Lexarbor's own connections, not to other databases on a
+shared server. To keep the server's JIT behavior, set it explicitly, for example
+`Options=-c jit=on`.
+
 Every text column uses the `"C"` collation, so word ordering and paging are
 byte-wise and case folding in comparisons and searches covers ASCII letters
 only, exactly as under SQLite. This holds whatever collation the database
@@ -2272,6 +2282,18 @@ The removed rows cannot be restored. Back up the database before upgrading if th
 complete polling history matters. Down does nothing. An older image refuses the
 newer schema with `migration.version_too_new`. To roll back the application,
 restore the matching backup.
+
+## Enrichment call index upgrade
+
+`IndexEnrichmentCallsByTarget` adds the index
+`IX_enrichment_call_target_id_started_at_unix_ms`. Loading one enrichment task,
+the administration task detail and the audio upload confirmation read a
+target's provider calls. Before this index, each of those reads scanned the
+whole `enrichment_call` table, so it slowed down as calls accumulated. The
+migration changes no rows. On a table of about 20,000 calls the index builds in
+well under a second. Writes to `enrichment_call` wait while it builds. Down drops
+the index. An older image still refuses the newer schema with
+`migration.version_too_new`, so roll back by restoring the matching backup.
 
 ## Learner progress
 

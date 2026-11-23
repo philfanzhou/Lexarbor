@@ -630,6 +630,8 @@ namespace Lexarbor.Database.Migrations
                         .IsUnique()
                         .HasFilter("result = 'Started'");
 
+                    b.HasIndex("TargetId", "StartedAtUnixMs");
+
                     b.HasIndex("Service", "Result", "FinishedAtUnixMs");
 
                     b.ToTable("enrichment_call", null, t =>

@@ -1,5 +1,9 @@
+using Lexarbor.Database;
 using Lexarbor.Host;
+using Lexarbor.Learning.Database;
 using Lexarbor.Service.Tests.TestInfrastructure;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 
 namespace Lexarbor.Service.Tests;
@@ -51,23 +55,48 @@ public class PostgreSqlConnectionConfigurationTests
     }
 
     [Fact]
-    public void ValidConfiguration_KeepsEveryParameter_AndAddsTheBoundedLockWait()
+    public void ValidConfiguration_KeepsEveryParameter_AndAddsTheBoundedLockWaitAndJitOff()
     {
         var result = new NpgsqlConnectionStringBuilder(PostgreSqlConnectionConfiguration.Build(
             "Host=db;Port=6543;Database=lexarbor;Username=app;Password=secret;Maximum Pool Size=7"));
 
         Assert.Equal(("db", 6543, "lexarbor", "app", "secret", 7), (result.Host, result.Port, result.Database, result.Username, result.Password, result.MaxPoolSize));
-        Assert.Equal("-c lock_timeout=5s", result.Options);
+        Assert.Equal("-c lock_timeout=5s -c jit=off", result.Options);
     }
 
     [Theory]
-    [InlineData("-c lock_timeout=30s", "-c lock_timeout=30s")]
-    [InlineData("-c statement_timeout=60s", "-c statement_timeout=60s -c lock_timeout=5s")]
-    public void ExistingOptions_ArePreserved_AndAnExplicitLockTimeoutWins(string options, string expected)
+    [InlineData("-c lock_timeout=30s", "-c lock_timeout=30s -c jit=off")]
+    [InlineData("-c statement_timeout=60s", "-c statement_timeout=60s -c lock_timeout=5s -c jit=off")]
+    [InlineData("-c jit=on", "-c jit=on -c lock_timeout=5s")]
+    [InlineData("-c jit_above_cost=1000000", "-c jit_above_cost=1000000 -c lock_timeout=5s")]
+    [InlineData("-c lock_timeout=1s -c jit=on", "-c lock_timeout=1s -c jit=on")]
+    public void ExistingOptions_ArePreserved_AndExplicitLockTimeoutAndJitWin(string options, string expected)
     {
         var result = new NpgsqlConnectionStringBuilder(PostgreSqlConnectionConfiguration.Build(
             new NpgsqlConnectionStringBuilder { Host = "db", Database = "lexarbor", Options = options }.ConnectionString));
         Assert.Equal(expected, result.Options);
+    }
+
+    [Fact]
+    public async Task HostConnections_RunWithJitOff()
+    {
+        await using var factory = new VocabularyWebApplicationFactory(
+            "Testing", includeAppCredentials: true, useProductionDatabase: true);
+        _ = factory.CreateClient();
+        var token = TestContext.Current.CancellationToken;
+
+        await using var catalog = await factory.Services.GetRequiredService<IDbContextFactory<VocabularyDbContext>>().CreateDbContextAsync(token);
+        Assert.Equal("off", await Jit(catalog.Database.GetDbConnection(), token));
+        await using var learner = new LearningDbContext(factory.Services.GetRequiredService<LearningStorage>().Options("caller"));
+        Assert.Equal("off", await Jit(learner.Database.GetDbConnection(), token));
+    }
+
+    private static async Task<string?> Jit(System.Data.Common.DbConnection connection, CancellationToken token)
+    {
+        await connection.OpenAsync(token);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SHOW jit";
+        return (string?)await command.ExecuteScalarAsync(token);
     }
 
     [Fact]

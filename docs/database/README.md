@@ -4,7 +4,7 @@ Vocabulary stores its data in PostgreSQL 16 or later ([ADR-011](../adr/ADR-011-p
 
 ## Connection configuration
 
-`ConnectionStrings:Default` is a required PostgreSQL connection string with a host and a database. A missing or invalid value, and a value that is still a SQLite connection string (`Data Source=...`), fail startup with a fixed diagnostic that never echoes the value. Unless the connection string sets its own `lock_timeout` in `Options`, Lexarbor adds `-c lock_timeout=5s`. See [Deployment](../development/Deployment.md#postgresql-configuration).
+`ConnectionStrings:Default` is a required PostgreSQL connection string with a host and a database. A missing or invalid value, and a value that is still a SQLite connection string (`Data Source=...`), fail startup with a fixed diagnostic that never echoes the value. Unless the connection string sets its own `lock_timeout` in `Options`, Lexarbor adds `-c lock_timeout=5s`, and unless it names a `jit` setting, Lexarbor adds `-c jit=off`. See [Deployment](../development/Deployment.md#postgresql-configuration).
 
 ## Semantics kept from SQLite
 
@@ -987,6 +987,12 @@ Provider-call indexes on `(service,result,finished_at_unix_ms)` and
 `(result,finished_at_unix_ms)` support read-only request statistics.
 Existing business rows and task receipts are not rewritten. Migration rollback
 removes these metadata only and retains any generated book and vocabulary.
+
+`IndexEnrichmentCallsByTarget` indexes `enrichment_call` by
+`(target_id, started_at_unix_ms)`. A task's call history is read by target in
+start order, and the partial unique `(target_id, round)` index covers only
+calls that are still `Started`. The migration changes no rows. See
+[Deployment](../development/Deployment.md#enrichment-call-index-upgrade).
 
 ## Learner schemas
 

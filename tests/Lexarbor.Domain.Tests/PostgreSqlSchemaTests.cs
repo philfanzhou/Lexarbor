@@ -111,6 +111,20 @@ public sealed class PostgreSqlSchemaTests
     }
 
     [Fact]
+    public async Task EnrichmentCalls_AreIndexedByTargetInStartOrder()
+    {
+        await using var database = new PostgreSqlTestDatabase();
+        await using var connection = await database.OpenConnectionAsync();
+        await using var command = new NpgsqlCommand(
+            "SELECT indexdef FROM pg_indexes WHERE tablename = 'enrichment_call' AND indexname = 'IX_enrichment_call_target_id_started_at_unix_ms'", connection);
+
+        var definition = Assert.IsType<string>(await command.ExecuteScalarAsync(Token));
+        Assert.EndsWith("(target_id, started_at_unix_ms)", definition);
+        Assert.DoesNotContain("UNIQUE", definition);
+        Assert.DoesNotContain("WHERE", definition);
+    }
+
+    [Fact]
     public async Task UniqueViolation_IsReportedAsTheExistingConflict()
     {
         await using var database = new PostgreSqlTestDatabase();
