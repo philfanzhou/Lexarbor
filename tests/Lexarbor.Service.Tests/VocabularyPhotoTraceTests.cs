@@ -139,6 +139,20 @@ public sealed class VocabularyPhotoTraceTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task RequestThatNeverReachesStructaDocLeavesNoTrace()
+    {
+        var structaDoc = new StructaDocAnswer(HttpStatusCode.OK, """{"blocks":[]}""");
+        var (client, root) = await StudentAsync(structaDoc);
+        var unknown = root[..(root.LastIndexOf('/') + 1)] + Guid.NewGuid();
+
+        Assert.Equal(HttpStatusCode.NotFound, (await PostPhotoAsync(client, unknown, Jpeg)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await PostPhotoAsync(client, root, "GIF89a"u8.ToArray())).StatusCode);
+
+        Assert.Equal(0, structaDoc.Calls);
+        Assert.False(Directory.Exists(_directory) && Directory.EnumerateFileSystemEntries(_directory).Any());
+    }
+
+    [Fact]
     public async Task ImportAnswersNormallyWhenTheTraceCannotBeWritten()
     {
         var (client, root) = await StudentAsync(new StructaDocAnswer(HttpStatusCode.OK, """{"blocks":[]}"""));
@@ -195,13 +209,17 @@ public sealed class VocabularyPhotoTraceTests : IAsyncDisposable
         return (client, $"/learning/v1/api/vocabulary/students/{student}");
     }
 
-    private sealed record StructaDocAnswer(HttpStatusCode Status, string Body);
+    private sealed record StructaDocAnswer(HttpStatusCode Status, string Body)
+    {
+        public int Calls;
+    }
 
     private sealed class StructaDocHandler(StructaDocAnswer answer) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Assert.Equal("/api/v1/image/recognize", request.RequestUri!.AbsolutePath);
+            Interlocked.Increment(ref answer.Calls);
             return Task.FromResult(new HttpResponseMessage(answer.Status)
             {
                 Content = new StringContent(answer.Body, Encoding.UTF8, "application/json"),

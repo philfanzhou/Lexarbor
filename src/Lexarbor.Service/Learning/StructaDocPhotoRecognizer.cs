@@ -55,7 +55,7 @@ public sealed class StructaDocPhotoRecognizer : IVocabularyPhotoRecognizer
             var status = (int)response.StatusCode;
             _trace.RecognitionStatus = status;
             if (response.StatusCode != HttpStatusCode.OK)
-                _trace.RecognitionResponse = await TryReadRefusalAsync(response.Content, budget.Token).ConfigureAwait(false);
+                _trace.RecognitionResponse = await TryReadRefusalAsync(response.Content, cancellationToken).ConfigureAwait(false);
             if (response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.RequestEntityTooLarge or HttpStatusCode.UnsupportedMediaType)
             {
                 _logger.LogWarning("StructaDoc refused the vocabulary photo with status {Status}.", status);
@@ -130,7 +130,10 @@ public sealed class StructaDocPhotoRecognizer : IVocabularyPhotoRecognizer
     private static string? OptionalText(JsonElement element, string name) =>
         element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
-    /// <summary>The start of a refusal's body for the trace; it is never needed to answer the caller.</summary>
+    /// <summary>
+    /// The start of a refusal's body for the trace. It has its own short deadline, apart from the recognition budget,
+    /// and failing to read it never changes how the refusal is answered; only the caller's cancellation stops it.
+    /// </summary>
     private static async Task<byte[]?> TryReadRefusalAsync(HttpContent content, CancellationToken cancellationToken)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);

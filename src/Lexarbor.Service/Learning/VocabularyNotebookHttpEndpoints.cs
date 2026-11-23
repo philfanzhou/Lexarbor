@@ -138,8 +138,10 @@ public static partial class VocabularyNotebookHttpEndpoints
         }
         finally
         {
-            await traces.SaveAsync(new VocabularyPhotoTraceRecord(at, studentId, photo, contentType, outcome, message,
-                (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds, trace, result)).ConfigureAwait(false);
+            // Only a request that reached StructaDoc says anything about recognition worth keeping.
+            if (trace.RecognitionMilliseconds is not null)
+                await traces.SaveAsync(new VocabularyPhotoTraceRecord(at, studentId, photo, contentType, outcome, message,
+                    (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds, trace, result)).ConfigureAwait(false);
         }
     }
 
@@ -147,7 +149,6 @@ public static partial class VocabularyNotebookHttpEndpoints
     {
         VocabPhotoInvalidException => "invalid",
         VocabPhotoImportUnavailableException => "unavailable",
-        VocabStudentNotFoundException => "student-not-found",
         VocabCatalogUnavailableException => "catalog-unavailable",
         _ => "failed",
     };

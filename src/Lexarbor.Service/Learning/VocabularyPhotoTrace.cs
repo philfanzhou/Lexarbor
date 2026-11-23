@@ -56,27 +56,57 @@ public sealed partial class VocabularyPhotoTraceStore(string directory, ILogger<
         await _gate.WaitAsync().ConfigureAwait(false);
         try
         {
-            if (OperatingSystem.IsWindows()) Directory.CreateDirectory(Root);
-            else Directory.CreateDirectory(Root, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-
-            var name = $"{record.At.UtcDateTime:yyyyMMdd'T'HHmmssfff'Z'}-{Guid.NewGuid().ToString("N")[..8]}";
-            var photoFile = PhotoExtension(record.Photo) is { } extension ? name + extension : null;
-            if (photoFile is not null)
-                await File.WriteAllBytesAsync(Path.Combine(Root, photoFile), record.Photo).ConfigureAwait(false);
-
-            // The JSON appears last and whole, so a listed record always has its photo.
-            var temporary = Path.Combine(Root, name + ".json.tmp");
-            await File.WriteAllBytesAsync(temporary, Serialize(record, photoFile)).ConfigureAwait(false);
-            File.Move(temporary, Path.Combine(Root, name + ".json"));
-            Prune();
-        }
-        catch (Exception error)
-        {
-            logger.LogWarning("Photo import trace was not saved: {Error}.", error.GetType().Name);
+            if (!await TryWriteAsync(record).ConfigureAwait(false)) return;
+            try
+            {
+                Prune();
+            }
+            catch (Exception error)
+            {
+                logger.LogWarning("Old photo import traces were not removed: {Error}.", error.GetType().Name);
+            }
         }
         finally
         {
             _gate.Release();
+        }
+    }
+
+    private async Task<bool> TryWriteAsync(VocabularyPhotoTraceRecord record)
+    {
+        var name = $"{record.At.UtcDateTime:yyyyMMdd'T'HHmmssfff'Z'}-{Guid.NewGuid().ToString("N")[..8]}";
+        var photoFile = PhotoExtension(record.Photo) is { } extension ? name + extension : null;
+        var temporary = Path.Combine(Root, name + ".json.tmp");
+        try
+        {
+            if (OperatingSystem.IsWindows()) Directory.CreateDirectory(Root);
+            else Directory.CreateDirectory(Root, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            if (photoFile is not null)
+                await File.WriteAllBytesAsync(Path.Combine(Root, photoFile), record.Photo).ConfigureAwait(false);
+
+            // The JSON appears last and whole, so a listed record always has its photo.
+            await File.WriteAllBytesAsync(temporary, Serialize(record, photoFile)).ConfigureAwait(false);
+            File.Move(temporary, Path.Combine(Root, name + ".json"));
+            return true;
+        }
+        catch (Exception error)
+        {
+            logger.LogWarning("Photo import trace was not saved: {Error}.", error.GetType().Name);
+            // A photo without its record would hold a place among the newest traces.
+            TryDelete(temporary);
+            if (photoFile is not null) TryDelete(Path.Combine(Root, photoFile));
+            return false;
+        }
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
         }
     }
 
