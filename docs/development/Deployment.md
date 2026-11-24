@@ -1,5 +1,8 @@
 ﻿# Deployment and operations
 
+[Application configuration key inventory](Configuration.md)
+
+
 ## Extra review batches
 
 Upgrade all services writing learner data before enabling `extra-review` in a client. A batch is stored in the existing plan-day JSON. An older writer can discard the review batch fields when it rewrites that day. Back up learner data before rolling back a writer after clients have started batches. See the [learner progress contract](../api/LearnerProgress.md#extra-review-after-check-in).
@@ -1568,16 +1571,14 @@ Administrators can GET and conditionally PUT `/admin/enrichment/settings` using 
 shared settings ETag and Cookie/CSRF or administrator Bearer authentication. See
 [the API contract](../api/SystemSettings.md#review-assistant-and-enrichment) for
 exact fields, bounds, defaults and credential operations. System settings exposes
-the contract in four tabs for review, text enrichment, speech generation, and
+the contract in four tabs for review, vision reasoning, speech generation, and
 background policies. See [the frontend guide](../frontend/README.md#review-and-autonomous-enrichment).
-The review assistant
-keeps `MeaningSubmissions:Ai` keys; enrichment uses its independent `Enrichment`
-section. Environment/command-line overrides remain read-only. Keys remain only in
+Configure one vision-capable OpenAI-compatible reasoning model for photo import, review and text work, and one speech model for pronunciation. Photo import uses the reasoning model timeout. Both model timeouts default to 120 seconds. Existing explicit timeout values take precedence. See the [configuration key inventory and upgrade rules](Configuration.md).
+Environment/command-line overrides remain read-only. Keys remain only in
 server configuration; responses expose presence, never values or fingerprints.
 
 Enrichment capabilities start automatically from complete model configuration.
-The speech provider/model default to `MiniMaxNative`/`speech-2.8-hd`, and each
-locale's voice/speed to empty. Legacy field/audio switches are ignored. A missing
+The default speech model is `speech-2.8-hd`. Each locale's voice and speed start empty. Legacy field/audio switches are ignored. A missing
 section keeps old deployments bootable. Saving commits local configuration and performs no supplier probe. The hosted
 scheduler observes model configuration and automatically discovers work;
 no manual start or range is needed. Audio-only configuration still requires
@@ -1589,17 +1590,17 @@ shared S3/rate-limit/admin updates require rereading after a 412 conflict. Passw
 drafts are cleared before save, reread, navigation or sign-out; unknown save results
 use GET only and never automatically replay credentials.
 
-Speech styles are optional per locale: `Enrichment:Tts:Uk:Style`, `Emotion`,
+Speech styles are optional per locale: `Models:Speech:Uk:Style`, `Emotion`,
 `Pitch`, `Volume` and the corresponding `Us` keys. Defaults are empty style/emotion,
 zero pitch and volume one. Environment equivalents use double underscores, such as
-`Enrichment__Tts__Uk__Emotion`; deployment overrides remain read-only online.
+`Models__Speech__Uk__Emotion`; deployment overrides remain read-only online.
 Styles persist in the existing protected settings file. Default style additions
 preserve existing configuration versions; changed styles advance only their locale.
 No business database migration or new storage path is required. Back up the whole
 configuration file, including private version metadata, as before.
 
 The administrator speech page offers explicit, potentially billable draft previews.
-They work while background generation is disabled and do not require a text client
+They work before background generation is ready and do not require a text client
 or S3. The server still needs outbound access to an allowed speech endpoint and a
 valid saved or request-local credential. Preview audio is returned directly and
 never persisted. Admission is process-local: one active preview and six attempts
@@ -1607,7 +1608,7 @@ per rolling minute, independent of background task failure budgets. See the
 [preview contract](../api/SystemSettings.md#speech-styles-and-draft-previews).
 Saved styles affect future generation; existing audio is not automatically replaced.
 
-The registered pronunciation planner uses the independent text snapshot and its
+The registered pronunciation planner uses the shared reasoning snapshot and its
 configured timeout for both headers and body reads. It accepts only bounded validated
 JSON plans; missing configuration waits without dispatch and an uncertain/invalid plan
 cannot fall back to an unprepared TTS request. The planner performs no persistence or
@@ -1654,9 +1655,9 @@ Meaning submissions are off unless a supplementary book is configured. See the [
 | Setting | Description |
 |---|---|
 | `MeaningSubmissions:BookId` | ID of an existing, enabled book that receives approved submissions. Unset: submissions and approval answer `503`, and the review page shows a warning |
-| `MeaningSubmissions:Ai:Endpoint` / `Model` | Optional OpenAI-compatible base URL (for example `https://api.example.com/v1`) and model; both set enables review advice |
-| `MeaningSubmissions:Ai:ApiKey` | Optional server-only bearer key; set it through the protected review/enrichment settings API (0600 persistent file), or an environment override (`MeaningSubmissions__Ai__ApiKey`, read-only online) |
-| `MeaningSubmissions:Ai:TimeoutSeconds` | 1–300, default 30 |
+| `Models:Reasoning:Endpoint` / `Model` | Optional OpenAI-compatible base URL (for example `https://api.example.com/v1`) and model; both set enables review advice |
+| `Models:Reasoning:ApiKey` | Optional server-only bearer key; set it through the protected review/enrichment settings API (0600 persistent file), or an environment override (`Models__Reasoning__ApiKey`, read-only online) |
+| `Models:Reasoning:TimeoutSeconds` | 1–300, default 120 |
 | `MeaningSubmissions:Ai:AutoReviewEnabled` | Default false; online `reviewAssistant.autoReviewEnabled` explicitly authorizes automatic decisions |
 
 Grant the `meaning-submissions` scope to the submission client. See [Business API key upgrade](#business-api-key-upgrade) to migrate the former JWT client.
@@ -1968,7 +1969,7 @@ after the table rebuild and immediately before recording the migration version,
 verify rollback, and retry successfully. Migration does not rewrite configuration
 files or remote audio objects. Keep the same volume, root key and storage settings.
 
-**Behavior change:** complete `Enrichment:Text` configuration now automatically
+**Behavior change:** complete `Models:Reasoning` configuration now automatically
 starts field completion and word expansion, even if old `FieldsEnabled` or
 `AudioEnabled` values are false. Speech additionally requires its own complete
 configuration, accent settings and storage. No extra enable switch or manual start

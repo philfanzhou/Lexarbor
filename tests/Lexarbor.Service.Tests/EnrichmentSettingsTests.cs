@@ -48,6 +48,119 @@ public sealed partial class EnrichmentSettingsTests : IDisposable
     private static string Revision(JsonNode body) => body["revision"]!.GetValue<string>();
     private static EnrichmentConfigurationSnapshot Snapshot(VocabularyWebApplicationFactory factory) => factory.Services.GetRequiredService<EnrichmentRuntimeConfiguration>().Current;
 
+    [Theory]
+    [InlineData(null, null, 120, 120)]
+    [InlineData("30", null, 30, 120)]
+    [InlineData(null, "90", 120, 90)]
+    public void UsesModelTimeoutDefaultsUnlessIndependentlyOverridden(string? reasoning, string? speech, int textTimeout, int speechTimeout)
+    {
+        var values = new Dictionary<string, string?>();
+        if (reasoning != null) values["Models:Reasoning:TimeoutSeconds"] = reasoning;
+        if (speech != null) values["Models:Speech:TimeoutSeconds"] = speech;
+        var config = new ConfigurationBuilder().AddInMemoryCollection(values).Build();
+        using var lifetime = config as IDisposable;
+        var current = new EnrichmentRuntimeConfiguration(config, new PersistentConfigurationFileStore(_root)).Current;
+        Assert.Equal(textTimeout, current.Enrichment.Text.TimeoutSeconds);
+        Assert.Equal(textTimeout, current.ReviewAssistant.TimeoutSeconds);
+        Assert.Equal(speechTimeout, current.Enrichment.Tts.TimeoutSeconds);
+    }
+
+    [Theory]
+    [InlineData("shared", true)]
+    [InlineData("different", false)]
+    public void LegacyAndCurrentApiNamesAcceptOnlyConsistentUpdates(string legacyModel, bool expected)
+    {
+        var json = JsonSerializer.SerializeToElement(new { enrichment = new { text = new { model = "shared" } },
+            reviewAssistant = new { model = legacyModel } });
+        var changes = new Dictionary<string, JsonNode?>();
+        Assert.Equal(expected, EnrichmentSettingsEndpoints.ReadChanges(json, "", changes, []));
+        Assert.Single(changes);
+        Assert.Equal("shared", changes["Enrichment:Text:Model"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task LegacyDeploymentCredentialStaysLockedUnderSharedSettings()
+    {
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["MeaningSubmissions:Ai:Endpoint"] = "https://review.example.test/v1",
+            ["MeaningSubmissions:Ai:Model"] = "legacy"
+        }).AddCommandLine(["--MeaningSubmissions:Ai:ApiKey=synthetic-override"]).Build();
+        using var lifetime = configuration as IDisposable;
+        var store = new PersistentConfigurationFileStore(_root);
+        var coordinator = new PersistentConfigurationCoordinator(configuration, store);
+        var runtime = new EnrichmentRuntimeConfiguration(configuration, store);
+        var read = await coordinator.ReadAsync(Ct);
+        Assert.False(read.Sources["Enrichment:Text:ApiKey"].Editable);
+        Assert.Equal(ConfigurationValueSource.CommandLine, read.Sources["Enrichment:Text:ApiKey"].Source);
+        var result = await coordinator.SaveAsync(read.Revision, new Dictionary<string, JsonNode?>
+        {
+            ["Enrichment:Text:ApiKey"] = ""
+        }, runtime.PrepareAsync, Ct);
+        Assert.Equal(ConfigurationSaveStatus.Overridden, result.Status);
+        Assert.Null(store.Read().Document);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task SharedModelSaveAndClearSurviveRestartWithOldReviewSettings(bool bothConfigured)
+    {
+        var oldConnection = new { Endpoint = "https://review.example.test/v1", Model = "legacy", ApiKey = "synthetic-review-fixture" };
+        var file = new JsonObject { ["MeaningSubmissions"] = new JsonObject { ["Ai"] = JsonSerializer.SerializeToNode(oldConnection) } };
+        if (bothConfigured)
+            file["Enrichment"] = new JsonObject { ["Text"] = new JsonObject
+                { ["Endpoint"] = "https://text.example.test/v1", ["Model"] = "shared", ["ApiKey"] = "synthetic-text-fixture" } };
+        file["Enrichment:Tts"] = new JsonObject { ["Endpoint"] = "https://api.minimax.io/v1", ["ApiKey"] = "synthetic-speech",
+            ["Provider"] = "MiniMaxNative", ["Uk"] = new JsonObject { ["Voice"] = "retained", ["Speed"] = 1 } };
+        file["Enrichment:FieldsEnabled"] = false;
+        file["AdminAuthentication:Oidc:ClientId"] = "retired";
+        file["AdminAuthentication"] = new JsonObject { ["Oidc"] = new JsonObject { ["ClientSecret"] = "synthetic-retired" },
+            ["OidcCode"] = new JsonObject { ["ClientId"] = "current" } };
+        file["VocabularyPhotoImport"] = new JsonObject { ["enabled"] = false, ["ApiKey"] = "synthetic-removed", ["Other"] = 42 };
+        file["MeaningSubmissions"]!["Ai"]!["AutoReviewEnabled"] = true;
+        if (!bothConfigured) file["Enrichment:Text:TimeoutSeconds"] = 90;
+        var store = new PersistentConfigurationFileStore(_root);
+        await store.CommitAsync(file, Ct);
+        var configuration = new ConfigurationBuilder().SetBasePath(_root).AddJsonFile("data/appsettings.json").Build();
+        using var lifetime = configuration as IDisposable;
+        var runtime = new EnrichmentRuntimeConfiguration(configuration, store);
+        var coordinator = new PersistentConfigurationCoordinator(configuration, store);
+        var initial = runtime.Current;
+        Assert.Equal(bothConfigured ? "shared" : "legacy", initial.ReviewAssistant.Model);
+        Assert.True(initial.ReviewAssistant.ApiKey == initial.Enrichment.Text.ApiKey);
+        var revision = (await coordinator.ReadAsync(Ct)).Revision;
+        var migration = await coordinator.SaveAsync(revision, new Dictionary<string, JsonNode?> { ["Enrichment:Concurrency"] = 2 }, runtime.PrepareAsync, Ct);
+        Assert.Equal(ConfigurationSaveStatus.Success, migration.Status);
+        var disk = store.Read().Document!;
+        Assert.Equal(initial.Enrichment.Text.Model, disk["Models"]!["Reasoning"]!["Model"]!.GetValue<string>());
+        Assert.True(initial.Enrichment.Text.ApiKey == disk["Models"]!["Reasoning"]!["ApiKey"]!.GetValue<string>());
+        Assert.Equal("retained", disk["Models"]!["Speech"]!["Uk"]!["Voice"]!.GetValue<string>());
+        Assert.Null(disk["Models"]!["Speech"]!["Provider"]);
+        Assert.Null(disk["Enrichment:Tts"]);
+        Assert.Null(disk["Enrichment"]!["Text"]);
+        Assert.Null(disk["Enrichment:FieldsEnabled"]);
+        Assert.Null(disk["AdminAuthentication:Oidc:ClientId"]);
+        Assert.Single(disk["AdminAuthentication"]!.AsObject());
+        Assert.Equal("current", disk["AdminAuthentication"]!["OidcCode"]!["ClientId"]!.GetValue<string>());
+        Assert.Single(disk["MeaningSubmissions"]!["Ai"]!.AsObject());
+        Assert.True(disk["MeaningSubmissions"]!["Ai"]!["AutoReviewEnabled"]!.GetValue<bool>());
+        Assert.Single(disk["VocabularyPhotoImport"]!.AsObject());
+        Assert.Equal(42, disk["VocabularyPhotoImport"]!["Other"]!.GetValue<int>());
+        revision = migration.Revision!;
+        var changes = new Dictionary<string, JsonNode?>
+        {
+            ["Enrichment:Text:Endpoint"] = "", ["Enrichment:Text:Model"] = "", ["Enrichment:Text:ApiKey"] = ""
+        };
+        var saved = await coordinator.SaveAsync(revision, changes, runtime.PrepareAsync, Ct);
+        Assert.Equal(ConfigurationSaveStatus.Success, saved.Status);
+        Assert.False(runtime.Current.ReviewAssistant.IsEnabled);
+        configuration.Reload();
+        var restarted = new EnrichmentRuntimeConfiguration(configuration, store);
+        Assert.False(restarted.Current.ReviewAssistant.IsEnabled);
+        Assert.False(restarted.Current.Enrichment.Text.Configured);
+    }
+
     [Fact]
     public async Task AutomaticReviewFlag_DefaultOff_SharedRevision_PersistsAcrossRestart_AndEnvironmentIsReadOnly()
     {
@@ -116,14 +229,15 @@ public sealed partial class EnrichmentSettingsTests : IDisposable
             Assert.Equal(HttpStatusCode.OK, (await Put(client, Revision(state), """{"enrichment":{"concurrency":2}}""")).StatusCode);
             var first = Snapshot(factory); Assert.True(first.ConfigurationReady);
             foreach (var version in new[] { first.TextVersion, first.UkTtsVersion, first.UsTtsVersion, first.TtsServiceVersion }) Assert.True(Guid.TryParseExact(version, "N", out _));
-            foreach (var patch in new[] { """{"reviewAssistant":{"model":"review-only"}}""", """{"enrichment":{"fieldsEnabled":true,"audioEnabled":true,"failureBudget":7,"scanIntervalSeconds":12,"concurrency":3}}""" })
+            foreach (var patch in new[] { """{"reviewAssistant":{"autoReviewEnabled":true}}""", """{"enrichment":{"fieldsEnabled":true,"audioEnabled":true,"failureBudget":7,"scanIntervalSeconds":12,"concurrency":3}}""" })
             {
                 state = await Read(client); Assert.Equal(HttpStatusCode.OK, (await Put(client, Revision(state), patch)).StatusCode);
                 Assert.Equal(first.TextVersion, Snapshot(factory).TextVersion); Assert.Equal(first.UkTtsVersion, Snapshot(factory).UkTtsVersion); Assert.Equal(first.UsTtsVersion, Snapshot(factory).UsTtsVersion);
                 Assert.Equal(first.TtsServiceVersion, Snapshot(factory).TtsServiceVersion);
             }
             state = await Read(client); Assert.Equal(HttpStatusCode.OK, (await Put(client, Revision(state), """{"enrichment":{"text":{"model":"new-plan"}}}""")).StatusCode);
-            var second = Snapshot(factory); Assert.NotEqual(first.TextVersion, second.TextVersion); Assert.Equal(first.UkTtsVersion, second.UkTtsVersion);
+            var second = Snapshot(factory); Assert.Equal("new-plan", second.ReviewAssistant.Model); Assert.NotEqual(first.ReviewVersion, second.ReviewVersion);
+            Assert.NotEqual(first.TextVersion, second.TextVersion); Assert.Equal(first.UkTtsVersion, second.UkTtsVersion);
             state = await Read(client); Assert.Equal(HttpStatusCode.OK, (await Put(client, Revision(state), """{"enrichment":{"tts":{"uk":{"voice":"uk-only"}}}}""")).StatusCode);
             var third = Snapshot(factory); Assert.NotEqual(second.UkTtsVersion, third.UkTtsVersion); Assert.Equal(second.UsTtsVersion, third.UsTtsVersion);
             Assert.Equal(first.TtsServiceVersion, third.TtsServiceVersion);

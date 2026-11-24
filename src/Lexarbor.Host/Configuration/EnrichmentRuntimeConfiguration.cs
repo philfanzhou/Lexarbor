@@ -36,18 +36,14 @@ internal static class EnrichmentConfigurationFields
             Add(name + ".endpoint", key + ":Endpoint", EnrichmentFieldKind.String, "");
             Add(name + ".model", key + ":Model", EnrichmentFieldKind.String, "");
             Add(name + ".apiKey", key + ":ApiKey", EnrichmentFieldKind.String, "", secret: true);
-            Add(name + ".timeoutSeconds", key + ":TimeoutSeconds", EnrichmentFieldKind.Integer, 30, 1, 300);
+            Add(name + ".timeoutSeconds", key + ":TimeoutSeconds", EnrichmentFieldKind.Integer, EnrichmentClientSettings.DefaultTimeoutSeconds, 1, 300);
         }
-        Client("reviewAssistant", OpenAiCompatibleReviewAssistant.Section);
         Add("reviewAssistant.autoReviewEnabled", OpenAiCompatibleReviewAssistant.Section + ":AutoReviewEnabled", EnrichmentFieldKind.Boolean, false);
         Client("enrichment.text", "Enrichment:Text");
-        Add("enrichment.fieldsEnabled", "Enrichment:FieldsEnabled", EnrichmentFieldKind.Boolean, false);
-        Add("enrichment.audioEnabled", "Enrichment:AudioEnabled", EnrichmentFieldKind.Boolean, false);
-        Add("enrichment.tts.provider", "Enrichment:Tts:Provider", EnrichmentFieldKind.String, "MiniMaxNative");
         Add("enrichment.tts.endpoint", "Enrichment:Tts:Endpoint", EnrichmentFieldKind.String, "");
         Add("enrichment.tts.model", "Enrichment:Tts:Model", EnrichmentFieldKind.String, "speech-2.8-hd");
         Add("enrichment.tts.apiKey", "Enrichment:Tts:ApiKey", EnrichmentFieldKind.String, "", secret: true);
-        Add("enrichment.tts.timeoutSeconds", "Enrichment:Tts:TimeoutSeconds", EnrichmentFieldKind.Integer, 30, 1, 300);
+        Add("enrichment.tts.timeoutSeconds", "Enrichment:Tts:TimeoutSeconds", EnrichmentFieldKind.Integer, EnrichmentClientSettings.DefaultTimeoutSeconds, 1, 300);
         foreach (var locale in new[] { "Uk", "Us" })
         {
             var name = "enrichment.tts." + locale.ToLowerInvariant();
@@ -71,12 +67,17 @@ internal static class EnrichmentConfigurationFields
         return fields;
     }
 
-    public static Dictionary<string, JsonNode?> Read(IConfiguration configuration)
+    // The previous settings API names remain aliases for clients using the review settings resource.
+    internal static readonly IReadOnlyList<EnrichmentConfigurationField> ApiFields = All.Concat(
+        All.Where(field => field.Key.StartsWith("Enrichment:Text:", StringComparison.Ordinal))
+            .Select(field => field with { Name = field.Name.Replace("enrichment.text.", "reviewAssistant.", StringComparison.Ordinal) })).ToArray();
+
+    public static Dictionary<string, JsonNode?> Read(IConfiguration configuration, ModelConfigurationPaths? paths = null)
     {
         var fields = new Dictionary<string, JsonNode?>(StringComparer.OrdinalIgnoreCase);
         foreach (var field in All)
         {
-            var text = configuration[field.Key];
+            var text = configuration[paths?.PhysicalKey(field.Key) ?? field.Key];
             JsonNode? value = text is null ? JsonSerializer.SerializeToNode(field.Default) : field.Kind switch
             {
                 EnrichmentFieldKind.Boolean when bool.TryParse(text, out var boolean) => JsonValue.Create(boolean),
@@ -93,8 +94,7 @@ internal static class EnrichmentConfigurationFields
                 throw new InvalidOperationException("Invalid enrichment settings.");
             fields.Add(field.Key, value);
         }
-        if (fields["Enrichment:Tts:Provider"]!.GetValue<string>() is not ("MiniMaxNative" or "OpenAICompatible")
-            || fields["Enrichment:MaxServicePauseSeconds"]!.GetValue<int>() < fields["Enrichment:ServicePauseSeconds"]!.GetValue<int>()
+        if (fields["Enrichment:MaxServicePauseSeconds"]!.GetValue<int>() < fields["Enrichment:ServicePauseSeconds"]!.GetValue<int>()
             || fields["Enrichment:ThrottleMaxSeconds"]!.GetValue<int>() < fields["Enrichment:ThrottleInitialSeconds"]!.GetValue<int>())
             throw new InvalidOperationException("Invalid enrichment settings.");
         return fields;
@@ -104,6 +104,7 @@ internal static class EnrichmentConfigurationFields
 /// <summary>Immutable operation input. It is server-only and must never be serialized or logged.</summary>
 public sealed class EnrichmentClientSettings(string endpoint, string model, string apiKey, int timeoutSeconds)
 {
+    internal const int DefaultTimeoutSeconds = 120;
     public string Endpoint { get; } = endpoint;
     public string Model { get; } = model;
     public string ApiKey { get; } = apiKey;
@@ -119,7 +120,7 @@ public sealed class EnrichmentSettings
         int I(string key) => fields["Enrichment:" + key]!.GetValue<int>();
         Text = new(S("Text:Endpoint"), S("Text:Model"), S("Text:ApiKey"), I("Text:TimeoutSeconds"));
         Tts = new(S("Tts:Endpoint"), S("Tts:Model"), S("Tts:ApiKey"), I("Tts:TimeoutSeconds"));
-        Provider = S("Tts:Provider");
+        Provider = SpeechProviderCapabilities.ProviderFor(Tts.Endpoint);
         Uk = new(S("Tts:Uk:Voice"), fields["Enrichment:Tts:Uk:Speed"]?.GetValue<decimal>(),
             S("Tts:Uk:Style"), S("Tts:Uk:Emotion"), I("Tts:Uk:Pitch"), fields["Enrichment:Tts:Uk:Volume"]!.GetValue<decimal>());
         Us = new(S("Tts:Us:Voice"), fields["Enrichment:Tts:Us:Speed"]?.GetValue<decimal>(),
@@ -149,8 +150,22 @@ public sealed class EnrichmentSettings
 }
 public sealed class EnrichmentConfigurationSnapshot
 {
-    internal EnrichmentConfigurationSnapshot(ReviewAssistantOptions review, Dictionary<string, JsonNode?> fields, string? text, string? uk, string? us, string? ttsService, string? reviewVersion = null)
-    { ReviewAssistant = review; Fields = fields; Enrichment = new(fields); TextVersion = text; UkTtsVersion = uk; UsTtsVersion = us; TtsServiceVersion = ttsService; ReviewVersion = reviewVersion; }
+    internal EnrichmentConfigurationSnapshot(Dictionary<string, JsonNode?> fields, string? text, string? uk, string? us, string? ttsService, string? reviewVersion = null)
+    {
+        Fields = fields;
+        Enrichment = new(fields);
+        var model = Enrichment.Text;
+        ReviewAssistant = new()
+        {
+            Endpoint = model.Endpoint, Model = model.Model, ApiKey = model.ApiKey, TimeoutSeconds = model.TimeoutSeconds,
+            AutoReviewEnabled = fields[OpenAiCompatibleReviewAssistant.Section + ":AutoReviewEnabled"]!.GetValue<bool>()
+        };
+        TextVersion = text;
+        UkTtsVersion = uk;
+        UsTtsVersion = us;
+        TtsServiceVersion = ttsService;
+        ReviewVersion = reviewVersion;
+    }
     internal IReadOnlyDictionary<string, JsonNode?> Fields { get; }
     public ReviewAssistantOptions ReviewAssistant { get; }
     public EnrichmentSettings Enrichment { get; }
@@ -160,8 +175,8 @@ public sealed class EnrichmentConfigurationSnapshot
     public string? TtsServiceVersion { get; }
     public string? ReviewVersion { get; }
     public bool ConfigurationReady => TextVersion is not null && UkTtsVersion is not null && UsTtsVersion is not null && TtsServiceVersion is not null;
-    public bool CanPrepare => ConfigurationReady && (Enrichment.FieldsEnabled || Enrichment.AudioEnabled) && Enrichment.Text.Configured;
-    public bool HasTtsConfiguration(string locale) => CanPrepare && Enrichment.AudioEnabled && Enrichment.Tts.Configured
+    public bool CanPrepare => ConfigurationReady && Enrichment.Text.Configured;
+    public bool HasTtsConfiguration(string locale) => CanPrepare && Enrichment.Tts.Configured
         && (locale == "uk" ? Enrichment.Uk : locale == "us" ? Enrichment.Us : null) is { Voice.Length: > 0, Speed: not null };
 }
 
@@ -169,6 +184,7 @@ public sealed class EnrichmentConfigurationSnapshot
 public sealed class EnrichmentRuntimeConfiguration
 {
     private const string Metadata = "EnrichmentConfigurationVersions";
+    private readonly ModelConfigurationPaths _modelPaths;
     private readonly object _gate = new();
     private EnrichmentConfigurationSnapshot _current;
     private TaskCompletionSource _changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -179,6 +195,7 @@ public sealed class EnrichmentRuntimeConfiguration
         var document = store.Read().Document ?? new JsonObject();
         var persisted = new ConfigurationBuilder().AddJsonStream(new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(document))).Build();
         using var lifetime = persisted as IDisposable;
+        _modelPaths = ModelConfigurationPaths.Resolve(configuration, document);
         _current = Create(configuration, false, persisted).Snapshot;
     }
     public EnrichmentConfigurationSnapshot Current => Volatile.Read(ref _current);
@@ -187,7 +204,8 @@ public sealed class EnrichmentRuntimeConfiguration
     internal async Task InitializeAsync(PersistentConfigurationCoordinator coordinator, CancellationToken cancellationToken = default)
     {
         var current = Current;
-        if (current.ConfigurationReady || !current.Enrichment.FieldsEnabled && !current.Enrichment.AudioEnabled) return;
+        if ((current.ConfigurationReady && current.ReviewVersion is not null) ||
+            !current.Enrichment.FieldsEnabled && !current.ReviewAssistant.IsEnabled) return;
         var read = await coordinator.ReadAsync(cancellationToken);
         var fields = current.Fields.Where(f => read.Sources[f.Key].Editable)
             .ToDictionary(f => f.Key, f => f.Value?.DeepClone(), StringComparer.OrdinalIgnoreCase);
@@ -222,10 +240,9 @@ public sealed class EnrichmentRuntimeConfiguration
             && JsonNode.DeepEquals(value, JsonSerializer.SerializeToNode(field.Default));
     }
 
-    private static (EnrichmentConfigurationSnapshot Snapshot, JsonObject? Metadata) Create(IConfiguration configuration, bool persist, IConfiguration? persisted = null)
+    private (EnrichmentConfigurationSnapshot Snapshot, JsonObject? Metadata) Create(IConfiguration configuration, bool persist, IConfiguration? persisted = null)
     {
-        var fields = EnrichmentConfigurationFields.Read(configuration);
-        var review = ReviewAssistantOptions.Read(configuration);
+        var fields = EnrichmentConfigurationFields.Read(configuration, _modelPaths);
         var versions = persisted ?? configuration;
         byte[]? key = null;
         try { key = Convert.FromBase64String(versions[Metadata + ":Key"] ?? ""); } catch (FormatException) { }
@@ -234,7 +251,12 @@ public sealed class EnrichmentRuntimeConfiguration
         string? Version(string name, Func<string, bool> include)
         {
             if (key is null) return null;
-            var selected = fields.Where(f => include(f.Key) && !DefaultStyleField(f.Key, f.Value)).OrderBy(f => f.Key, StringComparer.Ordinal).ToDictionary(f => f.Key, f => f.Value);
+            var selected = new SortedDictionary<string, JsonNode?>(StringComparer.Ordinal);
+            foreach (var field in fields.Where(f => include(f.Key) && !DefaultStyleField(f.Key, f.Value)))
+                selected.Add(field.Key, field.Value);
+            // Include the resolved protocol under its historical digest key, so an equivalent upgrade keeps its version.
+            if (include("Enrichment:Tts:Provider"))
+                selected.Add("Enrichment:Tts:Provider", SpeechProviderCapabilities.ProviderFor(fields["Enrichment:Tts:Endpoint"]!.GetValue<string>()));
             var digest = Convert.ToBase64String(HMACSHA256.HashData(key, JsonSerializer.SerializeToUtf8Bytes(selected)));
             var oldDigest = versions[$"{Metadata}:{name}:Digest"];
             var version = versions[$"{Metadata}:{name}:Version"];
@@ -250,7 +272,7 @@ public sealed class EnrichmentRuntimeConfiguration
         var uk = Tts("Uk"); var us = Tts("Us");
         var ttsService = Version("TtsService", fieldKey => fieldKey.StartsWith("Enrichment:Tts:", StringComparison.Ordinal)
             && !fieldKey.StartsWith("Enrichment:Tts:Uk:", StringComparison.Ordinal) && !fieldKey.StartsWith("Enrichment:Tts:Us:", StringComparison.Ordinal));
-        var reviewVersion = Version("Review", fieldKey => fieldKey.StartsWith(OpenAiCompatibleReviewAssistant.Section + ":", StringComparison.Ordinal));
-        return (new(review, fields, text, uk, us, ttsService, reviewVersion), persist ? metadata : null);
+        var reviewVersion = Version("Review", fieldKey => fieldKey.StartsWith("Enrichment:Text:", StringComparison.Ordinal) || fieldKey.StartsWith(OpenAiCompatibleReviewAssistant.Section + ":", StringComparison.Ordinal));
+        return (new(fields, text, uk, us, ttsService, reviewVersion), persist ? metadata : null);
     }
 }

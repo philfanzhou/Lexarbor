@@ -340,18 +340,18 @@ public sealed class OpenAiCompatiblePronunciationPreparationClient(
         var delay = header?.Delta ?? (header?.Date is { } date ? date - _time.GetUtcNow() : null);
         return delay is { } value && value > TimeSpan.Zero ? value : null;
     }
-    internal static async Task<byte[]?> ReadBoundedAsync(HttpContent content, CancellationToken token)
+    internal static async Task<byte[]?> ReadBoundedAsync(HttpContent content, CancellationToken token, int limit = MaximumBodyBytes)
     {
-        if (content.Headers.ContentLength > MaximumBodyBytes) return null;
+        if (content.Headers.ContentLength > limit) return null;
         await using var stream = await content.ReadAsStreamAsync(token);
         using var output = new MemoryStream();
         var buffer = new byte[8192];
         while (true)
         {
-            var read = await stream.ReadAsync(buffer.AsMemory(0, Math.Min(buffer.Length, MaximumBodyBytes + 1 - (int)output.Length)), token);
+            var read = await stream.ReadAsync(buffer.AsMemory(0, Math.Min(buffer.Length, limit + 1 - (int)output.Length)), token);
             if (read == 0) return output.ToArray();
             output.Write(buffer, 0, read);
-            if (output.Length > MaximumBodyBytes) return null;
+            if (output.Length > limit) return null;
         }
     }
     private static PronunciationPreparationResult Result(PronunciationPreparationOutcome outcome, string code, bool called = false, TimeSpan? retry = null)

@@ -55,6 +55,7 @@ public sealed class PersistentConfigurationCoordinator
     }
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly IConfigurationRoot _configuration;
+    private readonly ModelConfigurationPaths _modelPaths;
     private readonly PersistentConfigurationFileStore _store;
     private readonly Dictionary<string, string?> _startup;
     private readonly Dictionary<string, string?> _overrides;
@@ -69,13 +70,15 @@ public sealed class PersistentConfigurationCoordinator
     public PersistentConfigurationCoordinator(IConfigurationRoot configuration, PersistentConfigurationFileStore store)
     {
         _configuration = configuration;
+        var snapshot = store.Read();
+        _modelPaths = ModelConfigurationPaths.Resolve(configuration, snapshot.Document ?? new JsonObject());
         _store = store;
         _startup = configuration.AsEnumerable().Where(item => !PrivateMetadata(item.Key)).ToDictionary(item => item.Key, item => item.Value, StringComparer.OrdinalIgnoreCase);
         _overrides = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         _sources = new Dictionary<string, ConfigurationFieldSource>(StringComparer.OrdinalIgnoreCase);
         foreach (var field in AllowedFields)
         {
-            var source = FindSource(field);
+            var source = FindSource(_modelPaths.PhysicalKey(field));
             _sources[field] = source;
         }
         foreach (var provider in configuration.Providers)
@@ -92,7 +95,6 @@ public sealed class PersistentConfigurationCoordinator
                 }
             }
         }
-        var snapshot = store.Read();
         _lastValidDocument = snapshot.Document;
         _diskBytes = snapshot.Bytes;
     }
@@ -161,7 +163,7 @@ public sealed class PersistentConfigurationCoordinator
                 document = (JsonObject)(_lastValidDocument?.DeepClone() ?? _store.ReadTemplate());
                 foreach (var field in fields)
                 {
-                    SetField(document, field.Key, field.Value?.DeepClone());
+                    SetField(document, _modelPaths.PhysicalKey(field.Key), field.Value?.DeepClone());
                 }
             }
             catch (Exception exception) when (IsStorageError(exception))
@@ -203,8 +205,16 @@ public sealed class PersistentConfigurationCoordinator
                 // accepted as an HTTP field, and shares its single atomic commit point.
                 if (candidate.EnrichmentVersions is not null)
                     SetField(document, "EnrichmentConfigurationVersions", candidate.EnrichmentVersions.DeepClone());
-                var bytes = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(document,
-                    new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+                byte[] bytes;
+                try
+                {
+                    bytes = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(CleanConfigurationForDisk(document),
+                        new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+                }
+                catch (Exception exception) when (IsStorageError(exception))
+                {
+                    return new(ConfigurationSaveStatus.StorageFailure);
+                }
                 var nextRevision = NewRevision();
                 var nextSources = new Dictionary<string, ConfigurationFieldSource>(_sources, StringComparer.OrdinalIgnoreCase);
                 foreach (var field in fields.Keys)
@@ -294,6 +304,57 @@ public sealed class PersistentConfigurationCoordinator
             return new(ConfigurationValueSource.Default, true);
         }
         return new(ConfigurationValueSource.Default, true);
+    }
+
+    // The runtime retains its startup layout for in-flight and subsequent edits. Normalize only the disk copy.
+    private JsonObject CleanConfigurationForDisk(JsonObject current)
+    {
+        var disk = (JsonObject)current.DeepClone();
+        foreach (var key in new[] { "Enrichment:FieldsEnabled", "Enrichment:AudioEnabled", "Enrichment:Tts:Provider", "Models:Speech:Provider",
+                     "VocabularyPhotoImport:Enabled", "VocabularyPhotoImport:BaseUrl", "VocabularyPhotoImport:ApiKey",
+                     "VocabularyPhotoImport:RecognitionBudgetSeconds", "VocabularyPhotoImport:MaxResponseBytes",
+                     "AdminAuthentication:Oidc", "AdminAuthentication:Gateway", "AdminAuthentication:CookieName", "AdminAuthentication:CookieSecure",
+                     "Audio:MaxTextbookUploadBytes", "Audio:MaxTextbookDurationSeconds",
+                     "Telemetry:Otlp:Traces:AllowInsecureLoopbackForTesting", "Telemetry:Otlp:Metrics:AllowInsecureLoopbackForTesting" })
+            while (RemoveField(disk, key, out _, includeDescendants: true)) { }
+
+        Normalize(ModelConfigurationPaths.OldText, ModelConfigurationPaths.ReasoningKey, _modelPaths.Reasoning,
+            [ModelConfigurationPaths.OldText, ModelConfigurationPaths.OldReview]);
+        Normalize(ModelConfigurationPaths.OldSpeech, ModelConfigurationPaths.SpeechKey, _modelPaths.Speech,
+            [ModelConfigurationPaths.OldSpeech]);
+        return disk;
+
+        void Normalize(string logical, string canonical, string active, string[] oldSections)
+        {
+            var fields = EnrichmentConfigurationFields.All.Where(f => f.Key.StartsWith(logical + ":", StringComparison.Ordinal)).ToArray();
+            // Preserve the underlying file connections while deployment overrides select a group.
+            if (fields.Any(f => !_sources[f.Key].Editable)) return;
+            foreach (var field in fields)
+            {
+                var suffix = field.Key[logical.Length..];
+                foreach (var old in oldSections)
+                    if (RemoveField(disk, old + suffix, out var value) && old == active)
+                        SetField(disk, canonical + suffix, value);
+            }
+        }
+    }
+
+    private static bool RemoveField(JsonObject node, string path, out JsonNode? value, bool includeDescendants = false)
+    {
+        foreach (var name in node.Select(item => item.Key).ToArray())
+        {
+            if (path.Equals(name, StringComparison.OrdinalIgnoreCase) ||
+                includeDescendants && name.StartsWith(path + ":", StringComparison.OrdinalIgnoreCase))
+                return node.Remove(name, out value);
+            if (path.StartsWith(name + ":", StringComparison.OrdinalIgnoreCase) && node[name] is JsonObject child
+                && RemoveField(child, path[(name.Length + 1)..], out value, includeDescendants))
+            {
+                if (child.Count == 0) node.Remove(name);
+                return true;
+            }
+        }
+        value = null;
+        return false;
     }
 
     private static void SetField(JsonObject document, string key, JsonNode? value)

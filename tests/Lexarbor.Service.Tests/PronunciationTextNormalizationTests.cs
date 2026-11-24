@@ -54,7 +54,6 @@ public sealed partial class PronunciationSpeechTests
     public async Task ProposedDefaultPhonetic_RejectsChangedWordsBeforeFieldPublication(string word, string spoken)
     {
         using var f = new Fixture(true);
-        await f.Publish(new() { ["Enrichment:FieldsEnabled"] = "true" });
         f.Handler.Respond = (_, _) => Task.FromResult(IpaCompletion(spoken, null, "test", "test", kind: "word"));
         var result = await new OpenAiCompatiblePronunciationPreparationClient(f.Factory, f.Runtime).PrepareAsync(NotationRequest(word, null, AudioLocale.EnGb), Ct);
         Assert.Equal(PronunciationPreparationOutcome.InvalidPlan, result.Outcome);
@@ -69,7 +68,6 @@ public sealed partial class PronunciationSpeechTests
     public async Task ProposedDefaultPhonetic_AcceptsDottedInitialSplitBeforeFieldPublication()
     {
         using var f = new Fixture(true);
-        await f.Publish(new() { ["Enrichment:FieldsEnabled"] = "true" });
         f.Handler.Respond = (_, _) => Task.FromResult(IpaCompletion("I M Pei", null, "ˌaɪ ɛm ˈpeɪ", "ˌaɪ ɛm ˈpeɪ", kind: "word"));
         var result = await new OpenAiCompatiblePronunciationPreparationClient(f.Factory, f.Runtime).PrepareAsync(NotationRequest("I.M.Pei", null, AudioLocale.EnGb), Ct);
         Assert.Equal(PronunciationPreparationOutcome.Ready, result.Outcome);
@@ -81,7 +79,6 @@ public sealed partial class PronunciationSpeechTests
     public async Task ProposedDefaultPhonetic_AcceptsTitleAbbreviationWithoutFullStop()
     {
         using var f = new Fixture(true);
-        await f.Publish(new() { ["Enrichment:FieldsEnabled"] = "true" });
         f.Handler.Respond = (_, _) => Task.FromResult(IpaCompletion("doctors", null, "ˈdɒktəz", "ˈdɒktəz", kind: "word"));
         var result = await new OpenAiCompatiblePronunciationPreparationClient(f.Factory, f.Runtime).PrepareAsync(NotationRequest("Drs", null, AudioLocale.EnGb), Ct);
         Assert.Equal(PronunciationPreparationOutcome.Ready, result.Outcome);

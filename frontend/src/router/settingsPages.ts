@@ -9,7 +9,7 @@ export const settingsPages = [
   { path: '/settings/api-keys', name: 'settings-api-keys', label: '接入 API Key', component: BusinessApiKeysPanel },
   { path: '/settings/audio-storage', name: 'settings-audio-storage', label: '音频存储', component: AudioStorageSettingsPanel },
   { path: '/settings/review', name: 'settings-review', label: '审核助手', component: EnrichmentSettingsPanel, props: { section: 'review' } },
-  { path: '/settings/text', name: 'settings-text', label: '文本补齐', component: EnrichmentSettingsPanel, props: { section: 'text' } },
+  { path: '/settings/text', name: 'settings-text', label: '视觉推理', component: EnrichmentSettingsPanel, props: { section: 'text' } },
   { path: '/settings/speech', name: 'settings-speech', label: '语音生成', component: EnrichmentSettingsPanel, props: { section: 'speech' } },
   { path: '/settings/background', name: 'settings-background', label: '后台策略', component: EnrichmentSettingsPanel, props: { section: 'background' } }
 ] satisfies (RouteRecordRaw & { label: string })[]

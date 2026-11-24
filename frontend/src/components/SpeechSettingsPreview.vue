@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, watch } from 'vue'
-import api from '@/services/api'
+import api, { modelRequestTimeoutMs } from '@/services/api'
 import { getApiError } from '@/services/apiError'
 import { sessionGeneration } from '@/services/authState'
 import { enrichmentChangesBody, valueFields } from '@/services/enrichmentSettingsApi'
@@ -76,7 +76,7 @@ async function generate(locale: Locale) {
   state.message = '正在使用草稿生成试听…'
   try {
     const blob = await api.post<Blob>('/admin/enrichment/settings/speech-preview', { locale, sample: state.sample, tts: changes(locale) }, {
-      headers: { 'If-Match': props.settings.revision }, responseType: 'blob', timeout: 310000,
+      headers: { 'If-Match': props.settings.revision }, responseType: 'blob', timeout: modelRequestTimeoutMs,
       signal: controller.signal, lxIsCurrent: current
     })
     if (!current()) return

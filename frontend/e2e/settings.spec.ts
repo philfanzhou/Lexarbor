@@ -34,7 +34,7 @@ test('settings defaults to reading rate limits and only loads the selected categ
   const system = page.getByRole('link', { name: '系统设置', exact: true })
   await system.click()
   const categories = page.getByRole('navigation', { name: '设置分类' })
-  await expect(categories.getByRole('link')).toHaveText(['请求限流', '接入 API Key', '音频存储', '审核助手', '文本补齐', '语音生成', '后台策略'])
+  await expect(categories.getByRole('link')).toHaveText(['请求限流', '接入 API Key', '音频存储', '审核助手', '视觉推理', '语音生成', '后台策略'])
   await expect(categories.getByRole('link', { name: '请求限流' })).toHaveAttribute('aria-current', 'page')
   await expect(loginSwitch(page)).not.toBeChecked()
   expect(requests).toEqual(['GET /admin/system/settings/rate-limits'])

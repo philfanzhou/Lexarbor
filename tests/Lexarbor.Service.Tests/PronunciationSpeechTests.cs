@@ -520,10 +520,11 @@ public sealed partial class PronunciationSpeechTests
     }
 
     [Fact]
-    public void UnknownProviderIsRejectedByRuntime_AndHostOnlyRegistersClient()
+    public async Task UnknownEndpointHasNoSpeechAdapter_AndHostOnlyRegistersClient()
     {
         using var f = new Fixture();
-        Assert.Throws<InvalidOperationException>(() => f.Publish(new() { ["Enrichment:Tts:Provider"] = "unknown" }).GetAwaiter().GetResult());
+        await f.Publish(new() { ["Enrichment:Tts:Endpoint"] = "https://unknown.example.test/v1" });
+        Assert.Equal("Unsupported", f.Runtime.Current.Enrichment.Provider);
         Assert.Empty(f.Handler.Bodies);
         using var host = new VocabularyWebApplicationFactory();
         Assert.IsType<PronunciationSpeechClient>(host.Services.GetRequiredService<IPronunciationSpeechClient>());
@@ -543,11 +544,9 @@ public sealed partial class PronunciationSpeechTests
         {
             _settings = new()
             {
-                ["Enrichment:AudioEnabled"] = "true",
                 ["Enrichment:Text:Endpoint"] = "https://planner.example.test/v1",
                 ["Enrichment:Text:Model"] = "planner-model",
                 ["Enrichment:Text:ApiKey"] = "synthetic-planner-key",
-                ["Enrichment:Tts:Provider"] = native ? "MiniMaxNative" : "OpenAICompatible",
                 ["Enrichment:Tts:Endpoint"] = native ? "https://api.minimax.io/v1" : "https://api.openai.com/v1",
                 ["Enrichment:Tts:Model"] = native ? "speech-2.8-hd" : "gpt-4o-mini-tts",
                 ["Enrichment:Tts:ApiKey"] = Secret,
@@ -558,8 +557,8 @@ public sealed partial class PronunciationSpeechTests
                 ["Enrichment:Tts:Us:Speed"] = "1.1"
             };
             var store = new PersistentConfigurationFileStore(_root);
-            Runtime = new(Build(), store);
-            var coordinatorConfiguration = new ConfigurationBuilder().Build(); _configurations.Add((IDisposable)coordinatorConfiguration);
+            var coordinatorConfiguration = Build();
+            Runtime = new(coordinatorConfiguration, store);
             _coordinator = new(coordinatorConfiguration, store);
             if (publish) Publish([]).GetAwaiter().GetResult();
             Handler.Respond = (_, _) => Task.FromResult(native ? Native() : Audio());
@@ -568,7 +567,7 @@ public sealed partial class PronunciationSpeechTests
         public PronunciationPreparationResult Plan(string word = "lead", string spoken = "lead", string? phonetic = "liːd", AudioLocale locale = AudioLocale.EnGb, bool meaning = false)
         {
             var input = new AudioGenerationInput(word, locale, phonetic, meaning, meaning ? "n." : null, meaning ? "a metal" : null);
-            var native = _settings["Enrichment:Tts:Provider"] == "MiniMaxNative" && phonetic != null;
+            var native = Runtime.Current.Enrichment.Provider == "MiniMaxNative" && phonetic != null;
             return new(PronunciationPreparationOutcome.Ready, new(new(spoken, native ? phonetic : "Use the required reading and accent.", null, []), input,
                 new("input-version", AudioSelectionService.ComputeRevision(input), null), Runtime.Current.TextVersion ?? "unready", "word", "Explicit classification.", phonetic,
                 native ? phonetic : null, native ? PronunciationControl.Ipa : PronunciationControl.Instructions));

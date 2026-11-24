@@ -1,4 +1,4 @@
-import api from './api'
+import api, { modelRequestTimeoutMs } from './api'
 import type { AxiosRequestConfig } from 'axios'
 import { ApiError } from './apiError'
 
@@ -90,7 +90,7 @@ export function rejectMeaningSubmission(id: string, reviewComment?: string, conf
 }
 
 export function adviseMeaningSubmission(id: string, config?: AxiosRequestConfig) {
-  return api.post<MeaningSubmissionAdvice>(`/admin/meaning-submissions/${encodeURIComponent(id)}/advice`, undefined, config)
+  return api.post<MeaningSubmissionAdvice>(`/admin/meaning-submissions/${encodeURIComponent(id)}/advice`, undefined, { timeout: modelRequestTimeoutMs, ...config })
 }
 
 export interface MeaningSubmissionReview {

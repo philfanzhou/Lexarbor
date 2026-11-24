@@ -138,7 +138,7 @@ public static partial class VocabularyNotebookHttpEndpoints
         }
         finally
         {
-            // Only a request that reached StructaDoc says anything about recognition worth keeping.
+            // Only a request that reached the vision model says anything about recognition worth keeping.
             if (trace.RecognitionMilliseconds is not null)
                 await traces.SaveAsync(new VocabularyPhotoTraceRecord(at, studentId, photo, contentType, outcome, message,
                     (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds, trace, result)).ConfigureAwait(false);
@@ -157,6 +157,7 @@ public static partial class VocabularyNotebookHttpEndpoints
     {
         candidate.Word,
         candidate.Recognized,
+        candidate.Review,
         candidate.PartOfSpeech,
         candidate.Meaning,
         state = candidate.State switch

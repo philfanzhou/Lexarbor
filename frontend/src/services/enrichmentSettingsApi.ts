@@ -5,13 +5,9 @@ import type { AudioFieldState, CredentialChange } from './audioStorageSettingsAp
 // Names and bounds mirror the administrator settings contract, not supplier defaults.
 export const valueFields = [
   ['reviewAssistant.autoReviewEnabled', '启用 AI 自动审核投稿（默认关闭）', 'review', 'boolean'],
-  ['reviewAssistant.endpoint', '审核服务地址', 'review', 'text'],
-  ['reviewAssistant.model', '审核模型', 'review', 'text'],
-  ['reviewAssistant.timeoutSeconds', '审核超时（秒）', 'review', 'integer', 1, 300],
-  ['enrichment.text.endpoint', '补齐文本服务地址', 'text', 'text'],
-  ['enrichment.text.model', '补齐文本模型', 'text', 'text'],
-  ['enrichment.text.timeoutSeconds', '补齐文本超时（秒）', 'text', 'integer', 1, 300],
-  ['enrichment.tts.provider', '语音提供方', 'tts', 'provider'],
+  ['enrichment.text.endpoint', '推理服务地址', 'text', 'text'],
+  ['enrichment.text.model', '推理模型', 'text', 'text'],
+  ['enrichment.text.timeoutSeconds', '推理超时（秒）', 'text', 'integer', 1, 300],
   ['enrichment.tts.endpoint', '语音服务地址', 'tts', 'text'],
   ['enrichment.tts.model', '语音模型', 'tts', 'text'],
   ['enrichment.tts.timeoutSeconds', '语音超时（秒）', 'tts', 'integer', 1, 300],
@@ -39,8 +35,7 @@ export const valueFields = [
   ['enrichment.scanIntervalSeconds', '扫描间隔（秒）', 'policy', 'integer', 1, 3600]
 ] as const
 export const secretFields = [
-  ['reviewAssistant.apiKey', '审核 API Key', 'review'],
-  ['enrichment.text.apiKey', '补齐文本 API Key', 'text'],
+  ['enrichment.text.apiKey', '推理 API Key', 'text'],
   ['enrichment.tts.apiKey', '语音 API Key', 'tts']
 ] as const
 export type ValueField = typeof valueFields[number][0]
@@ -75,7 +70,7 @@ function parse(value: unknown): EnrichmentSettings {
     const valid = kind === 'boolean' ? typeof item === 'boolean'
       : kind === 'integer' || kind === 'speed' || kind === 'decimal' ? kind === 'speed' && item === null
         || typeof item === 'number' && Number.isFinite(item) && item >= field[4]! && item <= field[5]! && (kind !== 'integer' || Number.isInteger(item))
-        : typeof item === 'string' && item.length <= (kind === 'style' ? 512 : 2048) && (kind !== 'emotion' || ['', 'happy', 'sad', 'angry', 'fearful', 'disgusted', 'surprised', 'calm'].includes(item)) && (kind !== 'provider' || ['MiniMaxNative', 'OpenAICompatible'].includes(item))
+        : typeof item === 'string' && item.length <= (kind === 'style' ? 512 : 2048) && (kind !== 'emotion' || ['', 'happy', 'sad', 'angry', 'fearful', 'disgusted', 'surprised', 'calm'].includes(item))
     if (!valid) return invalid()
     values[name] = item as SettingValue
   }

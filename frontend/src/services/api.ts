@@ -29,6 +29,9 @@ export function setAuthFailureHandlers(
   onForbidden = forbiddenHandler
 }
 
+// The server allows up to 300 seconds for a model call. Leave time to return its response.
+export const modelRequestTimeoutMs = 310_000
+
 const api = axios.create({
   timeout: 30000,
   withCredentials: true

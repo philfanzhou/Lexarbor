@@ -7,19 +7,12 @@ namespace Lexarbor.Learning.Domain.Services;
 /// <summary>One photo as uploaded: its bytes and declared media type. The host may keep recent photos for analysis.</summary>
 public sealed record VocabPhoto(byte[] Content, string ContentType);
 
-/// <summary>One recognized line and its normalized position (top-left origin, 0..1).</summary>
-public sealed record VocabRecognizedLine(string Text, double X0, double Y0, double X1, double Y1);
+/// <summary>A word and the definition transcribed from the uploaded image.</summary>
+public sealed record VocabPhotoEntry(string Word, string? PartOfSpeech, string Meaning, string? Review = null);
 
-/// <summary>
-/// One block StructaDoc recognized, in reading order: plain text (with its lines), a table as HTML, or a formula as
-/// LaTeX. Figures carry no text.
-/// </summary>
-public sealed record VocabRecognizedBlock(string Type, string? Content, string? ContentFormat, IReadOnlyList<VocabRecognizedLine> Lines);
-
-/// <summary>Recognized text and layout from StructaDoc.</summary>
 public interface IVocabularyPhotoRecognizer
 {
-    Task<IReadOnlyList<VocabRecognizedBlock>> RecognizeAsync(VocabPhoto photo, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<VocabPhotoEntry>> RecognizeAsync(VocabPhoto photo, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Exact catalog meanings keyed by each requested spelling, with an empty list for a catalog miss.</summary>
@@ -53,16 +46,17 @@ public sealed record VocabPhotoCandidate(
     string Meaning,
     VocabPhotoCandidateState State,
     string? MeaningId,
-    IReadOnlyList<VocabCatalogMeaning> Meanings);
+    IReadOnlyList<VocabCatalogMeaning> Meanings,
+    string? Review = null);
 
-/// <summary>Builds the notebook photo preview from recognized rows and exact Lexarbor lookups.</summary>
+/// <summary>Builds the notebook photo preview from transcribed entries and exact Lexarbor lookups.</summary>
 public sealed class VocabularyPhotoImportService(
     ILearnerDirectory studentRepository,
     IVocabularyPhotoRecognizer recognizer,
     IVocabularyPhotoCatalog catalog,
     ILogger<VocabularyPhotoImportService>? logger = null)
 {
-    /// <summary>The largest photo accepted, below StructaDoc's own image bound.</summary>
+    /// <summary>The largest photo accepted.</summary>
     public const int MaxPhotoBytes = 20 * 1024 * 1024;
 
     public async Task<IReadOnlyList<VocabPhotoCandidate>> PreviewAsync(Guid studentId, VocabPhoto photo, CancellationToken cancellationToken = default)
@@ -71,8 +65,8 @@ public sealed class VocabularyPhotoImportService(
         if (!await studentRepository.ExistsAsync(studentId, cancellationToken).ConfigureAwait(false))
             throw new VocabStudentNotFoundException();
 
-        var blocks = await recognizer.RecognizeAsync(photo, cancellationToken).ConfigureAwait(false);
-        var entries = VocabularyPhotoEntries.Read(blocks);
+        var recognized = await recognizer.RecognizeAsync(photo, cancellationToken).ConfigureAwait(false);
+        var entries = VocabularyPhotoEntries.Distinct(recognized);
         if (entries.Count == 0) return [];
 
         var spellings = entries.Select(entry => entry.Word).DistinctBy(VocabularyPhotoEntries.SpellingKey).ToArray();
@@ -94,7 +88,7 @@ public sealed class VocabularyPhotoImportService(
             var chosen = state == VocabPhotoCandidateState.Matched ? options[0] : null;
             if (chosen is not null && !selected.Add(chosen.MeaningId)) continue;
             candidates.Add(new VocabPhotoCandidate(chosen?.Word ?? entry.Word, null, entry.PartOfSpeech, entry.Meaning,
-                state, chosen?.MeaningId, options));
+                state, chosen?.MeaningId, options, entry.Review));
         }
 
         logger?.LogInformation(
@@ -117,6 +111,6 @@ public sealed class VocabularyPhotoImportService(
 /// <summary>Not a JPEG or PNG, empty, or larger than VocabularyPhotoImportService.MaxPhotoBytes.</summary>
 public sealed class VocabPhotoInvalidException() : Exception("The photo must be one JPEG or PNG image of at most 20 MB.");
 
-/// <summary>Photo import is off, or StructaDoc is unavailable, timed out or answered unreadably.</summary>
+/// <summary>Photo import is off, or the vision model is unavailable, timed out or answered unreadably.</summary>
 public sealed class VocabPhotoImportUnavailableException(string? reason = null)
     : Exception(reason ?? "Photo import is temporarily unavailable.");

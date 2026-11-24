@@ -457,15 +457,15 @@ for retained files and recording metadata backups.
 Four tabs use `/admin/enrichment/settings` and share the configuration revision
 with S3 and rate limits.
 
-- **审核助手** (Review assistant) contains the review client and the default-off
+- **审核助手** (Review assistant) contains the default-off
   automatic-review switch. The switch explains that AI can approve, edit, or
   reject submissions without human confirmation and may write incorrect shared
   vocabulary.
-- **文本补齐** (Text enrichment) contains the text client used for field enrichment,
+- **视觉推理** (Vision reasoning) configures the shared model used for notebook photos, submission review, field enrichment,
   pronunciation preparation and vocabulary expansion. Configuration activates
   these capabilities automatically; there is no separate enable switch.
-- **语音生成** (Speech generation) contains the speech client, and separate UK and US voices and speeds. It links to Text
-  enrichment and Audio storage so administrators can set up those dependencies.
+- **语音生成** (Speech generation) contains the speech client, and separate UK and US voices and speeds. It links to Vision
+  reasoning and Audio storage so administrators can set up those dependencies.
 - **后台策略** (Background policies) contains discovery, concurrency, failure
   budget, pause, and backoff settings.
 
