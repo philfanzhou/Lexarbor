@@ -98,6 +98,15 @@ public sealed record VocabNotebookFamilySource(string WordKey, string Word, stri
 /// <summary>An item as a reader sees it: Learned means the student already holds a memory card for it.</summary>
 public sealed record VocabNotebookEntry(VocabNotebookItemModel Item, bool Learned);
 
+public sealed record VocabNotebookSummary(int Words, int Meanings, int Teacher, int Recent, int Rejected);
+
+public sealed record VocabNotebookQuery(string Keyword, bool Teacher, bool Recent, bool Rejected, int Page)
+{
+    public const int PageSize = 20;
+}
+
+public sealed record VocabNotebookPage<T>(int Total, int Page, IReadOnlyList<T> Items);
+
 public static class VocabNotebook
 {
     public const string SubmissionBookId = "lexarbor-submission";

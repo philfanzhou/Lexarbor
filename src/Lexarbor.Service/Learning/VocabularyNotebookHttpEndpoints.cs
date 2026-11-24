@@ -14,6 +14,9 @@ public static partial class VocabularyNotebookHttpEndpoints
     {
         var group = app.MapGroup("/api/vocabulary");
         group.MapGet("/students/{studentId:guid}/notebook", List);
+        group.MapGet("/students/{studentId:guid}/notebook/summary", Summary);
+        group.MapGet("/students/{studentId:guid}/notebook/query", Query);
+        group.MapPost("/students/{studentId:guid}/notebook/membership", Membership);
         group.MapPost("/students/{studentId:guid}/notebook/items", Add);
         group.MapPost("/students/{studentId:guid}/notebook/items/{itemId:guid}/remove", Remove);
         group.MapPost("/students/{studentId:guid}/notebook/items/{itemId:guid}/resubmit", Resubmit);

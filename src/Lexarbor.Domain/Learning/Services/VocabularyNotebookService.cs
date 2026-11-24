@@ -8,6 +8,7 @@ public sealed class VocabularyNotebookService : IVocabularyNotebookSource
 {
     private const int LookupChunkSize = 100;
 
+    private readonly TimeProvider _clock;
     private readonly ILearnerDirectory _studentRepository;
     private readonly IVocabNotebookRepository _notebookRepository;
     private readonly IMemoryCardRepository _cardRepository;
@@ -21,6 +22,7 @@ public sealed class VocabularyNotebookService : IVocabularyNotebookSource
         IMemoryCardRepository cardRepository,
         IVocabularyNotebookCatalog catalog,
         IUnitOfWork unitOfWork,
+        TimeProvider clock,
         ILogger<VocabularyNotebookService>? logger = null)
     {
         _studentRepository = studentRepository;
@@ -29,6 +31,7 @@ public sealed class VocabularyNotebookService : IVocabularyNotebookSource
         _catalog = catalog;
         _unitOfWork = unitOfWork;
         _logger = logger;
+        _clock = clock;
     }
 
     public async Task<IReadOnlyList<VocabNotebookEntry>> ListAsync(Guid studentId, CancellationToken cancellationToken = default)
@@ -36,6 +39,12 @@ public sealed class VocabularyNotebookService : IVocabularyNotebookSource
         await RequireStudentAsync(studentId, cancellationToken).ConfigureAwait(false);
         await TrySyncPendingAsync(studentId, cancellationToken).ConfigureAwait(false);
         var items = await _notebookRepository.ListAsync(studentId, cancellationToken).ConfigureAwait(false);
+        return await EntriesAsync(studentId, items, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<IReadOnlyList<VocabNotebookEntry>> EntriesAsync(Guid studentId, IReadOnlyList<VocabNotebookItemModel> items,
+        CancellationToken cancellationToken)
+    {
         var learned = items.Count == 0
             ? []
             : await _cardRepository.FindExistingKeysAsync(studentId, items.Select(item => item.Key).ToList(), cancellationToken).ConfigureAwait(false);
@@ -44,6 +53,40 @@ public sealed class VocabularyNotebookService : IVocabularyNotebookSource
             .ThenBy(item => item.Id)
             .Select(item => new VocabNotebookEntry(item, learned.Contains(item.Key)))
             .ToList();
+    }
+
+    private DateTimeOffset RecentStart()
+    {
+        var beijingOffset = TimeSpan.FromHours(8);
+        var midnight = _clock.GetUtcNow().ToOffset(beijingOffset).Date.AddDays(-6);
+        return new DateTimeOffset(midnight, beijingOffset).ToUniversalTime();
+    }
+
+    public async Task<VocabNotebookSummary> SummaryAsync(Guid studentId, CancellationToken cancellationToken)
+    {
+        await RequireStudentAsync(studentId, cancellationToken).ConfigureAwait(false);
+        await TrySyncPendingAsync(studentId, cancellationToken).ConfigureAwait(false);
+        return await _notebookRepository.SummaryAsync(studentId, RecentStart(), cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<VocabNotebookPage<VocabNotebookEntry>> QueryAsync(Guid studentId, VocabNotebookQuery filters,
+        CancellationToken cancellationToken)
+    {
+        await RequireStudentAsync(studentId, cancellationToken).ConfigureAwait(false);
+        await TrySyncPendingAsync(studentId, cancellationToken).ConfigureAwait(false);
+        return await _notebookRepository.InRepeatableReadAsync(async () =>
+        {
+            var page = await _notebookRepository.QueryAsync(studentId, filters, RecentStart(), cancellationToken).ConfigureAwait(false);
+            var entries = await EntriesAsync(studentId, page.Items, cancellationToken).ConfigureAwait(false);
+            return new VocabNotebookPage<VocabNotebookEntry>(page.Total, page.Page, entries);
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<CardKey>> MembershipAsync(Guid studentId, IReadOnlyCollection<CardKey> keys,
+        CancellationToken cancellationToken)
+    {
+        await RequireStudentAsync(studentId, cancellationToken).ConfigureAwait(false);
+        return keys.Count == 0 ? [] : await _notebookRepository.MembershipAsync(studentId, keys, cancellationToken).ConfigureAwait(false);
     }
 
     public Task<IReadOnlyList<VocabCatalogMeaning>> SearchAsync(string? keyword, CancellationToken cancellationToken = default)
@@ -73,7 +116,7 @@ public sealed class VocabularyNotebookService : IVocabularyNotebookSource
         {
             try
             {
-                return await _notebookRepository.InFamilyWriteAsync(studentId, async () =>
+                return await _notebookRepository.InStudentWriteAsync(studentId, async () =>
                 {
                     var item = NewItem(studentId, actor, meaning.WordKey, meaning.MeaningKey, meaning.Word, meaning.PartOfSpeech, meaning.Meaning);
                     Locate(item, meaning.BookId, meaning.WordId, meaning.MeaningId);
@@ -261,16 +304,15 @@ public sealed class VocabularyNotebookService : IVocabularyNotebookSource
 
     private async Task TrySyncPendingAsync(Guid studentId, CancellationToken cancellationToken)
     {
-        var items = await _notebookRepository.ListAsync(studentId, cancellationToken).ConfigureAwait(false);
-        var pending = items.Where(item => item.Status == VocabNotebookItemStatus.Pending && item.SubmissionId is not null).ToList();
+        var pending = await _notebookRepository.PendingSubmissionIdsAsync(studentId, cancellationToken).ConfigureAwait(false);
         if (pending.Count == 0) return;
         var results = new Dictionary<string, VocabMeaningSubmission>(StringComparer.Ordinal);
         try
         {
-            foreach (var chunk in pending.Select(item => item.SubmissionId!).Distinct(StringComparer.Ordinal).Chunk(LookupChunkSize))
+            foreach (var chunk in pending.Chunk(LookupChunkSize))
             {
                 foreach (var submission in await _catalog.LookupAsync(chunk, cancellationToken).ConfigureAwait(false))
-                    results[submission.Id] = submission;
+                    if (submission.Status != VocabSubmissionStatus.Pending) results[submission.Id] = submission;
             }
         }
         catch (VocabCatalogUnavailableException)
@@ -280,40 +322,46 @@ public sealed class VocabularyNotebookService : IVocabularyNotebookSource
             return;
         }
 
-        var changed = false;
-        foreach (var item in pending)
+        if (results.Count == 0) return;
+        await _notebookRepository.InStudentWriteAsync(studentId, async () =>
         {
-            if (!results.TryGetValue(item.SubmissionId!, out var submission) || submission.Status == VocabSubmissionStatus.Pending)
-                continue;
-            changed = true;
-            if (submission.Status == VocabSubmissionStatus.Rejected)
-            {
-                // Keep the submission ID, snapshot and who added it; memory cards and attempts stay as history.
-                item.Status = VocabNotebookItemStatus.Rejected;
-                item.ReviewComment = ReviewComment(submission.ReviewComment);
-                item.UpdatedAt = DateTimeOffset.UtcNow;
-                await _notebookRepository.UpdateAsync(item, cancellationToken).ConfigureAwait(false);
-                continue;
-            }
-
-            await _notebookRepository.RemoveAsync(item, cancellationToken).ConfigureAwait(false);
-            var approved = ApprovedItem(studentId, new VocabNotebookActor(item.AddedBy, item.AddedByTeacherId), submission);
-            approved.Id = item.Id;
-            approved.AddedAt = item.AddedAt;
-            if (!submission.DefinitionKept)
-            {
-                // Lexarbor sets definitionKept = false for every revision, even one that only changed the part of speech
-                // or phonetics, so the mark follows the flag rather than a comparison of the text.
-                approved.Original = new VocabNotebookOriginal(item.Word, item.PartOfSpeech, item.Meaning);
-                approved.ReviewComment = ReviewComment(submission.ReviewComment);
-            }
-
-            // Flush the removal first: an unchanged definition keeps the same key.
+            var reviewed = await _notebookRepository.ReviewedPendingAsync(studentId, results.Keys.ToArray(), cancellationToken)
+                .ConfigureAwait(false);
+            foreach (var item in reviewed)
+                await ApplyReviewAsync(studentId, item, results[item.SubmissionId!], cancellationToken).ConfigureAwait(false);
             await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-            await MergeAsync(approved, cancellationToken).ConfigureAwait(false);
+            return reviewed.Count;
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task ApplyReviewAsync(Guid studentId, VocabNotebookItemModel item, VocabMeaningSubmission submission,
+        CancellationToken cancellationToken)
+    {
+        if (submission.Status == VocabSubmissionStatus.Rejected)
+        {
+            // Keep the submission ID, snapshot and who added it; memory cards and attempts stay as history.
+            item.Status = VocabNotebookItemStatus.Rejected;
+            item.ReviewComment = ReviewComment(submission.ReviewComment);
+            item.UpdatedAt = DateTimeOffset.UtcNow;
+            await _notebookRepository.UpdateAsync(item, cancellationToken).ConfigureAwait(false);
+            return;
         }
 
-        if (changed) await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await _notebookRepository.RemoveAsync(item, cancellationToken).ConfigureAwait(false);
+        var approved = ApprovedItem(studentId, new VocabNotebookActor(item.AddedBy, item.AddedByTeacherId), submission);
+        approved.Id = item.Id;
+        approved.AddedAt = item.AddedAt;
+        if (!submission.DefinitionKept)
+        {
+            // Lexarbor sets definitionKept = false for every revision, even one that only changed the part of speech
+            // or phonetics, so the mark follows the flag rather than a comparison of the text.
+            approved.Original = new VocabNotebookOriginal(item.Word, item.PartOfSpeech, item.Meaning);
+            approved.ReviewComment = ReviewComment(submission.ReviewComment);
+        }
+
+        // Flush the removal first: an unchanged definition keeps the same key.
+        await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await MergeAsync(approved, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<VocabNotebookEntry> UpsertAsync(VocabNotebookItemModel item, CancellationToken cancellationToken)
