@@ -509,7 +509,7 @@ public sealed partial class EnrichmentSettingsTests : IDisposable
             text = current.TextVersion; uk = current.UkTtsVersion; us = current.UsTtsVersion;
         }
         var configuration = new ConfigurationBuilder().AddJsonFile(FilePath)
-            .AddCommandLine(["--Enrichment:Text:ApiKey=" + Secret]).Build();
+            .AddCommandLine(["--Models:Reasoning:ApiKey=" + Secret]).Build();
         using var lifetime = configuration as IDisposable;
         var runtime = new EnrichmentRuntimeConfiguration(configuration, new(_root));
         Assert.Null(runtime.Current.TextVersion); Assert.Equal(uk, runtime.Current.UkTtsVersion); Assert.Equal(us, runtime.Current.UsTtsVersion);
@@ -519,7 +519,7 @@ public sealed partial class EnrichmentSettingsTests : IDisposable
         Assert.Equal(uk, runtime.Current.UkTtsVersion); Assert.Equal(us, runtime.Current.UsTtsVersion);
         Assert.DoesNotContain(Secret, File.ReadAllText(FilePath));
         var restartedConfiguration = new ConfigurationBuilder().AddJsonFile(FilePath)
-            .AddCommandLine(["--Enrichment:Text:ApiKey=" + Secret]).Build();
+            .AddCommandLine(["--Models:Reasoning:ApiKey=" + Secret]).Build();
         using var restartedLifetime = restartedConfiguration as IDisposable;
         Assert.Equal(runtime.Current.TextVersion, new EnrichmentRuntimeConfiguration(restartedConfiguration, new(_root)).Current.TextVersion);
     }

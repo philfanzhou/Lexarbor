@@ -44,7 +44,7 @@ public sealed partial class EnrichmentTargetExecutorTests
         Assert.Equal(0, status.ConsecutiveFailures);
         Assert.False(status.Paused);
         if (failures < 4) Assert.Null(status.LeaseId);
-        else Assert.Equal(f.Clock.Now + 90_000, status.LeaseExpiresAtUnixMs);
+        else Assert.Equal(f.Clock.Now + (f.Runtime.Current.Enrichment.Text.TimeoutSeconds + 60) * 1000L, status.LeaseExpiresAtUnixMs);
     }
 
     [Fact]
