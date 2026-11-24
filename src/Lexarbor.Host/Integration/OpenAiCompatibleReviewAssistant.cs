@@ -9,7 +9,7 @@ namespace Lexarbor.Host.Integration;
 
 /// <summary>
 /// Optional review advice from an OpenAI-compatible chat-completions endpoint.
-/// It is off unless <c>MeaningSubmissions:Ai:Endpoint</c> and <c>Model</c> are
+/// It is off unless <c>Models:Reasoning:Endpoint</c> and <c>Model</c> are
 /// set. The model only advises; nothing is approved or rejected without an
 /// administrator. The submission text is the only data sent.
 /// </summary>
@@ -141,40 +141,11 @@ public sealed class ReviewAssistantOptions
     public string? Endpoint { get; init; }
     public string? Model { get; init; }
     public string? ApiKey { get; init; }
-    public int TimeoutSeconds { get; init; } = 30;
+    public int TimeoutSeconds { get; init; } = EnrichmentClientSettings.DefaultTimeoutSeconds;
     public bool AutoReviewEnabled { get; init; }
 
     public bool IsEnabled => !string.IsNullOrWhiteSpace(Endpoint) && !string.IsNullOrWhiteSpace(Model);
     public bool CanAutomaticallyReview => AutoReviewEnabled && IsEnabled && Model!.Length <= 200;
-
-    public static ReviewAssistantOptions Read(IConfiguration configuration)
-    {
-        var section = configuration.GetSection(OpenAiCompatibleReviewAssistant.Section);
-        var endpoint = section["Endpoint"]?.Trim();
-        if (!string.IsNullOrEmpty(endpoint)
-            && (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri)
-                || (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp)
-                || uri.UserInfo.Length != 0 || uri.Query.Length != 0))
-        {
-            throw new InvalidOperationException($"{OpenAiCompatibleReviewAssistant.Section}:Endpoint is invalid.");
-        }
-
-        var timeout = 30;
-        var timeoutText = section["TimeoutSeconds"];
-        if (timeoutText != null && (!int.TryParse(timeoutText, out timeout) || timeout is < 1 or > 300))
-        {
-            throw new InvalidOperationException($"{OpenAiCompatibleReviewAssistant.Section}:TimeoutSeconds must be 1 to 300.");
-        }
-
-        return new ReviewAssistantOptions
-        {
-            Endpoint = string.IsNullOrEmpty(endpoint) ? null : endpoint,
-            Model = section["Model"]?.Trim(),
-            ApiKey = section["ApiKey"],
-            TimeoutSeconds = timeout,
-            AutoReviewEnabled = section.GetValue<bool>("AutoReviewEnabled")
-        };
-    }
 }
 
 public sealed class ReviewAssistantUnavailableException : Exception

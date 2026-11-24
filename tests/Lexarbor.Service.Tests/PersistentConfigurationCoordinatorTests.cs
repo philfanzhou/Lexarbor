@@ -203,7 +203,7 @@ public sealed class PersistentConfigurationCoordinatorTests : IDisposable
             var blocked = await coordinator.SaveAsync(read.Revision, Switch("Audio:Enabled", false), Prepare, Ct);
             Assert.Equal(ConfigurationSaveStatus.Overridden, blocked.Status);
             Assert.Equal(["Audio:Enabled"], blocked.OverriddenFields);
-            var saved = await coordinator.SaveAsync(read.Revision, Switch("Enrichment:AudioEnabled", true), (candidate, _) =>
+            var saved = await coordinator.SaveAsync(read.Revision, Switch("MeaningSubmissions:Ai:AutoReviewEnabled", true), (candidate, _) =>
             {
                 Assert.True(candidate.GetValue<bool>("Audio:Enabled"));
                 Assert.True(candidate.GetValue<bool>("RateLimits:AdminLogin:Enabled"));

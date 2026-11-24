@@ -212,9 +212,7 @@ Dictionary keys use dotted names, such as `enrichment.text.model`; each entry ha
 ```json
 {
   "reviewAssistant": {
-    "endpoint": "https://review.example.com/v1",
-    "model": "review-model",
-    "apiKey": { "action": "replace", "value": "<review key>" }
+    "autoReviewEnabled": false
   },
   "enrichment": {
     "text": {
@@ -223,8 +221,7 @@ Dictionary keys use dotted names, such as `enrichment.text.model`; each entry ha
       "apiKey": { "action": "replace", "value": "<planner key>" }
     },
     "tts": {
-      "provider": "MiniMaxNative",
-      "endpoint": "https://tts.example.com/v1",
+      "endpoint": "https://api.minimax.io/v1",
       "model": "speech-2.8-hd",
       "apiKey": { "action": "replace", "value": "<speech key>" },
       "uk": { "voice": "<supported UK voice>", "speed": 1 },
@@ -234,11 +231,7 @@ Dictionary keys use dotted names, such as `enrichment.text.model`; each entry ha
 }
 ```
 
-All three client objects accept `endpoint`, `model`, credential `apiKey`, and
-`timeoutSeconds` (1–300, default 30). Review settings retain the existing
-`MeaningSubmissions:Ai` keys and enable advice when endpoint and model are set;
-clearing endpoint or model disables advice. Enrichment uses the separate
-`Enrichment` section. A configured text endpoint, model and API key automatically
+The two model connections are `enrichment.text` (vision-capable reasoning for photo import, review and enrichment) and `enrichment.tts` (speech generation). Both accept `endpoint`, `model`, credential `apiKey` and `timeoutSeconds` (1–300, default 120). The former `reviewAssistant` connection fields are API aliases for the shared reasoning connection. Older clients may send both names when their updates agree. Conflicting values return 400. The automatic-review switch remains separate and defaults to false. A configured text endpoint, model and API key automatically
 activate missing IPA/POS completion and [vocabulary expansion](VocabularyExpansion.md).
 A configured speech endpoint, model and key additionally activate audio work,
 subject to text preparation, per-accent configuration and audio storage.
@@ -253,8 +246,7 @@ pronunciation capabilities. Saving configuration never directly calls a supplier
 published model configuration and discovers work automatically; no
 manual range selection or start action is required. Missing configuration waits.
 
-Providers are `MiniMaxNative` (default model `speech-2.8-hd`) and
-`OpenAICompatible`. A protocol/provider name does not promise support for arbitrary
+The speech endpoint determines the adapter. The legacy provider field in the HTTP response describes the resolved protocol. Legacy PUT values do not select a protocol. Supported adapters are `MiniMaxNative` (default model `speech-2.8-hd`) and `OpenAICompatible`. A protocol/provider name does not promise support for arbitrary
 models, voices or pronunciation instructions. There is no bypass-preparation or
 ignore-pronunciation switch. Unsupported combinations must stop safely in the
 provider adapter rather than send an unconstrained request.
@@ -265,8 +257,7 @@ names alone never grant instruction support. Saving these settings still perform
 no supplier probe. The hosted scheduler uses the adapters only for enabled,
 configured targets.
 
-The internal pronunciation preparation client uses only `Enrichment:Text`, independently
-of the review assistant. It posts to `<endpoint>/chat/completions` with JSON mode
+The internal pronunciation preparation client shares `Models:Reasoning` with the review assistant and photo import. It posts to `<endpoint>/chat/completions` with JSON mode
 (`response_format.type=json_object`) and validates every field locally; compatibility
 does not imply JSON Schema support. See the [preparation contract](Audio.md#pronunciation-preparation)
 for bounds, explicit targets and safe failure results. Audio-only mode runs
@@ -310,8 +301,7 @@ publication completes even if the response is lost; GET before deciding to resav
 
 The HTTP ETag is process-local and must never be used as a task configuration
 version. Internal text/UK-TTS/US-TTS random versions survive restart. Only relevant
-client settings advance their step/locale version; review settings, enable flags,
-scan controls and retry/service controls do not reset task failure budgets. A
+client settings advance their step/locale version. Changing the shared reasoning connection advances both text and review versions. The automatic-review switch, enrichment enable flags, scan controls and retry/service controls preserve enrichment task failure budgets. A
 shared TTS provider/model/endpoint/key change affects both locales; a voice/speed
 or style change affects only its locale. Private keyed comparison metadata is atomically
 stored with the configuration at 0600; keys and comparison digests are not exposed
@@ -327,7 +317,7 @@ whole configuration file, not just visible fields, across container replacement.
 ### Administrator page
 
 The administrator UI splits this contract across Review assistant
-(`/#/settings/review`), Text enrichment (`/#/settings/text`), Speech generation
+(`/#/settings/review`), Vision reasoning (`/#/settings/text`), Speech generation
 (`/#/settings/speech`), and Background policies (`/#/settings/background`).
 Review assistant explains the risk beside the default-off automatic-review
 switch. No voice or speed is preselected. Current values and

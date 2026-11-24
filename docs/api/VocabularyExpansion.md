@@ -1,6 +1,6 @@
 # Automatic vocabulary expansion
 
-Configuring `Enrichment:Text:Endpoint`, `Model` and `ApiKey` automatically starts
+Configuring `Models:Reasoning:Endpoint`, `Model` and `ApiKey` automatically starts
 missing IPA/POS completion and LLM vocabulary expansion. There is no separate
 enable switch or start API. Expansion uses the existing enrichment worker,
 persistent discovery, task leases, retry allowance and shared text service gate.

@@ -85,7 +85,7 @@ public sealed class PronunciationPreparationTests
     }
 
     [Fact]
-    public async Task ConfiguredText_IgnoresLegacyDisableFlag_AndFillsMissingFields_IndependentFromReview()
+    public async Task ConfiguredSharedReasoning_IgnoresLegacyDisableFlag_AndFillsMissingFields()
     {
         using var fixture = new Fixture(fields: false);
         var plan = Plan(required: null, phonetic: "liːd");
@@ -313,14 +313,14 @@ public sealed class PronunciationPreparationTests
         fixture.Handler.Respond = async (_, token) => { entered.TrySetResult(); await release.Task.WaitAsync(token); return Completion(); };
         var first = fixture.Client.PrepareAsync(Request(), Ct); await entered.Task.WaitAsync(Ct);
         var oldVersion = fixture.Runtime.Current.TextVersion;
-        await fixture.Publish(new() { ["Enrichment:Text:Model"] = "next-planner", ["Enrichment:Text:ApiKey"] = "synthetic-next-key" });
+        await fixture.Publish(new() { ["Models:Reasoning:Model"] = "next-planner", ["Models:Reasoning:ApiKey"] = "synthetic-next-key" });
         release.TrySetResult(); var firstResult = await first;
         var next = await fixture.Client.PrepareAsync(Request(), Ct);
         Assert.Equal(oldVersion, firstResult.Plan!.ConfigurationVersion);
         Assert.NotEqual(oldVersion, next.Plan!.ConfigurationVersion);
         Assert.Equal(new[] { Secret, "synthetic-next-key" }, fixture.Handler.Keys);
         Assert.Contains("planner-model", fixture.Handler.Bodies[0]); Assert.Contains("next-planner", fixture.Handler.Bodies[1]);
-        await fixture.Publish(new() { ["Enrichment:Text:ApiKey"] = "" });
+        await fixture.Publish(new() { ["Models:Reasoning:ApiKey"] = "" });
         Assert.Equal(PronunciationPreparationOutcome.Waiting, (await fixture.Client.PrepareAsync(Request(), Ct)).Outcome);
         Assert.Equal(2, fixture.Handler.Bodies.Count);
     }
@@ -342,12 +342,12 @@ public sealed class PronunciationPreparationTests
         var granted = await fixture.Client.PrepareAsync(request, Ct, async (dispatch, token) =>
         {
             calls++; Assert.Equal(version, dispatch.ConfigurationVersion);
-            await fixture.Publish(new() { ["Enrichment:Text:Model"] = "later-model" });
+            await fixture.Publish(new() { ["Models:Reasoning:Model"] = "later-model" });
             token.ThrowIfCancellationRequested(); return true;
         });
         Assert.Equal(PronunciationPreparationOutcome.Ready, granted.Outcome); Assert.Equal(version, granted.Plan!.ConfigurationVersion);
         Assert.Contains("planner-model", fixture.Handler.Bodies.Single()); Assert.DoesNotContain("later-model", fixture.Handler.Bodies.Single());
-        await fixture.Publish(new() { ["Enrichment:Text:Endpoint"] = "" });
+        await fixture.Publish(new() { ["Models:Reasoning:Endpoint"] = "" });
         var waiting = await fixture.Client.PrepareAsync(request, Ct, Before);
         Assert.Equal(PronunciationPreparationOutcome.Waiting, waiting.Outcome); Assert.Equal(2, calls);
     }
@@ -387,10 +387,10 @@ public sealed class PronunciationPreparationTests
             {
                 ["Enrichment:FieldsEnabled"] = (fields && enabled).ToString(),
                 ["Enrichment:AudioEnabled"] = enabled.ToString(),
-                ["Enrichment:Text:Endpoint"] = configured ? "https://planner.example.test/v1" : "",
-                ["Enrichment:Text:Model"] = "planner-model",
-                ["Enrichment:Text:ApiKey"] = enabled ? Secret : "",
-                ["Enrichment:Text:TimeoutSeconds"] = timeout.ToString(),
+                ["Models:Reasoning:Endpoint"] = configured ? "https://planner.example.test/v1" : "",
+                ["Models:Reasoning:Model"] = "planner-model",
+                ["Models:Reasoning:ApiKey"] = enabled ? Secret : "",
+                ["Models:Reasoning:TimeoutSeconds"] = timeout.ToString(),
                 ["MeaningSubmissions:Ai:Endpoint"] = "https://review.example.test/v1",
                 ["MeaningSubmissions:Ai:Model"] = "review-model",
                 ["MeaningSubmissions:Ai:ApiKey"] = "synthetic-review-key"

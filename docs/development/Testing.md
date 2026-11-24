@@ -238,7 +238,6 @@ The browser specifications verify the administration frontend against fixed resp
    cp -R dist ../src/Lexarbor.Host/wwwroot
    cd ../src/Lexarbor.Host
    ASPNETCORE_ENVIRONMENT=Development \
-   AdminAuthentication__Provider=OidcCode \
    AdminAuthentication__OidcCode__ClientId=<appId> \
    AdminAuthentication__OidcCode__ClientSecret=<secret> \
    AdminAuthentication__OidcCode__RedirectUri=http://127.0.0.1:5008/admin/auth/callback \

@@ -11,7 +11,7 @@ import type { CredentialAction } from '@/services/audioStorageSettingsApi'
 const props = defineProps<{ section: 'review' | 'text' | 'speech' | 'background' }>()
 const sections = {
   review: { title: '审核助手', groups: ['review'] },
-  text: { title: '文本补齐', groups: ['text'] },
+  text: { title: '视觉推理', groups: ['text'] },
   speech: { title: '语音生成', groups: ['tts', 'uk', 'us'] },
   background: { title: '后台策略', groups: ['policy'] }
 }
@@ -29,8 +29,8 @@ let controller: AbortController | null = null
 const current = () => active && generation === sessionGeneration.value
 const sources = { default: '默认配置', file: '持久化文件', environment: '环境变量', commandLine: '启动参数' }
 const groups = [
-  { key: 'review', title: '服务与自动审核', description: '配置服务地址和模型后，可在人工审核时获取建议。' },
-  { key: 'text', title: '文本服务与发音准备', description: '配置文本模型后自动完善新增和历史词汇，补齐缺失字段、扩展词形与派生词，并为语音生成准备发音。' },
+  { key: 'review', title: '自动审核', description: '审核建议使用视觉推理页配置的模型。' },
+  { key: 'text', title: '推理服务', description: '选择支持图片输入和 JSON 输出的模型，供拍照导入、投稿审核和词条补全共用。' },
   { key: 'tts', title: '语音服务', description: '文本准备、语音服务和音频存储就绪后，后台才会生成音频。保存只更新本地配置。' },
   { key: 'uk', title: 'UK 英式发音', description: '自行配置适合英式发音的音色和语速，留空则该侧等待，不影响 US。' },
   { key: 'us', title: 'US 美式发音', description: '自行配置适合美式发音的音色和语速，留空则该侧等待，不影响 UK。' },
@@ -45,11 +45,20 @@ const changed = computed(() => {
   return settings !== null && (sectionValues.some(([name]) => settings.fields[name].editable && settings.values[name] !== draft[name])
     || sectionSecrets.some(([name]) => settings.fields[name].editable && (credentials[name].action === 'clear' || credentials[name].value !== '')))
 })
-const nativeSpeech = computed(() => draft['enrichment.tts.provider'] === 'MiniMaxNative')
+const speechHost = computed(() => {
+  try {
+    const url = new URL(String(draft['enrichment.tts.endpoint']).trim())
+    if (url.protocol === 'https:' && !url.port && !url.username && !url.password && !url.search && !url.hash
+      && url.pathname.replace(/\/+$/, '') === '/v1') return url.hostname
+  } catch { /* A partially entered address has no provider-specific controls. */ }
+  return ''
+})
+const nativeSpeech = computed(() => ['api.minimax.io', 'api.minimax.cn'].includes(speechHost.value))
+const openAiSpeech = computed(() => speechHost.value === 'api.openai.com')
 const supportsStyle = computed(() => ['gpt-4o-mini-tts', 'gpt-4o-mini-tts-2025-12-15'].includes(String(draft['enrichment.tts.model'])))
 function groupFields(group: string) {
   return sectionValues.filter(field => field[2] === group
-    && (field[3] !== 'style' || !nativeSpeech.value)
+    && (field[3] !== 'style' || openAiSpeech.value)
     && (!['emotion', 'pitch', 'volume'].some(suffix => field[0].endsWith(`.${suffix}`)) || nativeSpeech.value))
 }
 const emotions = [['', '自动'], ['calm', '平静'], ['happy', '开心'], ['sad', '悲伤'], ['angry', '生气'], ['fearful', '害怕'], ['disgusted', '厌恶'], ['surprised', '惊讶']]
@@ -84,8 +93,8 @@ function reviewStatus() {
   const v = actual.value?.values
   if (!v) return '未知'
   if (!v['reviewAssistant.autoReviewEnabled']) return '暂停：自动审核关闭，原人工审核和建议仍可用'
-  if (!v['reviewAssistant.endpoint'] || !v['reviewAssistant.model']) return '暂停：审核服务地址或模型缺失；配置修复后自动恢复，无需人工处理'
-  if (String(v['reviewAssistant.model']).length > 200) return '暂停：自动审核模型名称超过 200 字符'
+  if (!v['enrichment.text.endpoint'] || !v['enrichment.text.model']) return '暂停：视觉推理模型的服务地址或模型名称缺失；配置修复后自动恢复，无需人工处理'
+  if (String(v['enrichment.text.model']).length > 200) return '暂停：自动审核模型名称超过 200 字符'
   return '自动审核已启用；后台持续处理全部待审积压，失败后自动重试，无需人工处理'
 }
 function localeStatus(locale: 'uk' | 'us') {
@@ -93,7 +102,7 @@ function localeStatus(locale: 'uk' | 'us') {
   if (!state) return '未知'
   const v = state.values
   if (!state.configurationReady) return '等待：持久配置版本未就绪'
-  if (!v['enrichment.text.endpoint'] || !v['enrichment.text.model'] || !state.hasApiKey['enrichment.text.apiKey']) return '等待：文本准备配置缺失'
+  if (!v['enrichment.text.endpoint'] || !v['enrichment.text.model'] || !state.hasApiKey['enrichment.text.apiKey']) return '等待：视觉推理模型的地址、模型名称或密钥缺失'
   if (!v['enrichment.tts.endpoint'] || !v['enrichment.tts.model'] || !state.hasApiKey['enrichment.tts.apiKey'] || !v[`enrichment.tts.${locale}.voice`] || v[`enrichment.tts.${locale}.speed`] === null) return '等待：语音服务或该侧音色/语速缺失'
   return '本地必填配置齐全；供应商能力、存储及任务结果需另行核对'
 }
@@ -180,11 +189,11 @@ onMounted(() => { void load() })
     <section aria-labelledby="enrichment-settings-heading">
       <h2 id="enrichment-settings-heading">{{ section.title }}</h2>
       <p v-if="props.section === 'speech'">
-        生成音频前，请配置 <RouterLink to="/settings/text">文本补齐</RouterLink>和
+        生成音频前，请配置 <RouterLink to="/settings/text">视觉推理</RouterLink>和
         <RouterLink to="/settings/audio-storage">音频存储</RouterLink>。
       </p>
-      <p v-if="props.section === 'text'">配置文本模型后，系统自动补齐缺失音标和词性，并扩展词形与派生词。新词加入投稿使用的补充词书，已有词直接复用。无需另外开启功能。</p>
-      <p v-if="props.section === 'speech'">文本模型、语音模型、对应口音和音频存储就绪后，系统自动生成缺失读音。</p>
+      <p v-if="props.section === 'text'">配置视觉推理模型后，系统自动补齐缺失音标和词性，并扩展词形与派生词。新词加入投稿使用的补充词书，已有词直接复用。无需另外开启功能。</p>
+      <p v-if="props.section === 'speech'">视觉推理模型、语音模型、对应口音和音频存储就绪后，系统自动生成缺失读音。</p>
       <p v-if="props.section !== 'review'"><RouterLink to="/enrichment">查看自治进度、服务等待与异常恢复</RouterLink></p>
       <p role="status" aria-live="polite" :aria-label="`${section.title}配置状态`">{{ notice || '正在读取当前配置…' }}</p>
       <p v-if="!actual">当前配置：未知</p>
@@ -199,9 +208,6 @@ onMounted(() => { void load() })
           <div v-for="field in groupFields(group.key)" :key="field[0]" class="enrichment-field">
             <label :for="`enrichment-${field[0]}`">{{ field[1] }}</label>
             <input v-if="field[3] === 'boolean'" :id="`enrichment-${field[0]}`" v-model="draft[field[0]]" type="checkbox" :disabled="busy || !actual.fields[field[0]].editable" :aria-describedby="field[0] === 'reviewAssistant.autoReviewEnabled' ? `auto-review-risk source-${field[0]}` : `source-${field[0]}`">
-            <select v-else-if="field[3] === 'provider'" :id="`enrichment-${field[0]}`" v-model="draft[field[0]]" :disabled="busy || !actual.fields[field[0]].editable" :aria-describedby="`source-${field[0]}`">
-              <option value="MiniMaxNative">MiniMaxNative</option><option value="OpenAICompatible">OpenAICompatible</option>
-            </select>
             <textarea v-else-if="field[3] === 'style'" :id="`enrichment-${field[0]}`" :value="String(draft[field[0]] ?? '')" maxlength="512" rows="3" :disabled="busy || !actual.fields[field[0]].editable" :aria-describedby="`source-${field[0]}`" placeholder="例如：清晰、平静，适合词汇教学；不改变朗读内容和口音。" @input="input(field[0], $event, false)" />
             <select v-else-if="field[3] === 'emotion'" :id="`enrichment-${field[0]}`" v-model="draft[field[0]]" :disabled="busy || !actual.fields[field[0]].editable" :aria-describedby="`source-${field[0]}`">
               <option v-for="[value, label] in emotions" :key="value" :value="value">{{ label }}</option>
@@ -220,7 +226,7 @@ onMounted(() => { void load() })
           </div>
         </fieldset>
         <template v-if="props.section === 'speech'">
-          <p v-if="!nativeSpeech && !supportsStyle">当前模型不支持风格描述，请将两侧的风格描述留空；可配置音色和语速。</p>
+          <p v-if="openAiSpeech && !supportsStyle">当前模型不支持风格描述，请将两侧的风格描述留空；可配置音色和语速。</p>
           <p>保存后用于后续生成，已有音频不会自动重新生成。切换供应商时保留各自的样式设置，仅应用当前供应商支持的选项。</p>
           <SpeechSettingsPreview :settings="actual" :draft="draft" :credential="credentials['enrichment.tts.apiKey']" :disabled="busy" />
         </template>

@@ -198,7 +198,9 @@ public sealed partial class EnrichmentSettingsTests
     public void LegacyConfigurationVersions_SurviveAddingDefaultStyleFields()
     {
         var config = new ConfigurationBuilder().Build(); using var lifetime = config as IDisposable;
-        var legacyFields = EnrichmentConfigurationFields.Read(config).Where(p =>
+        var historical = EnrichmentConfigurationFields.Read(config);
+        historical["Enrichment:Tts:Provider"] = "MiniMaxNative";
+        var legacyFields = historical.Where(p =>
             !p.Key.EndsWith(":Style", StringComparison.Ordinal) && !p.Key.EndsWith(":Emotion", StringComparison.Ordinal)
             && !p.Key.EndsWith(":Pitch", StringComparison.Ordinal) && !p.Key.EndsWith(":Volume", StringComparison.Ordinal)).ToArray();
         var key = RandomNumberGenerator.GetBytes(32);

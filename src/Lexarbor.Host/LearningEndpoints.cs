@@ -1,4 +1,5 @@
 using Lexarbor.Database.Diagnostics;
+using Lexarbor.Host.Integration;
 using Lexarbor.Learning.Database;
 using Lexarbor.Learning.Database.Repositories;
 using Lexarbor.Learning.Domain.Calendar;
@@ -63,11 +64,11 @@ internal static class LearningEndpoints
         services.AddScoped<VocabularyNotebookService>();
         services.AddScoped<VocabularyFamilyService>();
         services.AddScoped<IVocabularyNotebookSource>(provider => provider.GetRequiredService<VocabularyNotebookService>());
-        services.AddSingleton(VocabularyPhotoImportOptions.Read(configuration));
-        services.AddHttpClient(StructaDocPhotoRecognizer.HttpClientName)
-            .ConfigureHttpClient(client => client.Timeout = Timeout.InfiniteTimeSpan);
+        services.AddHttpClient(VisionPhotoRecognizer.HttpClientName, client => client.Timeout = Timeout.InfiniteTimeSpan)
+            .RemoveAllLoggers()
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false });
         services.AddScoped<VocabularyPhotoTrace>();
-        services.AddScoped<IVocabularyPhotoRecognizer, StructaDocPhotoRecognizer>();
+        services.AddScoped<IVocabularyPhotoRecognizer, VisionPhotoRecognizer>();
         // The latest photo imports stay under the persistent data/ directory for offline analysis.
         services.AddSingleton(provider => new VocabularyPhotoTraceStore(
             Path.Combine(provider.GetRequiredService<IHostEnvironment>().ContentRootPath, "data", VocabularyPhotoTraceStore.DirectoryName),

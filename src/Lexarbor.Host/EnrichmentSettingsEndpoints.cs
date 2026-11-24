@@ -24,23 +24,37 @@ public static class EnrichmentSettingsEndpoints
             var current = runtime.Current;
             var body = new JsonObject { ["revision"] = read.Revision, ["configurationReady"] = current.ConfigurationReady };
             var sources = new JsonObject();
-            foreach (var field in EnrichmentConfigurationFields.All)
+            foreach (var field in EnrichmentConfigurationFields.ApiFields)
             {
                 var source = read.Sources[field.Key];
-                var derived = field.Name is "enrichment.fieldsEnabled" or "enrichment.audioEnabled";
                 sources[field.Name] = new JsonObject
                 {
                     ["source"] = source.Source == ConfigurationValueSource.CommandLine ? "commandLine" : source.Source.ToString().ToLowerInvariant(),
-                    ["editable"] = !derived && source.Editable,
-                    ["reason"] = derived ? "Derived from model configuration." : source.Editable ? null : "Overridden by deployment configuration."
+                    ["editable"] = source.Editable,
+                    ["reason"] = source.Editable ? null : "Overridden by deployment configuration."
                 };
                 var name = field.Secret ? field.Name[..^6] + "hasApiKey" : field.Name;
                 Set(body, name.Split('.'), field.Secret
                     ? JsonValue.Create(!string.IsNullOrWhiteSpace(current.Fields[field.Key]!.GetValue<string>()))
-                    : field.Name == "enrichment.fieldsEnabled" ? JsonValue.Create(current.Enrichment.FieldsEnabled)
-                    : field.Name == "enrichment.audioEnabled" ? JsonValue.Create(current.Enrichment.AudioEnabled)
                     : current.Fields[field.Key]?.DeepClone());
             }
+            // Older clients read these capability indicators. Neither is a configuration field.
+            Set(body, ["enrichment", "fieldsEnabled"], current.Enrichment.FieldsEnabled);
+            Set(body, ["enrichment", "audioEnabled"], current.Enrichment.AudioEnabled);
+            Set(body, ["enrichment", "tts", "provider"], current.Enrichment.Provider);
+            foreach (var field in new[] { "enrichment.fieldsEnabled", "enrichment.audioEnabled" })
+                sources[field] = new JsonObject
+                {
+                    ["source"] = "default",
+                    ["editable"] = false,
+                    ["reason"] = "Determined by model configuration."
+                };
+            sources["enrichment.tts.provider"] = new JsonObject
+            {
+                ["source"] = "default",
+                ["editable"] = false,
+                ["reason"] = "Determined by the speech endpoint."
+            };
             body["fields"] = sources;
             return body;
         }, cancellationToken);
@@ -105,24 +119,37 @@ public static class EnrichmentSettingsEndpoints
         {
             if (!seen.Add(property.Name)) return false;
             var name = prefix.Length == 0 ? property.Name : prefix + "." + property.Name;
-            var field = EnrichmentConfigurationFields.All.FirstOrDefault(f => f.Name == name);
-            if (field is null)
+            if (name == "enrichment.tts.provider")
             {
-                if (!EnrichmentConfigurationFields.All.Any(f => f.Name.StartsWith(name + ".", StringComparison.Ordinal)) || !ReadChanges(property.Value, name, changes, supplied)) return false;
+                if (!supplied.Add(name) || property.Value.ValueKind != JsonValueKind.String
+                    || property.Value.GetString() is not ("MiniMaxNative" or "OpenAICompatible")) return false;
                 continue;
             }
-            if (!supplied.Add(field.Key)) return false;
+            if (name is "enrichment.fieldsEnabled" or "enrichment.audioEnabled")
+            {
+                if (!supplied.Add(name) || property.Value.ValueKind is not (JsonValueKind.True or JsonValueKind.False)) return false;
+                continue;
+            }
+            var field = EnrichmentConfigurationFields.ApiFields.FirstOrDefault(f => f.Name == name);
+            if (field is null)
+            {
+                if (!EnrichmentConfigurationFields.ApiFields.Any(f => f.Name.StartsWith(name + ".", StringComparison.Ordinal)) || !ReadChanges(property.Value, name, changes, supplied)) return false;
+                continue;
+            }
+            if (!supplied.Add(field.Name)) return false;
+            JsonNode? candidate;
             if (field.Secret)
             {
                 if (!Credential(property.Value, out var action, out var value)) return false;
-                if (action != "keep") changes.Add(field.Key, JsonValue.Create(action == "clear" ? "" : value));
+                if (action == "keep") continue;
+                candidate = JsonValue.Create(action == "clear" ? "" : value);
             }
             else
             {
-                var value = JsonNode.Parse(property.Value.GetRawText());
-                if (!field.Valid(value)) return false;
-                changes.Add(field.Key, value);
+                candidate = JsonNode.Parse(property.Value.GetRawText());
+                if (!field.Valid(candidate)) return false;
             }
+            if (!changes.TryAdd(field.Key, candidate) && !JsonNode.DeepEquals(changes[field.Key], candidate)) return false;
         }
         return seen.Count > 0;
     }

@@ -192,7 +192,7 @@ public sealed partial class AutomaticMeaningSubmissionReviewTests
         var first = f.Worker.RunBatchAsync(Ct); await entered.Task.WaitAsync(Ct);
         if (reclaimed)
         {
-            f.Clock.Now += 61_000;
+            f.Clock.Now += (f.Runtime.Current.ReviewAssistant.TimeoutSeconds + 31) * 1000L;
             f.Http.Respond = (_, _) => Task.FromResult(Completion(Decision("accept")));
             await f.NewWorker().RunBatchAsync(Ct);
         }
@@ -355,7 +355,8 @@ public sealed partial class AutomaticMeaningSubmissionReviewTests
         await using var f = await Fixture.Create();
         var submission = new MeaningSubmissionModel { Id = "synthetic", Word = "word", Meaning = "meaning" };
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        f.Http.Respond = (_, _) => { f.Clock.Now += 29_000; return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new SlowStream(entered)) }); };
+        var headerTimeMs = (f.Runtime.Current.ReviewAssistant.TimeoutSeconds - 1) * 1000L;
+        f.Http.Respond = (_, _) => { f.Clock.Now += headerTimeMs; return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new SlowStream(entered)) }); };
         var run = f.Client.ReviewAsync(submission, "attempt", f.Runtime.Current.ReviewAssistant, Ct);
         await entered.Task.WaitAsync(Ct); f.Clock.Advance(1000);
         Assert.Equal("service_timeout", (await run).FailureCode);

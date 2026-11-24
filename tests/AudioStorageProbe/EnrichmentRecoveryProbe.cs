@@ -144,23 +144,21 @@ internal static class EnrichmentRecoveryProbe
             var store = new PersistentConfigurationFileStore(root);
             var values = new Dictionary<string, string?>
             {
-                ["Enrichment:AudioEnabled"] = "true",
-                ["Enrichment:Text:Endpoint"] = "https://planner.example.test/v1",
-                ["Enrichment:Text:Model"] = "fixture",
-                ["Enrichment:Text:ApiKey"] = "synthetic-planner",
-                ["Enrichment:Tts:Provider"] = "OpenAICompatible",
-                ["Enrichment:Tts:Endpoint"] = "https://api.openai.com/v1",
-                ["Enrichment:Tts:Model"] = "gpt-4o-mini-tts",
-                ["Enrichment:Tts:ApiKey"] = "synthetic-speech",
-                ["Enrichment:Tts:Uk:Voice"] = "uk",
-                ["Enrichment:Tts:Uk:Speed"] = "1"
+                ["Models:Reasoning:Endpoint"] = "https://planner.example.test/v1",
+                ["Models:Reasoning:Model"] = "fixture",
+                ["Models:Reasoning:ApiKey"] = "synthetic-planner",
+                ["Models:Speech:Endpoint"] = "https://api.openai.com/v1",
+                ["Models:Speech:Model"] = "gpt-4o-mini-tts",
+                ["Models:Speech:ApiKey"] = "synthetic-speech",
+                ["Models:Speech:Uk:Voice"] = "uk",
+                ["Models:Speech:Uk:Speed"] = "1"
             };
             var config = new ConfigurationBuilder().AddInMemoryCollection(values).AddJsonFile(store.FilePath, optional: true).Build();
             var runtime = new EnrichmentRuntimeConfiguration(config, store);
             if (!runtime.Current.ConfigurationReady)
             {
                 var coordinator = new PersistentConfigurationCoordinator(config, store); var read = await coordinator.ReadAsync();
-                var saved = await coordinator.SaveAsync(read.Revision, new Dictionary<string, JsonNode?> { ["Enrichment:AudioEnabled"] = JsonValue.Create(true) }, runtime.PrepareAsync, default);
+                var saved = await coordinator.SaveAsync(read.Revision, new Dictionary<string, JsonNode?> { ["Enrichment:Text:Model"] = JsonValue.Create("fixture") }, runtime.PrepareAsync, default);
                 Check(saved.Status == ConfigurationSaveStatus.Success, "The disposable probe must persist actual configuration versions.");
             }
             var db = new VocabularyDbContext(new DbContextOptionsBuilder<VocabularyDbContext>().UseNpgsql(ProbeDatabase.For(root)).AddInterceptors(interceptors).Options);

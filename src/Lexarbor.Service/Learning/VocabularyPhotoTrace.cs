@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Lexarbor.Learning.Service;
 
-/// <summary>What the StructaDoc exchange of one photo import request returned, filled in while it runs.</summary>
+/// <summary>The vision model response and timing captured during a notebook photo import.</summary>
 public sealed class VocabularyPhotoTrace
 {
     public int? RecognitionStatus { get; set; }
@@ -146,7 +146,7 @@ public sealed partial class VocabularyPhotoTraceStore(string directory, ILogger<
             WriteNumberOrNull(writer, "recognition", record.Recognition.RecognitionMilliseconds);
             writer.WriteEndObject();
 
-            writer.WriteStartObject("structaDoc");
+            writer.WriteStartObject("visionModel");
             WriteNumberOrNull(writer, "status", record.Recognition.RecognitionStatus);
             writer.WriteString("failure", record.Recognition.RecognitionFailure);
             writer.WritePropertyName("response");

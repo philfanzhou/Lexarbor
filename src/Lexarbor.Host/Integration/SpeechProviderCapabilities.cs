@@ -30,6 +30,9 @@ internal static class SpeechProviderCapabilities
     public static bool OpenAiInstructions(string model) => model is "gpt-4o-mini-tts" or "gpt-4o-mini-tts-2025-12-15";
     public static bool OpenAiText(string model) => OpenAiInstructions(model) || model is "tts-1" or "tts-1-hd";
     public static bool MiniMax(string model) => model is "speech-2.8-hd" or "speech-2.8-turbo";
+    public static string ProviderFor(string endpoint) => OfficialOpenAi(endpoint) ? "OpenAICompatible"
+        : endpoint.Length == 0 || OfficialMiniMax(endpoint) ? "MiniMaxNative" : "Unsupported";
+
     public static bool OfficialOpenAi(string endpoint) => OfficialBase(endpoint, "api.openai.com");
     public static bool OfficialMiniMax(string endpoint) => OfficialBase(endpoint, "api.minimax.io", "api.minimax.cn");
     private static bool OfficialBase(string endpoint, params string[] hosts) => Uri.TryCreate(endpoint, UriKind.Absolute, out var uri)
