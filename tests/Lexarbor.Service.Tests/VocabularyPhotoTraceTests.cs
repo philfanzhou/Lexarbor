@@ -24,13 +24,14 @@ public sealed class VocabularyPhotoTraceTests : IAsyncDisposable
     private static readonly byte[] Png = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 5, 6];
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private readonly string _directory = Path.Combine(Path.GetTempPath(), $"lexarbor-photo-traces-{Guid.NewGuid():N}");
+    private readonly string _hostRoot = VocabularyWebApplicationFactory.CreateGateSafeDirectory($"photo-host-{Guid.NewGuid():N}");
+    private string _directory => Path.Combine(_hostRoot, "traces");
     private readonly List<IAsyncDisposable> _hosts = [];
 
     public async ValueTask DisposeAsync()
     {
         foreach (var host in Enumerable.Reverse(_hosts)) await host.DisposeAsync();
-        if (Directory.Exists(_directory)) Directory.Delete(_directory, recursive: true);
+        Directory.Delete(_hostRoot, recursive: true);
     }
 
     [Fact]
@@ -190,7 +191,7 @@ public sealed class VocabularyPhotoTraceTests : IAsyncDisposable
 
     private async Task<(HttpClient Client, string Root)> StudentAsync(VisionAnswer visionModel)
     {
-        var factory = new VocabularyWebApplicationFactory();
+        var factory = new VocabularyWebApplicationFactory("Testing", true, contentRootPath: _hostRoot);
         var host = factory.WithWebHostBuilder(builder => builder.ConfigureAppConfiguration((_, config) =>
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
