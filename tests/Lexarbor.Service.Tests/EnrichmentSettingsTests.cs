@@ -70,8 +70,11 @@ public sealed partial class EnrichmentSettingsTests : IDisposable
     [InlineData("different", false)]
     public void LegacyAndCurrentApiNamesAcceptOnlyConsistentUpdates(string legacyModel, bool expected)
     {
-        var json = JsonSerializer.SerializeToElement(new { enrichment = new { text = new { model = "shared" } },
-            reviewAssistant = new { model = legacyModel } });
+        var json = JsonSerializer.SerializeToElement(new
+        {
+            enrichment = new { text = new { model = "shared" } },
+            reviewAssistant = new { model = legacyModel }
+        });
         var changes = new Dictionary<string, JsonNode?>();
         Assert.Equal(expected, EnrichmentSettingsEndpoints.ReadChanges(json, "", changes, []));
         Assert.Single(changes);
@@ -109,17 +112,32 @@ public sealed partial class EnrichmentSettingsTests : IDisposable
         var oldConnection = new { Endpoint = "https://review.example.test/v1", Model = "legacy", ApiKey = "synthetic-review-fixture" };
         var file = new JsonObject { ["MeaningSubmissions"] = new JsonObject { ["Ai"] = JsonSerializer.SerializeToNode(oldConnection) } };
         if (bothConfigured)
-            file["Enrichment"] = new JsonObject { ["Text"] = new JsonObject
-                { ["Endpoint"] = "https://text.example.test/v1", ["Model"] = "shared", ["ApiKey"] = "synthetic-text-fixture" } };
-        file["Enrichment:Tts"] = new JsonObject { ["Endpoint"] = "https://api.minimax.io/v1", ["ApiKey"] = "synthetic-speech",
-            ["Provider"] = "MiniMaxNative", ["Uk"] = new JsonObject { ["Voice"] = "retained", ["Speed"] = 1 } };
+            file["Enrichment"] = new JsonObject
+            {
+                ["Text"] = new JsonObject
+                { ["Endpoint"] = "https://text.example.test/v1", ["Model"] = "shared", ["ApiKey"] = "synthetic-text-fixture" }
+            };
+        file["Enrichment:Tts"] = new JsonObject
+        {
+            ["Endpoint"] = "https://api.minimax.io/v1",
+            ["ApiKey"] = "synthetic-speech",
+            ["Provider"] = "MiniMaxNative",
+            ["Uk"] = new JsonObject { ["Voice"] = "retained", ["Speed"] = 1 }
+        };
         file["Enrichment:FieldsEnabled"] = false;
         file["AdminAuthentication:Oidc:ClientId"] = "retired";
-        file["AdminAuthentication"] = new JsonObject { ["Oidc"] = new JsonObject { ["ClientSecret"] = "synthetic-retired" },
-            ["OidcCode"] = new JsonObject { ["ClientId"] = "current" } };
+        file["AdminAuthentication"] = new JsonObject
+        {
+            ["Oidc"] = new JsonObject { ["ClientSecret"] = "synthetic-retired" },
+            ["OidcCode"] = new JsonObject { ["ClientId"] = "current" }
+        };
         file["VocabularyPhotoImport"] = new JsonObject { ["enabled"] = false, ["ApiKey"] = "synthetic-removed", ["Other"] = 42 };
         file["MeaningSubmissions"]!["Ai"]!["AutoReviewEnabled"] = true;
-        if (!bothConfigured) file["Enrichment:Text:TimeoutSeconds"] = 90;
+        if (!bothConfigured)
+        {
+            file["Enrichment:Text:Model"] = "unfinished";
+            file["Enrichment:Text:TimeoutSeconds"] = 90;
+        }
         var store = new PersistentConfigurationFileStore(_root);
         await store.CommitAsync(file, Ct);
         var configuration = new ConfigurationBuilder().SetBasePath(_root).AddJsonFile("data/appsettings.json").Build();
@@ -150,7 +168,9 @@ public sealed partial class EnrichmentSettingsTests : IDisposable
         revision = migration.Revision!;
         var changes = new Dictionary<string, JsonNode?>
         {
-            ["Enrichment:Text:Endpoint"] = "", ["Enrichment:Text:Model"] = "", ["Enrichment:Text:ApiKey"] = ""
+            ["Enrichment:Text:Endpoint"] = "",
+            ["Enrichment:Text:Model"] = "",
+            ["Enrichment:Text:ApiKey"] = ""
         };
         var saved = await coordinator.SaveAsync(revision, changes, runtime.PrepareAsync, Ct);
         Assert.Equal(ConfigurationSaveStatus.Success, saved.Status);

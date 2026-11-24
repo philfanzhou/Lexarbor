@@ -157,7 +157,10 @@ public sealed class EnrichmentConfigurationSnapshot
         var model = Enrichment.Text;
         ReviewAssistant = new()
         {
-            Endpoint = model.Endpoint, Model = model.Model, ApiKey = model.ApiKey, TimeoutSeconds = model.TimeoutSeconds,
+            Endpoint = model.Endpoint,
+            Model = model.Model,
+            ApiKey = model.ApiKey,
+            TimeoutSeconds = model.TimeoutSeconds,
             AutoReviewEnabled = fields[OpenAiCompatibleReviewAssistant.Section + ":AutoReviewEnabled"]!.GetValue<bool>()
         };
         TextVersion = text;

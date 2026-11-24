@@ -144,14 +144,14 @@ internal static class EnrichmentRecoveryProbe
             var store = new PersistentConfigurationFileStore(root);
             var values = new Dictionary<string, string?>
             {
-                ["Enrichment:Text:Endpoint"] = "https://planner.example.test/v1",
-                ["Enrichment:Text:Model"] = "fixture",
-                ["Enrichment:Text:ApiKey"] = "synthetic-planner",
-                ["Enrichment:Tts:Endpoint"] = "https://api.openai.com/v1",
-                ["Enrichment:Tts:Model"] = "gpt-4o-mini-tts",
-                ["Enrichment:Tts:ApiKey"] = "synthetic-speech",
-                ["Enrichment:Tts:Uk:Voice"] = "uk",
-                ["Enrichment:Tts:Uk:Speed"] = "1"
+                ["Models:Reasoning:Endpoint"] = "https://planner.example.test/v1",
+                ["Models:Reasoning:Model"] = "fixture",
+                ["Models:Reasoning:ApiKey"] = "synthetic-planner",
+                ["Models:Speech:Endpoint"] = "https://api.openai.com/v1",
+                ["Models:Speech:Model"] = "gpt-4o-mini-tts",
+                ["Models:Speech:ApiKey"] = "synthetic-speech",
+                ["Models:Speech:Uk:Voice"] = "uk",
+                ["Models:Speech:Uk:Speed"] = "1"
             };
             var config = new ConfigurationBuilder().AddInMemoryCollection(values).AddJsonFile(store.FilePath, optional: true).Build();
             var runtime = new EnrichmentRuntimeConfiguration(config, store);

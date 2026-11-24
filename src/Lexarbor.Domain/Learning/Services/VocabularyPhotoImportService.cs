@@ -75,18 +75,18 @@ public sealed class VocabularyPhotoImportService(
             word => lookups[word].DistinctBy(meaning => meaning.MeaningKey, StringComparer.Ordinal).ToArray(), StringComparer.Ordinal);
 
         var candidates = new List<VocabPhotoCandidate>();
-        var selected = new HashSet<string>(StringComparer.Ordinal);
+        var senses = entries.ToLookup(entry => VocabularyPhotoEntries.SpellingKey(entry.Word));
         foreach (var entry in entries)
         {
-            var options = bySpelling[VocabularyPhotoEntries.SpellingKey(entry.Word)];
+            var spelling = VocabularyPhotoEntries.SpellingKey(entry.Word);
+            var options = bySpelling[spelling];
             var state = options.Length switch
             {
                 0 => VocabPhotoCandidateState.New,
-                1 => VocabPhotoCandidateState.Matched,
+                1 when !senses[spelling].Skip(1).Any() && entry.Review is null => VocabPhotoCandidateState.Matched,
                 _ => VocabPhotoCandidateState.Choose,
             };
             var chosen = state == VocabPhotoCandidateState.Matched ? options[0] : null;
-            if (chosen is not null && !selected.Add(chosen.MeaningId)) continue;
             candidates.Add(new VocabPhotoCandidate(chosen?.Word ?? entry.Word, null, entry.PartOfSpeech, entry.Meaning,
                 state, chosen?.MeaningId, options, entry.Review));
         }

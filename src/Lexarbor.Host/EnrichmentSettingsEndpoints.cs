@@ -43,10 +43,18 @@ public static class EnrichmentSettingsEndpoints
             Set(body, ["enrichment", "audioEnabled"], current.Enrichment.AudioEnabled);
             Set(body, ["enrichment", "tts", "provider"], current.Enrichment.Provider);
             foreach (var field in new[] { "enrichment.fieldsEnabled", "enrichment.audioEnabled" })
-                sources[field] = new JsonObject { ["source"] = "default", ["editable"] = false,
-                    ["reason"] = "Determined by model configuration." };
-            sources["enrichment.tts.provider"] = new JsonObject { ["source"] = "default", ["editable"] = false,
-                ["reason"] = "Determined by the speech endpoint." };
+                sources[field] = new JsonObject
+                {
+                    ["source"] = "default",
+                    ["editable"] = false,
+                    ["reason"] = "Determined by model configuration."
+                };
+            sources["enrichment.tts.provider"] = new JsonObject
+            {
+                ["source"] = "default",
+                ["editable"] = false,
+                ["reason"] = "Determined by the speech endpoint."
+            };
             body["fields"] = sources;
             return body;
         }, cancellationToken);

@@ -35,11 +35,16 @@ internal sealed record ModelConfigurationPaths(string Reasoning, string Speech)
             // An explicitly cleared model stays cleared, even if an unused legacy connection is still on disk.
             if (file.GetSection(canonical).Exists()) return canonical;
             bool HasValue(string section, string suffix) => !string.IsNullOrWhiteSpace(configuration[section + suffix]);
+            if (logical == OldText && !HasValue(canonical, ":Endpoint") && !HasValue(canonical, ":Model") && !HasValue(canonical, ":ApiKey"))
+            {
+                if (file["EnrichmentConfigurationVersions:ReasoningSection"] == OldText) return OldText;
+                var complete = legacy.FirstOrDefault(section => HasValue(section, ":Endpoint") && HasValue(section, ":Model"));
+                if (complete is not null) return complete;
+            }
             foreach (var section in sections)
             {
                 if (HasValue(section, ":Endpoint") || HasValue(section, ":ApiKey") ||
-                    logical == OldText && (HasValue(section, ":Model") ||
-                        section == OldText && file["EnrichmentConfigurationVersions:ReasoningSection"] == OldText))
+                    logical == OldText && HasValue(section, ":Model"))
                     return section;
             }
             // With no active connection, retain partial operator settings such as an accent or timeout.

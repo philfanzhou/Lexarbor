@@ -2,14 +2,14 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
-using Lexarbor.Learning.Domain.Models;
-using Lexarbor.Host.Integration;
 using Lexarbor.Host.Configuration;
-using Microsoft.AspNetCore.Hosting;
-using Lexarbor.Learning.Domain.Services;
+using Lexarbor.Host.Integration;
+using Lexarbor.Learning.Domain.Models;
 using Lexarbor.Learning.Domain.Repositories;
+using Lexarbor.Learning.Domain.Services;
 using Lexarbor.Learning.Service;
 using Lexarbor.Service.Tests.TestInfrastructure;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -200,7 +200,7 @@ public sealed class VocabularyPhotoTraceTests : IAsyncDisposable
             })).ConfigureTestServices(services =>
         {
             services.AddHttpClient(VisionPhotoRecognizer.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => new VisionHandler(visionModel));
-            services.AddSingleton<IVocabularyPhotoCatalog>(new EmptyCatalog());
+            services.AddSingleton<IVocabularyPhotoCatalog>(new FixtureCatalog());
             services.AddSingleton(new VocabularyPhotoTraceStore(_directory, NullLogger<VocabularyPhotoTraceStore>.Instance));
         }));
         _hosts.Add(factory);
@@ -220,8 +220,10 @@ public sealed class VocabularyPhotoTraceTests : IAsyncDisposable
     {
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
-            [section + ":Endpoint"] = "https://vision.test/v1", [section + ":Model"] = "vision-fixture",
-            [section + ":ApiKey"] = VisionKey, ["VocabularyPhotoImport:Enabled"] = "false",
+            [section + ":Endpoint"] = "https://vision.test/v1",
+            [section + ":Model"] = "vision-fixture",
+            [section + ":ApiKey"] = VisionKey,
+            ["VocabularyPhotoImport:Enabled"] = "false",
             ["MeaningSubmissions:Ai:Model"] = section != "MeaningSubmissions:Ai" ? "unused-review-model" : "vision-fixture"
         }).Build();
         var runtime = new EnrichmentRuntimeConfiguration(config, new PersistentConfigurationFileStore(_directory));
@@ -236,11 +238,12 @@ public sealed class VocabularyPhotoTraceTests : IAsyncDisposable
         using var provider = services.BuildServiceProvider();
         var recognizer = new VisionPhotoRecognizer(provider.GetRequiredService<IHttpClientFactory>(), runtime,
             new(), NullLogger<VisionPhotoRecognizer>.Instance);
-        var service = new VocabularyPhotoImportService(new KnownLearner(), recognizer, new EmptyCatalog());
+        var service = new VocabularyPhotoImportService(new KnownLearner(), recognizer, new FixtureCatalog(includePlay: true));
         var candidates = await service.PreviewAsync(Guid.NewGuid(), new VocabPhoto(Png, "image/jpeg"), Ct);
         Assert.Equal(["玩", "戏剧", ""], candidates.Select(e => e.Meaning));
         Assert.Equal("释义归属不明", candidates[2].Review);
-        Assert.All(candidates, candidate => Assert.Equal(VocabPhotoCandidateState.New, candidate.State));
+        Assert.Equal([VocabPhotoCandidateState.Choose, VocabPhotoCandidateState.Choose, VocabPhotoCandidateState.New], candidates.Select(e => e.State));
+        Assert.All(candidates, candidate => Assert.Null(candidate.MeaningId));
         Assert.Equal(1, answer.Calls);
     }
 
@@ -249,7 +252,8 @@ public sealed class VocabularyPhotoTraceTests : IAsyncDisposable
     {
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
-            ["VocabularyPhotoImport:Enabled"] = "true", ["VocabularyPhotoImport:BaseUrl"] = "https://old-ocr.test"
+            ["VocabularyPhotoImport:Enabled"] = "true",
+            ["VocabularyPhotoImport:BaseUrl"] = "https://old-ocr.test"
         }).Build();
         using var lifetime = config as IDisposable;
         var runtime = new EnrichmentRuntimeConfiguration(config, new PersistentConfigurationFileStore(_directory));
@@ -311,11 +315,12 @@ public sealed class VocabularyPhotoTraceTests : IAsyncDisposable
         public Task<bool> ExistsAsync(Guid studentId, CancellationToken cancellationToken = default) => Task.FromResult(true);
     }
 
-    private sealed class EmptyCatalog : IVocabularyPhotoCatalog
+    private sealed class FixtureCatalog(bool includePlay = false) : IVocabularyPhotoCatalog
     {
         public Task<IReadOnlyDictionary<string, IReadOnlyList<VocabCatalogMeaning>>> LookupMeaningsAsync(
             IReadOnlyList<string> words, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyDictionary<string, IReadOnlyList<VocabCatalogMeaning>>>(
-                words.ToDictionary(word => word, IReadOnlyList<VocabCatalogMeaning> (_) => []));
+                words.ToDictionary(word => word, IReadOnlyList<VocabCatalogMeaning> (word) => includePlay && word == "play"
+                    ? [new("play-id", word, word, null, null, "book", "Book", "meaning-id", "v.", "玩", "玩")] : []));
     }
 }

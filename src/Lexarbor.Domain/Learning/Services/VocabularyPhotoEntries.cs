@@ -4,9 +4,7 @@ internal static class VocabularyPhotoEntries
 {
     internal static IReadOnlyList<VocabPhotoEntry> Distinct(IReadOnlyList<VocabPhotoEntry> entries)
     {
-        var withMeaning = entries.Where(entry => entry.Meaning.Length > 0).Select(entry => SpellingKey(entry.Word)).ToHashSet();
-        return entries.Where(entry => entry.Meaning.Length > 0 || !withMeaning.Contains(SpellingKey(entry.Word)))
-            .DistinctBy(entry => (SpellingKey(entry.Word), entry.Meaning))
+        return entries.DistinctBy(entry => (SpellingKey(entry.Word), entry.PartOfSpeech, entry.Meaning, entry.Review))
             .ToArray();
     }
 
