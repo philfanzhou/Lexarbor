@@ -15,6 +15,48 @@ A trusted backend sends its issued secret in `X-Api-Key` over HTTPS. The key nee
 
 For example, a caller can register a learner with `PUT /learning/v1/learners/629f852c-c0f8-46a5-9ac7-355c00ba28f3` and fetch `GET /learning/v1/api/vocabulary/students/629f852c-c0f8-46a5-9ac7-355c00ba28f3/plan`. Vocabulary responses use the existing `success` and `data` envelope. Errors include a message and may include a business error code. For a previously issued choice question, post `studentId`, `optionId`, `elapsedMs`, `localDate` and `tzOffsetMinutes` to its answer route. Retry using the original question ID.
 
+## Student vocabulary notebook
+
+All three paths below are relative to `/learning/v1/api/vocabulary/students/{studentId}/notebook`. They use the same learning scope, caller and student isolation, and store and generation headers as the full notebook. A registered learner can have an empty notebook.
+
+### Home page counts
+
+`GET /summary` counts distinct spelling keys in `words` and all saved meanings in `meanings`, including pending and rejected entries. The remaining counts are meanings added by a teacher, added in the last seven Beijing calendar days (from midnight UTC+08:00 six days before today, inclusive), and currently rejected. One meaning can count towards all three. An empty notebook returns zero for every count. Summary and query refresh pending reviews as on a full notebook read. When review lookup is unavailable they use the stored status.
+
+```json
+{"success":true,"data":{"words":1000,"meanings":1048,"teacher":182,"recent":24,"rejected":3}}
+```
+
+### Search and filter
+
+For example, `GET /query?keyword=观察&teacher=true&recent=true&page=1` returns meanings matching every supplied condition. A trimmed keyword of up to 100 characters matches a literal substring of the spelling or definition, ignoring English letter case. The optional `teacher`, `recent` and `rejected` filters accept `true` or `false` and default to false. Supply a keyword or at least one true filter.
+
+The positive integer `page` defaults to 1. Each page holds up to 20 meanings, newest addition first and then by ascending item ID. The response gives the match count, actual page and fixed page size. Each item is the same object as in the full notebook, including `learned`, `original`, `reviewComment`, `familySources` and `familySource`. A page past the end returns the last available page. An unmatched search returns HTTP 200 with:
+
+```json
+{"success":true,"data":{"total":0,"page":1,"pageSize":20,"items":[]}}
+```
+
+Invalid filters, an overlong keyword, a nonpositive or malformed page, or a request such as `GET /query?teacher=false` without a search condition return HTTP 400:
+
+```json
+{"success":false,"code":"VOCAB_NOTEBOOK_QUERY_INVALID","message":"Supply a keyword of up to 100 characters or a true filter, valid booleans and a positive page."}
+```
+
+### Candidate membership
+
+`POST /membership` reads stored membership without modifying the notebook. Send up to 100 pairs per request, using both keys exactly as Lexarbor issued them. The result contains each requested pair at most once if its saved status is ready or pending. A rejected pair remains eligible to add again.
+
+```json
+{"keys":[{"wordKey":"observe","meaningKey":"遵守；奉行"}]}
+```
+
+```json
+{"success":true,"data":{"included":[{"wordKey":"observe","meaningKey":"遵守；奉行"}]}}
+```
+
+An empty array or no matches yields `{"success":true,"data":{"included":[]}}`. A missing array, more than 100 pairs (before deduplication), or a missing or blank key, such as `{"keys":[{"wordKey":"observe"}]}`, returns HTTP 400 with code `VOCAB_NOTEBOOK_MEMBERSHIP_INVALID`.
+
 ## Extra review after check-in
 
 After completing the daily assignment, post `{"mode":"extra-review","extraBatchId":"<uuid>"}` to the learner's `/questions/next` route. The target is twice the plan's per-group count when the batch starts. A 25+25 assignment allows another 50 distinct learned words. Due cards are first, followed by the earliest scheduled cards. Paused cards, incomplete new words and unavailable locations are skipped. A short batch reports its actual word count.

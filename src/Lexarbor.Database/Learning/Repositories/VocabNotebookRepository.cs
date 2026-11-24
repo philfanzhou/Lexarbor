@@ -26,6 +26,68 @@ public sealed class VocabNotebookRepository : IVocabNotebookRepository
         return entities.Select(ToModel).ToList();
     }
 
+    private IQueryable<VocabNotebookItemEntity> Items(Guid studentId) =>
+        _dbContext.VocabNotebookItems.AsNoTracking().Where(item => item.StudentId == studentId);
+
+    private IQueryable<VocabNotebookItemEntity> Pending(Guid studentId) =>
+        Items(studentId).Where(item => item.Status == (short)VocabNotebookItemStatus.Pending && item.SubmissionId != null);
+
+    public Task<List<string>> PendingSubmissionIdsAsync(Guid studentId, CancellationToken cancellationToken) =>
+        Pending(studentId).Select(item => item.SubmissionId!).Distinct().ToListAsync(cancellationToken);
+
+    public async Task<List<VocabNotebookItemModel>> ReviewedPendingAsync(Guid studentId, string[] submissionIds,
+        CancellationToken cancellationToken)
+    {
+        var rows = await Pending(studentId).Where(item => submissionIds.Contains(item.SubmissionId!))
+            .OrderBy(item => item.AddedAt).ThenBy(item => item.Id).ToListAsync(cancellationToken).ConfigureAwait(false);
+        return rows.Select(ToModel).ToList();
+    }
+
+    public async Task<VocabNotebookSummary> SummaryAsync(Guid studentId, DateTimeOffset recentStart,
+        CancellationToken cancellationToken) =>
+        await Items(studentId).GroupBy(item => item.StudentId).Select(group => new VocabNotebookSummary(
+            group.Select(item => item.WordKey).Distinct().Count(), group.Count(),
+            group.Count(item => item.AddedBy == (short)VocabNotebookActorType.Teacher),
+            group.Count(item => item.AddedAt >= recentStart),
+            group.Count(item => item.Status == (short)VocabNotebookItemStatus.Rejected)))
+            .SingleOrDefaultAsync(cancellationToken).ConfigureAwait(false) ?? new(0, 0, 0, 0, 0);
+
+    public async Task<VocabNotebookPage<VocabNotebookItemModel>> QueryAsync(Guid studentId, VocabNotebookQuery filters,
+        DateTimeOffset recentStart, CancellationToken cancellationToken)
+    {
+        if (filters.Keyword.Contains('\0')) return new(0, 1, []);
+        var query = Items(studentId);
+        if (filters.Teacher) query = query.Where(item => item.AddedBy == (short)VocabNotebookActorType.Teacher);
+        if (filters.Recent) query = query.Where(item => item.AddedAt >= recentStart);
+        if (filters.Rejected) query = query.Where(item => item.Status == (short)VocabNotebookItemStatus.Rejected);
+        if (filters.Keyword.Length > 0)
+        {
+            // Escape the LIKE metacharacters so every search term is a literal substring.
+            var pattern = "%" + filters.Keyword.Replace("^", "^^").Replace("%", "^%").Replace("_", "^_") + "%";
+            query = query.Where(item => EF.Functions.ILike(item.Word, pattern, "^") || EF.Functions.ILike(item.Meaning, pattern, "^"));
+        }
+
+        var total = await query.CountAsync(cancellationToken).ConfigureAwait(false);
+        if (total == 0) return new(0, 1, []);
+        var page = Math.Min(filters.Page, 1 + (total - 1) / VocabNotebookQuery.PageSize);
+        var rows = await query.OrderByDescending(item => item.AddedAt).ThenBy(item => item.Id)
+            .Skip((page - 1) * VocabNotebookQuery.PageSize).Take(VocabNotebookQuery.PageSize)
+            .Include(item => item.FamilySources).ToListAsync(cancellationToken).ConfigureAwait(false);
+        return new(total, page, rows.Select(ToModel).ToList());
+    }
+
+    public Task<List<CardKey>> MembershipAsync(Guid studentId, IReadOnlyCollection<CardKey> keys, CancellationToken cancellationToken)
+    {
+        var words = keys.Select(key => key.WordKey).ToArray();
+        var meanings = keys.Select(key => key.MeaningKey).ToArray();
+        return _dbContext.Database.SqlQuery<CardKey>($"""
+            SELECT item.word_key AS "WordKey", item.meaning_key AS "MeaningKey"
+            FROM unnest({words}, {meanings}) AS candidate(word_key, meaning_key)
+            JOIN vocab_notebook_item AS item USING (word_key, meaning_key)
+            WHERE item.student_id = {studentId} AND item.status <> {(short)VocabNotebookItemStatus.Rejected}
+            """).ToListAsync(cancellationToken);
+    }
+
     public async Task<VocabNotebookItemModel?> FindAsync(Guid studentId, Guid itemId, CancellationToken cancellationToken = default)
     {
         var entity = await _dbContext.VocabNotebookItems.AsNoTracking().Include(item => item.FamilySources)
@@ -61,15 +123,16 @@ public sealed class VocabNotebookRepository : IVocabNotebookRepository
         if (entity is not null) _dbContext.VocabNotebookItems.Remove(entity);
     }
 
-    public async Task<T> InFamilyWriteAsync<T>(Guid studentId, Func<Task<T>> work, CancellationToken cancellationToken = default)
+    public async Task<T> InStudentWriteAsync<T>(Guid studentId, Func<Task<T>> work, CancellationToken cancellationToken = default)
     {
         // ReadCommitted sees the previous writer after waiting for the student-scoped lock.
-        await using var transaction = _dbContext.Database.IsRelational()
+        var relational = _dbContext.Database.IsRelational();
+        await using var transaction = relational && _dbContext.Database.CurrentTransaction is null
             ? await _dbContext.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken).ConfigureAwait(false)
             : null;
         try
         {
-            if (transaction is not null)
+            if (relational)
                 await _dbContext.Database.ExecuteSqlInterpolatedAsync(
                     $"SELECT pg_advisory_xact_lock(hashtextextended({studentId.ToString()}, 9132))", cancellationToken).ConfigureAwait(false);
             var result = await work().ConfigureAwait(false);
