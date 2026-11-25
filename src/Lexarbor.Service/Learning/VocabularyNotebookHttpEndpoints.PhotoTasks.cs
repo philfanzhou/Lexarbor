@@ -50,8 +50,21 @@ public static partial class VocabularyNotebookHttpEndpoints
         var task = await tasks.ReadAsync(studentId, taskId, false, ct);
         if (task is null) return MissingPhotoTask();
         var entries = task.ReadEntries().Select((item, index) => new { index, candidate = ToDto(item.Candidate), item.NotebookItemId });
-        return Results.Ok(new { success = true, data = new { task.Id, task.State, task.CreatedAt, task.UpdatedAt,
-            task.Attempts, task.ErrorCode, task.AddedCount, entries } });
+        return Results.Ok(new
+        {
+            success = true,
+            data = new
+            {
+                task.Id,
+                task.State,
+                task.CreatedAt,
+                task.UpdatedAt,
+                task.Attempts,
+                task.ErrorCode,
+                task.AddedCount,
+                entries
+            }
+        });
     }
 
     private static async Task<IResult> RetryPhotoTask(Guid studentId, Guid taskId, PhotoImportTaskRepository tasks, CancellationToken ct)

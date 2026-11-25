@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Lexarbor.Learning.Domain.Services;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace Lexarbor.Learning.Database.Repositories;
 
@@ -78,11 +79,24 @@ public sealed class PhotoImportTaskRepository(LearningDbContext db)
         return rows.SingleOrDefault();
     }
 
-    public Task<int> FinishAsync(PhotoTaskClaim claim, IReadOnlyList<VocabPhotoCandidate> candidates, string? error, CancellationToken ct)
+    public async Task<int> FinishAsync(PhotoTaskClaim claim, IReadOnlyList<VocabPhotoCandidate> candidates, string? error, CancellationToken ct)
     {
         var entries = JsonSerializer.Serialize(candidates.Select(candidate => new PhotoTaskEntry(candidate)));
+        try
+        {
+            return await SaveResultAsync(claim, entries, error, ct);
+        }
+        catch (PostgresException refused) when (error is null && refused.SqlState == PostgresErrorCodes.UntranslatableCharacter)
+        {
+            // jsonb cannot represent a U+0000 in otherwise valid model output. Keep the photo for an explicit retry.
+            return await SaveResultAsync(claim, "[]", "VOCAB_PHOTO_IMPORT_UNAVAILABLE", ct);
+        }
+    }
+
+    private Task<int> SaveResultAsync(PhotoTaskClaim claim, string entries, string? error, CancellationToken ct)
+    {
         return db.Database.ExecuteSqlAsync($"""
-            UPDATE vocab_photo_task SET state={ (error is null ? "ready" : "failed") }, error_code={error},
+            UPDATE vocab_photo_task SET state={(error is null ? "ready" : "failed")}, error_code={error},
                 entries={entries}::jsonb, photo=CASE WHEN {error == null} THEN NULL ELSE photo END, updated_at=now()
             WHERE id={claim.Id} AND student_id={claim.StudentId} AND state='processing' AND attempts={claim.Attempts}
             """, ct);

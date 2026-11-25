@@ -134,6 +134,14 @@ public sealed class PhotoImportTaskTests
         Assert.Equal(1, await b.DeleteAsync(student, recovered.Id, Ct));
         Assert.Equal(0, await b.FinishAsync(recovered, [], "VOCAB_PHOTO_INVALID", Ct));
         await a.CreateAsync(student, Photo, Ct);
+        var malformed = (await a.ClaimAsync(Ct))!;
+        VocabPhotoCandidate candidate = new("apple", null, null, "fruit", VocabPhotoCandidateState.New, null, [], "unclear\0text");
+        Assert.Equal(1, await a.FinishAsync(malformed, [candidate], null, Ct));
+        var failed = await b.ReadAsync(student, malformed.Id, false, Ct);
+        Assert.Equal("failed", failed!.State);
+        Assert.Equal("VOCAB_PHOTO_IMPORT_UNAVAILABLE", failed.ErrorCode);
+        Assert.Equal(1, await b.RetryAsync(student, malformed.Id, Ct));
+        Assert.Equal(Photo, (await b.ClaimAsync(Ct))!.Photo);
         await db.Database.ExecuteSqlAsync($"DELETE FROM learner_identity WHERE id={student}", Ct);
         Assert.Empty(await a.ListAsync(student, 1, Ct));
     }
