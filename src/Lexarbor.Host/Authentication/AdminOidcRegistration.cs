@@ -388,18 +388,5 @@ public static class AdminOidcRegistration
     /// a deployment decision made in front of the application.
     /// </summary>
     private static bool RequiresHttpsMetadata(IHostEnvironment environment, AdminOidcSettings settings)
-    {
-        if (settings.RequireHttpsMetadata.HasValue)
-        {
-            return settings.RequireHttpsMetadata.Value;
-        }
-
-        if (environment.IsDevelopment() || environment.IsEnvironment("Testing"))
-        {
-            return false;
-        }
-
-        return !(Uri.TryCreate(settings.Authority, UriKind.Absolute, out var authority)
-                 && authority.IsLoopback);
-    }
+        => IdentityServiceOptions.RequiresHttpsMetadata(settings.Authority, settings.RequireHttpsMetadata, environment);
 }

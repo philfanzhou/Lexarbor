@@ -1,9 +1,139 @@
 # System settings
 
-The administrator page at `/#/settings` displays the effective administrator login ceiling, its
-configuration source, and the unsaved switch draft. A failed read means
-**unknown**, never disabled. Numeric limits and windows are read-only; change them
-offline and restart. The same page also manages S3 storage, the review assistant and autonomous enrichment.
+The administrator surface at `/#/settings` shows every configuration key Lexarbor
+reads — its effective value, its source, and whether a change applies at once or at
+the next start — and edits those a deployment does not own. Each category keeps its
+unsaved drafts, and a failed read means **unknown**, never disabled. The surface covers
+every category, from sign-in and request ceilings through storage and the models to
+vocabulary learning. Live keys are saved through their module endpoints below;
+restart-only keys through [startup settings](#configuration-catalog-and-startup-settings).
+
+## Configuration catalog and startup settings
+
+`GET /admin/system/settings/catalog` is read-only. It returns one entry for every key
+in the catalog, in display order, together with the groups and sections that arrange
+them and a few facts about the running host:
+
+```json
+{
+  "revision": "\"0123456789abcdef0123456789abcdef\"",
+  "storageAvailable": true,
+  "fileExists": true,
+  "externallyModified": false,
+  "fields": [
+    {
+      "key": "IdentityService:Authority",
+      "group": "identity",
+      "section": "provider",
+      "name": "Identity provider authority",
+      "description": "Base address of the identity provider whose Discovery document and signing keys are trusted.",
+      "kind": "url",
+      "apply": "restart",
+      "editable": true,
+      "source": "default",
+      "reason": null,
+      "value": "http://localhost:8080",
+      "raw": null,
+      "hasValue": null,
+      "savedHasValue": null,
+      "savedValue": "http://localhost:8080",
+      "defaultValue": "http://localhost:8080",
+      "pendingRestart": false,
+      "minimum": null,
+      "maximum": null,
+      "nullable": false,
+      "options": null,
+      "module": null,
+      "wire": null,
+      "location": null
+    }
+  ],
+  "groups": [{ "id": "identity", "area": "access", "name": "Sign-in and identity", "description": "…" }],
+  "sections": [{ "group": "identity", "id": "provider", "name": "Identity provider" }],
+  "facts": [{ "id": "httpPort", "name": "HTTP listen port", "value": "5008", "detail": "HTTP/1 only" }],
+  "unknownFileKeys": []
+}
+```
+
+`ETag` equals the opaque `revision` shared with every settings module. A field means:
+
+| Property | Meaning |
+|---|---|
+| `apply` | `live`: its module publishes it as soon as a save commits. `restart`: read once at startup; a saved value applies at the next start. `readOnly`: the deployment owns it |
+| `editable` | Whether a settings request may change it: false for `readOnly` keys and for any key supplied by the environment or the command line |
+| `source` | `default`, `file`, `environment` or `commandLine`: where the value in effect comes from |
+| `reason` | For a key that is not editable: the fixed English reason |
+| `value` | The value in effect now, in its own type. Absent for a secret |
+| `raw` | The configured text when it could not be read as the field's type; otherwise null |
+| `hasValue` | For a secret: whether one is set |
+| `savedHasValue` | For a restart-only secret: whether the next start finds one. Never its value; null for any other key |
+| `savedValue` | For a restart-only key: the value the next start reads — the deployment's own value, else the file's, else the default. Never sent for a secret |
+| `defaultValue` | The value in effect while the key is absent |
+| `pendingRestart` | The next start would read another value than the one in effect |
+| `minimum`, `maximum`, `options`, `nullable` | The field's bounds, its choices, and whether a number may be empty |
+| `module`, `wire` | For a live key: the module that publishes it and the key's name in that module's request body |
+| `location` | For a model connection: the key the persisted file still holds it under, when an upgrade left it in the section an earlier release used; null whenever the file uses the shown key |
+
+`kind` is one of `text`, `url`, `boolean`, `triState`, `integer`, `number`, `secret`,
+`list`, `integerList` and `select`. `storageAvailable` is false when the file cannot be
+read or written; `externallyModified` is true once the file changed on disk while the
+host was running, which pauses online saves until a restart. `unknownFileKeys` names
+the leaf paths in the persisted file that the catalog does not describe; their values
+are never reported. No secret is serialized in any form: not the effective value, not
+the next-start value, not the default. The server and the database of
+`ConnectionStrings:Default` are reported alone, never its credential.
+
+The two model connections are shown under the keys of this release, `Models:Reasoning`
+and `Models:Speech`; the enrichment module keeps its historical dotted names, which
+`wire` carries. The review steps `VocabularyLearning:Fsrs:LearningStepsMinutes` and
+`RelearningStepsMinutes` are shown as what configuration makes them: steps that follow
+the built-in ones, which no configuration replaces.
+
+`PUT /admin/system/settings/startup` persists restart-only keys for the next start. It
+requires the current strong `If-Match` and an object whose names are configuration keys:
+
+```json
+{
+  "Logging:LogLevel:Default": "Debug",
+  "Network:TrustedProxies": ["172.18.0.2", "10.0.0.1"],
+  "IdentityService:RequireHttpsMetadata": null,
+  "AdminAuthentication:OidcCode:ClientSecret": { "action": "replace", "value": "<new secret>" }
+}
+```
+
+Numbers, booleans and strings are sent in their own type, lists as arrays of strings
+and lists of numbers as arrays of numbers; a list of numbers left empty removes its
+key. `null` removes the key from the file, so the next start reads the default;
+numbers and booleans always carry a value. A secret accepts the same
+`keep`/`replace`/`clear` object as the module endpoints, where `keep` changes nothing.
+Only restart-only keys are accepted: live keys belong to their module, read-only keys to
+the deployment, and environment/command-line-supplied keys are refused.
+
+The candidate is validated the way startup validates before anything is written, so the
+page cannot persist a configuration the host would refuse to start with — or one that
+would leave a working sign-in unable to sign in. The rules include the identity
+provider's address and the HTTPS metadata requirement, the hosted-login URIs and scope,
+the rate-limit bounds of enabled policies, the forwarded-header trust boundary, the
+database keys, the audio limits, the learning options' own rules, the address and keys
+the learning service reaches this Lexarbor with, log levels, OpenTelemetry values and
+the instance identifier. A refusal names keys, never values.
+
+| Status | Result |
+|---|---|
+| 200 | Committed to the file for the next start; answers the current catalog. Nothing is published: the running process keeps its startup values until it restarts |
+| 400 | Malformed body, or an invalid candidate; `fields` names the offending keys |
+| 409 | Requested keys are overridden by deployment configuration, with their names in `fields` |
+| 412 | Stale shared revision, concurrent save, or offline disk edit |
+| 413 | Body exceeds 16384 bytes |
+| 428 | Missing `If-Match` |
+| 503 | Unsafe/unavailable configuration storage; the file keeps its previous content |
+
+A restart-only value saved here does not reach the live modules: a module's candidate
+still holds the values this process runs with, so for example enabling a rate limit is
+judged against the numbers currently in effect, not against a saved replacement.
+
+Administrator authorization, Cookie/CSRF, Bearer precedence, security headers and
+`Cache-Control: no-store` are the same as for every settings route.
 
 ## Request rate limits
 
@@ -27,7 +157,9 @@ offline and restart. The same page also manages S3 storage, the review assistant
 switch: `default`, `file`, `environment`, or `commandLine`. The latter two sources
 have `editable: false`. The
 numeric values are the effective startup configuration, including invalid values
-when disabled. A disabled policy with invalid numbers cannot be enabled online.
+when disabled. This endpoint accepts the switch only; the numbers are saved
+through [startup settings](#configuration-catalog-and-startup-settings) and apply at
+the next start. A disabled policy with invalid numbers cannot be enabled online.
 
 `PUT /admin/system/settings/rate-limits` accepts one boolean field:
 
@@ -87,7 +219,7 @@ and reads back after saving. A lost PUT response may mean the file was committed
 it displays an unknown outcome and performs GET, never automatically resubmits.
 If confirmation fails, retry the read and compare the current state with the draft.
 Leaving the page or logging out aborts reads and discards drafts. Drafts live in
-memory. Hosted login accepts the exact settings routes listed in the
+memory. Hosted login accepts the System settings routes listed in the
 [frontend route table](../frontend/README.md#routes).
 
 These are process-local request ceilings, not distributed quotas or DDoS protection.
@@ -129,8 +261,9 @@ successful PUT; only their presence and source are exposed. `fields` contains th
 eight names shown above. Sources are `default`, `file`, `environment`, and
 `commandLine`. Deployment overrides have `editable: false` and the fixed safe
 reason `Overridden by deployment configuration.`. Advanced upload, queue, timeout,
-recovery and signature TTL parameters are not accepted by this API; change them
-offline and restart.
+recovery and signature TTL parameters are not accepted by this API; they are saved
+through [startup settings](#configuration-catalog-and-startup-settings) and apply
+at the next start.
 
 `PUT /admin/system/settings/audio-storage` requires the current strong `If-Match`
 and at least one permitted field or credential operation. For example:
@@ -316,18 +449,22 @@ whole configuration file, not just visible fields, across container replacement.
 
 ### Administrator page
 
-The administrator UI splits this contract across Review assistant
-(`/#/settings/review`), Vision reasoning (`/#/settings/text`), Speech generation
-(`/#/settings/speech`), and Background policies (`/#/settings/background`).
-Review assistant explains the risk beside the default-off automatic-review
-switch. No voice or speed is preselected. Current values and
-per-field source/read-only reasons remain distinct from drafts. Missing one locale
+These keys are pages of the settings surface at `/#/settings`: Review assistant
+(`/#/settings/review`), the reasoning model (`/#/settings/text`), Speech generation
+(`/#/settings/speech`) and Background policies (`/#/settings/background`). The review
+assistant page explains the risk beside the default-off automatic-review switch, and
+says when the reasoning connection its advice relies on is missing. No voice or speed
+is preselected. Each row shows the value in effect and its source apart from the
+draft, and a key the deployment supplies says why it is read-only. Missing one locale
 can be saved without blocking the other. `configurationReady` means durable version
-metadata exists, not supplier availability or completed generation. The page names
-the implemented speech combinations and links the [support matrix](Audio.md#speech-adapters);
-it performs no supplier discovery or browser-side supplier call. Explicit draft previews call the server-side speech adapter as described below.
+metadata exists, not supplier availability or completed generation. The speech page
+names the implemented speech combinations and links the
+[support matrix](Audio.md#speech-adapters); it performs no supplier discovery or
+browser-side supplier call. The page reads the speech protocol from the service
+address, as the server does, and shows only the controls that protocol uses. Explicit
+draft previews call the server-side speech adapter as described below.
 
-Each tab submits its changed editable values and explicit credential actions.
+Each page submits its changed editable values and explicit credential actions.
 The shared configuration revision means a concurrent save can cause 412. After
 409, 412, or 428, reread the configuration, review the draft, and explicitly save
 with the new revision. Fixed

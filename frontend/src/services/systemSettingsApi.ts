@@ -30,9 +30,7 @@ function parse(value: unknown): RateLimitSettings {
   return settings as RateLimitSettings
 }
 
-export async function readRateLimits(signal: AbortSignal, isCurrent: () => boolean) {
-  return parse(await api.get<unknown>('/admin/system/settings/rate-limits', { signal, lxIsCurrent: isCurrent }))
-}
+/** Saves the two live switches; the page shows their values through the settings catalog. */
 export async function saveRateLimits(revision: string, changes: RateLimitChanges, signal: AbortSignal, isCurrent: () => boolean) {
   return parse(await api.put<unknown>('/admin/system/settings/rate-limits', changes,
     { headers: { 'If-Match': revision }, signal, lxIsCurrent: isCurrent }))

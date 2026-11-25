@@ -156,7 +156,12 @@ public static class AdminLoginReturnTarget
 {
     private static readonly HashSet<string> Routes = new(StringComparer.Ordinal)
     {
-        "/settings", "/settings/api-keys", "/settings/audio-storage", "/settings/review", "/settings/text", "/settings/speech", "/settings/background",
+        // Every page under /settings: the overview, the whole list, each configuration category,
+        // and the API keys, which are managed in the database rather than configured.
+        "/settings", "/settings/all", "/settings/identity", "/settings/rate-limits", "/settings/network",
+        "/settings/data-protection", "/settings/database", "/settings/audio-storage", "/settings/review", "/settings/text",
+        "/settings/speech", "/settings/background", "/settings/learning", "/settings/learning-connection",
+        "/settings/submissions", "/settings/logging", "/settings/telemetry", "/settings/service", "/settings/api-keys",
         "/enrichment", "/books", "/vocabulary", "/phrases", "/import", "/import/phrase", "/import/batch"
     };
 

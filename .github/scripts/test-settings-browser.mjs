@@ -12,35 +12,44 @@ try {
   const page = await context.newPage();
   await page.goto(base + '#/settings/audio-storage');
   const tab = name => page.getByRole('navigation', { name: '设置分类' }).getByRole('link', { name, exact: true });
-  const audioNotice = page.getByRole('status', { name: '音频存储状态' });
-  await page.getByLabel('区域 Region', { exact: true }).waitFor();
-  const save = page.getByRole('button', { name: '保存音频存储设置' });
+  const notice = page.getByRole('status', { name: '配置状态', exact: true });
+  const region = () => page.getByLabel('区域', { exact: true });
+  // The row is there whether the key is editable here or owned by the deployment.
+  const regionRow = page.locator('[data-setting="Audio:Region"]');
+  const storageSwitch = page.getByRole('switch', { name: '启用音频存储', exact: true });
+  const save = page.getByRole('button', { name: '保存修改', exact: true });
+  // A credential shows no input until its replacement is asked for.
+  const reveal = label => page.getByRole('button', { name: new RegExp('^' + label + '：(设置|更换)$') }).click();
+  const secretInputs = () => page.locator('input[type="password"]');
+  await regionRow.waitFor();
   if (mode === 'configure') {
     step = 'initial disabled state without file';
-    check(!await page.getByRole('checkbox', { name: '音频存储草稿开关' }).isChecked());
-    const second = await context.newPage(); await second.goto(base + '#/settings');
-    const secondRateSwitch = second.getByRole('checkbox', { name: '管理员登录草稿开关' });
+    check(!await storageSwitch.isChecked());
+    const second = await context.newPage(); await second.goto(base + '#/settings/rate-limits');
+    const secondRateSwitch = second.getByRole('switch', { name: '启用登录限流', exact: true });
     await secondRateSwitch.waitFor();
     step = 'first browser save with CSRF and If-Match';
     for (const [label, value] of [
-      ['服务访问地址 InternalEndpoint', process.env.LEXARBOR_S3_TEST_INTERNAL],
-      ['浏览器播放地址 PublicEndpoint', process.env.LEXARBOR_S3_TEST_PUBLIC],
-      ['私有桶 Bucket', process.env.LEXARBOR_S3_TEST_BUCKET], ['对象前缀 KeyPrefix', 'settings/'],
-      ['AccessKey', 'synthetic-audio-access'], ['SecretKey', 'synthetic-audio-secret']
+      ['服务访问地址', process.env.LEXARBOR_S3_TEST_INTERNAL],
+      ['浏览器播放地址', process.env.LEXARBOR_S3_TEST_PUBLIC],
+      ['存储桶', process.env.LEXARBOR_S3_TEST_BUCKET], ['对象前缀', 'settings/']
     ]) await page.getByLabel(label, { exact: true }).fill(value);
-    await page.getByRole('checkbox', { name: '音频存储草稿开关' }).check();
+    for (const [label, value] of [['Access Key', 'synthetic-audio-access'], ['Secret Key', 'synthetic-audio-secret']]) {
+      await reveal(label); await page.getByLabel(label, { exact: true }).fill(value);
+    }
+    await storageSwitch.check();
     const written = page.waitForRequest(request => request.method() === 'PUT');
     await save.click(); const request = await written;
     check(request.headers()['if-match'] && request.headers()['x-signacore-csrf']);
-    await page.waitForFunction(() => document.querySelector('[aria-label="音频存储状态"]').textContent.includes('已保存到配置文件'));
-    check(await page.getByLabel('SecretKey', { exact: true }).inputValue() === '');
-    step = 'reload and concurrent cross-panel version conflict';
-    await page.reload(); await page.getByLabel('区域 Region', { exact: true }).waitFor();
-    check(await page.getByRole('checkbox', { name: '音频存储草稿开关' }).isChecked());
+    await page.waitForFunction(() => document.querySelector('[aria-label="配置状态"]').textContent.includes('已保存到配置文件'));
+    check(await secretInputs().count() === 0);
+    step = 'reload and concurrent cross-category version conflict';
+    await page.reload(); await region().waitFor();
+    check(await storageSwitch.isChecked());
     await secondRateSwitch.check();
-    await second.getByRole('button', { name: '保存限流设置' }).click();
-    await second.getByText('当前生效状态：未知', { exact: true }).waitFor();
-    check((await second.getByRole('status').first().textContent()).includes('版本已变化'));
+    await second.getByRole('button', { name: '保存修改', exact: true }).click();
+    await second.getByRole('heading', { name: '当前配置状态未知' }).waitFor();
+    check((await second.getByRole('status', { name: '配置状态', exact: true }).textContent()).includes('版本已变化'));
     await second.close();
     step = 'live rate-limit off/on/429/off through browser controls';
     const statuses = () => page.evaluate(async () => {
@@ -50,9 +59,9 @@ try {
     // Opening the rate-limit tab reads the shared version after the S3 save.
     step = 'open rate-limit settings before enabling';
     await tab('请求限流').click();
-    const rateSwitch = page.getByRole('checkbox', { name: '管理员登录草稿开关' });
-    const rateSaved = page.getByRole('status').filter({ hasText: '保存后已回读' });
-    const saveRateLimits = page.getByRole('button', { name: '保存限流设置' });
+    const rateSwitch = page.getByRole('switch', { name: '启用登录限流', exact: true });
+    const rateSaved = page.getByRole('status', { name: '配置状态', exact: true }).filter({ hasText: '已回读确认' });
+    const saveRateLimits = page.getByRole('button', { name: '保存修改', exact: true });
     await rateSwitch.check();
     step = 'enable rate-limit save and confirmation';
     await saveRateLimits.click();
@@ -72,41 +81,42 @@ try {
       if (route.request().method() !== 'PUT') return route.continue();
       puts++; await route.fetch(); await route.abort('failed');
     });
-    await page.getByLabel('区域 Region', { exact: true }).fill('us-west-1');
+    await region().fill('us-west-1');
     await save.click();
-    await page.waitForFunction(() => document.querySelector('[aria-label="音频存储状态"]').textContent.includes('已回读当前生效配置'));
-    check(puts === 1); check(await page.getByLabel('区域 Region', { exact: true }).inputValue() === 'us-west-1');
+    await page.waitForFunction(() => document.querySelector('[aria-label="配置状态"]').textContent.includes('保存响应未确认'));
+    check(puts === 1); check(await region().inputValue() === 'us-west-1');
     // Restore actual S3 signing region with an explicit new user submission.
     await page.unroute('**/admin/system/settings/audio-storage');
-    await page.getByLabel('区域 Region', { exact: true }).fill('us-east-1'); await save.click();
-    await page.waitForFunction(() => document.querySelector('[aria-label="音频存储状态"]').textContent.includes('已保存到配置文件'));
+    await region().fill('us-east-1'); await save.click();
+    await page.waitForFunction(() => document.querySelector('[aria-label="配置状态"]').textContent.includes('已保存到配置文件'));
   } else if (mode === 'readonly') {
     step = 'read-only file failure preserves service and current configuration';
-    await page.getByLabel('区域 Region', { exact: true }).fill('test-region'); await save.click();
-    await page.waitForFunction(() => document.querySelector('[aria-label="音频存储状态"]').textContent.includes('保存失败（503）'));
+    await region().fill('test-region'); await save.click();
+    await page.waitForFunction(() => document.querySelector('[aria-label="配置状态"]').textContent.includes('保存失败（503）'));
     check((await page.evaluate(async () => (await fetch('/admin/settings-login-probe')).status)) === 200);
-    check(await page.getByRole('checkbox', { name: '音频存储草稿开关' }).isChecked());
+    check(await storageSwitch.isChecked());
   } else if (mode === 'override') {
     step = 'command-line override is readonly with reason and effective value';
-    check(await page.getByLabel('区域 Region', { exact: true }).isDisabled());
-    check(await page.getByLabel('区域 Region', { exact: true }).inputValue() === 'us-east-1');
-    check((await page.locator('#audio-source-region').textContent()).includes('启动参数覆盖，网页只读'));
+    // A deployment-owned key shows its value with a lock, and offers no control.
+    check(await region().count() === 0);
+    check((await regionRow.textContent()).includes('us-east-1'));
+    check((await regionRow.textContent()).includes('来源：启动参数 · 网页只读'));
   } else if (mode === 'disable' || mode === 'enable') {
     step = 'live audio toggle from real form keeps credentials and objects';
-    await page.getByRole('checkbox', { name: '音频存储草稿开关' }).setChecked(mode === 'enable');
+    await storageSwitch.setChecked(mode === 'enable');
     await save.click();
-    await page.waitForFunction(() => document.querySelector('[aria-label="音频存储状态"]').textContent.includes('已保存到配置文件'));
-    check(await page.getByText('已有密钥（不返回原值）').count() === 2);
+    await page.waitForFunction(() => document.querySelector('[aria-label="配置状态"]').textContent.includes('已保存到配置文件'));
+    check(await page.getByText('已设置（不显示原值）').count() === 2);
   } else if (mode === 'playback' || mode === 'restart') {
     step = 'persisted settings and empty secret controls';
-    check(await page.getByRole('checkbox', { name: '音频存储草稿开关' }).isChecked());
-    check(await page.getByLabel('对象前缀 KeyPrefix', { exact: true }).inputValue() === 'settings/');
-    check(await page.getByLabel('SecretKey', { exact: true }).inputValue() === '');
+    check(await storageSwitch.isChecked());
+    check(await page.getByLabel('对象前缀', { exact: true }).inputValue() === 'settings/');
+    check(await secretInputs().count() === 0);
     if (mode === 'playback') {
       step = 'existing historical destination refuses browser save';
-      await page.getByLabel('私有桶 Bucket', { exact: true }).fill('other-bucket'); await save.click();
-      await page.waitForFunction(() => document.querySelector('[aria-label="音频存储状态"]').textContent.includes('保存失败（409）'));
-      check((await audioNotice.textContent()).includes('单独迁移'));
+      await page.getByLabel('存储桶', { exact: true }).fill('other-bucket'); await save.click();
+      await page.waitForFunction(() => document.querySelector('[aria-label="配置状态"]').textContent.includes('保存失败（409）'));
+      check((await notice.textContent()).includes('单独迁移'));
     }
     step = 'actual administrator word drawer MP3 playback';
     await page.evaluate(() => {

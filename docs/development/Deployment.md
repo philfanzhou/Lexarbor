@@ -156,9 +156,11 @@ same precedence shown above. Outside a container this file is optional: startup
 and reading settings do not create it. Container first-start bootstrap continues
 to copy the image template. No temporary `.appsettings.json.*.tmp` file is loaded.
 
-The Host settings coordinator writes only fixed allowed fields in the shared
-file; it does not write environment values, authentication secrets or database
-connection strings from the effective configuration. A first save uses the
+The Host settings coordinator writes only catalogued fields in the shared file,
+and only what an administrator submitted: it never copies environment or
+command-line values into the file, and it never writes the database connection
+string or the Data Protection root key. A credential is written only when an
+administrator explicitly replaces or clears it. A first save uses the
 built-in template, or an empty JSON object when the template is absent. If the
 file or directory disappears during this process, the last valid complete file
 snapshot is used instead, retaining other settings and saved S3 credentials.
@@ -168,8 +170,41 @@ saves serialize the complete document as UTF-8 without a BOM.
 Unknown sections and keys are preserved by JSON meaning; original formatting is
 not preserved. Settings modules prepare and validate a complete candidate before
 saving, and publish their runtime snapshot only after the file commit succeeds.
-This infrastructure alone does not add settings routes or change existing
-startup-only authentication, database or other configuration automatically.
+
+### Restart-only settings from the settings page
+
+The settings page also edits the keys that are read once at startup: the
+identity provider and hosted-login registration, the rate-limit numbers and
+window, trusted proxies, the database startup and slow-command keys, the audio
+upload and recovery limits, the vocabulary learning thresholds, the address and
+keys the learning service reaches this Lexarbor with, the log levels,
+OpenTelemetry, the submission book and the service instance ID. Such a save is
+validated first the way startup validates — including the hosted-login rules, so
+a working sign-in cannot be saved into a state that cannot sign in — and is then
+written for the next start. Nothing reaches the running process: it keeps the
+value it started with, the page marks the key as waiting, and the overview counts
+the keys that wait. Restart to apply them:
+
+```bash
+docker restart lexarbor
+```
+
+A live module judges its own candidate by the values this process runs with, not
+by a value waiting for its restart: a rate limit cannot be switched on against
+numbers that only the next start will read.
+
+Two things stay offline operations, and the page shows them as read-only with
+the reason: the PostgreSQL connection string (the running process is bound to it,
+and the page reports the server and database alone, never its credential) and
+the Data Protection root key (replacing it signs every administrator out). The
+keys of settings that were removed stay listed as tripwires they are. A key
+supplied by the environment or the command line is read-only as well, whatever
+the file holds. A model connection that an upgrade left under an earlier
+release's section (`Enrichment:Text`, `Enrichment:Tts` or `MeaningSubmissions:Ai`)
+is shown under this release's key, with the place the file still keeps it; a
+successful save of that module then moves it to `Models`, as described in
+[the configuration key inventory](Configuration.md#upgrading). See the
+[catalog and startup settings contract](../api/SystemSettings.md#configuration-catalog-and-startup-settings).
 
 New data directories use Unix mode `0700`; new configuration and same-directory
 temporary files use `0600`. Existing directories retain their ownership and
@@ -857,8 +892,10 @@ mutation leaves the valid pending transaction intact. Creating or rejecting a
 pending transaction never changes an existing administrator session.
 
 Return targets default to `/#/books` when omitted and accept only `/books`,
-`/books/<id>/words`, `/vocabulary`, `/phrases`, `/import`, `/import/phrase` and
-`/import/batch`, optionally with the `/#` prefix. IDs are 1–128 ASCII letters,
+`/books/<id>/words`, `/vocabulary`, `/phrases`, `/import`, `/import/phrase`,
+`/import/batch` and the sixteen System settings routes (the
+[frontend route table](../frontend/README.md#routes)), optionally with the `/#`
+prefix. IDs are 1–128 ASCII letters,
 digits, `-` or `_`; inputs are at most 256 characters. The store saves the normalized
 `/#/...` target. Queries, extra fragments, percent encoding (including double or
 invalid encoding), absolute URLs, double slashes, backslashes, controls, login,
@@ -1188,7 +1225,7 @@ their URL query attributes redacted before export.
 
 Lexarbor can apply a per-client-address ceiling to `GET /admin/auth/start`,
 including case and trailing-slash equivalents. It is disabled by default and
-can be switched online at `/#/settings`. Only sign-in initiation consumes this
+can be switched online at `/#/settings/rate-limits`. Only sign-in initiation consumes this
 budget. Audio upload concurrency and queue admission use their own settings.
 
 | Configuration key | Default | Purpose |
@@ -1536,18 +1573,19 @@ Deploy a reachable public S3 endpoint serving private MP3 objects and supporting
 
 ### Online request-limit settings
 
-Administrators can read the effective switches and save editable fields at `/#/settings`. Environment or command-line overrides are read-only. Saves use the shared opaque revision and atomic `/app/data/appsettings.json` writer, take effect for subsequent requests without restarting, and survive restart. Turning a policy off and on does not reset a live bucket. Read-only files/directories or unsafe targets return 503 without publishing the candidate. See [System settings API](../api/SystemSettings.md) for If-Match conflicts, persistence, sources, and uncertain network outcomes. Numeric quotas remain offline settings.
+Administrators can read the effective switch and save it at `/#/settings/rate-limits`, with its numbers beside it. Environment or command-line overrides are read-only. Saves use the shared opaque revision and atomic `/app/data/appsettings.json` writer, take effect for subsequent requests without restarting, and survive restart. Turning a policy off and on does not reset a live bucket. Read-only files/directories or unsafe targets return 503 without publishing the candidate. See [System settings API](../api/SystemSettings.md) for If-Match conflicts, persistence, sources, and uncertain network outcomes. Numeric quotas are saved for the next start from the same page.
 
 ### Online S3 settings page
 
-Open the Audio storage (S3) tab at `/#/settings/audio-storage` to
+Open the Audio storage (S3) category at `/#/settings/audio-storage` to
 configure the server access address, browser playback address, Region, private
 Bucket, KeyPrefix and credential actions. Save creates
 `<contentRoot>/data/appsettings.json` when absent (`/app/data/appsettings.json` in
 the container), preserves other sections, and activates the saved configuration
 without restarting. The page shows effective values and configuration sources;
 environment and command-line overrides are read-only. Advanced upload, queue,
-timeout, recovery and signing settings remain offline configuration.
+timeout, recovery and signing settings are edited on the same page as
+[restart-only keys](#restart-only-settings-from-the-settings-page).
 
 Existing credentials are represented only by presence flags. Leave new-value
 inputs blank to keep them, enter a replacement, or choose explicit clear. Disabling
@@ -1571,7 +1609,8 @@ Administrators can GET and conditionally PUT `/admin/enrichment/settings` using 
 shared settings ETag and Cookie/CSRF or administrator Bearer authentication. See
 [the API contract](../api/SystemSettings.md#review-assistant-and-enrichment) for
 exact fields, bounds, defaults and credential operations. System settings exposes
-the contract in four tabs for review, vision reasoning, speech generation, and
+the contract in four categories of the settings surface: the review assistant, the
+reasoning model (视觉推理), speech generation, and
 background policies. See [the frontend guide](../frontend/README.md#review-and-autonomous-enrichment).
 Configure one vision-capable OpenAI-compatible reasoning model for photo import, review and text work, and one speech model for pronunciation. Photo import uses the reasoning model timeout. Both model timeouts default to 120 seconds. Existing explicit timeout values take precedence. See the [configuration key inventory and upgrade rules](Configuration.md).
 Environment/command-line overrides remain read-only. Keys remain only in
