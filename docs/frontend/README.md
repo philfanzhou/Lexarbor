@@ -20,13 +20,25 @@
 | `/vocabulary` | Administrator | Whole-library word list |
 | `/phrases` | Administrator | Phrase positions by book, unit, section, and keyword |
 | `/submissions` | Administrator | Meaning submission review queue |
-| `/settings` | Administrator | System settings, open to Request limits |
-| `/settings/api-keys` | Administrator | Issue, list and revoke integration API keys |
+| `/settings` | Administrator | System settings overview: counts, waiting values, host facts, search |
+| `/settings/all` | Administrator | Every configuration key: search, filters, paging |
+| `/settings/identity` | Administrator | Sign-in and identity |
+| `/settings/rate-limits` | Administrator | Request rate limits |
+| `/settings/network` | Administrator | Network and proxies |
+| `/settings/data-protection` | Administrator | Data protection (read-only) |
+| `/settings/database` | Administrator | Database: the PostgreSQL connection, startup and the slow-command log |
 | `/settings/audio-storage` | Administrator | S3 storage for audio assets |
-| `/settings/review` | Administrator | Review assistant and automatic review |
-| `/settings/text` | Administrator | Field enrichment and pronunciation preparation |
+| `/settings/review` | Administrator | Automatic review of meaning submissions |
+| `/settings/text` | Administrator | The reasoning model behind photo import, review advice, completion and pronunciation planning |
 | `/settings/speech` | Administrator | Speech generation and UK/US voices |
 | `/settings/background` | Administrator | Enrichment discovery, retry, and pause policies |
+| `/settings/learning` | Administrator | Vocabulary learning: answer timing, spaced repetition and error-prone words |
+| `/settings/learning-connection` | Administrator | How the learning service reaches this Lexarbor's catalog and sends submissions |
+| `/settings/submissions` | Administrator | Where approved meanings are written |
+| `/settings/logging` | Administrator | Log levels |
+| `/settings/telemetry` | Administrator | OpenTelemetry traces and metrics |
+| `/settings/service` | Administrator | Service instance ID and host facts |
+| `/settings/api-keys` | Administrator | Issue, list and revoke integration API keys (kept in the database, not configured) |
 | `/enrichment` | Administrator | Autonomous progress, service/cleanup state, histories and single failed-step retry |
 | `/import` | Administrator | Word import |
 | `/import/batch` | Administrator | Mixed vocabulary batch import (legacy default) |
@@ -309,11 +321,16 @@ Once signed in, every page sits in one shell:
 
 | Group | Properties |
 |------|----------|
-| Colour | `--lx-color-primary`, `-primary-hover`, `-primary-soft`, `-success`, `-warning`, `-danger`, `-info`, `-on-primary`; `--lx-color-text-{primary,regular,secondary,placeholder}`; `--lx-color-border`, `-border-light`; `--lx-color-bg-page`, `-bg-surface`; `--lx-color-focus` |
-| Type | `--lx-font-size-{xs,sm,md,lg,xl}`: 12 / 14 / 16 / 20 / 24 px for caption, body, section title, card title, and the page `h1` |
+| Colour | `--lx-color-primary`, `-primary-hover`, `-primary-soft`, `-success`, `-warning`, `-danger`, `-info`, `-on-primary`; `--lx-color-text-{primary,regular,secondary,placeholder}`; `--lx-color-border`, `-border-light`; `--lx-color-bg-page`, `-bg-surface`; `--lx-color-focus`; and for status badges and callouts `--lx-color-{success,warning,danger,info}-soft` with their `-line` companions (the Element Plus `light-9` and `light-7` shades) |
+| Type | `--lx-font-size-{xs,sm,md,lg,xl}`: 12 / 14 / 16 / 20 / 24 px for caption, body, section title, card title, and the page `h1`; `--lx-font-family-mono` for configuration keys; `--lx-line-height` |
 | Spacing | `--lx-space-1` to `--lx-space-6`: 4 / 8 / 12 / 16 / 24 / 32 px |
-| Shape | `--lx-radius-sm` (4 px), `--lx-radius-md` (8 px), `--lx-shadow-1` |
+| Shape | `--lx-radius-sm` (4 px), `--lx-radius-md` (8 px), `--lx-radius-lg` (12 px, cards), `--lx-radius-pill` (badges); `--lx-shadow-1`, `-2` (a raised card) and `-3` (the floating save bar) |
 | Density | `--lx-density-control-height` (32 px), `--lx-density-table-row-height` (40 px) |
+
+`src/styles/settings.scss` holds the layout and shape of the settings surface —
+category navigation, cards, configuration rows, badges, callouts, the save bar, the
+overview tiles and the list — and, like every other file, takes its colours from
+these tokens only.
 
 The same Sass source values override Element Plus's variables: `--el-color-{primary,success,warning,danger,error,info}` with their `-light-3/5/7/8/9` and `-dark-2` shades (mixed with `sass:color`), `--el-text-color-*`, `--el-border-color*`, `--el-bg-color-page`, `--el-border-radius-*`, and `--el-font-size-*`. Element Plus components and our own styles therefore share one palette.
 
@@ -382,40 +399,99 @@ Vite writes to the frontend's own `dist/`, and the root Dockerfile copies that d
 
 ## System settings
 
-System settings opens at `/#/settings` on **请求限流** (Request limits).
-Opening the tab reads the current state without changing either switch.
-The other five tabs have their own URLs and can be bookmarked. Each tab loads its
-settings when opened and has its own save and reread controls. The four review
-and enrichment tabs use the shared settings endpoint and submit only the changed
-fields on the current tab. Hosted login accepts the settings paths listed above.
+`/#/settings` is one configuration surface driven by the
+[catalog](../api/SystemSettings.md#configuration-catalog-and-startup-settings): one
+page per category, each showing the keys of that category as rows. A category
+navigation on the left lists them by area (访问与安全, 数据与存储, AI 能力, 学习功能,
+功能与运维) and marks a category holding values that wait for a restart. Below the
+tablet width it becomes chips in rows above the content; on a phone the categories are
+one horizontally scrolling strip that keeps the current category in view.
 
-Switching tabs or following another link inside the admin app prompts before
-discarding unsubmitted changes. Staying preserves the draft. Leaving clears the
-draft, including any secret inputs, and cancels pending requests. Signing out
-clears drafts immediately.
+- **概览** (`/#/settings`) counts what is live, restart-only, read-only and waiting
+  for a restart; each count leads to the filtered list. It names the categories that
+  hold waiting values and how to restart, reports a configuration file that cannot
+  be written or was edited outside the host, offers a search into the list, and shows
+  the host facts no configuration changes (version, channel, revision, environment,
+  container, port, database, configuration file, sign-in state, model configuration
+  versions, process start).
+- **全部配置** (`/#/settings/all`) lists every key: searchable by Chinese name, key
+  and description, filterable by how a change applies and by whether it is waiting or
+  deployment-owned, narrowable to one category, and paged (10/20/50 per page). Below
+  the phone breakpoint the table becomes one card per entry. An entry opens its
+  category page with that row scrolled into view and highlighted; the query keeps the
+  search, filter and category. It also names the keys in the file that Lexarbor does
+  not read, without their values.
+- The sixteen categories — 登录与身份, 请求限流, 网络与代理, 数据保护, 数据库, 音频存储,
+  审核助手, 视觉推理, 语音生成, 后台策略, 词汇学习, 学习服务连接, 投稿功能, 日志, 遥测
+  and 服务与运行信息 — each have their own URL. Hosted login accepts each of these
+  exact routes, and that of the API keys page beside them.
 
-The Request limits tab shows the effective administrator login ceiling and
-configuration sources. Environment and command-line overrides are read-only.
-Save uses strong If-Match and CSRF, blocks duplicates, then confirms by GET.
-A lost response triggers read-back without resubmitting. If a read fails, the tab
-shows an unknown state and offers a retry. See [System settings API](../api/SystemSettings.md).
+Every row shows the key's Chinese name, its configuration key, what it does, where its
+value comes from (默认值, 配置文件, 环境变量, 启动参数), its bounds and default, and one of
+three badges: **立即生效** (green: saved and published at once), **重启生效** (amber:
+saved to the file and applied at the next start) or **只读** (grey, with a lock and the
+reason the deployment owns it). A restart-only key that was saved but not yet applied
+carries **待重启** and shows the value in effect above the value the next start reads;
+its control edits the latter. A secret is told by presence on each side of that line —
+whether one is set now and whether the next start finds one — and by its action while
+it is edited: 更换 or 清除. An edited row is highlighted and marked **已修改**. A
+model connection that an upgrade left under an earlier release's section is shown
+under this release's key and says where the file still keeps it.
 
-The **接入 API Key** tab lists issued key metadata and lets administrators issue
-or revoke credentials. The plain key appears only in the issuance result. It
+A control follows the key's kind: a switch, a number input that states its range,
+a text or address input, a select, a list of tags (Enter adds, the × removes), or a
+credential. A list of numbers is typed as text and sent as numbers; one left empty
+removes its key. A credential shows only whether one is set; **更换** or **设置**
+reveals a password input for its replacement and **清除** marks it for removal. A
+number outside its range, an entry that is not a number, or a value the server
+refused is named under its control and blocks saving.
+
+A sticky bar appears with the first edit, says how many changes are unsaved and how
+many apply at once or after a restart, and offers **放弃修改** and **保存修改**. Saving
+sends each change to the endpoint that owns it — the module for a live key, the
+startup settings for a restart-only key — in a fixed order, each request carrying the
+revision the previous one answered. A refusal names its fields on their rows and in
+the notice.
+
+Each category loads the catalog when opened and has a **重新读取** control.
+Switching categories or following another link inside the admin app prompts before
+discarding unsaved changes. Staying preserves the draft. Leaving clears the draft,
+including any secret inputs, and cancels pending requests. Signing out clears drafts
+immediately.
+
+Save uses strong If-Match and CSRF, blocks duplicates, then confirms by reading the
+catalog again. A lost response triggers read-back without resubmitting. 409, 412 and
+428 require an explicit reread before the form is shown again: the page then shows an
+unknown state with a single **重新读取**, and keeps the draft for review. A failed read
+shows the same unknown state. See [System settings API](../api/SystemSettings.md).
+
+`e2e/settings.spec.ts` covers the navigation, the overview's counts and file states,
+the list's search, filters, paging, cards and focused entry, a model connection shown
+with where an earlier release's file keeps it, the list-of-numbers and decimal controls,
+the live switch save, a save split between a live switch and a restart-only number,
+every refusal, the unknown state, lost responses, the draft prompt, and the session
+races.
+`e2e/settings-startup.spec.ts` covers restart-only saves, a credential replaced for the
+next start, the three-way choice and list controls, a refusal naming its fields,
+deployment-owned keys and sections, a live commit followed by a refused restart value,
+and a draft that survives an unknown state.
+
+The **接入 API Key** page (`/#/settings/api-keys`) lists issued key metadata and lets
+administrators issue or revoke credentials. It is reached from the settings navigation
+beside the configuration categories, although keys are kept in the database rather
+than configured. The plain key appears only in the issuance result. It
 is cleared on dismissal, navigation or logout. The import pickers fetch enabled
 books using the administrator session. See [Business API keys](../api/BusinessApiKeys.md).
 
 ### Audio storage (S3)
 
-The **音频存储** (Audio storage) tab at `/#/settings/audio-storage` displays the effective
-Enabled, InternalEndpoint (server access address), PublicEndpoint (browser
-playback address), Region, Bucket and KeyPrefix values, and the source and
-editability of every field. Deployment overrides explain why a field is read-only.
-Existing AccessKey and SecretKey values never reach the page: only their presence
-and source are displayed. Both new-value inputs use password controls. Blank
-inputs keep existing credentials; typing a new value replaces it, while clearing
-requires the explicit clear action. Turning audio off keeps credentials and
-objects; incomplete configuration can be saved while disabled.
+The **音频存储** (Audio storage) category at `/#/settings/audio-storage` displays the
+effective Enabled, InternalEndpoint (server access address), PublicEndpoint (browser
+playback address), Region, Bucket and KeyPrefix values, and the source and editability
+of every field. Deployment overrides explain why a field is read-only. Existing
+AccessKey and SecretKey values never reach the page: only their presence and source
+are displayed, and their replacement inputs are password controls. Turning audio off
+keeps credentials and objects; incomplete configuration can be saved while disabled.
 
 Save sends only changed editable values and explicit credential actions with
 CSRF and the current shared If-Match revision. A successful response confirms
@@ -424,10 +500,9 @@ effective configuration and clears the secret inputs. The first save creates the
 configuration file automatically. Reloading or restarting retains the result.
 Being enabled confirms local validity, not remote connectivity or permission;
 verify an actual upload and playback. Existing audio or active operations prevent
-destination changes with 409 and require a separate migration. Advanced upload,
-queue, timeout, recovery and signing parameters remain offline settings: this
-panel describes them without editing them or inventing effective values absent
-from the API.
+destination changes with 409 and require a separate migration. The advanced upload,
+queue, timeout, recovery and signing parameters are restart-only: their section is
+marked **保存后重启生效**, and a saved value is shown as waiting for that restart.
 
 400, 409, 412, 428 and 503 have fixed safe notices. Deployment/destination conflicts
 and stale or missing revisions require a fresh read and an explicit subsequent
@@ -448,35 +523,40 @@ The book catalog and book-word page no longer offer **教材录音**. The
 `/books/:bookId/audio` route, recording catalog editor, MP3 upload and preview
 components and their API clients have been removed. Hosted login no longer
 forwards this route. Word and meaning pronunciation previews and the S3 storage
-settings panel remain available. See the
+settings category remain available. See the
 [upgrade instructions](../development/Deployment.md#textbook-recording-removal)
 for retained files and recording metadata backups.
 
 ### Review and autonomous enrichment
 
-Four tabs use `/admin/enrichment/settings` and share the configuration revision
-with S3 and rate limits.
+Four categories (审核助手, 视觉推理, 语音生成 and 后台策略) are pages of the settings
+surface that use `/admin/enrichment/settings` to save and share the configuration
+revision with S3, rate limits and the restart-only settings.
 
 - **审核助手** (Review assistant) contains the default-off
   automatic-review switch. The switch explains that AI can approve, edit, or
   reject submissions without human confirmation and may write incorrect shared
-  vocabulary.
-- **视觉推理** (Vision reasoning) configures the shared model used for notebook photos, submission review, field enrichment,
+  vocabulary. The page says when the reasoning connection its advice relies on is
+  missing.
+- **视觉推理** (Reasoning model) configures the shared model used for notebook photos, submission review, field enrichment,
   pronunciation preparation and vocabulary expansion. Configuration activates
   these capabilities automatically; there is no separate enable switch.
-- **语音生成** (Speech generation) contains the speech client, and separate UK and US voices and speeds. It links to Vision
-  reasoning and Audio storage so administrators can set up those dependencies.
+- **语音生成** (Speech generation) contains the speech client, and separate UK and US voices and speeds. Its
+  status lines name the reasoning connection and Audio storage as its dependencies,
+  both reached from the settings navigation.
 - **后台策略** (Background policies) contains discovery, concurrency, failure
   budget, pause, and backoff settings.
 
-The Speech generation tab offers explicit draft previews through the server; the browser never calls suppliers directly. Enabled enrichment is discovered by the hosted
+The Speech generation page offers explicit draft previews through the server; the browser never calls suppliers directly. Enabled enrichment is discovered by the hosted
 scheduler without selecting a range or starting a batch.
 
 Every field displays its actual value, source and deployment override reason. A
-failed or invalid read is unknown. Missing one locale can be saved without blocking
-the other; voice and speed are never filled on the user's behalf. Durable
+failed or invalid read is unknown. Missing one locale can be saved without blocking the
+other; voice and speed are never filled on the user's behalf. Durable
 `configurationReady` does not prove supplier availability or generation completion.
-The Speech generation tab has an expandable explanation of supported providers,
+The Speech generation page reads the speech protocol from the service address, as the
+server does, shows only the controls that protocol uses, names an address that is
+neither official base, and has an expandable explanation of supported protocols,
 models, and speeds. See the [speech matrix](../api/Audio.md#speech-adapters).
 Only explicitly supported endpoint/model combinations can express the required IPA
 or instructions. Unsupported combinations stop safely. Storage accepts speed
@@ -488,17 +568,18 @@ storage, URLs or console output. Only changed editable fields and credential
 actions are sent with CSRF and If-Match. Fixed safe notices retain nonsecret
 drafts; 409/412/428 require a fresh read and explicit save. Unknown save results
 perform GET without replaying credentials. Failed read-back stays unknown.
-Aborted/obsolete requests cannot populate a replacement panel or redirect a new
+Aborted/obsolete requests cannot populate a replacement page or redirect a new
 session. See [the complete contract](../api/SystemSettings.md#review-assistant-and-enrichment).
 `e2e/enrichment-settings.spec.ts` covers partial locales, source locks, bounded
-fields, credential actions, uncertain results, cross-panel/admin revisions,
+fields, credential actions, uncertain results, cross-category/admin revisions,
 cleanup and session races, alongside existing S3 and rate-limit tests.
 
 ### Speech style draft previews
 
 UK and US retain independent styles. MiniMax shows emotion, pitch and volume;
 OpenAI shows a bounded delivery description and explains when the chosen model does
-not support it. Switching providers preserves their separate options. Existing
+not support it. Changing the service address from one protocol to the other preserves
+their separate options. Existing
 voice and speed controls remain unchanged, with no automatic voice selection.
 
 Each locale can generate an `apple` or `Welcome to our English lesson.` sample from
@@ -547,7 +628,7 @@ approval/import/edit flows do not select a range or start a batch. Empty specifi
 phonetics continue to inherit. Browser credentials and existing routes are unchanged;
 the [administrator observation API](../api/Enrichment.md) supplies safe task,
 service, and cleanup state plus atomic single-step retry. Open **词汇自动完善** at
-`/#/enrichment` from the system navigation, an enrichment settings tab, or vocabulary detail.
+`/#/enrichment` from the system navigation, a settings category whose models start background work, or vocabulary detail.
 Detail links can filter by word/meaning ID; filters observe work and never start
 a batch. The page also opens the existing word/meaning editor and preview.
 See [scheduler behavior](../api/Audio.md#autonomous-enrichment-scheduling)

@@ -22,11 +22,22 @@ export class ApiError extends Error {
     message: string,
     public readonly status?: number,
     public readonly errors?: ApiEntryError[],
-    public readonly problem?: ApiProblemDetails
+    public readonly problem?: ApiProblemDetails,
+    /**
+     * The configuration keys a settings refusal names, present only when the server sent an
+     * array of strings: which keys it refused, or which are overridden by the deployment.
+     */
+    public readonly fields?: readonly string[]
   ) {
     super(message)
     this.name = 'ApiError'
   }
+}
+
+/** A refusal's field names, or undefined unless the server sent an array of strings. */
+function getRefusedFields(value: unknown): readonly string[] | undefined {
+  const fields = (value as { fields?: unknown } | null)?.fields
+  return Array.isArray(fields) && fields.every(field => typeof field === 'string') ? fields : undefined
 }
 
 interface ErrorEnvelope {
@@ -110,7 +121,8 @@ export function getApiError(error: unknown): ApiError {
       message,
       error.response?.status,
       getEntryErrors(error.response?.data?.errors),
-      problem
+      problem,
+      getRefusedFields(error.response?.data)
     )
   }
 

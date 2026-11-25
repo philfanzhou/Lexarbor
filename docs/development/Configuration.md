@@ -1,5 +1,9 @@
 # Lexarbor configuration keys
 
+## Settings page
+
+Open **系统设置** (`/#/settings`) to see and edit these keys. The overview counts what applies at once, what needs a restart and what the deployment owns; **全部配置** lists every key with search, filters and paging; each category has its own page. A key shows its value in effect, its source, and whether a change applies at once or at the next start. A key supplied by the environment or the command line is read-only there, with the reason. A restart-only key is validated the way startup validates before it is written, and the page marks it as waiting until the service restarts. See the [frontend guide](../frontend/README.md#system-settings) and the [catalog and startup settings contract](../api/SystemSettings.md#configuration-catalog-and-startup-settings).
+
 ## Models
 
 Open **系统设置 → 视觉推理** or **系统设置 → 语音生成** to edit the server's model connections. An administrator can also place nested JSON in `/app/data/appsettings.json`, or set container environment variables using `__` for each `:`. For example, `Models:Reasoning:Model` becomes `Models__Reasoning__Model`. Pass the variable to the container itself. A variable exported only in the host shell may not reach it. The settings page applies successful saves immediately. Restart after editing the file or changing deployment overrides. Environment and command-line overrides are read-only in the settings page.
@@ -214,6 +218,8 @@ Combine the section heading and the key with `:`. Values below are defaults befo
 | `LearningStepsMinutes` | `[1, 10]` | Initial learning steps in minutes. |
 | `RelearningStepsMinutes` | `[10]` | Relearning steps after forgetting, in minutes. |
 | `MaximumIntervalDays` | `36500` | Maximum review interval in days. |
+
+Configured steps follow the built-in ones: the options binder adds the entries of `LearningStepsMinutes` and `RelearningStepsMinutes` after `1, 10` and `10`, which no configuration replaces. The settings page therefore shows and edits these two keys as the additional steps.
 
 ### `VocabularyLearning:ErrorProne`
 

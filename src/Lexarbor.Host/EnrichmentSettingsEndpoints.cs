@@ -19,47 +19,49 @@ public static class EnrichmentSettingsEndpoints
     private static async Task<IResult> ReadResponse(HttpContext context, PersistentConfigurationCoordinator coordinator,
         EnrichmentRuntimeConfiguration runtime, CancellationToken cancellationToken)
     {
-        var response = await coordinator.ReadAsync(read =>
+        var response = await coordinator.ReadAsync(read => Body(read, runtime.Current), cancellationToken);
+        context.Response.Headers.ETag = response["revision"]!.GetValue<string>();
+        return Results.Json(response);
+    }
+
+    // Shared with the configuration catalog, so the two surfaces cannot disagree.
+    internal static JsonObject Body(ConfigurationReadResult read, EnrichmentConfigurationSnapshot current)
+    {
+        var body = new JsonObject { ["revision"] = read.Revision, ["configurationReady"] = current.ConfigurationReady };
+        var sources = new JsonObject();
+        foreach (var field in EnrichmentConfigurationFields.ApiFields)
         {
-            var current = runtime.Current;
-            var body = new JsonObject { ["revision"] = read.Revision, ["configurationReady"] = current.ConfigurationReady };
-            var sources = new JsonObject();
-            foreach (var field in EnrichmentConfigurationFields.ApiFields)
+            var source = read.Sources[field.Key];
+            sources[field.Name] = new JsonObject
             {
-                var source = read.Sources[field.Key];
-                sources[field.Name] = new JsonObject
-                {
-                    ["source"] = source.Source == ConfigurationValueSource.CommandLine ? "commandLine" : source.Source.ToString().ToLowerInvariant(),
-                    ["editable"] = source.Editable,
-                    ["reason"] = source.Editable ? null : "Overridden by deployment configuration."
-                };
-                var name = field.Secret ? field.Name[..^6] + "hasApiKey" : field.Name;
-                Set(body, name.Split('.'), field.Secret
-                    ? JsonValue.Create(!string.IsNullOrWhiteSpace(current.Fields[field.Key]!.GetValue<string>()))
-                    : current.Fields[field.Key]?.DeepClone());
-            }
-            // Older clients read these capability indicators. Neither is a configuration field.
-            Set(body, ["enrichment", "fieldsEnabled"], current.Enrichment.FieldsEnabled);
-            Set(body, ["enrichment", "audioEnabled"], current.Enrichment.AudioEnabled);
-            Set(body, ["enrichment", "tts", "provider"], current.Enrichment.Provider);
-            foreach (var field in new[] { "enrichment.fieldsEnabled", "enrichment.audioEnabled" })
-                sources[field] = new JsonObject
-                {
-                    ["source"] = "default",
-                    ["editable"] = false,
-                    ["reason"] = "Determined by model configuration."
-                };
-            sources["enrichment.tts.provider"] = new JsonObject
+                ["source"] = source.Source == ConfigurationValueSource.CommandLine ? "commandLine" : source.Source.ToString().ToLowerInvariant(),
+                ["editable"] = source.Editable,
+                ["reason"] = source.Editable ? null : "Overridden by deployment configuration."
+            };
+            var name = field.Secret ? field.Name[..^6] + "hasApiKey" : field.Name;
+            Set(body, name.Split('.'), field.Secret
+                ? JsonValue.Create(!string.IsNullOrWhiteSpace(current.Fields[field.Key]!.GetValue<string>()))
+                : current.Fields[field.Key]?.DeepClone());
+        }
+        // Older clients read these capability indicators. Neither is a configuration field.
+        Set(body, ["enrichment", "fieldsEnabled"], current.Enrichment.FieldsEnabled);
+        Set(body, ["enrichment", "audioEnabled"], current.Enrichment.AudioEnabled);
+        Set(body, ["enrichment", "tts", "provider"], current.Enrichment.Provider);
+        foreach (var field in new[] { "enrichment.fieldsEnabled", "enrichment.audioEnabled" })
+            sources[field] = new JsonObject
             {
                 ["source"] = "default",
                 ["editable"] = false,
-                ["reason"] = "Determined by the speech endpoint."
+                ["reason"] = "Determined by model configuration."
             };
-            body["fields"] = sources;
-            return body;
-        }, cancellationToken);
-        context.Response.Headers.ETag = response["revision"]!.GetValue<string>();
-        return Results.Json(response);
+        sources["enrichment.tts.provider"] = new JsonObject
+        {
+            ["source"] = "default",
+            ["editable"] = false,
+            ["reason"] = "Determined by the speech endpoint."
+        };
+        body["fields"] = sources;
+        return body;
     }
     private static void Set(JsonObject root, string[] names, JsonNode? value)
     {

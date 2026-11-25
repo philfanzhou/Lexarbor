@@ -1,15 +1,25 @@
 import type { RouteRecordRaw } from 'vue-router'
 import BusinessApiKeysPanel from '@/components/BusinessApiKeysPanel.vue'
-import RateLimitSettingsPanel from '@/components/RateLimitSettingsPanel.vue'
-import AudioStorageSettingsPanel from '@/components/AudioStorageSettingsPanel.vue'
-import EnrichmentSettingsPanel from '@/components/EnrichmentSettingsPanel.vue'
+import SettingsAllView from '@/views/settings/SettingsAllView.vue'
+import SettingsGroupView from '@/views/settings/SettingsGroupView.vue'
+import SettingsOverviewView from '@/views/settings/SettingsOverviewView.vue'
+import { settingGroups } from '@/services/settingsLabels'
 
+/**
+ * The pages under /settings, children of the `settings` route. The group pages share one
+ * component; the settings shell remounts it for each route, so every page starts without a draft.
+ */
 export const settingsPages = [
-  { path: '/settings', name: 'settings-rate-limits', label: '请求限流', component: RateLimitSettingsPanel },
-  { path: '/settings/api-keys', name: 'settings-api-keys', label: '接入 API Key', component: BusinessApiKeysPanel },
-  { path: '/settings/audio-storage', name: 'settings-audio-storage', label: '音频存储', component: AudioStorageSettingsPanel },
-  { path: '/settings/review', name: 'settings-review', label: '审核助手', component: EnrichmentSettingsPanel, props: { section: 'review' } },
-  { path: '/settings/text', name: 'settings-text', label: '视觉推理', component: EnrichmentSettingsPanel, props: { section: 'text' } },
-  { path: '/settings/speech', name: 'settings-speech', label: '语音生成', component: EnrichmentSettingsPanel, props: { section: 'speech' } },
-  { path: '/settings/background', name: 'settings-background', label: '后台策略', component: EnrichmentSettingsPanel, props: { section: 'background' } }
+  { path: '', name: 'settings-overview', label: '概览', component: SettingsOverviewView },
+  { path: 'all', name: 'settings-all', label: '全部配置', component: SettingsAllView },
+  ...settingGroups.map(group => ({
+    path: group.path.slice('/settings/'.length), name: `settings-${group.id}`, label: group.label,
+    component: SettingsGroupView, props: { groupId: group.id }
+  })),
+  // The business API keys are kept in the database, not in configuration: the page stays beside
+  // the configuration categories, outside the catalog.
+  { path: 'api-keys', name: 'settings-api-keys', label: '接入 API Key', component: BusinessApiKeysPanel }
 ] satisfies (RouteRecordRaw & { label: string })[]
+
+/** The full paths the hosted sign-in may return to; they mirror the backend's allowlist. */
+export const settingsReturnRoutes: string[] = settingsPages.map(page => page.path ? `/settings/${page.path}` : '/settings')
