@@ -102,6 +102,15 @@ public sealed class ConfigurationCatalogTests : IDisposable
 
     private async Task<JsonNode> FileDocument() => JsonNode.Parse(await File.ReadAllTextAsync(FilePath, Ct))!;
 
+    // Whether a document holds a key as an explicit null, which is not the same as not holding it.
+    private static bool IsNullMember(JsonNode document, string key)
+    {
+        var parts = key.Split(':');
+        JsonNode? current = document;
+        foreach (var part in parts.SkipLast(1)) current = current is JsonObject owner ? owner[part] : null;
+        return current is JsonObject parent && parent.TryGetPropertyValue(parts[^1], out var value) && value is null;
+    }
+
     private void Seed(string json)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
@@ -150,7 +159,8 @@ public sealed class ConfigurationCatalogTests : IDisposable
         // carries is reported nowhere, neither as the value nor as the raw text.
         var connection = new NpgsqlConnectionStringBuilder(factory.DatabaseConnectionString);
         var database = Field(catalog, "ConnectionStrings:Default");
-        Assert.Equal($"Host={connection.Host};Port={connection.Port};Database={connection.Database}", database.GetProperty("value").GetString());
+        Assert.Equal(new NpgsqlConnectionStringBuilder { Host = connection.Host, Port = connection.Port, Database = connection.Database }.ConnectionString,
+            database.GetProperty("value").GetString());
         Assert.Equal(JsonValueKind.Null, database.GetProperty("raw").ValueKind);
         Assert.Equal("environment", database.GetProperty("source").GetString());
         Assert.DoesNotContain(connection.Password!, catalog.GetRawText());
@@ -171,7 +181,7 @@ public sealed class ConfigurationCatalogTests : IDisposable
         Assert.Equal(7m, Field(catalog, "VocabularyLearning:Fsrs:FamiliarThresholdDays").GetProperty("defaultValue").GetDecimal());
         // A review-step list is shown as the extras configured after the built-in steps: none by default.
         Assert.Empty(Field(catalog, "VocabularyLearning:Fsrs:LearningStepsMinutes").GetProperty("value").EnumerateArray());
-        Assert.Equal(JsonValueKind.Null, Field(catalog, "VocabularyLearning:Fsrs:LearningStepsMinutes").GetProperty("defaultValue").ValueKind);
+        Assert.Empty(Field(catalog, "VocabularyLearning:Fsrs:LearningStepsMinutes").GetProperty("defaultValue").EnumerateArray());
         Assert.Equal("integerList", Field(catalog, "VocabularyLearning:Fsrs:LearningStepsMinutes").GetProperty("kind").GetString());
         Assert.Empty(Field(catalog, "Network:TrustedProxies").GetProperty("value").EnumerateArray());
         foreach (var key in new[] { "Models:Speech:Endpoint", "Models:Reasoning:Endpoint", "IdentityService:Authority" })
@@ -391,7 +401,7 @@ public sealed class ConfigurationCatalogTests : IDisposable
     [InlineData("""{"VocabularyLearning:Fsrs:MasteredThresholdDays":3}""", "VocabularyLearning:Fsrs:MasteredThresholdDays")]
     [InlineData("""{"VocabularyLearning:Fsrs:LearningStepsMinutes":[5,0]}""", "VocabularyLearning:Fsrs:LearningStepsMinutes")]
     [InlineData("""{"VocabularyLearning:TimeZone":"Mars/Olympus"}""", "VocabularyLearning:TimeZone")]
-    [InlineData("""{"Lexarbor:Integration:ApiKey":"synthetic-submission-key"}""", "Lexarbor:BaseUrl")]
+    [InlineData("""{"Lexarbor:Integration:ApiKey":{"action":"replace","value":"synthetic-submission-key"}}""", "Lexarbor:BaseUrl")]
     [InlineData("""{"Lexarbor:BaseUrl":"http://lexarbor.example.test","Lexarbor:ApiKey":{"action":"replace","value":"synthetic-catalog-key"}}""",
         "Lexarbor:AllowInsecureHttp")]
     [InlineData("""{"Database:LegacySqlitePath":"appsettings.json"}""", "Database:LegacySqlitePath")]
@@ -485,6 +495,31 @@ public sealed class ConfigurationCatalogTests : IDisposable
         var file = await FileDocument();
         Assert.Equal(8, file["Audio"]!["MaxConcurrentUploads"]!.GetValue<int>());
         Assert.Equal(120, file["Audio"]!["RecoveryIntervalSeconds"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public async Task ALiveModuleMayClearANullableValue_AndTheFileKeepsTheNullItSubmitted()
+    {
+        using var factory = Factory(); using var client = Admin(factory);
+        async Task SaveSpeech(string json)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Put, "/admin/enrichment/settings")
+            { Content = new StringContent(json, Encoding.UTF8, "application/json") };
+            request.Headers.TryAddWithoutValidation("If-Match", Revision(await Read(client)));
+            using var answer = await client.SendAsync(request, Ct);
+            Assert.True(answer.StatusCode == HttpStatusCode.OK, $"{(int)answer.StatusCode}: {await answer.Content.ReadAsStringAsync(Ct)}");
+        }
+        var speech = factory.Services.GetRequiredService<EnrichmentRuntimeConfiguration>();
+        await SaveSpeech("""{"enrichment":{"tts":{"uk":{"speed":0.9}}}}""");
+        Assert.Equal(0.9m, speech.Current.Enrichment.Uk.Speed);
+        await SaveSpeech("""{"enrichment":{"tts":{"uk":{"speed":null}}}}""");
+        // The cleared key reads as cleared, not as the value it had a moment before: the module's
+        // null is a value of its own, unlike the null that removes a restart-only key from the file.
+        Assert.Null(speech.Current.Enrichment.Uk.Speed);
+        // On disk the null sits where the connection lives: in its own section, or in the one a save moves it to.
+        var file = await FileDocument();
+        var physical = factory.Services.GetRequiredService<PersistentConfigurationCoordinator>().PhysicalKey("Enrichment:Tts:Uk:Speed");
+        Assert.True(IsNullMember(file, physical) || IsNullMember(file, "Models:Speech:Uk:Speed"));
     }
 
     [Fact]

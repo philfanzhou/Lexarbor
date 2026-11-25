@@ -216,7 +216,9 @@ public sealed class PersistentConfigurationCoordinator
                 document = (JsonObject)(_lastValidDocument?.DeepClone() ?? _store.ReadTemplate());
                 foreach (var field in fields)
                 {
-                    SetField(document, _modelPaths.PhysicalKey(field.Key), field.Value?.DeepClone());
+                    // Only a restart-only key set to null leaves the file. A module's null is the
+                    // value it submitted for a key it cleared, and stays in the file as that null.
+                    Write(document, _modelPaths.PhysicalKey(field.Key), field.Value?.DeepClone(), keepNull: !forNextStart);
                 }
             }
             catch (Exception exception) when (IsStorageError(exception))
@@ -265,7 +267,7 @@ public sealed class PersistentConfigurationCoordinator
                 // Private comparison metadata is produced by the trusted module, never
                 // accepted as an HTTP field, and shares its single atomic commit point.
                 if (candidate.EnrichmentVersions is not null)
-                    SetField(document, "EnrichmentConfigurationVersions", candidate.EnrichmentVersions.DeepClone());
+                    Write(document, "EnrichmentConfigurationVersions", candidate.EnrichmentVersions.DeepClone(), keepNull: false);
                 byte[] bytes;
                 try
                 {
@@ -280,8 +282,8 @@ public sealed class PersistentConfigurationCoordinator
                 var nextSources = new Dictionary<string, ConfigurationFieldSource>(_sources, StringComparer.OrdinalIgnoreCase);
                 foreach (var field in fields)
                 {
-                    // A removed key is no longer in the file; the next start reads the default.
-                    nextSources[field.Key] = field.Value is null
+                    // A restart-only key removed from the file is no longer there; the next start reads the default.
+                    nextSources[field.Key] = forNextStart && field.Value is null
                         ? new(ConfigurationValueSource.Default, true)
                         : new(ConfigurationValueSource.File, true);
                 }
@@ -535,7 +537,7 @@ public sealed class PersistentConfigurationCoordinator
         var running = (JsonObject)nextStart.DeepClone();
         foreach (var field in ConfigurationCatalog.RestartFields)
         {
-            SetField(running, field.Key, Node(_startupDocument, field.Key)?.DeepClone());
+            Write(running, field.Key, Node(_startupDocument, field.Key)?.DeepClone(), keepNull: false);
         }
         return running;
     }
@@ -590,7 +592,7 @@ public sealed class PersistentConfigurationCoordinator
                 var suffix = field.Key[logical.Length..];
                 foreach (var old in oldSections)
                     if (RemoveField(disk, old + suffix, out var value) && old == active)
-                        SetField(disk, canonical + suffix, value);
+                        Write(disk, canonical + suffix, value, keepNull: true);
             }
         }
     }
@@ -613,14 +615,18 @@ public sealed class PersistentConfigurationCoordinator
         return false;
     }
 
-    private static void SetField(JsonObject document, string key, JsonNode? value)
+    // Writes one key into a document. .NET also accepts colon-delimited property names; update
+    // their semantic location without creating a duplicate flattened key on the next startup.
+    private static void Write(JsonObject document, string key, JsonNode? value, bool keepNull)
     {
-        // .NET also accepts colon-delimited property names; update their semantic
-        // location without creating a duplicate flattened key on the next startup.
+        // A null removes a persisted key, so the next start falls back to the default — unless the
+        // null is itself the value a module submitted for a key it cleared, which then stays: the
+        // module's candidate must read the key as cleared, not fall back to an earlier value.
+        var remove = value is null && !keepNull;
         var name = document.Select(item => item.Key).FirstOrDefault(name => key.Equals(name, StringComparison.OrdinalIgnoreCase));
         if (name is not null)
         {
-            Assign(document, name, value);
+            Assign(document, name, value, remove);
             return;
         }
         name = document.Select(item => item.Key)
@@ -628,31 +634,30 @@ public sealed class PersistentConfigurationCoordinator
         if (name is not null)
         {
             var child = document[name] as JsonObject ?? throw new IOException(ConfigurationSaveResult.StorageFailureMessage);
-            SetField(child, key[(name.Length + 1)..], value);
+            Write(child, key[(name.Length + 1)..], value, keepNull);
             // A section that a removal left empty goes with it.
-            if (value is null && child.Count == 0) document.Remove(name);
+            if (remove && child.Count == 0) document.Remove(name);
             return;
         }
         var separator = key.IndexOf(':');
         if (separator < 0)
         {
-            Assign(document, key, value);
+            Assign(document, key, value, remove);
             return;
         }
-        if (value is null)
+        if (remove)
         {
             // Nothing was persisted to remove.
             return;
         }
         var section = new JsonObject();
         document[key[..separator]] = section;
-        SetField(section, key[(separator + 1)..], value);
+        Write(section, key[(separator + 1)..], value, keepNull);
     }
 
-    // A null value removes a persisted key, so the next start falls back to the default.
-    private static void Assign(JsonObject document, string name, JsonNode? value)
+    private static void Assign(JsonObject document, string name, JsonNode? value, bool remove)
     {
-        if (value is null)
+        if (remove)
         {
             document.Remove(name);
         }
