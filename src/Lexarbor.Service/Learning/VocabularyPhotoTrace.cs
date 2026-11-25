@@ -18,6 +18,8 @@ public sealed class VocabularyPhotoTrace
 
     /// <summary>Why the exchange failed before a usable answer, when it did.</summary>
     public string? RecognitionFailure { get; set; }
+
+    public bool TimedOut { get; set; }
 }
 
 /// <summary>One finished photo import request. Candidates are exactly what the caller received.</summary>

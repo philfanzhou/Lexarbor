@@ -74,6 +74,8 @@ internal static class LearningEndpoints
             Path.Combine(provider.GetRequiredService<IHostEnvironment>().ContentRootPath, "data", VocabularyPhotoTraceStore.DirectoryName),
             provider.GetRequiredService<ILogger<VocabularyPhotoTraceStore>>()));
         services.AddScoped<VocabularyPhotoImportService>();
+        services.AddScoped<PhotoImportTaskRepository>();
+        services.AddHostedService<PhotoImportWorker>();
         services.AddOptions<VocabularyFsrsOptions>()
             .Bind(configuration.GetSection(VocabularyFsrsOptions.SectionName)).ValidateOnStart();
         services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<VocabularyFsrsOptions>, VocabularyFsrsOptionsValidation>();

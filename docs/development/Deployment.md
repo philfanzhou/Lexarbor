@@ -7,6 +7,12 @@
 
 Upgrade all services writing learner data before enabling `extra-review` in a client. A batch is stored in the existing plan-day JSON. An older writer can discard the review batch fields when it rewrites that day. Back up learner data before rolling back a writer after clients have started batches. See the [learner progress contract](../api/LearnerProgress.md#extra-review-after-check-in).
 
+## Learner photo import storage
+
+Learner storage upgrades each caller's PostgreSQL schema from version 6 to 7 on first access. Back up the database before upgrading and run the same learner storage version on all replicas. The worker discovers existing task queues after startup. An interrupted claim becomes eligible for processing again after ten minutes. Deleting a learner cascades to their tasks.
+
+Pending and failed tasks keep the original image in PostgreSQL for retries. A ready task keeps its candidates and addition progress and releases its database copy of the image. Database backups therefore include outstanding uploads and progress. Deleting a task removes its database record. The separate [diagnostic trace files](../api/LearnerProgress.md#photo-import-traces) follow their own retention policy. See the [photo task API](../api/LearnerProgress.md#photo-import-tasks) for the lifecycle.
+
 ## Build the image
 
 The root of the repository is the Docker build context:
