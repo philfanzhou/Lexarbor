@@ -159,8 +159,10 @@ public sealed class ConfigurationCatalogTests : IDisposable
         // carries is reported nowhere, neither as the value nor as the raw text.
         var connection = new NpgsqlConnectionStringBuilder(factory.DatabaseConnectionString);
         var database = Field(catalog, "ConnectionStrings:Default");
-        Assert.Equal(new NpgsqlConnectionStringBuilder { Host = connection.Host, Port = connection.Port, Database = connection.Database }.ConnectionString,
-            database.GetProperty("value").GetString());
+        // Parsed rather than spelled: which server and database, and nothing else.
+        var reported = new NpgsqlConnectionStringBuilder(database.GetProperty("value").GetString());
+        Assert.Equal((connection.Host, connection.Port, connection.Database), (reported.Host, reported.Port, reported.Database));
+        Assert.Equal(connection.Port == 5432 ? 2 : 3, reported.Count);
         Assert.Equal(JsonValueKind.Null, database.GetProperty("raw").ValueKind);
         Assert.Equal("environment", database.GetProperty("source").GetString());
         Assert.DoesNotContain(connection.Password!, catalog.GetRawText());
