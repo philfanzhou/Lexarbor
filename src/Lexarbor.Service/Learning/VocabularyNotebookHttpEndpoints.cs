@@ -21,6 +21,7 @@ public static partial class VocabularyNotebookHttpEndpoints
         group.MapPost("/students/{studentId:guid}/notebook/items/{itemId:guid}/remove", Remove);
         group.MapPost("/students/{studentId:guid}/notebook/items/{itemId:guid}/resubmit", Resubmit);
         group.MapPost("/students/{studentId:guid}/notebook/photo", Photo).DisableAntiforgery();
+        MapPhotoTasks(group);
         return app;
     }
 
@@ -85,10 +86,9 @@ public static partial class VocabularyNotebookHttpEndpoints
             return MapError(error);
         }
     }
-    private static async Task<IResult> Photo(Guid studentId, HttpRequest request, VocabularyPhotoImportService service,
-        VocabularyPhotoTrace trace, VocabularyPhotoTraceStore traces, CancellationToken cancellationToken)
+    private static async Task<VocabPhoto?> ReadPhoto(HttpRequest request, CancellationToken cancellationToken)
     {
-        if (!request.HasFormContentType) return MapError(new VocabPhotoInvalidException());
+        if (!request.HasFormContentType) return null;
         IFormFile? file;
         try
         {
@@ -102,7 +102,7 @@ public static partial class VocabularyNotebookHttpEndpoints
         }
 
         if (file is null || file.Length is 0 or > VocabularyPhotoImportService.MaxPhotoBytes)
-            return MapError(new VocabPhotoInvalidException());
+            return null;
         byte[] photo;
         using (var buffer = new MemoryStream((int)file.Length))
         {
@@ -110,23 +110,44 @@ public static partial class VocabularyNotebookHttpEndpoints
             photo = buffer.ToArray();
         }
 
+        return new VocabPhoto(photo, file.ContentType ?? string.Empty);
+    }
+
+    private static async Task<IResult> Photo(Guid studentId, HttpRequest request, VocabularyPhotoImportService service,
+        VocabularyPhotoTrace trace, VocabularyPhotoTraceStore traces, CancellationToken cancellationToken)
+    {
+        var upload = await ReadPhoto(request, cancellationToken);
+        if (upload is null) return MapError(new VocabPhotoInvalidException());
+        try
+        {
+            var candidates = await PreviewWithTraceAsync(studentId, upload, service, trace, traces, cancellationToken);
+            return Results.Ok(new { success = true, data = new { candidates = candidates.Select(ToDto) } });
+        }
+        catch (Exception error) when (IsMapped(error))
+        {
+            return MapError(error);
+        }
+    }
+
+    internal static async Task<IReadOnlyList<VocabPhotoCandidate>> PreviewWithTraceAsync(Guid studentId, VocabPhoto upload,
+        VocabularyPhotoImportService service, VocabularyPhotoTrace trace, VocabularyPhotoTraceStore traces, CancellationToken cancellationToken)
+    {
         var at = DateTimeOffset.UtcNow;
         var started = Stopwatch.GetTimestamp();
-        var contentType = file.ContentType ?? string.Empty;
         var outcome = "failed";
         string? message = null;
         List<object>? result = null;
         try
         {
-            var candidates = await service.PreviewAsync(studentId, new VocabPhoto(photo, contentType), cancellationToken).ConfigureAwait(false);
+            var candidates = await service.PreviewAsync(studentId, upload, cancellationToken).ConfigureAwait(false);
             result = candidates.Select(ToDto).ToList();
             outcome = "ok";
-            return Results.Ok(new { success = true, data = new { candidates = result } });
+            return candidates;
         }
         catch (Exception error) when (IsMapped(error))
         {
             (outcome, message) = (TraceOutcome(error), error.Message);
-            return MapError(error);
+            throw;
         }
         catch (OperationCanceledException)
         {
@@ -143,7 +164,7 @@ public static partial class VocabularyNotebookHttpEndpoints
         {
             // Only a request that reached the vision model says anything about recognition worth keeping.
             if (trace.RecognitionMilliseconds is not null)
-                await traces.SaveAsync(new VocabularyPhotoTraceRecord(at, studentId, photo, contentType, outcome, message,
+                await traces.SaveAsync(new VocabularyPhotoTraceRecord(at, studentId, upload.Content, upload.ContentType, outcome, message,
                     (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds, trace, result)).ConfigureAwait(false);
         }
     }

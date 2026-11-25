@@ -98,7 +98,7 @@ public sealed class VocabularyPhotoImportService(
     }
 
     /// <summary>A JPEG or PNG by signature, not empty and not above MaxPhotoBytes; otherwise VocabPhotoInvalidException.</summary>
-    private static void RequireImage(VocabPhoto photo)
+    public static void RequireImage(VocabPhoto photo)
     {
         var bytes = photo.Content;
         if (bytes.Length is 0 or > MaxPhotoBytes) throw new VocabPhotoInvalidException();

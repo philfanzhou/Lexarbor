@@ -17,11 +17,23 @@ public sealed class LearningStorage(string catalogConnection, params IIntercepto
     public static string Schema(string callerId) =>
         "learn_" + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(callerId)))[..48];
 
-    public DbContextOptions<LearningDbContext> Options(string callerId)
+    public DbContextOptions<LearningDbContext> Options(string callerId) => OptionsForSchema(Schema(callerId));
+
+    internal DbContextOptions<LearningDbContext> OptionsForSchema(string schema)
     {
-        var connection = new NpgsqlConnectionStringBuilder(catalogConnection) { SearchPath = Schema(callerId) };
+        var connection = new NpgsqlConnectionStringBuilder(catalogConnection) { SearchPath = schema };
         return new DbContextOptionsBuilder<LearningDbContext>().UseNpgsql(connection.ConnectionString)
             .AddInterceptors(interceptors).Options;
+    }
+
+    internal async Task<List<string>> PhotoTaskSchemasAsync(CancellationToken token)
+    {
+        await using var database = new LearningDbContext(OptionsForSchema("pg_catalog"));
+        return await database.Database.SqlQueryRaw<string>("""
+            SELECT schemaname::text AS "Value" FROM pg_tables
+            WHERE tablename = 'vocab_photo_task' AND length(schemaname) = 54 AND schemaname ~ '^learn_[a-f0-9]+$'
+            ORDER BY schemaname
+            """).ToListAsync(token);
     }
 
     public NpgsqlConnection OpenGate(string callerId) => new(new NpgsqlConnectionStringBuilder(catalogConnection)
@@ -91,8 +103,13 @@ public sealed class LearningStorage(string catalogConnection, params IIntercepto
             await ApplyAsync(database, "StorageCleanupV5.sql", token);
             current = 5;
         }
-        if (current == 5) await ApplyAsync(database, "CardLocationV6.sql", token);
-        else if (current != 6) throw new InvalidOperationException("Unsupported learner storage version.");
+        if (current == 5)
+        {
+            await ApplyAsync(database, "CardLocationV6.sql", token);
+            current = 6;
+        }
+        if (current == 6) await ApplyAsync(database, "PhotoImportTasksV7.sql", token);
+        else if (current != 7) throw new InvalidOperationException("Unsupported learner storage version.");
         await transaction.CommitAsync(token);
     }
 

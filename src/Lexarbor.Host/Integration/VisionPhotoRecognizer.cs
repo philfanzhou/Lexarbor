@@ -106,7 +106,8 @@ public sealed class VisionPhotoRecognizer(IHttpClientFactory clients, Enrichment
         }
         catch (Exception error) when (error is OperationCanceledException or HttpRequestException or IOException)
         {
-            trace.RecognitionFailure = error is OperationCanceledException
+            trace.TimedOut = error is OperationCanceledException;
+            trace.RecognitionFailure = trace.TimedOut
                 ? $"No answer within {seconds} seconds."
                 : error.GetType().Name;
             logger.LogWarning("Vision model image recognition failed: {Error}.", error.GetType().Name);

@@ -53,7 +53,7 @@ public sealed class LearnerStorageV6Tests
         await storage.EnsureAsync(caller, Ct);
         await new LearningStorage(database.ConnectionString).EnsureAsync(caller, Ct);
 
-        Assert.Equal(6, await db.Database.SqlQuery<int>($"SELECT version AS \"Value\" FROM learning_schema_version").SingleAsync(Ct));
+        Assert.Equal(7, await db.Database.SqlQuery<int>($"SELECT version AS \"Value\" FROM learning_schema_version").SingleAsync(Ct));
         var rows = await db.VocabCardLocations.AsNoTracking().OrderBy(row => row.WordKey).ToListAsync(Ct);
         Assert.Equal(
             [("apple", "first", "apple-first", (short?)null, (Guid?)created, start.AddMinutes(1)),

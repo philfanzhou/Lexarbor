@@ -57,6 +57,25 @@ Invalid filters, an overlong keyword, a nonpositive or malformed page, or a requ
 
 An empty array or no matches yields `{"success":true,"data":{"included":[]}}`. A missing array, more than 100 pairs (before deduplication), or a missing or blank key, such as `{"keys":[{"wordKey":"observe"}]}`, returns HTTP 400 with code `VOCAB_NOTEBOOK_MEMBERSHIP_INVALID`.
 
+### Photo import tasks
+
+Use the following paths relative to `/learning/v1/api/vocabulary/students/{studentId}/notebook`. The trusted backend must authorize the student before forwarding any operation.
+
+| Method and path | Request and result |
+| --- | --- |
+| `POST /photo-tasks` | Send one JPEG or PNG of up to 20 MiB as multipart field `file`. HTTP 202 returns `data.id`, initial state `queued`, and the task URL in `Location`. Recognition continues after the upload request ends. |
+| `GET /photo-tasks?page=1` | Lists this student's tasks, newest first, 50 per page. Each summary includes `id`, `state`, UTC `createdAt` and `updatedAt`, `attempts`, `errorCode`, `entryCount` and `addedCount`. |
+| `GET /photo-tasks/{id}` | Returns task metadata and ordered `entries`. Each entry contains its zero-based `index`, the existing photo preview `candidate` (including meanings and review note), and a nullable `notebookItemId`. |
+| `POST /photo-tasks/{id}/retry` | Requeues a failed task using its saved photo. Returns 202 with the same ID. The attempt count increases when a worker claims it. |
+| `PUT /photo-tasks/{id}/entries/{index}` | Adds one entry from a ready task as the student. Returns `data.notebookItemId` and `data.taskDeleted`. |
+| `DELETE /photo-tasks/{id}` | Discards a task in any state (204). Items already added to the notebook stay there. |
+
+Poll the task URL after upload or retry. A worker moves the task from `queued` to `processing`, then to `ready` or `failed`. A failed task keeps its photo and error code until retry or deletion. Codes include `VOCAB_PHOTO_TIMEOUT`, `VOCAB_PHOTO_INVALID`, `VOCAB_PHOTO_NO_ENTRIES`, `VOCAB_CATALOG_UNAVAILABLE` and `VOCAB_PHOTO_IMPORT_UNAVAILABLE`. Invalid input at upload returns 400 before creating a task. An absent student at upload or list returns 404.
+
+To confirm a matched entry, send `{}`. To choose a catalog meaning, send `{"meaningId":"<catalog meaning ID>"}`. To submit a new or corrected definition, send fields such as `{"word":"observe","partOfSpeech":"v.","meaning":"to watch carefully"}`. A new candidate with a usable definition also accepts `{}`. A candidate marked `choose` requires explicit input. A pending submission counts as added when its notebook item is saved.
+
+Repeating an entry write on an open task returns its previously saved notebook item ID. The final successful entry write deletes the task in the same database transaction. Subsequent task requests return 404, including retries after a lost final response. The notebook membership endpoint can confirm an addition after such a disconnect. Wrong-state operations return 409. The synchronous `POST /photo` preview remains available.
+
 ## Extra review after check-in
 
 After completing the daily assignment, post `{"mode":"extra-review","extraBatchId":"<uuid>"}` to the learner's `/questions/next` route. The target is twice the plan's per-group count when the batch starts. A 25+25 assignment allows another 50 distinct learned words. Due cards are first, followed by the earliest scheduled cards. Paused cards, incomplete new words and unavailable locations are skipped. A short batch reports its actual word count.
