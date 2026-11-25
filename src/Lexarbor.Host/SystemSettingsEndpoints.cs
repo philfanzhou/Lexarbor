@@ -32,6 +32,9 @@ public static class SystemSettingsEndpoints
         AudioStorageSettingsEndpoints.Map(app.MapGroup("/admin/system/settings/audio-storage")
             .RequireAuthorization(ManagementAuthorizationDefaults.AdminPolicyName)
             .WithMetadata(new SettingsMetadata()));
+        ConfigurationCatalogEndpoints.Map(app.MapGroup("/admin/system/settings")
+            .RequireAuthorization(ManagementAuthorizationDefaults.AdminPolicyName)
+            .WithMetadata(new SettingsMetadata()));
     }
 
     private static async Task<IResult> ReadAsync(HttpContext context, PersistentConfigurationCoordinator coordinator, RateLimitRuntime runtime)
@@ -41,7 +44,8 @@ public static class SystemSettingsEndpoints
         return Results.Json(response);
     }
 
-    private static RateLimitsResponse Response(ConfigurationReadResult read, RateLimitSnapshot snapshot)
+    // Also the catalog's rate-limit values, so the two surfaces cannot disagree.
+    internal static RateLimitsResponse Response(ConfigurationReadResult read, RateLimitSnapshot snapshot)
     {
         var policy = snapshot.AdminLogin;
         var source = read.Sources["RateLimits:AdminLogin:Enabled"];

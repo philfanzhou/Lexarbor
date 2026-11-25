@@ -11,6 +11,7 @@ using Lexarbor.Domain.Repositories;
 using Lexarbor.Domain.Services;
 using Lexarbor.Host;
 using Lexarbor.Host.Audio;
+using Lexarbor.Host.Authentication;
 using Lexarbor.Host.Configuration;
 using Lexarbor.Host.Integration;
 using Lexarbor.Host.RateLimiting;
@@ -185,6 +186,11 @@ internal static class SettingsApiProbe
             builder.Services.AddSingleton<PronunciationSpeechClient>();
             builder.Services.AddSingleton<SpeechPreviewAdmission>();
             builder.Services.AddSingleton(provider => new PersistentConfigurationCoordinator((IConfigurationRoot)provider.GetRequiredService<IConfiguration>(), file));
+            // The settings pages open with the configuration catalog, which also reads the sign-in
+            // settings; this host has no admin registration to bind them.
+            builder.Services.AddOptions<AdminOidcSettings>().Configure<IConfiguration>((settings, composed) => settings.Load(composed));
+            builder.Services.AddSingleton(provider => provider.GetRequiredService<IOptionsMonitor<AdminOidcSettings>>().CurrentValue);
+            builder.Services.AddConfigurationCatalog();
             var serviceId = ServiceId.Parse("settings-browser-probe");
             builder.Services.AddServiceMantle(serviceId, InstanceId.CreateRandom(serviceId)).AddLexarborRateLimiting(builder.Configuration);
             builder.Services.AddSingleton<RateLimitRuntime>();

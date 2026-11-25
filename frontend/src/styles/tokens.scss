@@ -38,6 +38,10 @@
 //     primary on Element Plus fill #f0f2f5      5.73  hovered page number
 //   Focus ring
 //     primary on page background                5.97  (non-text, needs 3:1)
+//   Settings badges and callouts (semantic text on its own light-9 background)
+//     primary 5.54, success 5.49, warning 5.48, danger 4.81, info 5.34
+//     The soft backgrounds are the same light-9 shades, so the ratios above hold.
+//   Read-only values (text regular #3c4148 on page background #f5f7f6) 9.34
 //
 // Disabled controls are exempt from the contrast requirement and keep the
 // light-5 shades Element Plus gives them.
@@ -71,6 +75,8 @@ $bg-page: #f5f7f6;
 $bg-surface: $white;
 
 $shadow-1: 0 1px 2px rgb(31 35 40 / 6%), 0 1px 3px rgb(31 35 40 / 10%);
+$shadow-2: 0 1px 2px rgb(31 35 40 / 6%), 0 4px 12px rgb(31 35 40 / 8%);
+$shadow-3: 0 2px 6px rgb(31 35 40 / 8%), 0 12px 32px rgb(31 35 40 / 14%);
 
 // color.mix rounded to whole channels, as Element Plus rounds its own shades.
 @function mix($color1, $color2, $weight) {
@@ -136,11 +142,19 @@ $semantic-colors: (
   // Shape and elevation
   --lx-radius-sm: 4px;
   --lx-radius-md: 8px;
+  --lx-radius-lg: 12px;
+  --lx-radius-pill: 999px;
   --lx-shadow-1: #{$shadow-1};
+  --lx-shadow-2: #{$shadow-2};
+  --lx-shadow-3: #{$shadow-3};
 
   // Density
   --lx-density-control-height: 32px;
   --lx-density-table-row-height: 40px;
+
+  // Text
+  --lx-font-family-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --lx-line-height: 1.6;
 
   // Element Plus, from the same source values
   @each $name, $value in $semantic-colors {
@@ -171,6 +185,17 @@ $semantic-colors: (
 
   --el-border-radius-base: var(--lx-radius-sm);
   --el-border-radius-small: var(--lx-radius-sm);
+
+  // Soft backgrounds for status badges and callouts: the same light-9 shades below.
+  --lx-color-primary-soft: var(--el-color-primary-light-9);
+  --lx-color-success-soft: var(--el-color-success-light-9);
+  --lx-color-warning-soft: var(--el-color-warning-light-9);
+  --lx-color-danger-soft: var(--el-color-danger-light-9);
+  --lx-color-info-soft: var(--el-color-info-light-9);
+  --lx-color-success-line: var(--el-color-success-light-7);
+  --lx-color-warning-line: var(--el-color-warning-light-7);
+  --lx-color-danger-line: var(--el-color-danger-light-7);
+  --lx-color-info-line: var(--el-color-info-light-7);
 
   --el-font-size-extra-large: var(--lx-font-size-lg);
   --el-font-size-large: var(--lx-font-size-md);

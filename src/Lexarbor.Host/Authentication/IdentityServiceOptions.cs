@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Hosting;
+
 namespace Lexarbor.Host.Authentication;
 
 /// <summary>
@@ -31,4 +33,32 @@ public sealed class IdentityServiceOptions
     /// nobody can see or change.
     /// </remarks>
     public bool? RequireHttpsMetadata { get; set; }
+
+    /// <summary>
+    /// The one deployment statement both trusts share — the Bearer scheme and the hosted-login
+    /// client — on whether the provider's signing metadata may be fetched over plain HTTP.
+    /// A configured value decides; otherwise only Development and Testing, or a loopback
+    /// authority, are exempt.
+    /// </summary>
+    internal static bool RequiresHttpsMetadata(string? authority, bool? configured, IHostEnvironment environment)
+    {
+        if (configured.HasValue)
+        {
+            return configured.Value;
+        }
+
+        if (environment.IsDevelopment() || environment.IsEnvironment("Testing"))
+        {
+            return false;
+        }
+
+        // What the requirement protects is a network path an attacker could rewrite,
+        // and loopback is not one. Exempting it also keeps a container that has not
+        // been given an identity provider starting and serving its public API: the
+        // image's placeholder authority is http://localhost:8080, and refusing to
+        // start over an unconfigured administration login would be a harsher answer
+        // than the one absent provider credentials already get, which is to log and
+        // return 503 from the login endpoint.
+        return !(Uri.TryCreate(authority, UriKind.Absolute, out var uri) && uri.IsLoopback);
+    }
 }

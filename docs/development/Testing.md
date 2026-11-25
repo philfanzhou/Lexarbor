@@ -405,7 +405,21 @@ rate-limit or S3 administration endpoints; those modules require their own tests
 
 `SystemSettingsTests` verifies authenticated GET/PUT, cookie CSRF and Bearer precedence, no-store/security headers, strict switch payloads, If-Match errors, concurrent-save conflicts, read-only-file failure, deployment override sources, invalid disabled numbers, and file/restart persistence. Real Host requests exercise disabled → enabled → 429 → disabled → enabled without resetting the original per-address bucket, using a custom initially disabled login quota and equivalent login paths. Existing audio upload tests continue to verify the separate concurrency admission guard. Coordinator tests cover cancellation before commit and noncancelable publication after commit.
 
-`frontend/e2e/settings.spec.ts` covers actual/custom values, separate drafts, CSRF/If-Match and one submission, 400/413/503 failures, stale revisions, unknown/malformed reads and retry, source overrides, lost save responses and failed read-back, page/sign-out cancellation with late responses, exact login return, permission navigation, keyboard and narrow-screen behavior. Run `npm run test:e2e -- settings.spec.ts` for this slice and the full browser suite before merge.
+`frontend/e2e/settings.spec.ts`, `settings-startup.spec.ts`, `audio-settings.spec.ts`
+and `enrichment-settings.spec.ts` drive the settings surface against a catalog
+fixture generated from the real endpoint's answer: the navigation and the
+overview's counts, the list's search, filters and paging, every control kind
+including a list of numbers and decimals, a live switch saved with CSRF/If-Match
+and one submission, 400/409/412/413/428/503 failures, stale revisions,
+unknown/malformed reads and retry, deployment-owned keys and sections, lost save
+responses and failed read-back, page/sign-out cancellation with late responses,
+exact login return, permission navigation, keyboard and narrow-screen behavior.
+`ConfigurationCatalogTests` and `StartupConfigurationValidatorTests` cover the
+catalog and startup endpoints on the real Host: what the catalog reports, that no
+secret value ever leaves the host, that a saved candidate starts the next host,
+every refusal naming its keys, and the validator's rule table. Run
+`npm run test:e2e -- settings` for the browser slice and the full suite before
+merge.
 
 ## Internal audio runtime generations
 
@@ -519,14 +533,15 @@ clear; incomplete disabled saves; safe 400/409/412/428/503 notices; failed and
 malformed reads; locked environment/command-line values; uncertain PUT outcomes
 and failed read-back without replay; 401/403 navigation and late response guards;
 secret clearing on navigation/logout/save; password controls, storage/URL/console
-boundaries, keyboard, narrow viewport and WCAG A/AA checks. Existing
-`settings.spec.ts` continues to cover rate-limit behavior independently.
+boundaries, keyboard, narrow viewport and WCAG A/AA checks. The other three
+settings specs cover the catalog surface around it, as described under
+[Online rate-limit settings](#online-rate-limit-settings).
 
 `bash .github/scripts/test-audio-storage.sh` now builds the frontend and runs
 `.github/scripts/test-settings-browser.mjs` against real Kestrel routes via
 `SettingsApiProbe`. Install frontend dependencies and Chromium first. The browser
 uses the actual settings form without mocking settings APIs: absent file → first
-S3 save → inspect the complete persisted file → reload; two pages/cross-panel 412;
+S3 save → inspect the complete persisted file → reload; two pages/cross-category 412;
 rate-limit off/on/429/off; drop a real committed PUT response and GET confirmation
 without replay; read-only file 503 with the business route still available;
 actual MP3 upload → administrator word-drawer playback → public signed MP3 decoded

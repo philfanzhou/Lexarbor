@@ -29,7 +29,9 @@ public static class AudioStorageSettingsEndpoints
         group.MapPut("", SaveAsync);
     }
 
-    private static AudioStorageResponse Response(ConfigurationReadResult read, AudioOptions options)
+    // Never serialize AudioOptions: it contains the current credentials.
+    // Shared with the catalog, so the two surfaces cannot disagree.
+    internal static AudioStorageResponse Response(ConfigurationReadResult read, AudioOptions options)
     {
         var fields = Names.ToDictionary(item => item.Key, item =>
         {
@@ -38,7 +40,6 @@ public static class AudioStorageSettingsEndpoints
             return new FieldResponse(source, field.Editable,
                 field.Editable ? null : "Overridden by deployment configuration.");
         });
-        // Never serialize AudioOptions: it contains the current credentials.
         return new(read.Revision, options.Enabled, options.InternalEndpoint, options.PublicEndpoint, options.Region,
             options.Bucket, options.KeyPrefix, !string.IsNullOrWhiteSpace(options.AccessKey), !string.IsNullOrWhiteSpace(options.SecretKey), fields);
     }

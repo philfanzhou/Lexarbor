@@ -73,10 +73,14 @@ if (args.Length > 0)
 builder.Services.AddSingleton(configurationStore);
 builder.Services.AddSingleton(provider => new PersistentConfigurationCoordinator(
     (IConfigurationRoot)provider.GetRequiredService<IConfiguration>(), configurationStore));
+// The complete configuration catalog behind the settings surface; it composes the live
+// modules' own answers with the startup-bound keys and their next-start values.
+builder.Services.AddConfigurationCatalog();
 
-// HTTP listen port is hardcoded to 5008 (not configurable via ASPNETCORE_URLS).
-// Host port mapping is controlled by scripts/start.sh: -p ${Port}:5008.
-const int httpPort = 5008;
+// HTTP listen port is fixed (not configurable via ASPNETCORE_URLS), like the other
+// host facts the settings surface reports. Host port mapping is controlled by
+// scripts/start.sh: -p ${Port}:5008.
+const int httpPort = LexarborHostFacts.HttpPort;
 
 builder.WebHost.ConfigureKestrel(options =>
 {
@@ -942,27 +946,11 @@ return 0;
 static bool RequiresHttpsMetadata(
     IdentityServiceOptions identityService,
     IHostEnvironment environment)
-{
-    if (identityService.RequireHttpsMetadata.HasValue)
-    {
-        return identityService.RequireHttpsMetadata.Value;
-    }
-
-    if (environment.IsDevelopment() || environment.IsEnvironment("Testing"))
-    {
-        return false;
-    }
-
-    // What the requirement protects is a network path an attacker could rewrite,
-    // and loopback is not one. Exempting it also keeps a container that has not
-    // been given an identity provider starting and serving its public API: the
-    // image's placeholder authority is http://localhost:8080, and refusing to
-    // start over an unconfigured administration login would be a harsher answer
-    // than the one absent provider credentials already get, which is to log and
-    // return 503 from the login endpoint.
-    return !(Uri.TryCreate(identityService.Authority, UriKind.Absolute, out var authority)
-             && authority.IsLoopback);
-}
+    // One rule for the Bearer trust, the hosted-login client and the settings validator.
+    => IdentityServiceOptions.RequiresHttpsMetadata(
+        identityService.Authority,
+        identityService.RequireHttpsMetadata,
+        environment);
 
 public partial class Program
 {
