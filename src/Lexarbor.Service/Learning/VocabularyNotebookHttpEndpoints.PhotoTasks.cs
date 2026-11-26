@@ -45,8 +45,8 @@ public static partial class VocabularyNotebookHttpEndpoints
         return Results.Ok(new { success = true, data = new { items, page = page ?? 1, pageSize = 50 } });
     }
 
-    private static async Task<IResult> GetPhotoTask(Guid studentId, Guid taskId, PhotoImportTaskRepository tasks,
-        IVocabNotebookRepository notebook, CancellationToken ct)
+    private static Task<IResult> GetPhotoTask(Guid studentId, Guid taskId, PhotoImportTaskRepository tasks,
+        IVocabNotebookRepository notebook, CancellationToken ct) => notebook.InRepeatableReadAsync<IResult>(async () =>
     {
         var task = await tasks.ReadAsync(studentId, taskId, false, ct);
         if (task is null) return MissingPhotoTask();
@@ -69,7 +69,7 @@ public static partial class VocabularyNotebookHttpEndpoints
                 entries = entries.Select((entry, index) => new { index, candidate = ToDto(entry.Candidate, included), entry.NotebookItemId })
             }
         });
-    }
+    }, ct);
 
     private static async Task<IResult> RetryPhotoTask(Guid studentId, Guid taskId, PhotoImportTaskRepository tasks, CancellationToken ct)
     {
