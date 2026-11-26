@@ -26,9 +26,9 @@ jobs:
   backend:
     name: Backend tests
     runs-on: ubuntu-latest
-    # The tests run against a real PostgreSQL server and the identity step
-    # publishes and starts six hosts; together they take 11-15 minutes.
-    timeout-minutes: 25
+    # PostgreSQL tests with coverage can take over 22 minutes. Leave time to
+    # publish and start all six hosts for the build identity checks afterward.
+    timeout-minutes: 35
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

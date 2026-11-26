@@ -70,6 +70,8 @@ Use the following paths relative to `/learning/v1/api/vocabulary/students/{stude
 | `PUT /photo-tasks/{id}/entries/{index}` | Adds one entry from a ready task as the student. Returns `data.notebookItemId` and `data.taskDeleted`. |
 | `DELETE /photo-tasks/{id}` | Discards a task in any state (204). Items already added to the notebook stay there. |
 
+Each meaning in `entries[].candidate.meanings[]` includes an `inNotebook` boolean. The task detail checks the student's notebook on each read. A ready or pending item with the same `wordKey` and `meaningKey` gives `true`. A missing or rejected pair gives `false`. A meaning added before the photo was uploaded can therefore have `inNotebook: true` while the entry's `notebookItemId` is still null. Candidates without catalog matches have an empty `meanings` array.
+
 Poll the task URL after upload or retry. A worker moves the task from `queued` to `processing`, then to `ready` or `failed`. A failed task keeps its photo and error code until retry or deletion. Codes include `VOCAB_PHOTO_TIMEOUT`, `VOCAB_PHOTO_INVALID`, `VOCAB_PHOTO_NO_ENTRIES`, `VOCAB_CATALOG_UNAVAILABLE` and `VOCAB_PHOTO_IMPORT_UNAVAILABLE`. Invalid input at upload returns 400 before creating a task. An absent student at upload or list returns 404.
 
 To confirm a matched entry, send `{}`. To choose a catalog meaning, send `{"meaningId":"<catalog meaning ID>"}`. To submit a new or corrected definition, send fields such as `{"word":"observe","partOfSpeech":"v.","meaning":"to watch carefully"}`. A new candidate with a usable definition also accepts `{}`. A candidate marked `choose` requires explicit input. A pending submission counts as added when its notebook item is saved.
