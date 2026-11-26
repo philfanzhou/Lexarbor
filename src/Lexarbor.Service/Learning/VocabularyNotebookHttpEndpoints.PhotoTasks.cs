@@ -45,11 +45,15 @@ public static partial class VocabularyNotebookHttpEndpoints
         return Results.Ok(new { success = true, data = new { items, page = page ?? 1, pageSize = 50 } });
     }
 
-    private static async Task<IResult> GetPhotoTask(Guid studentId, Guid taskId, PhotoImportTaskRepository tasks, CancellationToken ct)
+    private static async Task<IResult> GetPhotoTask(Guid studentId, Guid taskId, PhotoImportTaskRepository tasks,
+        IVocabNotebookRepository notebook, CancellationToken ct)
     {
         var task = await tasks.ReadAsync(studentId, taskId, false, ct);
         if (task is null) return MissingPhotoTask();
-        var entries = task.ReadEntries().Select((item, index) => new { index, candidate = ToDto(item.Candidate), item.NotebookItemId });
+        var entries = task.ReadEntries();
+        var keys = entries.SelectMany(entry => entry.Candidate.Meanings)
+            .Select(meaning => new CardKey(meaning.WordKey, meaning.MeaningKey)).ToHashSet();
+        HashSet<CardKey> included = keys.Count == 0 ? [] : (await notebook.MembershipAsync(studentId, keys, ct)).ToHashSet();
         return Results.Ok(new
         {
             success = true,
@@ -62,7 +66,7 @@ public static partial class VocabularyNotebookHttpEndpoints
                 task.Attempts,
                 task.ErrorCode,
                 task.AddedCount,
-                entries
+                entries = entries.Select((entry, index) => new { index, candidate = ToDto(entry.Candidate, included), entry.NotebookItemId })
             }
         });
     }

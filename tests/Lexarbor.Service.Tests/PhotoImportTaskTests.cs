@@ -30,6 +30,8 @@ public sealed class PhotoImportTaskTests
             .ReturnsAsync([]);
         var meanings = new[] { "apple", "pear" }.ToDictionary(word => word,
             word => (IReadOnlyList<VocabCatalogMeaning>)[new(word, word, word, null, null, "book", "Book", word, "n.", "fruit", "fruit")]);
+        var pear = meanings["pear"][0];
+        meanings["pear"] = [pear, pear with { MeaningId = "pear-tree", Meaning = "tree", MeaningKey = "tree" }];
         var lookup = new Mock<IVocabularyPhotoCatalog>();
         lookup.Setup(x => x.LookupMeaningsAsync(It.IsAny<IReadOnlyList<string>>(), It.IsAny<CancellationToken>())).ReturnsAsync(meanings);
         var catalog = new Mock<IVocabularyNotebookCatalog>(MockBehavior.Strict);
@@ -57,6 +59,8 @@ public sealed class PhotoImportTaskTests
         Assert.Equal(HttpStatusCode.NotFound, (await client.PostAsync(Root(student), upload, Ct)).StatusCode);
         foreach (var learner in new[] { student, other })
             (await client.PutAsync($"/learning/v1/learners/{learner}", null, Ct)).EnsureSuccessStatusCode();
+        (await client.PostAsJsonAsync($"/learning/v1/api/vocabulary/students/{student}/notebook/items",
+            new { actor = new { type = "student" }, word = "pear", meaningId = "pear" }, Ct)).EnsureSuccessStatusCode();
         using var invalid = new MultipartFormDataContent { { new ByteArrayContent([1, 2]), "file", "bad.jpg" } };
         Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsync(Root(student), invalid, Ct)).StatusCode);
         using var accepted = await client.PostAsync(Root(student), upload, Ct);
@@ -88,15 +92,22 @@ public sealed class PhotoImportTaskTests
         Assert.Equal(2, ready.GetProperty("attempts").GetInt32());
         Assert.Equal(2, ready.GetProperty("entries").GetArrayLength());
         Assert.Equal("matched", ready.GetProperty("entries")[0].GetProperty("candidate").GetProperty("state").GetString());
+        static JsonElement Meanings(JsonElement entry) => entry.GetProperty("candidate").GetProperty("meanings");
+        var readyEntries = ready.GetProperty("entries");
+        Assert.False(Meanings(readyEntries[0])[0].GetProperty("inNotebook").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, readyEntries[1].GetProperty("notebookItemId").ValueKind);
+        Assert.True(Meanings(readyEntries[1])[0].GetProperty("inNotebook").GetBoolean());
+        Assert.False(Meanings(readyEntries[1])[1].GetProperty("inNotebook").GetBoolean());
         var failedAdd = await client.PutAsJsonAsync(url + "/entries/0", new { meaningId = "missing" }, Ct);
         Assert.Equal(HttpStatusCode.NotFound, failedAdd.StatusCode);
         Assert.Equal(0, (await Detail()).GetProperty("addedCount").GetInt32());
         var additions = await Task.WhenAll(Add(0), Add(0));
         Assert.True(JsonElement.DeepEquals(additions[0], additions[1]));
+        Assert.True(Meanings((await Detail()).GetProperty("entries")[0])[0].GetProperty("inNotebook").GetBoolean());
         var summary = Assert.Single((await Data(await client.GetAsync(Root(student), Ct))).GetProperty("items").EnumerateArray());
         Assert.Equal(1, summary.GetProperty("addedCount").GetInt32());
         Assert.Equal(HttpStatusCode.BadRequest, (await client.PutAsJsonAsync(url + "/entries/1", new { word = "pear" }, Ct)).StatusCode);
-        var last = await Data(await client.PutAsJsonAsync(url + "/entries/1", new { meaningId = "pear" }, Ct));
+        var last = await Data(await client.PutAsJsonAsync(url + "/entries/1", new { meaningId = "pear-tree" }, Ct));
         Assert.True(last.GetProperty("taskDeleted").GetBoolean());
         Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync(url, Ct)).StatusCode);
         Assert.Empty((await Data(await client.GetAsync(Root(student), Ct))).GetProperty("items").EnumerateArray());
@@ -107,7 +118,7 @@ public sealed class PhotoImportTaskTests
         Assert.Equal("VOCAB_PHOTO_NO_ENTRIES", emptyTask.GetProperty("errorCode").GetString());
         Assert.Equal(HttpStatusCode.NoContent, (await client.DeleteAsync(emptyUrl, Ct)).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await client.PostAsync(emptyUrl + "/retry", null, Ct)).StatusCode);
-        Assert.Equal(2, (await Data(await client.GetAsync($"/learning/v1/api/vocabulary/students/{student}/notebook", Ct)))
+        Assert.Equal(3, (await Data(await client.GetAsync($"/learning/v1/api/vocabulary/students/{student}/notebook", Ct)))
             .GetProperty("items").GetArrayLength());
     }
 

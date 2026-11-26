@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json.Serialization;
 using Lexarbor.Learning.Domain.Models;
 using Lexarbor.Learning.Domain.Services;
 using Microsoft.AspNetCore.Builder;
@@ -177,7 +178,13 @@ public static partial class VocabularyNotebookHttpEndpoints
         _ => "failed",
     };
 
-    private static object ToDto(VocabPhotoCandidate candidate) => new
+    private sealed record PhotoMeaningDto(string MeaningId, string Word, string WordKey, string? PartOfSpeech,
+        string Meaning, string MeaningKey, string BookName,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? InNotebook);
+
+    private static object ToDto(VocabPhotoCandidate candidate) => ToDto(candidate, null);
+
+    private static object ToDto(VocabPhotoCandidate candidate, IReadOnlySet<CardKey>? included) => new
     {
         candidate.Word,
         candidate.Recognized,
@@ -191,16 +198,9 @@ public static partial class VocabularyNotebookHttpEndpoints
             _ => "new",
         },
         candidate.MeaningId,
-        meanings = candidate.Meanings.Select(meaning => new
-        {
-            meaning.MeaningId,
-            meaning.Word,
-            meaning.WordKey,
-            meaning.PartOfSpeech,
-            meaning.Meaning,
-            meaning.MeaningKey,
-            meaning.BookName,
-        }).ToList(),
+        meanings = candidate.Meanings.Select(meaning => new PhotoMeaningDto(
+            meaning.MeaningId, meaning.Word, meaning.WordKey, meaning.PartOfSpeech, meaning.Meaning,
+            meaning.MeaningKey, meaning.BookName, included?.Contains(new CardKey(meaning.WordKey, meaning.MeaningKey)))).ToList(),
     };
 
     private static object ToDto(VocabNotebookEntry entry) => new
