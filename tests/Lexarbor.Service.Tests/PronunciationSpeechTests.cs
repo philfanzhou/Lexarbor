@@ -1,6 +1,4 @@
 using System.Net;
-using System.Net.Http.Headers;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Lexarbor.Domain.Models;
@@ -9,8 +7,6 @@ using Lexarbor.Domain.Services;
 using Lexarbor.Host.Configuration;
 using Lexarbor.Host.Integration;
 using Lexarbor.Service.Tests.TestInfrastructure;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 using OpenTelemetry;
 
 namespace Lexarbor.Service.Tests;

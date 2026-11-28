@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.Http.Json;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
@@ -8,9 +7,7 @@ using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 using Lexarbor.Domain.Services;
 using Lexarbor.Service.Tests.TestInfrastructure;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Lexarbor.Service.Tests;
@@ -220,7 +217,7 @@ public sealed class LearningQuestionEndpointTests
                         reached.TrySetResult();
                         Assert.True(((CancellationToken)args![^1]!).CanBeCanceled);
                         return cancel ? AwaitCancellation((CancellationToken)args[^1]!)
-                            : Task.FromException<List<VocabularyMeaningModel>>(new InvalidOperationException("simulated database fault"));
+                            : Task.FromException<List<VocabularyMeaning>>(new InvalidOperationException("simulated database fault"));
                     }
                     return method.Invoke(real, args);
                 };
@@ -250,7 +247,7 @@ public sealed class LearningQuestionEndpointTests
         Assert.Equal(1, Volatile.Read(ref calls));
     }
 
-    private static async Task<List<VocabularyMeaningModel>> AwaitCancellation(CancellationToken token)
+    private static async Task<List<VocabularyMeaning>> AwaitCancellation(CancellationToken token)
     {
         await Task.Delay(Timeout.InfiniteTimeSpan, token);
         throw new InvalidOperationException("Cancellation was not observed.");

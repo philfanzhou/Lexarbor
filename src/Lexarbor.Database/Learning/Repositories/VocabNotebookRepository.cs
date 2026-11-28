@@ -17,7 +17,7 @@ public sealed class VocabNotebookRepository : IVocabNotebookRepository
         _dbContext = dbContext;
     }
 
-    public async Task<List<VocabNotebookItemModel>> ListAsync(Guid studentId, CancellationToken cancellationToken = default)
+    public async Task<List<VocabNotebookItem>> ListAsync(Guid studentId, CancellationToken cancellationToken = default)
     {
         var entities = await _dbContext.VocabNotebookItems.AsNoTracking().Include(item => item.FamilySources)
             .Where(item => item.StudentId == studentId)
@@ -35,7 +35,7 @@ public sealed class VocabNotebookRepository : IVocabNotebookRepository
     public Task<List<string>> PendingSubmissionIdsAsync(Guid studentId, CancellationToken cancellationToken) =>
         Pending(studentId).Select(item => item.SubmissionId!).Distinct().ToListAsync(cancellationToken);
 
-    public async Task<List<VocabNotebookItemModel>> ReviewedPendingAsync(Guid studentId, string[] submissionIds,
+    public async Task<List<VocabNotebookItem>> ReviewedPendingAsync(Guid studentId, string[] submissionIds,
         CancellationToken cancellationToken)
     {
         var rows = await Pending(studentId).Where(item => submissionIds.Contains(item.SubmissionId!))
@@ -52,7 +52,7 @@ public sealed class VocabNotebookRepository : IVocabNotebookRepository
             group.Count(item => item.Status == (short)VocabNotebookItemStatus.Rejected)))
             .SingleOrDefaultAsync(cancellationToken).ConfigureAwait(false) ?? new(0, 0, 0, 0, 0);
 
-    public async Task<VocabNotebookPage<VocabNotebookItemModel>> QueryAsync(Guid studentId, VocabNotebookQuery filters,
+    public async Task<VocabNotebookPage<VocabNotebookItem>> QueryAsync(Guid studentId, VocabNotebookQuery filters,
         DateTimeOffset recentStart, CancellationToken cancellationToken)
     {
         if (filters.Keyword.Contains('\0')) return new(0, 1, []);
@@ -88,14 +88,14 @@ public sealed class VocabNotebookRepository : IVocabNotebookRepository
             """).ToListAsync(cancellationToken);
     }
 
-    public async Task<VocabNotebookItemModel?> FindAsync(Guid studentId, Guid itemId, CancellationToken cancellationToken = default)
+    public async Task<VocabNotebookItem?> FindAsync(Guid studentId, Guid itemId, CancellationToken cancellationToken = default)
     {
         var entity = await _dbContext.VocabNotebookItems.AsNoTracking().Include(item => item.FamilySources)
             .SingleOrDefaultAsync(item => item.StudentId == studentId && item.Id == itemId, cancellationToken).ConfigureAwait(false);
         return entity is null ? null : ToModel(entity);
     }
 
-    public async Task<VocabNotebookItemModel?> FindByKeyAsync(Guid studentId, CardKey key, CancellationToken cancellationToken = default)
+    public async Task<VocabNotebookItem?> FindByKeyAsync(Guid studentId, CardKey key, CancellationToken cancellationToken = default)
     {
         var entity = await _dbContext.VocabNotebookItems.AsNoTracking().Include(item => item.FamilySources)
             .SingleOrDefaultAsync(item => item.StudentId == studentId && item.WordKey == key.WordKey && item.MeaningKey == key.MeaningKey,
@@ -103,10 +103,10 @@ public sealed class VocabNotebookRepository : IVocabNotebookRepository
         return entity is null ? null : ToModel(entity);
     }
 
-    public Task AddAsync(VocabNotebookItemModel item, CancellationToken cancellationToken = default) =>
+    public Task AddAsync(VocabNotebookItem item, CancellationToken cancellationToken = default) =>
         _dbContext.VocabNotebookItems.AddAsync(Apply(item, new VocabNotebookItemEntity()), cancellationToken).AsTask();
 
-    public async Task UpdateAsync(VocabNotebookItemModel item, CancellationToken cancellationToken = default)
+    public async Task UpdateAsync(VocabNotebookItem item, CancellationToken cancellationToken = default)
     {
         var entity = await _dbContext.VocabNotebookItems.Include(row => row.FamilySources)
             .SingleOrDefaultAsync(row => row.Id == item.Id, cancellationToken).ConfigureAwait(false)
@@ -117,7 +117,7 @@ public sealed class VocabNotebookRepository : IVocabNotebookRepository
             _dbContext.Entry(source).State = EntityState.Added;
     }
 
-    public async Task RemoveAsync(VocabNotebookItemModel item, CancellationToken cancellationToken = default)
+    public async Task RemoveAsync(VocabNotebookItem item, CancellationToken cancellationToken = default)
     {
         var entity = await _dbContext.VocabNotebookItems.FindAsync([item.Id], cancellationToken).ConfigureAwait(false);
         if (entity is not null) _dbContext.VocabNotebookItems.Remove(entity);
@@ -175,9 +175,9 @@ public sealed class VocabNotebookRepository : IVocabNotebookRepository
             || update?.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation or PostgresErrorCodes.SerializationFailure };
     }
 
-    private static VocabNotebookItemModel ToModel(VocabNotebookItemEntity entity)
+    private static VocabNotebookItem ToModel(VocabNotebookItemEntity entity)
     {
-        var item = new VocabNotebookItemModel
+        var item = new VocabNotebookItem
         {
             Id = entity.Id,
             StudentId = entity.StudentId,
@@ -212,7 +212,7 @@ public sealed class VocabNotebookRepository : IVocabNotebookRepository
             source.SourceBookId.Length == 0 ? null : source.SourceBookId,
             new(source.TargetWordId, source.TargetBookId, source.TargetMeaningId));
 
-    private static VocabNotebookItemEntity Apply(VocabNotebookItemModel item, VocabNotebookItemEntity entity)
+    private static VocabNotebookItemEntity Apply(VocabNotebookItem item, VocabNotebookItemEntity entity)
     {
         entity.Id = item.Id;
         entity.StudentId = item.StudentId;

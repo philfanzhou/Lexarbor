@@ -25,7 +25,7 @@ public sealed class VocabularyErrorProneService(IVocabularyErrorProneRepository 
         foreach (var row in rows)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (memory.GetStage(new MemoryCardModel { StudentId = studentId, WordKey = row.WordKey, MeaningKey = row.MeaningKey, Stability = row.Stability }) == MemoryStage.Mastered) continue;
+            if (memory.GetStage(new MemoryCard { StudentId = studentId, WordKey = row.WordKey, MeaningKey = row.MeaningKey, Stability = row.Stability }) == MemoryStage.Mastered) continue;
             if (HighError(row, config) || row.RecordedForgetCount >= config.MinimumForgetCount) eligible.Add(row);
         }
         var ordered = eligible.OrderByDescending(row => Rate(row.ErrorCount, row.AttemptCount))

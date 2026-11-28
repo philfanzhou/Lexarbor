@@ -25,7 +25,7 @@ public sealed class VocabularyMemoryService
         _scheduler = new FsrsScheduler(_options);
     }
     /// <summary>Applies a rating; <c>Created</c> is true when this call created the card.</summary>
-    public async Task<(MemoryCardModel Card, bool Created)> RecordAsync(
+    public async Task<(MemoryCard Card, bool Created)> RecordAsync(
         Guid studentId,
         string wordKey,
         string meaningKey,
@@ -43,7 +43,7 @@ public sealed class VocabularyMemoryService
         {
             cancellationToken.ThrowIfCancellationRequested();
             var existing = await _cardRepository.FindAsync(studentId, wordKey, meaningKey, cancellationToken).ConfigureAwait(false);
-            var input = existing ?? new MemoryCardModel
+            var input = existing ?? new MemoryCard
             {
                 StudentId = studentId,
                 WordKey = wordKey,
@@ -79,14 +79,14 @@ public sealed class VocabularyMemoryService
         }
     }
 
-    public Task<List<MemoryCardModel>> GetDueAsync(
+    public Task<List<MemoryCard>> GetDueAsync(
         Guid studentId,
         DateTimeOffset now,
         IReadOnlyCollection<CardKey>? keys = null,
         int limit = 100,
         CancellationToken cancellationToken = default) =>
         _cardRepository.GetDueAsync(studentId, now, keys, limit, cancellationToken);
-    public MemoryStage GetStage(MemoryCardModel? card)
+    public MemoryStage GetStage(MemoryCard? card)
     {
         if (card is null) return MemoryStage.New;
         var stability = card.Stability ?? 0;

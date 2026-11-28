@@ -2,8 +2,6 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json.Nodes;
 using Lexarbor.Host.Configuration;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace Lexarbor.Service.Tests;
 

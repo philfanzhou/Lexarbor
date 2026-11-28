@@ -14,13 +14,13 @@ public interface IVocabularyPublicQueryRepository
 
     Task<IReadOnlyList<VocabularyFamilyLookup>> LookupRelationsAsync(IReadOnlyList<VocabularyFamilyQuery> queries, CancellationToken cancellationToken);
 
-    Task<LearningQuestionRelationContext?> GetLearningRelationAsync(VocabularyMeaningModel target, LearningQuestionRelation relation,
+    Task<LearningQuestionRelationContext?> GetLearningRelationAsync(VocabularyMeaning target, LearningQuestionRelation relation,
         CancellationToken cancellationToken);
 
-    Task<IReadOnlyList<VocabularyQuestionOptionModel>?> GetReviewDistractorsAsync(VocabularyModel word, VocabularyMeaningModel meaning,
+    Task<IReadOnlyList<VocabularyQuestionOption>?> GetReviewDistractorsAsync(Vocabulary word, VocabularyMeaning meaning,
         VocabularyDistractorScope? scope, bool chineseToEnglish, bool supplementary, CancellationToken cancellationToken);
 
-    Task<PartOfSpeechChoiceCandidates?> GetPartOfSpeechChoiceAsync(VocabularyModel word, VocabularyMeaningModel meaning,
+    Task<PartOfSpeechChoiceCandidates?> GetPartOfSpeechChoiceAsync(Vocabulary word, VocabularyMeaning meaning,
         VocabularyPartOfSpeech partOfSpeech, VocabularyDistractorScope? scope, bool supplementary, CancellationToken cancellationToken);
 
     Task<VocabularyPublicUnitList> GetUnitsAsync(string bookId, CancellationToken cancellationToken);

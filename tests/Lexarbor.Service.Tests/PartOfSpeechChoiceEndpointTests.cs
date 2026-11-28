@@ -1,16 +1,12 @@
 using System.Net;
-using System.Net.Http.Json;
 using System.Text.Json;
 using Lexarbor.Database;
 using Lexarbor.Database.Entities;
 using Lexarbor.Domain.Services;
 using Lexarbor.Service.Tests.TestInfrastructure;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Xunit;
 using static Lexarbor.Service.Tests.LearningQuestionEndpointTests;
 
 namespace Lexarbor.Service.Tests;

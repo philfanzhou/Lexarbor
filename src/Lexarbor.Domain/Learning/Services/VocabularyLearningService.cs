@@ -210,7 +210,7 @@ public sealed partial class VocabularyLearningService
             ? (effectiveElapsedMs > slowAnswerMs ? ReviewRating.Hard : ReviewRating.Good)
             : ReviewRating.Again;
 
-        var attempt = new VocabAttemptModel
+        var attempt = new VocabAttempt
         {
             IssuedQuestionId = question.Id,
             Result = result,
@@ -261,7 +261,7 @@ public sealed partial class VocabularyLearningService
         }
     }
 
-    private static bool JudgeLetters(VocabIssuedQuestionModel question, IReadOnlyList<string> letters)
+    private static bool JudgeLetters(VocabIssuedQuestion question, IReadOnlyList<string> letters)
     {
         var pattern = question.LetterPattern;
         var answer = question.AnswerWord?.EnumerateRunes().ToArray();
@@ -284,7 +284,7 @@ public sealed partial class VocabularyLearningService
     }
 
 
-    private async Task<VocabPlanModel> RequireActivePlanAsync(Guid studentId, CancellationToken cancellationToken)
+    private async Task<VocabPlan> RequireActivePlanAsync(Guid studentId, CancellationToken cancellationToken)
     {
         var plan = await _planRepository.FindActiveByStudentAsync(studentId, cancellationToken).ConfigureAwait(false)
             ?? throw VocabPlanNotFoundException.NoActivePlan();
@@ -296,8 +296,8 @@ public sealed partial class VocabularyLearningService
     /// During answer handling, catalog failure defers legacy conversion without freezing an incomplete list.
     /// Other paths propagate catalog failures without writing a new daily row.
     /// </summary>
-    private async Task<VocabPlanDayModel> GetOrCreateDayAsync(
-        VocabPlanModel plan, DateOnly localDate, bool tolerateCatalogFailure, CancellationToken cancellationToken, string? answeredNewWord = null)
+    private async Task<VocabPlanDay> GetOrCreateDayAsync(
+        VocabPlan plan, DateOnly localDate, bool tolerateCatalogFailure, CancellationToken cancellationToken, string? answeredNewWord = null)
     {
         for (var retry = 0; ; retry++)
         {
@@ -312,7 +312,7 @@ public sealed partial class VocabularyLearningService
         }
     }
 
-    private async Task TryCompleteDayAsync(VocabPlanDayModel day, CancellationToken cancellationToken)
+    private async Task TryCompleteDayAsync(VocabPlanDay day, CancellationToken cancellationToken)
     {
         if (day.CompletedAt is not null || !IsDayComplete(day))
         {
@@ -327,13 +327,13 @@ public sealed partial class VocabularyLearningService
     /// Complete a nonempty day when both independent groups have been answered.
     /// Legacy checked-in rows retain their original facts.
     /// </summary>
-    private static bool IsDayComplete(VocabPlanDayModel day) => day.Tasks is null or { LegacyDay: true }
+    private static bool IsDayComplete(VocabPlanDay day) => day.Tasks is null or { LegacyDay: true }
         ? (day.NewWordsLearned >= 1 || day.DueInScope.Count > 0) &&
           (day.NewWordsLearned >= day.NewWordsTarget || day.NewWordsExhausted) &&
           day.DueInScope.All(day.ReviewedInScope.Contains)
         : (LearningRequired(day) > 0 || ReviewRequired(day) > 0) &&
           LearningCompleted(day) >= LearningRequired(day) && ReviewCompleted(day) >= ReviewRequired(day);
-    private async Task MarkNewWordsExhaustedAsync(VocabPlanModel plan, DateOnly localDate, CancellationToken cancellationToken)
+    private async Task MarkNewWordsExhaustedAsync(VocabPlan plan, DateOnly localDate, CancellationToken cancellationToken)
     {
         for (var attemptIndex = 0; ; attemptIndex++)
         {
@@ -370,7 +370,7 @@ public sealed partial class VocabularyLearningService
         }
     }
 
-    private async Task ApplyDayProgressAsync(VocabIssuedQuestionModel question, VocabAttemptModel attempt, CancellationToken cancellationToken)
+    private async Task ApplyDayProgressAsync(VocabIssuedQuestion question, VocabAttempt attempt, CancellationToken cancellationToken)
     {
         if (question.PlanId is not { } planId) return;
         if (question.Kind == VocabQuestionKind.Review && await RecordExtraReviewAsync(planId, question, attempt.AnsweredAt, cancellationToken).ConfigureAwait(false)) return;
@@ -412,7 +412,7 @@ public sealed partial class VocabularyLearningService
         await SaveDailyAsync(day, exists, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task UpdateDayWithRetryAsync(VocabPlanDayModel day, CancellationToken cancellationToken)
+    private async Task UpdateDayWithRetryAsync(VocabPlanDay day, CancellationToken cancellationToken)
     {
         for (var attemptIndex = 0; ; attemptIndex++)
         {
@@ -442,10 +442,10 @@ public sealed partial class VocabularyLearningService
     }
 
 
-    private Task<IReadOnlyList<VocabularyPlanScopeEntry>> ReadScopeAsync(VocabPlanModel plan, CancellationToken cancellationToken) =>
+    private Task<IReadOnlyList<VocabularyPlanScopeEntry>> ReadScopeAsync(VocabPlan plan, CancellationToken cancellationToken) =>
         VocabularyPlanScopeEntry.ReadAsync(_scopeEntryReader, plan.Segments, cancellationToken);
     private async Task<IReadOnlyList<VocabularyPlanScopeEntry>> WithNotebookAsync(
-        VocabPlanModel plan, IReadOnlyList<VocabularyPlanScopeEntry> scope, CancellationToken cancellationToken,
+        VocabPlan plan, IReadOnlyList<VocabularyPlanScopeEntry> scope, CancellationToken cancellationToken,
         IReadOnlySet<VocabDailyWord>? unavailable = null)
     {
         var notebook = _notebookSource is null ? [] :
@@ -532,8 +532,8 @@ public sealed partial class VocabularyLearningService
         _notebookSource is null ? new HashSet<CardKey>()
             : await _notebookSource.ReadPausedCardKeysAsync(studentId, cancellationToken).ConfigureAwait(false);
 
-    private async Task<List<VocabIssuedQuestionModel>> PickNewWordQuestionsAsync(
-        VocabPlanModel plan, VocabQuestionKind kind, List<VocabDailyWord> roster, List<VocabDailyWord> unavailable,
+    private async Task<List<VocabIssuedQuestion>> PickNewWordQuestionsAsync(
+        VocabPlan plan, VocabQuestionKind kind, List<VocabDailyWord> roster, List<VocabDailyWord> unavailable,
         IReadOnlyCollection<string> learnedWords, IEnumerable<CardKey> reviewKeys, int remaining, int groupSize,
         DateTimeOffset now, CancellationToken cancellationToken)
     {
@@ -580,8 +580,8 @@ public sealed partial class VocabularyLearningService
         return questions;
     }
 
-    private async Task<List<VocabIssuedQuestionModel>> IssueFromRosterAsync(
-        VocabPlanModel plan, VocabQuestionKind kind, List<VocabDailyWord> roster, List<VocabDailyWord> unavailable,
+    private async Task<List<VocabIssuedQuestion>> IssueFromRosterAsync(
+        VocabPlan plan, VocabQuestionKind kind, List<VocabDailyWord> roster, List<VocabDailyWord> unavailable,
         DateTimeOffset now, CancellationToken cancellationToken)
     {
         var unavailableLocations = unavailable.ToHashSet();
@@ -596,7 +596,7 @@ public sealed partial class VocabularyLearningService
 
             foreach (var word in chunk.Where(word => !pending.Contains(word.Key)))
             {
-                var questions = new List<VocabIssuedQuestionModel>();
+                var questions = new List<VocabIssuedQuestion>();
                 var issuedAt = now;
                 foreach (var meaning in word.Where(item => !existing.Contains(new(item.WordKey, item.MeaningKey))))
                 {
@@ -646,7 +646,7 @@ public sealed partial class VocabularyLearningService
     /// card still being learned, it asks once more in review mode. Lexarbor chooses the type;
     /// Student keeps its own question and option IDs, association and timing.
     /// </summary>
-    private async Task<VocabIssuedQuestionModel?> CreateQuestionAsync(
+    private async Task<VocabIssuedQuestion?> CreateQuestionAsync(
         Guid studentId,
         Guid? planId,
         string bookId,
@@ -748,7 +748,7 @@ public sealed partial class VocabularyLearningService
     private static bool IsTarget(VocabularyPlanScopeEntry location, VocabQuestionSpec request) =>
         location.BookId == request.BookId && location.Entry.WordId == request.WordId && location.Entry.MeaningId == request.MeaningId;
 
-    private VocabIssuedQuestionModel BuildIssuedQuestion(
+    private VocabIssuedQuestion BuildIssuedQuestion(
         Guid studentId,
         Guid? planId,
         string bookId,
@@ -789,7 +789,7 @@ public sealed partial class VocabularyLearningService
             throw new VocabCatalogUnavailableException();
         }
 
-        return new VocabIssuedQuestionModel
+        return new VocabIssuedQuestion
         {
             Id = Guid.NewGuid(),
             StudentId = studentId,
@@ -856,7 +856,7 @@ public sealed partial class VocabularyLearningService
     /// question, the latest answered question's location stands in for this question only; the saved
     /// location never moves. Null when neither gives a question.
     /// </summary>
-    private async Task<VocabIssuedQuestionModel?> CreateReviewQuestionAsync(Guid studentId, Guid? planId, CardKey key,
+    private async Task<VocabIssuedQuestion?> CreateReviewQuestionAsync(Guid studentId, Guid? planId, CardKey key,
         MemoryCardState? state, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var saved = await _cardLocationRepository.FindAsync(studentId, key, cancellationToken).ConfigureAwait(false);
@@ -881,7 +881,7 @@ public sealed partial class VocabularyLearningService
         return null;
     }
 
-    private async Task<VocabAnswerResult> LoadFirstResultAsync(VocabIssuedQuestionModel question, CancellationToken cancellationToken)
+    private async Task<VocabAnswerResult> LoadFirstResultAsync(VocabIssuedQuestion question, CancellationToken cancellationToken)
     {
         var first = await _attemptRepository.FindByQuestionIdAsync(question.Id, cancellationToken).ConfigureAwait(false)
             ?? throw new VocabQuestionNotFoundException(question.Id);

@@ -1,7 +1,6 @@
 using Lexarbor.Database.Repositories;
 using Lexarbor.Host.Authentication;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace Lexarbor.Service.Tests.TestInfrastructure;
 

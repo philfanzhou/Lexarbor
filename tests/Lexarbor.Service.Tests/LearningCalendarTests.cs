@@ -4,8 +4,6 @@ using Lexarbor.Learning.Domain.Services;
 using Lexarbor.Service.Tests.TestInfrastructure;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace Lexarbor.Service.Tests;
 

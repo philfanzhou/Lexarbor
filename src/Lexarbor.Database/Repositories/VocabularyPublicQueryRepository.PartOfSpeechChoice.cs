@@ -7,7 +7,7 @@ namespace Lexarbor.Database.Repositories;
 
 public sealed partial class VocabularyPublicQueryRepository
 {
-    public Task<PartOfSpeechChoiceCandidates?> GetPartOfSpeechChoiceAsync(VocabularyModel word, VocabularyMeaningModel meaning,
+    public Task<PartOfSpeechChoiceCandidates?> GetPartOfSpeechChoiceAsync(Vocabulary word, VocabularyMeaning meaning,
         VocabularyPartOfSpeech partOfSpeech, VocabularyDistractorScope? scope, bool supplementary, CancellationToken cancellationToken) =>
         SnapshotAsync<PartOfSpeechChoiceCandidates?>(async () =>
         {

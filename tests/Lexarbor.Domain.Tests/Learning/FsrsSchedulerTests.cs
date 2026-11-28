@@ -16,7 +16,7 @@ public sealed class FsrsSchedulerTests
         string Name,
         ReviewRating Rating,
         DateTimeOffset Now,
-        MemoryCardModel Input,
+        MemoryCard Input,
         MemoryCardState ExpectedState,
         int? ExpectedStep,
         double ExpectedStability,
@@ -149,7 +149,7 @@ public sealed class FsrsSchedulerTests
         Assert.Equal(original, JsonSerializer.Serialize(input));
     }
 
-    private static MemoryCardModel NewCard() => new()
+    private static MemoryCard NewCard() => new()
     {
         StudentId = Guid.NewGuid(),
         WordKey = "apple",
@@ -187,7 +187,7 @@ public sealed class FsrsSchedulerTests
             var inputLapses = expectedLapses -
                 (state == MemoryCardState.Review && rating == ReviewRating.Again ? 1 : 0);
 
-            var input = new MemoryCardModel
+            var input = new MemoryCard
             {
                 StudentId = Guid.NewGuid(),
                 WordKey = "vector",

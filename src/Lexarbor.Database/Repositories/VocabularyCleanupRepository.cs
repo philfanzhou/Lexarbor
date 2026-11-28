@@ -24,12 +24,12 @@ public sealed class VocabularyCleanupRepository(VocabularyDbContext context) : I
         finally { await context.Database.CloseConnectionAsync(); }
     }
 
-    public async Task<VocabularyBookModel?> GetBookAsync(string bookId, CancellationToken cancellationToken)
-        => (await context.VocabularyBooks.AsNoTracking().SingleOrDefaultAsync(b => b.Id == bookId, cancellationToken))?.Adapt<VocabularyBookModel>();
+    public async Task<VocabularyBook?> GetBookAsync(string bookId, CancellationToken cancellationToken)
+        => (await context.VocabularyBooks.AsNoTracking().SingleOrDefaultAsync(b => b.Id == bookId, cancellationToken))?.Adapt<VocabularyBook>();
     public Task<bool> WordExistsAsync(string wordId, CancellationToken cancellationToken)
         => context.Vocabularies.AnyAsync(v => v.Id == wordId, cancellationToken);
-    public async Task<VocabularyMeaningModel?> GetMeaningAsync(string meaningId, CancellationToken cancellationToken)
-        => (await context.VocabularyMeanings.AsNoTracking().SingleOrDefaultAsync(m => m.Id == meaningId, cancellationToken))?.Adapt<VocabularyMeaningModel>();
+    public async Task<VocabularyMeaning?> GetMeaningAsync(string meaningId, CancellationToken cancellationToken)
+        => (await context.VocabularyMeanings.AsNoTracking().SingleOrDefaultAsync(m => m.Id == meaningId, cancellationToken))?.Adapt<VocabularyMeaning>();
     public Task<int> CountSelectedWordsAsync(string bookId, IReadOnlyList<string> wordIds, CancellationToken cancellationToken)
         => context.VocabularyMeanings.Where(m => m.BookId == bookId && wordIds.Contains(m.VocabularyId))
             .Select(m => m.VocabularyId).Distinct().CountAsync(cancellationToken);

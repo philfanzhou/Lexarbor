@@ -154,7 +154,7 @@ public sealed class AdminSessionTicketStore(
             ? null
             : await validator.ValidateAsync(accessToken, cancellationToken);
         if (accessPrincipal is null
-            || !VocabularyClaims.HasRole(accessPrincipal, adminOptions.CurrentValue.RequiredRole))
+            || !IdentityClaims.HasRole(accessPrincipal, adminOptions.CurrentValue.RequiredRole))
         {
             throw new InvalidOperationException(
                 "A hosted sign-in reached session storage without a re-verifiable administrator access token.");
@@ -178,8 +178,8 @@ public sealed class AdminSessionTicketStore(
             IdToken = ticket.Properties.GetTokenValue("id_token"),
             Issuer = issuer,
             Subject = ticket.Principal.FindFirst("sub")?.Value ?? string.Empty,
-            DisplayName = VocabularyClaims.GetDisplayName(accessPrincipal),
-            Roles = VocabularyClaims.GetRoles(accessPrincipal).ToArray(),
+            DisplayName = IdentityClaims.GetDisplayName(accessPrincipal),
+            Roles = IdentityClaims.GetRoles(accessPrincipal).ToArray(),
             AccessTokenExpiresAt = expiresAt
         };
         // Built before any session write: an operator identity the audit model rejects fails

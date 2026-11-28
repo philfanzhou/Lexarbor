@@ -1,7 +1,5 @@
 using System.Net;
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
-using System.Text;
 using System.Text.Json;
 using Lexarbor.Database;
 using Lexarbor.Database.Entities;
@@ -10,7 +8,6 @@ using Lexarbor.Host;
 using Lexarbor.Host.Configuration;
 using Lexarbor.Service.Tests.TestInfrastructure;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace Lexarbor.Service.Tests;
 

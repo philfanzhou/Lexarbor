@@ -103,7 +103,7 @@ public sealed class LearningQuestionGeneratorTests
                 return first;
             });
             var result = await generator.CreateAsync("happily", "快乐地", LearningQuestionMode.Review,
-                (direction, _) => Task.FromResult<VocabularyQuestionModel?>(Choice(direction)), Ct,
+                (direction, _) => Task.FromResult<VocabularyQuestion?>(Choice(direction)), Ct,
                 type => new ChoiceLearningQuestion(type, "Related", []),
                 token =>
                 {
@@ -135,7 +135,7 @@ public sealed class LearningQuestionGeneratorTests
                 (direction, _) =>
                 {
                     Assert.True(direction);
-                    return Task.FromResult<VocabularyQuestionModel?>(Choice(direction));
+                    return Task.FromResult<VocabularyQuestion?>(Choice(direction));
                 }, Ct, _ => throw new InvalidOperationException("Related types are not allowed."),
                 _ => throw new InvalidOperationException("Part-of-speech choice is not allowed."), allowed);
             counts[result.Type] = counts.GetValueOrDefault(result.Type) + 1;
@@ -163,7 +163,7 @@ public sealed class LearningQuestionGeneratorTests
             {
                 Assert.False(direction);
                 calls++;
-                return Task.FromResult<VocabularyQuestionModel?>(null);
+                return Task.FromResult<VocabularyQuestion?>(null);
             }, Ct));
         Assert.Equal(LearningQuestionFailure.Unavailable, failure.Failure);
         Assert.Equal(1, calls);
@@ -189,7 +189,7 @@ public sealed class LearningQuestionGeneratorTests
             var calls = 0;
             var generator = new LearningQuestionGenerator(_ => 0);
             var actual = await Assert.ThrowsAnyAsync<Exception>(() => generator.CreateAsync("explode", "爆炸", LearningQuestionMode.Review,
-                (_, _) => { calls++; return Task.FromException<VocabularyQuestionModel?>(failure); }, Ct));
+                (_, _) => { calls++; return Task.FromException<VocabularyQuestion?>(failure); }, Ct));
             Assert.Same(failure, actual);
             Assert.Equal(1, calls);
         }
@@ -199,10 +199,10 @@ public sealed class LearningQuestionGeneratorTests
             "explode", "爆炸", LearningQuestionMode.Review, (_, _) => throw new InvalidOperationException(), cancelled.Token));
     }
 
-    private static VocabularyQuestionModel Choice(bool direction) => new()
+    private static VocabularyQuestion Choice(bool direction) => new()
     {
         ChineseToEnglish = direction,
         Word = direction ? "目标" : "abcd",
-        Options = Enumerable.Range(0, 4).Select(index => new VocabularyQuestionOptionModel { Text = index.ToString(), IsCorrect = index == 0 }).ToList()
+        Options = Enumerable.Range(0, 4).Select(index => new VocabularyQuestionOption { Text = index.ToString(), IsCorrect = index == 0 }).ToList()
     };
 }

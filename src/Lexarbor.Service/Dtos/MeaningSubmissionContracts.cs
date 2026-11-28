@@ -73,7 +73,7 @@ public sealed class MeaningSubmissionDto
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? ReviewedAt { get; set; }
 
-    public static MeaningSubmissionDto From(MeaningSubmissionModel model) => new()
+    public static MeaningSubmissionDto From(MeaningSubmission model) => new()
     {
         Id = model.Id,
         Word = model.Word,

@@ -4,7 +4,7 @@ namespace Lexarbor.Domain.Repositories;
 
 public interface IVocabularyWordEditRepository
 {
-    Task<VocabularyModel?> GetCurrentAsync(string id);
+    Task<Vocabulary?> GetCurrentAsync(string id);
     Task<bool> HasOtherNormalizedWordAsync(string normalizedWord, string excludedId);
     Task InvalidateRelationsAsync(string wordId, long nowUnixMs);
 }

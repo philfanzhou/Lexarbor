@@ -4,7 +4,6 @@ using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Services;
 using Lexarbor.Tests.Shared;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Xunit;
 
@@ -59,7 +58,7 @@ public sealed class NormalizedWordLookupTests : IDisposable
 
         var bookRepository = new VocabularyBookRepository(context);
         var unitOfWork = new UnitOfWork(context);
-        var service = new VocabularyDomainService(
+        var service = new VocabularyService(
             new VocabularyRepository(context),
             bookRepository,
             new VocabularyMeaningRepository(context),
@@ -67,7 +66,7 @@ public sealed class NormalizedWordLookupTests : IDisposable
             new VocabularyMeaningUnitRepository(context),
             unitOfWork);
 
-        await bookRepository.AddAsync(new VocabularyBookModel
+        await bookRepository.AddAsync(new VocabularyBook
         {
             Id = "book",
             BookName = "Book",
@@ -78,8 +77,8 @@ public sealed class NormalizedWordLookupTests : IDisposable
         await unitOfWork.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var (correct, _) = await service.AddOrUpdateAsync(
-            new VocabularyModel { Word = "apple" },
-            new VocabularyMeaningModel { BookId = "book", PartOfSpeech = "n.", Meaning = "苹果" });
+            new Vocabulary { Word = "apple" },
+            new VocabularyMeaning { BookId = "book", PartOfSpeech = "n.", Meaning = "苹果" });
         var distractors = new[]
         {
             ("banana", "香蕉"),
@@ -89,8 +88,8 @@ public sealed class NormalizedWordLookupTests : IDisposable
         foreach (var (word, meaning) in distractors)
         {
             await service.AddOrUpdateAsync(
-                new VocabularyModel { Word = word },
-                new VocabularyMeaningModel { BookId = "book", PartOfSpeech = "n.", Meaning = meaning });
+                new Vocabulary { Word = word },
+                new VocabularyMeaning { BookId = "book", PartOfSpeech = "n.", Meaning = meaning });
         }
 
         // Both directions read through FromSqlInterpolated with SELECT v.*, which

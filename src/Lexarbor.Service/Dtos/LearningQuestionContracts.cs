@@ -31,7 +31,7 @@ public sealed record RelationChoiceLearningQuestionDto(string Type, string Promp
 public sealed record FormFillLearningQuestionDto(string Type, string Prompt, string AnchorWord, string RelationType, IReadOnlyList<string?> Pattern, string AnswerWord);
 public sealed record PartOfSpeechChoiceLearningQuestionDto(string Type, string Prompt, string AnchorWord, string PartOfSpeech, IReadOnlyList<LearningQuestionOptionDto> Options);
 
-public static class LearningQuestionDto
+public static class LearningQuestionMapping
 {
     public static object From(LearningQuestion question) => question switch
     {
@@ -44,6 +44,6 @@ public static class LearningQuestionDto
         _ => throw new ArgumentOutOfRangeException(nameof(question))
     };
 
-    private static LearningQuestionOptionDto[] Options(IReadOnlyList<VocabularyQuestionOptionModel> options) =>
+    private static LearningQuestionOptionDto[] Options(IReadOnlyList<VocabularyQuestionOption> options) =>
         options.Select(option => new LearningQuestionOptionDto(option.Text, option.IsCorrect)).ToArray();
 }

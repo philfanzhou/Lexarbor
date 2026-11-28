@@ -54,7 +54,7 @@ public sealed class AiTextBatchClient(IHttpClientFactory clients, TimeProvider c
                 return new("Rejected", empty, "credentials_rejected");
             if (response.StatusCode == HttpStatusCode.RequestTimeout || (int)response.StatusCode >= 500)
                 return new("ServiceFailure", empty, "batch.service_unavailable", retry);
-            var bytes = await OpenAiCompatiblePronunciationPreparationClient.ReadBoundedAsync(response.Content, timeout.Token);
+            var bytes = await SupplierJson.ReadBoundedAsync(response.Content, timeout.Token);
             if (response.StatusCode == HttpStatusCode.TooManyRequests)
             {
                 try { if (bytes != null && OpenAiCompatibleSpeechAdapter.IsBillingBlock(bytes)) return new("Rejected", empty, "balance_required"); }
@@ -67,8 +67,8 @@ public sealed class AiTextBatchClient(IHttpClientFactory clients, TimeProvider c
             if (bytes == null) return new("Invalid", empty, "batch.response_too_large");
             using var document = JsonDocument.Parse(bytes, new JsonDocumentOptions { MaxDepth = 16 });
             var root = document.RootElement;
-            if (!OpenAiCompatiblePronunciationPreparationClient.UniqueProperties(root)
-                || !string.IsNullOrEmpty(settings.ApiKey) && OpenAiCompatiblePronunciationPreparationClient.ContainsCredential(root, settings.ApiKey))
+            if (!SupplierJson.UniqueProperties(root)
+                || !string.IsNullOrEmpty(settings.ApiKey) && SupplierJson.ContainsCredential(root, settings.ApiKey))
                 return new("Invalid", empty, "batch.invalid_response");
             if (root.TryGetProperty("error", out var error))
             {
@@ -94,8 +94,8 @@ public sealed class AiTextBatchClient(IHttpClientFactory clients, TimeProvider c
                 empty[items[0].Id] = items[0].Validate(result.GetRawText());
                 return new("Ready", empty);
             }
-            if (!OpenAiCompatiblePronunciationPreparationClient.UniqueProperties(result)
-                || !string.IsNullOrEmpty(settings.ApiKey) && OpenAiCompatiblePronunciationPreparationClient.ContainsCredential(result, settings.ApiKey)
+            if (!SupplierJson.UniqueProperties(result)
+                || !string.IsNullOrEmpty(settings.ApiKey) && SupplierJson.ContainsCredential(result, settings.ApiKey)
                 || result.EnumerateObject().Count() != 1 || !result.TryGetProperty("results", out var rows)
                 || rows.ValueKind != JsonValueKind.Array || rows.GetArrayLength() > items.Count)
                 return new("Invalid", empty, "batch.invalid_response");

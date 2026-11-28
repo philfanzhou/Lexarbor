@@ -8,7 +8,6 @@ using Lexarbor.Domain.Repositories;
 using Lexarbor.Domain.Services;
 using Lexarbor.Service.Tests.TestInfrastructure;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Lexarbor.Service.Tests;
@@ -239,7 +238,7 @@ public sealed class AudioAdminQueryEndpointTests
                 case "meaning": await meanings.ReplaceAsync("disabled", "w", "override", "v.", "updated definition", null, Token); break;
                 case "example": await meanings.ReplaceAsync("disabled", "w", "override", "v.", "override definition", "updated example", Token); break;
                 case "import":
-                    var imported = await scope.ServiceProvider.GetRequiredService<VocabularyDomainService>().ImportBatchAsync("disabled",
+                    var imported = await scope.ServiceProvider.GetRequiredService<VocabularyService>().ImportBatchAsync("disabled",
                         [(new() { Word = "Apple", PhoneticUk = "import-uk" }, new() { PartOfSpeech = "v.", Meaning = "override definition" }, null, null, null)]);
                     Assert.Equal(1, imported.Reused);
                     break;

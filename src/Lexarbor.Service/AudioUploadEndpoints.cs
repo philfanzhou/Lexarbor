@@ -15,7 +15,7 @@ namespace Lexarbor.Service;
 public sealed record AudioUploadHttpSettings(bool Enabled, long MaxBytes, int TimeoutSeconds);
 public static class AudioUploadEndpoints
 {
-    public static void MapAudioUploadEndpoints(this IEndpointRouteBuilder app)
+    public static void MapAudioUpload(this IEndpointRouteBuilder app)
     {
         app.MapPut("/admin/vocabulary/{wordId}/audio/{locale}", HandleAsync)
             .RequireAuthorization(AdminEndpointAuthorization.PolicyName);
@@ -26,16 +26,16 @@ public static class AudioUploadEndpoints
     {
         using var operation = await operations.AcquireAsync(cancellationToken);
         var settings = operation.Settings;
-        if (!settings.Enabled) return Error(503, "Audio storage is disabled.");
-        if (locale is not ("en-GB" or "en-US")) return Error(400, "Audio locale must be en-GB or en-US.");
-        if (meaningId != null && string.IsNullOrWhiteSpace(meaningId)) return Error(400, "Meaning ID is invalid.");
+        if (!settings.Enabled) return ApiResponse.Failure(503, "Audio storage is disabled.");
+        if (locale is not ("en-GB" or "en-US")) return ApiResponse.Failure(400, "Audio locale must be en-GB or en-US.");
+        if (meaningId != null && string.IsNullOrWhiteSpace(meaningId)) return ApiResponse.Failure(400, "Meaning ID is invalid.");
         var keys = context.Request.Headers["Idempotency-Key"];
-        if (keys.Count != 1 || !Guid.TryParseExact(keys[0], "D", out var key)) return Error(400, "Idempotency-Key must be a UUID.");
+        if (keys.Count != 1 || !Guid.TryParseExact(keys[0], "D", out var key)) return ApiResponse.Failure(400, "Idempotency-Key must be a UUID.");
         using var permit = await admission.EnterAsync(cancellationToken);
         if (permit == null)
         {
             context.Response.Headers.RetryAfter = "1";
-            return Error(429, "Audio upload capacity is exhausted. Retry later.");
+            return ApiResponse.Failure(429, "Audio upload capacity is exhausted. Retry later.");
         }
         using var readTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         readTimeout.CancelAfter(TimeSpan.FromSeconds(settings.TimeoutSeconds));
@@ -44,24 +44,22 @@ public static class AudioUploadEndpoints
         {
             content = await ParseAsync(context, key.ToString(), wordId, meaningId, AudioLocales.FromCode(locale), settings.MaxBytes, readTimeout.Token);
         }
-        catch (UploadInputException error) { return Error(error.Status, error.Message); }
-        catch (BadHttpRequestException error) when (error.StatusCode == 413) { return Error(413, "Audio upload is too large."); }
+        catch (UploadInputException error) { return ApiResponse.Failure(error.Status, error.Message); }
+        catch (BadHttpRequestException error) when (error.StatusCode == 413) { return ApiResponse.Failure(413, "Audio upload is too large."); }
         catch (Exception error) when (error is InvalidDataException or IOException or FormatException)
-        { return Error(400, "Audio multipart body is invalid."); }
+        { return ApiResponse.Failure(400, "Audio multipart body is invalid."); }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        { return Error(503, "Audio upload timed out."); }
+        { return ApiResponse.Failure(503, "Audio upload timed out."); }
         var result = await operation.Service.UploadAsync(content, cancellationToken);
         return result.StatusCode == 200
-            ? VocabularyHttpResponse.Ok(new { assetId = result.AssetId, sourceRevision = result.SourceRevision })
-            : Error(result.StatusCode, result.StatusCode switch
+            ? ApiResponse.Ok(new { assetId = result.AssetId, sourceRevision = result.SourceRevision })
+            : ApiResponse.Failure(result.StatusCode, result.StatusCode switch
             {
                 404 => "Audio target was not found.",
                 409 => "Audio upload conflicts with the target or idempotency key.",
                 _ => "Audio storage is unavailable."
             });
     }
-
-    private static IResult Error(int status, string message) => Results.Json(new { success = false, message }, statusCode: status);
 
     private static async Task<AudioUploadContent> ParseAsync(HttpContext context, string key, string wordId, string? meaningId,
         AudioLocale locale, long maxBytes, CancellationToken token)

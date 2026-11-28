@@ -49,7 +49,7 @@ internal static class OpenAiCompatibleSpeechAdapter
         {
             using var document = JsonDocument.Parse(bytes, new JsonDocumentOptions { MaxDepth = 16 });
             var root = document.RootElement;
-            if (!PronunciationSpeechClient.UniqueProperties(root)) return PronunciationSpeechClient.Failure(PronunciationSpeechOutcome.InvalidAudio, "invalid_response", true);
+            if (!SupplierJson.UniqueProperties(root)) return PronunciationSpeechClient.Failure(PronunciationSpeechOutcome.InvalidAudio, "invalid_response", true);
             if (root.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.Object)
             {
                 var code = error.TryGetProperty("code", out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
@@ -71,7 +71,7 @@ internal static class OpenAiCompatibleSpeechAdapter
     {
         using var document = JsonDocument.Parse(bytes, new JsonDocumentOptions { MaxDepth = 16 });
         var root = document.RootElement;
-        return PronunciationSpeechClient.UniqueProperties(root) && root.TryGetProperty("error", out var error)
+        return SupplierJson.UniqueProperties(root) && root.TryGetProperty("error", out var error)
             && error.ValueKind == JsonValueKind.Object && error.TryGetProperty("code", out var code) && code.ValueKind == JsonValueKind.String
             && code.GetString() is "insufficient_quota" or "credit_balance_exhausted" or "organization_spend_limit_exceeded"
                 or "project_spend_limit_exceeded" or "organization_usage_limit_exceeded";

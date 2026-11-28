@@ -6,9 +6,7 @@ using Lexarbor.Database;
 using Lexarbor.Database.Entities;
 using Lexarbor.Service.Tests.TestInfrastructure;
 using Lexarbor.Tests.Shared;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Lexarbor.Service.Tests;

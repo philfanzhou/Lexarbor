@@ -76,8 +76,8 @@ public class VocabularyCleanupConcurrencyTests
                 var db = cleanupFirst ? second : first;
                 Func<Task> operation = async () =>
                 {
-                    await ImportService(db).AddOrUpdateAsync(new VocabularyModel { Id = "only-a", Word = "exclusive" },
-                    new VocabularyMeaningModel { Id = "a-only", VocabularyId = "only-a", BookId = "A", Meaning = "changed" });
+                    await ImportService(db).AddOrUpdateAsync(new Vocabulary { Id = "only-a", Word = "exclusive" },
+                    new VocabularyMeaning { Id = "a-only", VocabularyId = "only-a", BookId = "A", Meaning = "changed" });
                 };
                 if (cleanupFirst) await Assert.ThrowsAsync<ResourceNotFoundException>(operation); else await operation();
             };
@@ -218,8 +218,8 @@ public class VocabularyCleanupConcurrencyTests
             await SeedAsync(setup);
         await action(options, database.ConnectionString);
     }
-    private static VocabularyDomainService ImportService(VocabularyDbContext db) => new(new VocabularyRepository(db), new VocabularyBookRepository(db), new VocabularyMeaningRepository(db), new VocabularyBookUnitRepository(db), new VocabularyMeaningUnitRepository(db), new UnitOfWork(db));
-    private static async Task ImportAsync(VocabularyDbContext db, string bookId) => await ImportService(db).AddOrUpdateAsync(new VocabularyModel { Word = "exclusive" }, new VocabularyMeaningModel { BookId = bookId, Meaning = "imported" });
+    private static VocabularyService ImportService(VocabularyDbContext db) => new(new VocabularyRepository(db), new VocabularyBookRepository(db), new VocabularyMeaningRepository(db), new VocabularyBookUnitRepository(db), new VocabularyMeaningUnitRepository(db), new UnitOfWork(db));
+    private static async Task ImportAsync(VocabularyDbContext db, string bookId) => await ImportService(db).AddOrUpdateAsync(new Vocabulary { Word = "exclusive" }, new VocabularyMeaning { BookId = bookId, Meaning = "imported" });
     private sealed class ReadBarrier(TaskCompletionSource entered, TaskCompletionSource release) : DbCommandInterceptor
     {
         private bool _paused;

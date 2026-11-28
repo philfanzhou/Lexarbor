@@ -9,18 +9,14 @@ using Lexarbor.Database.Entities;
 using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Exceptions;
 using Lexarbor.Domain.Repositories;
-using Lexarbor.Host;
 using Lexarbor.Host.Authentication;
 using Lexarbor.Service.Tests.TestInfrastructure;
 using Lexarbor.Tests.Shared;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.DataProtection.KeyManagement;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Logging;
 using Npgsql;
 using ServiceMantle.Persistence.Relational.DataProtection;
 

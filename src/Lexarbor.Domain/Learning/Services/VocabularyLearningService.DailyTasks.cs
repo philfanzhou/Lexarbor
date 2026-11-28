@@ -4,20 +4,20 @@ namespace Lexarbor.Learning.Domain.Services;
 
 public sealed partial class VocabularyLearningService
 {
-    private static int ReviewRequired(VocabPlanDayModel day) => day.Tasks is null or { LegacyDay: true } ? day.DueInScope.Count : VocabDailyTasks.WordCount(day.DueInScope);
-    private static int ReviewCompleted(VocabPlanDayModel day) => day.Tasks is null or { LegacyDay: true } ? day.ReviewedInScope.Count : VocabDailyTasks.CompletedWords(day.DueInScope, day.ReviewedInScope);
-    private static int LearningRequired(VocabPlanDayModel day) => day.Tasks is null or { LegacyDay: true } ? day.NewWordsTarget : day.Tasks.NewRequired + VocabDailyTasks.WordCount(day.Tasks.FillReviews);
-    private static int LearningCompleted(VocabPlanDayModel day) => day.Tasks is null or { LegacyDay: true } ? day.NewWordsLearned :
+    private static int ReviewRequired(VocabPlanDay day) => day.Tasks is null or { LegacyDay: true } ? day.DueInScope.Count : VocabDailyTasks.WordCount(day.DueInScope);
+    private static int ReviewCompleted(VocabPlanDay day) => day.Tasks is null or { LegacyDay: true } ? day.ReviewedInScope.Count : VocabDailyTasks.CompletedWords(day.DueInScope, day.ReviewedInScope);
+    private static int LearningRequired(VocabPlanDay day) => day.Tasks is null or { LegacyDay: true } ? day.NewWordsTarget : day.Tasks.NewRequired + VocabDailyTasks.WordCount(day.Tasks.FillReviews);
+    private static int LearningCompleted(VocabPlanDay day) => day.Tasks is null or { LegacyDay: true } ? day.NewWordsLearned :
         Math.Min(day.NewWordsLearned, day.Tasks.NewRequired) + VocabDailyTasks.CompletedWords(day.Tasks.FillReviews, day.Tasks.FillReviewed);
 
-    private async Task<(VocabPlanDayModel Day, bool Exists, bool Changed)> PrepareDayAsync(
-        VocabPlanModel plan, DateOnly date, bool tolerateCatalogFailure, CancellationToken cancellationToken, string? answeredNewWord = null)
+    private async Task<(VocabPlanDay Day, bool Exists, bool Changed)> PrepareDayAsync(
+        VocabPlan plan, DateOnly date, bool tolerateCatalogFailure, CancellationToken cancellationToken, string? answeredNewWord = null)
     {
         var day = await _planDayRepository.FindAsync(plan.Id, date, cancellationToken).ConfigureAwait(false);
         var exists = day is not null;
         if (day is not null && (day.Tasks is not null || day.CompletedAt is not null)) return (day, true, false);
         var now = DateTimeOffset.UtcNow;
-        day ??= new VocabPlanDayModel
+        day ??= new VocabPlanDay
         {
             PlanId = plan.Id,
             LocalDate = date,
@@ -83,7 +83,7 @@ public sealed partial class VocabularyLearningService
         return (day, exists, true);
     }
 
-    private async Task SaveDailyAsync(VocabPlanDayModel day, bool exists, CancellationToken cancellationToken)
+    private async Task SaveDailyAsync(VocabPlanDay day, bool exists, CancellationToken cancellationToken)
     {
         day.UpdatedAt = DateTimeOffset.UtcNow;
         if (IsDayComplete(day) && day.CompletedAt is null) day.CompletedAt = day.UpdatedAt;
@@ -92,7 +92,7 @@ public sealed partial class VocabularyLearningService
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<VocabNextQuestionOutcome> GetNextDailyAsync(VocabPlanModel plan, VocabQuestionMode mode, DateOnly date, CancellationToken cancellationToken)
+    private async Task<VocabNextQuestionOutcome> GetNextDailyAsync(VocabPlan plan, VocabQuestionMode mode, DateOnly date, CancellationToken cancellationToken)
     {
         for (var retry = 0; ; retry++)
         {
@@ -132,7 +132,7 @@ public sealed partial class VocabularyLearningService
                 return VocabNextQuestionOutcome.Next(pending);
             }
 
-            var batch = new List<VocabIssuedQuestionModel>();
+            var batch = new List<VocabIssuedQuestion>();
             if (mode == VocabQuestionMode.New && day.NewWordsLearned < tasks.NewRequired)
             {
                 batch = await PickNewWordQuestionsAsync(plan, VocabQuestionKind.New, tasks.NewWords, tasks.UnavailableNewMeanings,
@@ -170,13 +170,13 @@ public sealed partial class VocabularyLearningService
         }
     }
 
-    private async Task<List<VocabIssuedQuestionModel>> CreateDailyReviewsAsync(VocabPlanModel plan, List<CardKey> required,
+    private async Task<List<VocabIssuedQuestion>> CreateDailyReviewsAsync(VocabPlan plan, List<CardKey> required,
         List<CardKey> completed, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var unavailable = new List<CardKey>();
         foreach (var word in required.Where(key => !completed.Contains(key)).GroupBy(key => key.WordKey, StringComparer.Ordinal).ToList())
         {
-            var batch = new List<VocabIssuedQuestionModel>();
+            var batch = new List<VocabIssuedQuestion>();
             foreach (var key in word)
             {
                 var card = await _cardRepository.FindAsync(plan.StudentId, key.WordKey, key.MeaningKey, cancellationToken).ConfigureAwait(false);

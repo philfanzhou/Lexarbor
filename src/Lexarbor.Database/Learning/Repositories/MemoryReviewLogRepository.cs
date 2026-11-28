@@ -13,7 +13,7 @@ public class MemoryReviewLogRepository : IMemoryReviewLogRepository
         _dbContext = dbContext;
     }
 
-    public Task AddAsync(MemoryReviewLogModel log, CancellationToken cancellationToken = default)
+    public Task AddAsync(MemoryReviewLog log, CancellationToken cancellationToken = default)
     {
         _dbContext.MemoryReviewLogs.Add(new MemoryReviewLogEntity
         {

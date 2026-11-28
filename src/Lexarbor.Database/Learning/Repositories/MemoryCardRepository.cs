@@ -14,14 +14,14 @@ public class MemoryCardRepository : IMemoryCardRepository
         _dbContext = dbContext;
     }
 
-    public async Task<MemoryCardModel?> FindAsync(Guid studentId, string wordKey, string meaningKey, CancellationToken cancellationToken = default)
+    public async Task<MemoryCard?> FindAsync(Guid studentId, string wordKey, string meaningKey, CancellationToken cancellationToken = default)
     {
         var entity = await _dbContext.MemoryCards.FindAsync(
             new object[] { studentId, wordKey, meaningKey }, cancellationToken).ConfigureAwait(false);
         return entity is null ? null : ToModel(entity);
     }
 
-    public Task AddAsync(MemoryCardModel card, CancellationToken cancellationToken = default)
+    public Task AddAsync(MemoryCard card, CancellationToken cancellationToken = default)
     {
         return _dbContext.MemoryCards.AddAsync(ToEntity(card), cancellationToken).AsTask();
     }
@@ -29,7 +29,7 @@ public class MemoryCardRepository : IMemoryCardRepository
     public Task<bool> HasWordAsync(Guid studentId, string wordKey, CancellationToken cancellationToken = default) =>
         _dbContext.MemoryCards.AnyAsync(card => card.StudentId == studentId && card.WordKey == wordKey, cancellationToken);
 
-    public async Task UpdateAsync(MemoryCardModel card, CancellationToken cancellationToken = default)
+    public async Task UpdateAsync(MemoryCard card, CancellationToken cancellationToken = default)
     {
 
 
@@ -56,7 +56,7 @@ public class MemoryCardRepository : IMemoryCardRepository
         card.Version = entity.Version;
     }
 
-    public async Task<List<MemoryCardModel>> GetDueAsync(Guid studentId, DateTimeOffset now, IReadOnlyCollection<CardKey>? keys = null, int limit = 100, CancellationToken cancellationToken = default)
+    public async Task<List<MemoryCard>> GetDueAsync(Guid studentId, DateTimeOffset now, IReadOnlyCollection<CardKey>? keys = null, int limit = 100, CancellationToken cancellationToken = default)
     {
         var query = _dbContext.MemoryCards.AsNoTracking().Where(e => e.StudentId == studentId && e.DueAt <= now);
         if (keys is { Count: > 0 })
@@ -76,7 +76,7 @@ public class MemoryCardRepository : IMemoryCardRepository
         return entities.Select(ToModel).ToList();
     }
 
-    public async Task<List<MemoryCardModel>> GetDuePageAsync(Guid studentId, DateTimeOffset now, MemoryCardCursor? after, int limit, CancellationToken cancellationToken = default)
+    public async Task<List<MemoryCard>> GetDuePageAsync(Guid studentId, DateTimeOffset now, MemoryCardCursor? after, int limit, CancellationToken cancellationToken = default)
     {
         var query = _dbContext.MemoryCards.AsNoTracking().Where(card => card.StudentId == studentId && card.DueAt <= now);
         if (after is not null)
@@ -111,7 +111,7 @@ public class MemoryCardRepository : IMemoryCardRepository
             .CountAsync(e => e.StudentId == studentId && e.DueAt <= now, cancellationToken);
     }
 
-    private static MemoryCardEntity ToEntity(MemoryCardModel model) => new()
+    private static MemoryCardEntity ToEntity(MemoryCard model) => new()
     {
         StudentId = model.StudentId,
         WordKey = model.WordKey,
@@ -129,7 +129,7 @@ public class MemoryCardRepository : IMemoryCardRepository
         Version = model.Version,
     };
 
-    private static MemoryCardModel ToModel(MemoryCardEntity entity) => new()
+    private static MemoryCard ToModel(MemoryCardEntity entity) => new()
     {
         StudentId = entity.StudentId,
         WordKey = entity.WordKey,

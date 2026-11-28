@@ -25,7 +25,7 @@ public static class VocabularyRelationTypes
 }
 
 /// <summary>One directed word-level fact, independent of books and grammatical roles.</summary>
-public sealed record VocabularyRelationModel(
+public sealed record VocabularyRelation(
     string Id, string SourceWordId, string TargetWordId, string Type, string? UsageNote,
     string Status, string? ReviewReason, string OriginKind, string? OriginReference,
     long Version, long CreatedAtUnixMs, long UpdatedAtUnixMs, long? LastConfirmedAtUnixMs)
@@ -41,6 +41,6 @@ public sealed record VocabularyRelationInput(string SourceWordId, string TargetW
     string? UsageNote = null, bool Confirm = false, IReadOnlyList<VocabularyRelationMeaningPair?>? MeaningPairs = null);
 public sealed record VocabularyRelationQuery(string Direction = "both", string? Type = null,
     string? Status = null, int Page = 1, int Size = 20);
-public sealed record VocabularyRelationPage(IReadOnlyList<VocabularyRelationModel> Items, int TotalCount, int TotalPage);
-public sealed record VocabularyRelationCreation(VocabularyRelationModel Relation, bool Created);
-public sealed record VocabularyRelationBatchResult(IReadOnlyList<VocabularyRelationModel> Items, int Created, int Reused);
+public sealed record VocabularyRelationPage(IReadOnlyList<VocabularyRelation> Items, int TotalCount, int TotalPage);
+public sealed record VocabularyRelationCreation(VocabularyRelation Relation, bool Created);
+public sealed record VocabularyRelationBatchResult(IReadOnlyList<VocabularyRelation> Items, int Created, int Reused);

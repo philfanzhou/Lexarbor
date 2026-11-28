@@ -8,11 +8,11 @@ namespace Lexarbor.Domain.Tests;
 
 public class VocabularyImportIntegrityTests : TestBase
 {
-    private readonly VocabularyDomainService _service;
+    private readonly VocabularyService _service;
 
     public VocabularyImportIntegrityTests()
     {
-        _service = new VocabularyDomainService(
+        _service = new VocabularyService(
             _vocabularyRepository,
             _bookRepository,
             _meaningRepository,
@@ -27,8 +27,8 @@ public class VocabularyImportIntegrityTests : TestBase
         var book = await CreateBookAsync();
 
         var (word, _) = await _service.AddOrUpdateAsync(
-            new VocabularyModel { Word = "  Apple  " },
-            new VocabularyMeaningModel { BookId = book.Id, Meaning = " apple " });
+            new Vocabulary { Word = "  Apple  " },
+            new VocabularyMeaning { BookId = book.Id, Meaning = " apple " });
 
         // The display spelling keeps the imported casing; equivalence is the
         // normalized key's job.
@@ -45,12 +45,12 @@ public class VocabularyImportIntegrityTests : TestBase
     {
         var book = await CreateBookAsync();
         var (firstWord, _) = await _service.AddOrUpdateAsync(
-            new VocabularyModel { Word = " Apple " },
-            new VocabularyMeaningModel { BookId = book.Id, Meaning = "fruit" });
+            new Vocabulary { Word = " Apple " },
+            new VocabularyMeaning { BookId = book.Id, Meaning = "fruit" });
 
         var (secondWord, _) = await _service.AddOrUpdateAsync(
-            new VocabularyModel { Word = "APPLE" },
-            new VocabularyMeaningModel { BookId = book.Id, Meaning = "company" });
+            new Vocabulary { Word = "APPLE" },
+            new VocabularyMeaning { BookId = book.Id, Meaning = "company" });
 
         Assert.Equal(firstWord.Id, secondWord.Id);
         Assert.Equal(1, await _dbContext.Vocabularies.CountAsync(TestContext.Current.CancellationToken));
@@ -67,12 +67,12 @@ public class VocabularyImportIntegrityTests : TestBase
     {
         var book = await CreateBookAsync();
         var (firstWord, _) = await _service.AddOrUpdateAsync(
-            new VocabularyModel { Word = "Nobel Prize" },
-            new VocabularyMeaningModel { BookId = book.Id, Meaning = "诺贝尔奖" });
+            new Vocabulary { Word = "Nobel Prize" },
+            new VocabularyMeaning { BookId = book.Id, Meaning = "诺贝尔奖" });
 
         var (secondWord, secondMeaning) = await _service.AddOrUpdateAsync(
-            new VocabularyModel { Word = "  NOBEL PRIZE  " },
-            new VocabularyMeaningModel { BookId = book.Id, PartOfSpeech = "n.", Meaning = "诺贝尔奖" });
+            new Vocabulary { Word = "  NOBEL PRIZE  " },
+            new VocabularyMeaning { BookId = book.Id, PartOfSpeech = "n.", Meaning = "诺贝尔奖" });
 
         Assert.Equal(firstWord.Id, secondWord.Id);
         Assert.Equal(
@@ -84,8 +84,8 @@ public class VocabularyImportIntegrityTests : TestBase
         // Updating through the word's own ID does not rewrite the spelling
         // either: an import is not an edit.
         var (byId, _) = await _service.AddOrUpdateAsync(
-            new VocabularyModel { Id = firstWord.Id, Word = "nobel prize" },
-            new VocabularyMeaningModel { Id = secondMeaning.Id, BookId = book.Id, PartOfSpeech = "n.", Meaning = "诺贝尔奖" });
+            new Vocabulary { Id = firstWord.Id, Word = "nobel prize" },
+            new VocabularyMeaning { Id = secondMeaning.Id, BookId = book.Id, PartOfSpeech = "n.", Meaning = "诺贝尔奖" });
         Assert.Equal(
             "Nobel Prize",
             await _dbContext.Vocabularies
@@ -98,8 +98,8 @@ public class VocabularyImportIntegrityTests : TestBase
     {
         var book = await CreateBookAsync();
         var (_, firstMeaning) = await _service.AddOrUpdateAsync(
-            new VocabularyModel { Word = "Apple" },
-            new VocabularyMeaningModel
+            new Vocabulary { Word = "Apple" },
+            new VocabularyMeaning
             {
                 BookId = book.Id,
                 PartOfSpeech = " N. ",
@@ -107,8 +107,8 @@ public class VocabularyImportIntegrityTests : TestBase
             });
 
         var (_, secondMeaning) = await _service.AddOrUpdateAsync(
-            new VocabularyModel { Word = " apple " },
-            new VocabularyMeaningModel
+            new Vocabulary { Word = " apple " },
+            new VocabularyMeaning
             {
                 BookId = book.Id,
                 PartOfSpeech = "n.",
@@ -127,8 +127,8 @@ public class VocabularyImportIntegrityTests : TestBase
     {
         var book = await CreateBookAsync();
         await _service.AddOrUpdateAsync(
-            new VocabularyModel { Word = "apple" },
-            new VocabularyMeaningModel
+            new Vocabulary { Word = "apple" },
+            new VocabularyMeaning
             {
                 BookId = book.Id,
                 PartOfSpeech = "n.",
@@ -137,8 +137,8 @@ public class VocabularyImportIntegrityTests : TestBase
             });
 
         var (_, meaning) = await _service.AddOrUpdateAsync(
-            new VocabularyModel { Word = "APPLE" },
-            new VocabularyMeaningModel
+            new Vocabulary { Word = "APPLE" },
+            new VocabularyMeaning
             {
                 BookId = book.Id,
                 PartOfSpeech = " n. ",
@@ -160,16 +160,16 @@ public class VocabularyImportIntegrityTests : TestBase
     {
         var book = await CreateBookAsync();
         var (word, _) = await _service.AddOrUpdateAsync(
-            new VocabularyModel { Word = "apple" },
-            new VocabularyMeaningModel
+            new Vocabulary { Word = "apple" },
+            new VocabularyMeaning
             {
                 BookId = book.Id,
                 PartOfSpeech = "n.",
                 Meaning = "fruit"
             });
         var (_, secondMeaning) = await _service.AddOrUpdateAsync(
-            new VocabularyModel { Word = "apple" },
-            new VocabularyMeaningModel
+            new Vocabulary { Word = "apple" },
+            new VocabularyMeaning
             {
                 BookId = book.Id,
                 PartOfSpeech = "n.",
@@ -177,8 +177,8 @@ public class VocabularyImportIntegrityTests : TestBase
             });
 
         await Assert.ThrowsAsync<ConflictException>(() => _service.AddOrUpdateAsync(
-            new VocabularyModel { Id = word.Id, Word = "apple" },
-            new VocabularyMeaningModel
+            new Vocabulary { Id = word.Id, Word = "apple" },
+            new VocabularyMeaning
             {
                 Id = secondMeaning.Id,
                 VocabularyId = word.Id,
@@ -196,20 +196,20 @@ public class VocabularyImportIntegrityTests : TestBase
         var activeBook = await CreateBookAsync();
         var disabledBook = await CreateBookAsync();
         var (activeWord, _) = await _service.AddOrUpdateAsync(
-            new VocabularyModel { Word = "activeword" },
-            new VocabularyMeaningModel
+            new Vocabulary { Word = "activeword" },
+            new VocabularyMeaning
             {
                 BookId = activeBook.Id,
                 Meaning = "active"
             });
         await _service.AddOrUpdateAsync(
-            new VocabularyModel { Word = "disabledword" },
-            new VocabularyMeaningModel
+            new Vocabulary { Word = "disabledword" },
+            new VocabularyMeaning
             {
                 BookId = disabledBook.Id,
                 Meaning = "disabled"
             });
-        await _vocabularyRepository.AddAsync(new VocabularyModel
+        await _vocabularyRepository.AddAsync(new Vocabulary
         {
             Id = Guid.NewGuid().ToString(),
             Word = "orphanword",
@@ -231,8 +231,8 @@ public class VocabularyImportIntegrityTests : TestBase
     public async Task AddOrUpdateAsync_MissingBook_ThrowsResourceNotFound()
     {
         await Assert.ThrowsAsync<ResourceNotFoundException>(() => _service.AddOrUpdateAsync(
-            new VocabularyModel { Word = "apple" },
-            new VocabularyMeaningModel { BookId = "missing-book", Meaning = "fruit" }));
+            new Vocabulary { Word = "apple" },
+            new VocabularyMeaning { BookId = "missing-book", Meaning = "fruit" }));
 
         Assert.Equal(0, await _dbContext.Vocabularies.CountAsync(TestContext.Current.CancellationToken));
         Assert.Equal(0, await _dbContext.VocabularyMeanings.CountAsync(TestContext.Current.CancellationToken));
@@ -244,8 +244,8 @@ public class VocabularyImportIntegrityTests : TestBase
         var book = await CreateBookAsync(status: false);
 
         await Assert.ThrowsAsync<BusinessRuleException>(() => _service.AddOrUpdateAsync(
-            new VocabularyModel { Word = "apple" },
-            new VocabularyMeaningModel { BookId = book.Id, Meaning = "fruit" }));
+            new Vocabulary { Word = "apple" },
+            new VocabularyMeaning { BookId = book.Id, Meaning = "fruit" }));
 
         Assert.Equal(0, await _dbContext.Vocabularies.CountAsync(TestContext.Current.CancellationToken));
         Assert.Equal(0, await _dbContext.VocabularyMeanings.CountAsync(TestContext.Current.CancellationToken));
@@ -257,8 +257,8 @@ public class VocabularyImportIntegrityTests : TestBase
         var book = await CreateBookAsync();
 
         await Assert.ThrowsAsync<ResourceNotFoundException>(() => _service.AddOrUpdateAsync(
-            new VocabularyModel { Id = "missing-word", Word = "apple" },
-            new VocabularyMeaningModel { BookId = book.Id, Meaning = "fruit" }));
+            new Vocabulary { Id = "missing-word", Word = "apple" },
+            new VocabularyMeaning { BookId = book.Id, Meaning = "fruit" }));
 
         Assert.Equal(0, await _dbContext.Vocabularies.CountAsync(TestContext.Current.CancellationToken));
         Assert.Equal(0, await _dbContext.VocabularyMeanings.CountAsync(TestContext.Current.CancellationToken));
@@ -269,12 +269,12 @@ public class VocabularyImportIntegrityTests : TestBase
     {
         var book = await CreateBookAsync();
         var (word, _) = await _service.AddOrUpdateAsync(
-            new VocabularyModel { Word = "apple" },
-            new VocabularyMeaningModel { BookId = book.Id, Meaning = "fruit" });
+            new Vocabulary { Word = "apple" },
+            new VocabularyMeaning { BookId = book.Id, Meaning = "fruit" });
 
         await Assert.ThrowsAsync<ResourceNotFoundException>(() => _service.AddOrUpdateAsync(
-            new VocabularyModel { Id = word.Id, Word = "apple" },
-            new VocabularyMeaningModel
+            new Vocabulary { Id = word.Id, Word = "apple" },
+            new VocabularyMeaning
             {
                 Id = "missing-meaning",
                 BookId = book.Id,
@@ -290,15 +290,15 @@ public class VocabularyImportIntegrityTests : TestBase
     {
         var book = await CreateBookAsync();
         var (firstWord, firstMeaning) = await _service.AddOrUpdateAsync(
-            new VocabularyModel { Word = "apple" },
-            new VocabularyMeaningModel { BookId = book.Id, Meaning = "fruit" });
+            new Vocabulary { Word = "apple" },
+            new VocabularyMeaning { BookId = book.Id, Meaning = "fruit" });
         var (secondWord, _) = await _service.AddOrUpdateAsync(
-            new VocabularyModel { Word = "banana" },
-            new VocabularyMeaningModel { BookId = book.Id, Meaning = "yellow fruit" });
+            new Vocabulary { Word = "banana" },
+            new VocabularyMeaning { BookId = book.Id, Meaning = "yellow fruit" });
 
         await Assert.ThrowsAsync<ConflictException>(() => _service.AddOrUpdateAsync(
-            new VocabularyModel { Id = secondWord.Id, Word = secondWord.Word },
-            new VocabularyMeaningModel
+            new Vocabulary { Id = secondWord.Id, Word = secondWord.Word },
+            new VocabularyMeaning
             {
                 Id = firstMeaning.Id,
                 BookId = book.Id,
@@ -316,12 +316,12 @@ public class VocabularyImportIntegrityTests : TestBase
         var firstBook = await CreateBookAsync();
         var secondBook = await CreateBookAsync();
         var (word, meaning) = await _service.AddOrUpdateAsync(
-            new VocabularyModel { Word = "apple" },
-            new VocabularyMeaningModel { BookId = firstBook.Id, Meaning = "fruit" });
+            new Vocabulary { Word = "apple" },
+            new VocabularyMeaning { BookId = firstBook.Id, Meaning = "fruit" });
 
         await Assert.ThrowsAsync<ConflictException>(() => _service.AddOrUpdateAsync(
-            new VocabularyModel { Id = word.Id, Word = word.Word },
-            new VocabularyMeaningModel
+            new Vocabulary { Id = word.Id, Word = word.Word },
+            new VocabularyMeaning
             {
                 Id = meaning.Id,
                 BookId = secondBook.Id,
@@ -341,8 +341,8 @@ public class VocabularyImportIntegrityTests : TestBase
     {
         var book = await CreateBookAsync();
         var (word, _) = await _service.AddOrUpdateAsync(
-            new VocabularyModel { Word = "apple" },
-            new VocabularyMeaningModel { BookId = book.Id, Meaning = "fruit" });
+            new Vocabulary { Word = "apple" },
+            new VocabularyMeaning { BookId = book.Id, Meaning = "fruit" });
 
         book.Status = false;
         await _bookRepository.UpdateAsync(book);

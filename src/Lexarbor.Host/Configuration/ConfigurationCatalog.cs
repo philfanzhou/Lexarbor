@@ -228,7 +228,7 @@ internal static class ConfigurationCatalog
             ConfigurationApply.Restart, "Create a missing database and apply pending migrations when the host starts.", "true");
         Add("Database:LegacySqlitePath", "database", "storage", "Legacy SQLite database path", ConfigurationValueKind.Text,
             ConfigurationApply.Restart, "Checked at startup for a database left by a release before PostgreSQL; a file there stops the start.",
-            LexarborHostFacts.LegacySqlitePath);
+            ApplicationFacts.LegacySqlitePath);
         Add("Database:SlowCommandThresholdMilliseconds", "database", "storage", "Slow command threshold (milliseconds)",
             ConfigurationValueKind.Integer, ConfigurationApply.Restart, "Database commands slower than this leave one warning; 0 turns the log off.",
             "500", 0, int.MaxValue);

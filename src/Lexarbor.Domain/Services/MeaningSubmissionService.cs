@@ -22,7 +22,7 @@ public sealed partial class MeaningSubmissionService
     private readonly IMeaningSubmissionRepository _submissions;
     private readonly IVocabularyRepository _vocabularyRepository;
     private readonly IVocabularyMeaningRepository _meaningRepository;
-    private readonly VocabularyDomainService _vocabularyService;
+    private readonly VocabularyService _vocabularyService;
     private readonly IUnitOfWork _unitOfWork;
     private readonly MeaningSubmissionSettings _settings;
     private readonly IMeaningSubmissionReviewAssistant? _assistant;
@@ -34,7 +34,7 @@ public sealed partial class MeaningSubmissionService
         IMeaningSubmissionRepository submissions,
         IVocabularyRepository vocabularyRepository,
         IVocabularyMeaningRepository meaningRepository,
-        VocabularyDomainService vocabularyService,
+        VocabularyService vocabularyService,
         IUnitOfWork unitOfWork,
         MeaningSubmissionSettings settings,
         TimeProvider time,
@@ -71,7 +71,7 @@ public sealed partial class MeaningSubmissionService
     /// definition, is answered instead of a new one; an equivalent definition
     /// already in the supplementary book answers an approved submission at once.
     /// </summary>
-    public async Task<MeaningSubmissionModel> SubmitAsync(
+    public async Task<MeaningSubmission> SubmitAsync(
         string source,
         string? word,
         string? partOfSpeech,
@@ -96,7 +96,7 @@ public sealed partial class MeaningSubmissionService
             }
 
             var now = _time.GetUtcNow();
-            var submission = new MeaningSubmissionModel
+            var submission = new MeaningSubmission
             {
                 Id = Guid.NewGuid().ToString(),
                 Source = source,
@@ -139,7 +139,7 @@ public sealed partial class MeaningSubmissionService
         return _submissions.SearchCatalogAsync(normalized, 10, cancellationToken);
     }
 
-    public async Task<List<MeaningSubmissionModel>> LookupAsync(
+    public async Task<List<MeaningSubmission>> LookupAsync(
         IReadOnlyCollection<string>? ids,
         CancellationToken cancellationToken = default)
     {
@@ -169,7 +169,7 @@ public sealed partial class MeaningSubmissionService
     /// spelling or definition, has no question: the text the client learned is no
     /// longer in the catalog.
     /// </summary>
-    public async Task<VocabularyQuestionModel> CreateQuestionAsync(
+    public async Task<VocabularyQuestion> CreateQuestionAsync(
         string id,
         bool chineseToEnglish,
         CancellationToken cancellationToken = default)
@@ -195,12 +195,12 @@ public sealed partial class MeaningSubmissionService
                 "The catalog does not contain enough distinct words to create a question.");
     }
 
-    private async Task<VocabularyQuestionModel?> BuildSubmissionQuestionAsync(
-        MeaningSubmissionModel submission, bool chineseToEnglish, CancellationToken cancellationToken)
+    private async Task<VocabularyQuestion?> BuildSubmissionQuestionAsync(
+        MeaningSubmission submission, bool chineseToEnglish, CancellationToken cancellationToken)
     {
         var normalizedWord = submission.Word.Trim().ToLowerInvariant();
         var normalizedMeaning = submission.Meaning.Trim().ToLowerInvariant();
-        List<VocabularyQuestionOptionModel> options;
+        List<VocabularyQuestionOption> options;
         string stem;
         if (chineseToEnglish)
         {
@@ -209,8 +209,8 @@ public sealed partial class MeaningSubmissionService
                 normalizedWord, normalizedMeaning, 3, cancellationToken);
             options =
             [
-                new VocabularyQuestionOptionModel { Text = submission.Word, IsCorrect = true },
-                .. distractors.Select(item => new VocabularyQuestionOptionModel
+                new VocabularyQuestionOption { Text = submission.Word, IsCorrect = true },
+                .. distractors.Select(item => new VocabularyQuestionOption
                 {
                     Text = item.Word, IsCorrect = false, WordId = item.Id
                 })
@@ -223,8 +223,8 @@ public sealed partial class MeaningSubmissionService
                 normalizedWord, normalizedMeaning, 3, cancellationToken);
             options =
             [
-                new VocabularyQuestionOptionModel { Text = submission.Meaning, IsCorrect = true },
-                .. distractors.Select(item => new VocabularyQuestionOptionModel
+                new VocabularyQuestionOption { Text = submission.Meaning, IsCorrect = true },
+                .. distractors.Select(item => new VocabularyQuestionOption
                 {
                     Text = item.Meaning, IsCorrect = false, WordId = item.VocabularyId, MeaningId = item.Id
                 })
@@ -247,7 +247,7 @@ public sealed partial class MeaningSubmissionService
             (options[index], options[swap]) = (options[swap], options[index]);
         }
 
-        return new VocabularyQuestionModel
+        return new VocabularyQuestion
         {
             Word = stem,
             WordId = string.Empty,
@@ -257,7 +257,7 @@ public sealed partial class MeaningSubmissionService
         };
     }
 
-    public Task<(List<MeaningSubmissionModel> Items, int TotalCount)> PageAsync(
+    public Task<(List<MeaningSubmission> Items, int TotalCount)> PageAsync(
         MeaningSubmissionStatus status,
         int page,
         int size,
@@ -272,7 +272,7 @@ public sealed partial class MeaningSubmissionService
     /// matching an import uses, and marks the submission approved, in one
     /// transaction. Phonetics given here merge into the word as an import would.
     /// </summary>
-    public async Task<MeaningSubmissionModel> ApproveAsync(
+    public async Task<MeaningSubmission> ApproveAsync(
         string id,
         MeaningSubmissionApproval approval,
         CancellationToken cancellationToken = default)
@@ -291,10 +291,10 @@ public sealed partial class MeaningSubmissionService
         }, cancellationToken);
     }
 
-    public Task<MeaningSubmissionModel> RejectAsync(string id, CancellationToken cancellationToken = default) =>
+    public Task<MeaningSubmission> RejectAsync(string id, CancellationToken cancellationToken = default) =>
         RejectAsync(id, null, cancellationToken);
 
-    public async Task<MeaningSubmissionModel> RejectAsync(string id, string? reviewComment, CancellationToken cancellationToken = default)
+    public async Task<MeaningSubmission> RejectAsync(string id, string? reviewComment, CancellationToken cancellationToken = default)
     {
         var comment = Optional(reviewComment, MaxReviewCommentLength, "Review comment");
         return await _unitOfWork.ExecuteCatalogWriteAsync(async () =>
@@ -370,12 +370,12 @@ public sealed partial class MeaningSubmissionService
         }, cancellationToken);
     }
 
-    private async Task WriteApprovalAsync(MeaningSubmissionModel submission, MeaningSubmissionApproval approval, CancellationToken cancellationToken, string? existingWordId = null)
+    private async Task WriteApprovalAsync(MeaningSubmission submission, MeaningSubmissionApproval approval, CancellationToken cancellationToken, string? existingWordId = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var (word, meaning, _) = await _vocabularyService.AddOrUpdateCoreAsync(
-            new VocabularyModel { Id = existingWordId ?? string.Empty, Word = approval.Word, PhoneticUk = approval.PhoneticUk, PhoneticUs = approval.PhoneticUs },
-            new VocabularyMeaningModel { BookId = RequireBook(), PartOfSpeech = approval.PartOfSpeech, Meaning = approval.Meaning, Example = approval.Example });
+            new Vocabulary { Id = existingWordId ?? string.Empty, Word = approval.Word, PhoneticUk = approval.PhoneticUk, PhoneticUs = approval.PhoneticUs },
+            new VocabularyMeaning { BookId = RequireBook(), PartOfSpeech = approval.PartOfSpeech, Meaning = approval.Meaning, Example = approval.Example });
         cancellationToken.ThrowIfCancellationRequested();
         MarkApproved(submission, word, meaning, _time.GetUtcNow());
     }
@@ -406,7 +406,7 @@ public sealed partial class MeaningSubmissionService
         };
     }
 
-    private static void MarkRejected(MeaningSubmissionModel submission, DateTimeOffset now)
+    private static void MarkRejected(MeaningSubmission submission, DateTimeOffset now)
     {
         submission.Status = MeaningSubmissionStatus.Rejected;
         submission.ReviewedAt = now;
@@ -425,7 +425,7 @@ public sealed partial class MeaningSubmissionService
         return await _assistant.ReviewAsync(submission, cancellationToken);
     }
 
-    private async Task<MeaningSubmissionModel> RequirePendingAsync(string id, CancellationToken cancellationToken)
+    private async Task<MeaningSubmission> RequirePendingAsync(string id, CancellationToken cancellationToken)
     {
         var submission = await _submissions.GetByIdAsync(id.Trim(), cancellationToken)
             ?? throw new ResourceNotFoundException("Meaning submission was not found.");
@@ -438,9 +438,9 @@ public sealed partial class MeaningSubmissionService
     }
 
     private static void MarkApproved(
-        MeaningSubmissionModel submission,
-        VocabularyModel word,
-        VocabularyMeaningModel meaning,
+        MeaningSubmission submission,
+        Vocabulary word,
+        VocabularyMeaning meaning,
         DateTimeOffset now)
     {
         submission.Status = MeaningSubmissionStatus.Approved;

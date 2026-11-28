@@ -22,7 +22,7 @@ public sealed partial class EnrichmentTargetExecutorTests
         var repo = new VocabularyExpansionRepository(db);
         var words = new VocabularyRepository(db); var books = new VocabularyBookRepository(db);
         var relations = new VocabularyRelationRepository(db); var unit = new UnitOfWork(db);
-        var catalog = new VocabularyDomainService(words, books, new VocabularyMeaningRepository(db),
+        var catalog = new VocabularyService(words, books, new VocabularyMeaningRepository(db),
             new VocabularyBookUnitRepository(db), new VocabularyMeaningUnitRepository(db), unit);
         return new(tasks, repo, books, new(repo, words, relations, books, catalog,
             new(relations, unit, f.Clock, repo), tasks, unit, f.Clock), new(http, f.Clock),

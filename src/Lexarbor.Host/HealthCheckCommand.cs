@@ -15,13 +15,13 @@ public static class HealthCheckCommand
     public const string Argument = "--health-check";
 
     /// <summary>
-    /// Matches the hardcoded listen port in Program.cs. Loopback specifically:
-    /// the check must prove this container serves, not that something on the
+    /// Uses the fixed listen port (see <see cref="ApplicationFacts.HttpPort"/>). Loopback
+    /// specifically: the check must prove this container serves, not that something on the
     /// network answers. Readiness rather than the root health alias, so a
     /// container whose database is unreachable reports unhealthy even though
     /// the process is alive.
     /// </summary>
-    private const string HealthUri = "http://127.0.0.1:5008/health/ready";
+    private static readonly string HealthUri = $"http://127.0.0.1:{ApplicationFacts.HttpPort}/health/ready";
 
     /// <summary>
     /// Shorter than the HEALTHCHECK timeout in the Dockerfile, so a hung

@@ -1,0 +1,658 @@
+using System.Text.Json;
+using Lexarbor.Domain.Exceptions;
+using Lexarbor.Domain.Models;
+using Lexarbor.Domain.Services;
+using Lexarbor.Service.Dtos;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Logging;
+
+namespace Lexarbor.Service;
+
+public static partial class VocabularyEndpoints
+{
+    /// <summary>
+    /// Request body ceiling for batch endpoints, in bytes.
+    /// </summary>
+    public const long MaxBatchRequestBytes = 1024 * 1024;
+
+    /// <summary>
+    /// The most questions one batch request may ask for. Every item runs its
+    /// own queries through the request context, so this bounds
+    /// how long a single request holds the database busy.
+    /// </summary>
+    public const int MaxQuestionBatchItems = 50;
+
+    /// <param name="configureAdminGroup">
+    /// Optional host-side conventions for the <c>/admin</c> group, such as the
+    /// ServiceMantle security response-header requirement. This project cannot
+    /// reference the library that defines it, so the host supplies the convention.
+    /// </param>
+    public static IEndpointRouteBuilder MapVocabulary(
+        this IEndpointRouteBuilder app,
+        Action<RouteGroupBuilder>? configureAdminGroup = null)
+    {
+        var apiGroup = app.MapGroup("/api").RequireBusinessApiScope(BusinessApiAuthorization.Catalog);
+
+        apiGroup.MapGet("/vocabulary/{wordId}", GetVocabulary);
+        apiGroup.MapGet("/vocabulary/{wordId}/relations", GetWordFamily);
+        apiGroup.MapPost("/vocabulary/relations/lookup", LookupWordFamilies)
+            .WithMetadata(new RequestSizeLimitAttribute(MaxBatchRequestBytes));
+        apiGroup.MapPost("/vocabulary/meanings/lookup", LookupMeanings)
+            .WithMetadata(new RequestSizeLimitAttribute(MaxBatchRequestBytes));
+        apiGroup.MapGet("/vocabulary", SearchVocabulary);
+        apiGroup.MapPost("/vocabulary/question", GetQuestion);
+        apiGroup.MapPost("/vocabulary/learning-question", LearningQuestionEndpoints.Catalog);
+        apiGroup.MapPost("/vocabulary/questions", CreateQuestions)
+            .WithMetadata(new RequestSizeLimitAttribute(MaxBatchRequestBytes));
+        apiGroup.MapGet("/vocabulary-books/all", GetAllBooks);
+        apiGroup.MapGet("/vocabulary-books/unit-practice", (VocabularyBookService bookService) =>
+            ListActiveBooks(bookService, excludeManagedSupplement: true));
+        apiGroup.MapGet("/vocabulary-books/{bookId}/units", GetPublicBookUnits);
+        apiGroup.MapGet("/vocabulary-books/{bookId}/entries", GetPublicBookEntries);
+
+        var adminGroup = app.MapGroup("/admin")
+            .RequireAuthorization(AdminEndpointAuthorization.PolicyName);
+        configureAdminGroup?.Invoke(adminGroup);
+        adminGroup.MapPost("/vocabulary", AddOrUpdateVocabulary);
+        adminGroup.MapPost("/vocabulary/batch", ImportVocabularyBatch)
+            .WithMetadata(new RequestSizeLimitAttribute(MaxBatchRequestBytes));
+        adminGroup.MapPost("/vocabulary-books", AddBook);
+        adminGroup.MapPut("/vocabulary-books", UpdateBook);
+        adminGroup.MapGet("/vocabulary-books/{id}", GetBook);
+        adminGroup.MapGet("/vocabulary-books/active", GetAllBooks);
+        adminGroup.MapGet("/vocabulary-books", SearchBooks);
+        adminGroup.MapGet("/vocabulary-books/by-category", GetBooksByCategory);
+        adminGroup.MapGet("/vocabulary-books/categories", GetAllCategories);
+        adminGroup.MapGet("/vocabulary-books/education-levels", GetAllEducationLevels);
+        adminGroup.MapGet("/vocabulary-books/grades", GetAllGrades);
+        adminGroup.MapGet(
+            "/vocabulary-books/grades-by-level",
+            GetGradesByEducationLevel);
+        adminGroup.MapGet("/vocabulary-books/{id}/words", GetBookWords);
+        adminGroup.MapDelete("/vocabulary-books/{id}", DeleteBook);
+
+        return app;
+    }
+
+    private static async Task<IResult> GetVocabulary(
+        string wordId,
+        [FromQuery] string? bookId,
+        VocabularyService vocabularyService)
+    {
+        if (string.IsNullOrWhiteSpace(wordId))
+        {
+            return ApiResponse.BadRequest("ID is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(bookId))
+        {
+            return ApiResponse.BadRequest("Book ID is required.");
+        }
+
+        var (word, meanings) = await vocabularyService.GetDetailAsync(wordId, bookId);
+        var dto = word.ToDto();
+        dto.Meanings.AddRange(meanings.Select(meaning => meaning.ToDto(word)));
+        return ApiResponse.Ok(dto);
+    }
+
+    private static async Task<IResult> SearchVocabulary(
+        [FromQuery] string? keyword,
+        [FromQuery] int? page,
+        [FromQuery] int? size,
+        VocabularyService vocabularyService)
+    {
+        if (string.IsNullOrWhiteSpace(keyword))
+        {
+            return ApiResponse.BadRequest("Keyword is required.");
+        }
+
+        var paging = NormalizePaging(page, size);
+        var (items, totalCount) = await vocabularyService.SearchAsync(
+            keyword,
+            paging.Page,
+            paging.Size);
+        var result = new VocabularyPageResponse
+        {
+            TotalPage = (int)Math.Ceiling(totalCount / (double)paging.Size),
+            TotalCount = totalCount
+        };
+        result.Items.AddRange(items.Select(item => item.ToDto()));
+        return ApiResponse.Ok(result);
+    }
+
+    private static async Task<IResult> AddOrUpdateVocabulary(
+        [FromBody] AddOrUpdateRequest request,
+        VocabularyService vocabularyService)
+    {
+        if (request.Word == null || request.Meaning == null)
+        {
+            return ApiResponse.BadRequest(
+                "Word and Meaning are required.");
+        }
+
+        await vocabularyService.AddOrUpdateAsync(
+            request.Word.ToModel(),
+            request.Meaning.ToModel());
+        return ApiResponse.Ok(new BoolResponse { Success = true });
+    }
+
+    // The body is read here rather than bound as a parameter. Bound, a body
+    // over the size limit is answered by the framework with an empty 413, and
+    // malformed JSON with a generic 400; read explicitly, both reach the
+    // envelope and the order ADR-005 fixes for the checks below.
+    private static async Task<IResult> ImportVocabularyBatch(
+        HttpRequest httpRequest,
+        VocabularyService vocabularyService,
+        ILoggerFactory loggerFactory)
+    {
+        VocabularyBatchImportRequest? request = null;
+        if (httpRequest.HasJsonContentType())
+        {
+            try
+            {
+                request = await httpRequest.ReadFromJsonAsync<VocabularyBatchImportRequest>(
+                    httpRequest.HttpContext.RequestAborted);
+            }
+            catch (JsonException)
+            {
+                request = null;
+            }
+        }
+
+        if (request == null)
+        {
+            return ApiResponse.BadRequest("The request body is not valid JSON.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.BookId))
+        {
+            return ApiResponse.BadRequest("Book ID is required.");
+        }
+
+        if (request.Entries == null || request.Entries.Count == 0)
+        {
+            return ApiResponse.BadRequest("At least one entry is required.");
+        }
+
+        if (request.Entries.Count > VocabularyService.MaxBatchEntries)
+        {
+            return ApiResponse.BadRequest(
+                $"A batch can contain at most {VocabularyService.MaxBatchEntries} entries.");
+        }
+
+        var entries = new List<(Vocabulary Word, VocabularyMeaning Meaning, string? UnitId, string? Section, string? EntryKind)>(
+            request.Entries.Count);
+        var errors = new List<VocabularyBatchEntryError>();
+        for (var index = 0; index < request.Entries.Count; index++)
+        {
+            var entry = request.Entries[index];
+            if (entry == null)
+            {
+                errors.Add(new VocabularyBatchEntryError { Index = index, Message = "Entry is required." });
+                continue;
+            }
+
+            var models = entry.ToEntities(request.BookId);
+            var error = VocabularyService.ValidateBatchEntry(models.Word, models.Meaning, models.UnitId, models.Section, models.EntryKind);
+            if (error != null)
+            {
+                errors.Add(new VocabularyBatchEntryError { Index = index, Message = error });
+                continue;
+            }
+
+            entries.Add(models);
+        }
+
+        if (errors.Count > 0)
+        {
+            return ApiResponse.BadRequest(
+                errors.Count == 1 ? "1 entry is invalid." : $"{errors.Count} entries are invalid.",
+                errors);
+        }
+
+        // Unit references are the one entry check that needs the database, so
+        // the domain service runs it inside the batch transaction and reports
+        // the failures the same way the static checks above do.
+        VocabularyBatchImportResult result;
+        try
+        {
+            result = await vocabularyService.ImportBatchAsync(request.BookId, entries);
+        }
+        catch (BatchEntryValidationException exception)
+        {
+            var unitErrors = exception.EntryErrors
+                .Select(unitError => new VocabularyBatchEntryError
+                {
+                    Index = unitError.Index,
+                    Message = unitError.Message
+                })
+                .ToList();
+            return ApiResponse.BadRequest(exception.Message, unitErrors);
+        }
+
+        // Counts only: entry content is user data and stays out of the log.
+        loggerFactory.CreateLogger(nameof(VocabularyEndpoints)).LogInformation(
+            "Imported a vocabulary batch into book {BookId}: {Total} entries, {Created} created, {Reused} reused",
+            request.BookId.Trim(),
+            result.Total,
+            result.Created,
+            result.Reused);
+
+        return ApiResponse.Ok(new VocabularyBatchImportResponse
+        {
+            Total = result.Total,
+            Created = result.Created,
+            Reused = result.Reused
+        });
+    }
+
+    private static async Task<IResult> GetQuestion(
+        [FromBody] GetQuestionRequest request,
+        VocabularyService vocabularyService)
+    {
+        if (string.IsNullOrWhiteSpace(request.WordId) ||
+            string.IsNullOrWhiteSpace(request.BookId))
+        {
+            return ApiResponse.BadRequest(
+                "WordId and BookId are required.");
+        }
+
+        var chineseToEnglish =
+            request.ChineseToEnglish ?? Random.Shared.Next(2) == 0;
+        // Blank optional identifiers count as absent, so a caller cannot ask
+        // for the meaning or unit named "".
+        var question = await vocabularyService.CreateQuestionAsync(
+            request.WordId,
+            request.BookId,
+            chineseToEnglish,
+            string.IsNullOrWhiteSpace(request.MeaningId) ? null : request.MeaningId.Trim(),
+            string.IsNullOrWhiteSpace(request.UnitId) ? null : request.UnitId.Trim(),
+            request.SameEntryKind == true);
+
+        return ApiResponse.Ok(QuestionMapping.From(question));
+    }
+
+    // The body is read here for the same reason ImportVocabularyBatch reads
+    // its own: an over-limit body must reach the envelope's 413 and a malformed
+    // one its 400, not the framework's bare answers.
+    private static async Task<IResult> CreateQuestions(
+        HttpRequest httpRequest,
+        VocabularyService vocabularyService)
+    {
+        CreateQuestionsRequest? request = null;
+        if (httpRequest.HasJsonContentType())
+        {
+            try
+            {
+                request = await httpRequest.ReadFromJsonAsync<CreateQuestionsRequest>(
+                    httpRequest.HttpContext.RequestAborted);
+            }
+            catch (JsonException)
+            {
+                request = null;
+            }
+        }
+
+        if (request == null)
+        {
+            return ApiResponse.BadRequest("The request body is not valid JSON.");
+        }
+
+        if (request.Items == null || request.Items.Count == 0)
+        {
+            return ApiResponse.BadRequest("At least one item is required.");
+        }
+
+        if (request.Items.Count > MaxQuestionBatchItems)
+        {
+            return ApiResponse.BadRequest(
+                $"A batch can contain at most {MaxQuestionBatchItems} items.");
+        }
+
+        var results = new List<QuestionBatchResultDto>(request.Items.Count);
+        for (var index = 0; index < request.Items.Count; index++)
+        {
+            // The request uses one context and processes items in order;
+            // a cancelled request stops here rather than answering the
+            // remaining items nobody will read.
+            httpRequest.HttpContext.RequestAborted.ThrowIfCancellationRequested();
+
+            var item = request.Items[index];
+            if (item == null || string.IsNullOrWhiteSpace(item.WordId) ||
+                string.IsNullOrWhiteSpace(item.BookId))
+            {
+                results.Add(ItemError(index, StatusCodes.Status400BadRequest,
+                    "WordId and BookId are required."));
+                continue;
+            }
+
+            try
+            {
+                // The same normalization the single-question endpoint applies,
+                // so an item answers exactly what that endpoint answers the
+                // same request: the direction is drawn when the item left it
+                // unset, and blank optional identifiers count as absent.
+                var chineseToEnglish =
+                    item.ChineseToEnglish ?? Random.Shared.Next(2) == 0;
+                var question = await vocabularyService.CreateQuestionAsync(
+                    item.WordId,
+                    item.BookId,
+                    chineseToEnglish,
+                    string.IsNullOrWhiteSpace(item.MeaningId) ? null : item.MeaningId.Trim(),
+                    string.IsNullOrWhiteSpace(item.UnitId) ? null : item.UnitId.Trim(),
+                    item.SameEntryKind == true);
+
+                results.Add(new QuestionBatchResultDto { Index = index, Question = QuestionMapping.From(question) });
+            }
+            // One item's 404 or 422 — the same conditions the single endpoint
+            // maps through the global exception middleware, reported with the
+            // same status and message that middleware answers, so a caller can
+            // treat an item's error exactly like a failed single request.
+            catch (ResourceNotFoundException)
+            {
+                results.Add(ItemError(index, StatusCodes.Status404NotFound,
+                    "The requested resource was not found."));
+            }
+            catch (BusinessRuleException)
+            {
+                results.Add(ItemError(index, StatusCodes.Status422UnprocessableEntity,
+                    "The request violates a business rule."));
+            }
+        }
+
+        return ApiResponse.Ok(new CreateQuestionsResponse { Results = results });
+
+        static QuestionBatchResultDto ItemError(int index, int status, string message) => new()
+        {
+            Index = index,
+            Error = new QuestionBatchErrorDto { Status = status, Message = message }
+        };
+    }
+
+    private static async Task<IResult> AddBook(
+        [FromBody] VocabularyBookDto request,
+        VocabularyBookService bookService)
+    {
+        if (string.IsNullOrWhiteSpace(request.BookName))
+        {
+            return ApiResponse.BadRequest("BookName is required.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.Id))
+        {
+            return ApiResponse.BadRequest(
+                "Id must be empty when creating a vocabulary book.");
+        }
+
+        // Create has nothing to overwrite, so an omitted DisplayOrder or Status
+        // takes the field's default rather than being rejected. Only the replace
+        // path below has to insist on them.
+        await bookService.AddOrUpdateAsync(request.ToModel());
+        return ApiResponse.Ok(new BoolResponse { Success = true });
+    }
+
+    private static async Task<IResult> UpdateBook(
+        [FromBody] VocabularyBookDto request,
+        VocabularyBookService bookService)
+    {
+        if (string.IsNullOrWhiteSpace(request.Id))
+        {
+            return ApiResponse.BadRequest("Id is required.");
+        }
+
+        // This is a replace, not a merge: every field is written to the stored
+        // book, so one the request leaves out is not "unchanged", it is written
+        // back as the field's default. Blanking the name, or disabling the book
+        // and thereby hiding it from the public catalogue and making every word
+        // in it answer 422, is a worse outcome for a caller who only meant to
+        // edit a description than a rejected request is. So the three fields
+        // whose defaults are destructive have to be sent explicitly.
+        if (string.IsNullOrWhiteSpace(request.BookName))
+        {
+            return ApiResponse.BadRequest("BookName is required.");
+        }
+
+        if (request.DisplayOrder == null)
+        {
+            return ApiResponse.BadRequest("DisplayOrder is required.");
+        }
+
+        if (request.Status == null)
+        {
+            return ApiResponse.BadRequest("Status is required.");
+        }
+
+        await bookService.AddOrUpdateAsync(request.ToModel());
+        return ApiResponse.Ok(new BoolResponse { Success = true });
+    }
+
+    private static async Task<IResult> GetBook(
+        string id,
+        VocabularyBookService bookService)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return ApiResponse.BadRequest("Id is required.");
+        }
+
+        var book = await bookService.GetAsync(id)
+                   ?? throw new ResourceNotFoundException(
+                       "Vocabulary book was not found.");
+        return ApiResponse.Ok(book.ToDto());
+    }
+
+    private static async Task<IResult> SearchBooks(
+        [FromQuery] string? keyword,
+        [FromQuery] int? page,
+        [FromQuery] int? size,
+        VocabularyBookService bookService)
+    {
+        var paging = NormalizePaging(page, size);
+        var (books, totalCount) = await bookService.SearchAsync(
+            keyword ?? string.Empty,
+            paging.Page,
+            paging.Size);
+        var result = new VocabularyBookPageResponse
+        {
+            TotalPage = (int)Math.Ceiling(totalCount / (double)paging.Size),
+            TotalCount = totalCount
+        };
+        result.Items.AddRange(books.Select(book => book.ToDto()));
+        return ApiResponse.Ok(result);
+    }
+
+    private static async Task<IResult> GetBooksByCategory(
+        [FromQuery] string? category,
+        [FromQuery] string? grade,
+        VocabularyBookService bookService)
+    {
+        var books = await bookService.GetByCategoryAsync(
+            category ?? string.Empty,
+            grade);
+        var result = new VocabularyBookListResponse();
+        result.Books.AddRange(books.Select(book => book.ToDto()));
+        return ApiResponse.Ok(result);
+    }
+
+    private static Task<IResult> GetAllBooks(VocabularyBookService bookService) =>
+        ListActiveBooks(bookService, excludeManagedSupplement: false);
+
+    private static async Task<IResult> ListActiveBooks(
+        VocabularyBookService bookService, bool excludeManagedSupplement)
+    {
+        var books = await bookService.GetAllAsync(excludeManagedSupplement);
+        var result = new VocabularyBookListResponse();
+        result.Books.AddRange(books.Select(book => book.ToDto()));
+        return ApiResponse.Ok(result);
+    }
+
+    // The business browse routes expose only enabled books, like catalog
+    // detail. A missing book returns 404 and a disabled book returns 422.
+    private static async Task<IResult> GetPublicBookUnits(
+        string bookId,
+        VocabularyPublicQueryService queryService,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(bookId))
+        {
+            return ApiResponse.BadRequest("Book ID is required.");
+        }
+
+        var units = await queryService.GetUnitsAsync(bookId, cancellationToken);
+        var result = new VocabularyPublicUnitListResponse();
+        result.Units.AddRange(units.Units.Select(unit => new VocabularyPublicUnitDto(
+            unit.Id, unit.Number, unit.Title, unit.WordCount, unit.MeaningCount)));
+        return ApiResponse.Ok(result);
+    }
+
+    private static async Task<IResult> GetPublicBookEntries(
+        string bookId,
+        [FromQuery] string? unitId,
+        [FromQuery] int? page,
+        [FromQuery] int? size,
+        VocabularyPublicQueryService queryService,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(bookId))
+        {
+            return ApiResponse.BadRequest("Book ID is required.");
+        }
+
+        var paging = NormalizePaging(page, size);
+        var entries = await queryService.GetEntriesAsync(
+            bookId, unitId, paging.Page, paging.Size, cancellationToken);
+        var result = new VocabularyPublicEntryPageResponse
+        {
+            TotalPage = entries.TotalPage,
+            TotalCount = entries.TotalCount,
+            WordCount = entries.WordCount
+        };
+        result.Items.AddRange(entries.Items.Select(entry => new VocabularyPublicEntryDto(
+            entry.WordId,
+            entry.Word,
+            entry.NormalizedWord,
+            entry.PhoneticUk,
+            entry.PhoneticUs,
+            entry.MeaningId,
+            entry.PartOfSpeech,
+            entry.Meaning,
+            entry.MeaningKey,
+            entry.Example,
+            entry.Positions.Select(position => new VocabularyPublicEntryPositionDto(
+                position.UnitId, position.UnitNumber, position.Section, position.EntryKind)).ToList(),
+            entry.Pronunciation)));
+        return ApiResponse.Ok(result);
+    }
+
+    private static async Task<IResult> GetAllCategories(
+        VocabularyBookService bookService)
+    {
+        var result = new StringListResponse();
+        result.Items.AddRange(await bookService.GetAllCategoriesAsync());
+        return ApiResponse.Ok(result);
+    }
+
+    private static async Task<IResult> GetAllEducationLevels(
+        VocabularyBookService bookService)
+    {
+        var result = new StringListResponse();
+        result.Items.AddRange(await bookService.GetAllEducationLevelsAsync());
+        return ApiResponse.Ok(result);
+    }
+
+    private static async Task<IResult> GetAllGrades(
+        VocabularyBookService bookService)
+    {
+        var result = new StringListResponse();
+        result.Items.AddRange(await bookService.GetAllGradesAsync());
+        return ApiResponse.Ok(result);
+    }
+
+    private static async Task<IResult> GetGradesByEducationLevel(
+        [FromQuery] string? value,
+        VocabularyBookService bookService)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return ApiResponse.BadRequest(
+                "Education level is required.");
+        }
+
+        var result = new StringListResponse();
+        result.Items.AddRange(
+            await bookService.GetGradesByEducationLevelAsync(value));
+        return ApiResponse.Ok(result);
+    }
+
+    // Paged like the other two list endpoints. It used to return every word in
+    // the book in one response, with no ceiling a caller could set and none the
+    // server imposed, so the response grew with the book: 20,000 words took 255
+    // ms and materialised an entity and a DTO for each of them before
+    // serialising the lot. A book is the thing this service exists to let grow.
+    private static async Task<IResult> GetBookWords(
+        string id,
+        [FromQuery] int? page,
+        [FromQuery] int? size,
+        VocabularyBookService bookService)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return ApiResponse.BadRequest("BookId is required.");
+        }
+
+        var paging = NormalizePaging(page, size);
+        var (words, totalCount) = await bookService.GetWordsAsync(
+            id,
+            paging.Page,
+            paging.Size);
+        var result = new VocabularyPageResponse
+        {
+            TotalPage = (int)Math.Ceiling(totalCount / (double)paging.Size),
+            TotalCount = totalCount
+        };
+        result.Items.AddRange(words.Select(word => word.ToDto()));
+        return ApiResponse.Ok(result);
+    }
+
+    private static async Task<IResult> DeleteBook(
+        string id,
+        VocabularyBookService bookService)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return ApiResponse.BadRequest("Id is required.");
+        }
+
+        await bookService.DeleteAsync(id);
+        return ApiResponse.Ok(new BoolResponse { Success = true });
+    }
+
+    /// <summary>
+    /// Resolves the paging a list endpoint was asked for.
+    /// </summary>
+    /// <remarks>
+    /// The parameters are nullable because they are optional, and they were not:
+    /// bound as plain integers with ThrowOnBadRequest set, a request that omitted
+    /// them was rejected as malformed rather than taking the documented defaults,
+    /// so "a missing page is treated as 1" held for <c>page=0</c> and not for a
+    /// request with no query string at all. That is the shape a caller reaches
+    /// for first, and the 400 it got said only "The request is invalid."
+    /// </remarks>
+    private static (int Page, int Size) NormalizePaging(int? requestedPage, int? requestedSize)
+    {
+        var page = requestedPage is null or 0 ? 1 : requestedPage.Value;
+        var size = requestedSize is null or 0 ? 20 : requestedSize.Value;
+        if (page < 1 ||
+            size < 1 ||
+            size > 100 ||
+            (long)(page - 1) * size > int.MaxValue)
+        {
+            throw new DomainValidationException("Paging parameters are invalid.");
+        }
+
+        return (page, size);
+    }
+}

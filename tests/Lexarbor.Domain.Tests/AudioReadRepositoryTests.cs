@@ -1,6 +1,5 @@
 using System.Data.Common;
 using Lexarbor.Database;
-using Lexarbor.Database.Entities;
 using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Exceptions;
 using Lexarbor.Domain.Models;
@@ -76,7 +75,7 @@ public sealed class AudioReadRepositoryTests
     {
         using var file = new AudioTestDatabase(); await using var db = file.Open();
         await db.Database.MigrateAsync(Token); await AudioTestDatabase.SeedAsync(db); await BindAllAsync(db);
-        var domain = new VocabularyDomainService(new VocabularyRepository(db), new VocabularyBookRepository(db),
+        var domain = new VocabularyService(new VocabularyRepository(db), new VocabularyBookRepository(db),
             new VocabularyMeaningRepository(db), new VocabularyBookUnitRepository(db), new VocabularyMeaningUnitRepository(db), new UnitOfWork(db));
         var result = await domain.ImportBatchAsync("book", [(new() { Word = "Apple", PhoneticUk = "import-uk" },
             new() { PartOfSpeech = "n.", Meaning = "fruit" }, null, null, null)]);

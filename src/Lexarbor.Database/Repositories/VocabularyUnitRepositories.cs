@@ -1,4 +1,3 @@
-using System.Threading.Tasks;
 using Lexarbor.Database.Entities;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
@@ -16,24 +15,24 @@ public class VocabularyBookUnitRepository : IVocabularyBookUnitRepository
         _context = context;
     }
 
-    public Task<VocabularyBookUnitModel?> GetByIdAsync(string id) => GetByIdAsync(id, CancellationToken.None);
+    public Task<VocabularyBookUnit?> GetByIdAsync(string id) => GetByIdAsync(id, CancellationToken.None);
 
-    public async Task<VocabularyBookUnitModel?> GetByIdAsync(string id, CancellationToken cancellationToken)
+    public async Task<VocabularyBookUnit?> GetByIdAsync(string id, CancellationToken cancellationToken)
     {
         var entity = await _context.VocabularyBookUnits
             .AsNoTracking()
             .SingleOrDefaultAsync(unit => unit.Id == id, cancellationToken);
-        return entity?.Adapt<VocabularyBookUnitModel>();
+        return entity?.Adapt<VocabularyBookUnit>();
     }
 
-    public async Task<List<VocabularyBookUnitModel>> GetByBookIdAsync(string bookId)
+    public async Task<List<VocabularyBookUnit>> GetByBookIdAsync(string bookId)
     {
         var entities = await _context.VocabularyBookUnits
             .AsNoTracking()
             .Where(unit => unit.BookId == bookId)
             .OrderBy(unit => unit.Number)
             .ToListAsync();
-        return entities.Adapt<List<VocabularyBookUnitModel>>();
+        return entities.Adapt<List<VocabularyBookUnit>>();
     }
 
     public async Task<Dictionary<string, int>> GetAssignmentCountsByBookIdAsync(string bookId)
@@ -56,13 +55,13 @@ public class VocabularyBookUnitRepository : IVocabularyBookUnitRepository
         return counts.ToDictionary(item => item.UnitId, item => item.Count);
     }
 
-    public async Task AddAsync(VocabularyBookUnitModel model)
+    public async Task AddAsync(VocabularyBookUnit model)
     {
         var entity = model.Adapt<VocabularyBookUnitEntity>();
         await _context.VocabularyBookUnits.AddAsync(entity);
     }
 
-    public async Task UpdateAsync(VocabularyBookUnitModel model)
+    public async Task UpdateAsync(VocabularyBookUnit model)
     {
         var entity = await _context.VocabularyBookUnits.FindAsync(model.Id);
         if (entity != null)
@@ -103,7 +102,7 @@ public class VocabularyMeaningUnitRepository : IVocabularyMeaningUnitRepository
                 && membership.EntryKind == storedKind);
     }
 
-    public async Task<List<VocabularyMeaningUnitModel>> GetByUnitIdAsync(string unitId)
+    public async Task<List<VocabularyMeaningUnit>> GetByUnitIdAsync(string unitId)
     {
         var entities = await _context.VocabularyMeaningUnits
             .AsNoTracking()
@@ -112,10 +111,10 @@ public class VocabularyMeaningUnitRepository : IVocabularyMeaningUnitRepository
         return entities.ConvertAll(ToModel);
     }
 
-    public Task<List<VocabularyMeaningUnitModel>> GetByMeaningIdAsync(string meaningId)
+    public Task<List<VocabularyMeaningUnit>> GetByMeaningIdAsync(string meaningId)
         => GetByMeaningIdAsync(meaningId, CancellationToken.None);
 
-    public async Task<List<VocabularyMeaningUnitModel>> GetByMeaningIdAsync(string meaningId, CancellationToken cancellationToken)
+    public async Task<List<VocabularyMeaningUnit>> GetByMeaningIdAsync(string meaningId, CancellationToken cancellationToken)
     {
         var entities = await _context.VocabularyMeaningUnits
             .AsNoTracking()
@@ -124,7 +123,7 @@ public class VocabularyMeaningUnitRepository : IVocabularyMeaningUnitRepository
         return entities.ConvertAll(ToModel);
     }
 
-    public async Task AddAsync(VocabularyMeaningUnitModel model)
+    public async Task AddAsync(VocabularyMeaningUnit model)
     {
         await _context.VocabularyMeaningUnits.AddAsync(ToEntity(model));
     }
@@ -153,7 +152,7 @@ public class VocabularyMeaningUnitRepository : IVocabularyMeaningUnitRepository
         return entryKind ?? string.Empty;
     }
 
-    private static VocabularyMeaningUnitEntity ToEntity(VocabularyMeaningUnitModel model) => new()
+    private static VocabularyMeaningUnitEntity ToEntity(VocabularyMeaningUnit model) => new()
     {
         UnitId = model.UnitId,
         MeaningId = model.MeaningId,
@@ -162,7 +161,7 @@ public class VocabularyMeaningUnitRepository : IVocabularyMeaningUnitRepository
         EntryKind = ToStoredKind(model.EntryKind)
     };
 
-    private static VocabularyMeaningUnitModel ToModel(VocabularyMeaningUnitEntity entity) => new()
+    private static VocabularyMeaningUnit ToModel(VocabularyMeaningUnitEntity entity) => new()
     {
         UnitId = entity.UnitId,
         MeaningId = entity.MeaningId,

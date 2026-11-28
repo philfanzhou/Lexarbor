@@ -83,7 +83,7 @@ public sealed class VocabularyAdminQueryRepository(VocabularyDbContext context) 
                 kinds.FirstOrDefault(entry => entry.Kind == string.Empty)?.Count ?? 0);
             var result = await PageUnitAsync(bookId, unitId, keyword, section, entryKind, page, size, cancellationToken);
             return new VocabularyAdminUnitContent(
-                book, unit.Adapt<VocabularyBookUnitModel>(), wordCount, meaningCount, sectionCounts, entryKindCounts, result);
+                book, unit.Adapt<VocabularyBookUnit>(), wordCount, meaningCount, sectionCounts, entryKindCounts, result);
         }, cancellationToken);
 
     public Task<VocabularyAdminPhrasePositionPage> GetPhrasePositionsAsync(string bookId, string? unitId,
@@ -136,11 +136,11 @@ public sealed class VocabularyAdminQueryRepository(VocabularyDbContext context) 
                 (int)Math.Ceiling(count / (double)size));
         }, cancellationToken);
 
-    private async Task<VocabularyBookModel> GetBookAsync(string bookId, CancellationToken cancellationToken)
+    private async Task<VocabularyBook> GetBookAsync(string bookId, CancellationToken cancellationToken)
     {
         var book = await context.VocabularyBooks.AsNoTracking().SingleOrDefaultAsync(b => b.Id == bookId, cancellationToken)
             ?? throw new ResourceNotFoundException("Vocabulary book was not found.");
-        return book.Adapt<VocabularyBookModel>();
+        return book.Adapt<VocabularyBook>();
     }
 
     private async Task<VocabularyAdminPage> PageAsync(string? keyword, string? bookId, int page, int size,
@@ -237,13 +237,13 @@ public sealed class VocabularyAdminQueryRepository(VocabularyDbContext context) 
                     new(word.Id, word.Word, word.PhoneticUk, word.PhoneticUs),
                     new(meaning.Id, meaning.PartOfSpeech, meaning.Meaning, meaning.PhoneticUk, meaning.PhoneticUs), locale)),
                 ownAssets.GetValueOrDefault((meaning.Id, locale)));
-        return words.Select(word => new VocabularyAdminWord(word.Adapt<VocabularyModel>(),
+        return words.Select(word => new VocabularyAdminWord(word.Adapt<Vocabulary>(),
             books[word.Id].OrderBy(b => b.BookName, StringComparer.Ordinal).ThenBy(b => b.Id, StringComparer.Ordinal)
                 .Select(b => new VocabularyAdminBook(b.Id, b.BookName, b.Status)).ToList(),
             byWord[word.Id].OrderBy(m => m.BookId, StringComparer.Ordinal)
                 .ThenBy(m => m.PartOfSpeech, StringComparer.Ordinal).ThenBy(m => m.Meaning, StringComparer.Ordinal)
                 .ThenBy(m => m.Id, StringComparer.Ordinal).Select(m => new VocabularyAdminMeaningDetail(
-                    m.Adapt<VocabularyMeaningModel>(),
+                    m.Adapt<VocabularyMeaning>(),
                     // Every place of the page's meanings, whatever section or
                     // kind the page was narrowed to: the detail's assignments
                     // are the whole truth about each meaning it lists. A

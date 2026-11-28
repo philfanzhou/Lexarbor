@@ -1,5 +1,4 @@
 using System.Data.Common;
-using Lexarbor.Database;
 using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Exceptions;
 using Lexarbor.Domain.Models;

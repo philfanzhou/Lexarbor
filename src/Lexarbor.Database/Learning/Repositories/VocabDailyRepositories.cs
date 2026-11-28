@@ -22,14 +22,14 @@ public class VocabPlanDayRepository : IVocabPlanDayRepository
         _dbContext = dbContext;
     }
 
-    public async Task<VocabPlanDayModel?> FindAsync(Guid planId, DateOnly localDate, CancellationToken cancellationToken = default)
+    public async Task<VocabPlanDay?> FindAsync(Guid planId, DateOnly localDate, CancellationToken cancellationToken = default)
     {
         var entity = await _dbContext.VocabPlanDays.FindAsync(
             new object[] { planId, localDate }, cancellationToken).ConfigureAwait(false);
         return entity is null ? null : ToModel(entity);
     }
 
-    public Task<VocabPlanDayModel?> FindExtraBatchDayAsync(Guid planId, Guid? batchOrQuestionId = null, CancellationToken cancellationToken = default)
+    public Task<VocabPlanDay?> FindExtraBatchDayAsync(Guid planId, Guid? batchOrQuestionId = null, CancellationToken cancellationToken = default)
     {
         const string collection = nameof(VocabDailyTasks.ExtraBatches);
         string[] patterns = batchOrQuestionId is { } id
@@ -40,7 +40,7 @@ public class VocabPlanDayRepository : IVocabPlanDayRepository
         return FindDayByBatchPatternsAsync(planId, patterns, cancellationToken);
     }
 
-    public Task<VocabPlanDayModel?> FindReviewBatchDayAsync(Guid planId, Guid? batchId, CancellationToken cancellationToken)
+    public Task<VocabPlanDay?> FindReviewBatchDayAsync(Guid planId, Guid? batchId, CancellationToken cancellationToken)
     {
         const string collection = nameof(VocabDailyTasks.ExtraReviewBatches);
         string[] patterns = batchId is { } id
@@ -50,14 +50,14 @@ public class VocabPlanDayRepository : IVocabPlanDayRepository
         return FindDayByBatchPatternsAsync(planId, patterns, cancellationToken);
     }
 
-    public Task<VocabPlanDayModel?> FindReviewQuestionDayAsync(Guid planId, Guid questionId, CancellationToken cancellationToken)
+    public Task<VocabPlanDay?> FindReviewQuestionDayAsync(Guid planId, Guid questionId, CancellationToken cancellationToken)
     {
         var pattern = ExtraBatchPattern(nameof(VocabDailyTasks.ExtraReviewBatches), nameof(VocabReviewBatch.QuestionIds),
             new JsonArray(JsonValue.Create(questionId)));
         return FindDayByBatchPatternsAsync(planId, [pattern], cancellationToken);
     }
 
-    private async Task<VocabPlanDayModel?> FindDayByBatchPatternsAsync(Guid planId, string[] patterns, CancellationToken cancellationToken)
+    private async Task<VocabPlanDay?> FindDayByBatchPatternsAsync(Guid planId, string[] patterns, CancellationToken cancellationToken)
     {
         var owner = await _dbContext.VocabPlanDays.FromSql($"""
                 SELECT * FROM vocab_plan_day
@@ -88,12 +88,12 @@ public class VocabPlanDayRepository : IVocabPlanDayRepository
 
     private static string JsonName(string property) => TasksJsonOptions.PropertyNamingPolicy?.ConvertName(property) ?? property;
 
-    public Task AddAsync(VocabPlanDayModel day, CancellationToken cancellationToken = default)
+    public Task AddAsync(VocabPlanDay day, CancellationToken cancellationToken = default)
     {
         return _dbContext.VocabPlanDays.AddAsync(ToEntity(day), cancellationToken).AsTask();
     }
 
-    public async Task UpdateAsync(VocabPlanDayModel day, CancellationToken cancellationToken = default)
+    public async Task UpdateAsync(VocabPlanDay day, CancellationToken cancellationToken = default)
     {
 
 
@@ -132,7 +132,7 @@ public class VocabPlanDayRepository : IVocabPlanDayRepository
         }
     }
 
-    private static VocabPlanDayEntity ToEntity(VocabPlanDayModel model) => new()
+    private static VocabPlanDayEntity ToEntity(VocabPlanDay model) => new()
     {
         PlanId = model.PlanId,
         LocalDate = model.LocalDate,
@@ -148,7 +148,7 @@ public class VocabPlanDayRepository : IVocabPlanDayRepository
         UpdatedAt = model.UpdatedAt,
     };
 
-    private static VocabPlanDayModel ToModel(VocabPlanDayEntity entity) => new()
+    private static VocabPlanDay ToModel(VocabPlanDayEntity entity) => new()
     {
         PlanId = entity.PlanId,
         LocalDate = entity.LocalDate,
@@ -191,7 +191,7 @@ public class VocabIssuedQuestionRepository : IVocabIssuedQuestionRepository
         _dbContext = dbContext;
     }
 
-    public async Task<VocabIssuedQuestionModel?> FindByIdAsync(Guid id, CancellationToken cancellationToken = default)
+    public async Task<VocabIssuedQuestion?> FindByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         var entity = await _dbContext.VocabIssuedQuestions.FindAsync(new object[] { id }, cancellationToken).ConfigureAwait(false);
         return entity is null ? null : ToModel(entity);
@@ -215,7 +215,7 @@ public class VocabIssuedQuestionRepository : IVocabIssuedQuestionRepository
         entity.AnsweredAt = answeredAt;
     }
 
-    public async Task<VocabIssuedQuestionModel?> FindPendingByKindAsync(Guid studentId, VocabQuestionKind kind, bool freeReview, DateTimeOffset now, CancellationToken cancellationToken = default)
+    public async Task<VocabIssuedQuestion?> FindPendingByKindAsync(Guid studentId, VocabQuestionKind kind, bool freeReview, DateTimeOffset now, CancellationToken cancellationToken = default)
     {
         var entity = await _dbContext.VocabIssuedQuestions.AsNoTracking()
             .Where(question => question.StudentId == studentId
@@ -261,7 +261,7 @@ public class VocabIssuedQuestionRepository : IVocabIssuedQuestionRepository
         return entities.Select(key => new CardKey(key.WordKey, key.MeaningKey)).ToHashSet();
     }
 
-    public async Task<VocabIssuedQuestionModel?> FindLatestAnsweredByCardKeyAsync(Guid studentId, string wordKey, string meaningKey, CancellationToken cancellationToken = default)
+    public async Task<VocabIssuedQuestion?> FindLatestAnsweredByCardKeyAsync(Guid studentId, string wordKey, string meaningKey, CancellationToken cancellationToken = default)
     {
         var entity = await _dbContext.VocabIssuedQuestions.AsNoTracking()
             .Where(question => question.StudentId == studentId
@@ -284,7 +284,7 @@ public class VocabIssuedQuestionRepository : IVocabIssuedQuestionRepository
                 && question.ExpiresAt > now, cancellationToken);
     }
 
-    public async Task<VocabIssuedQuestionModel?> FindPendingDailyAsync(Guid planId, VocabQuestionKind kind,
+    public async Task<VocabIssuedQuestion?> FindPendingDailyAsync(Guid planId, VocabQuestionKind kind,
         IReadOnlyCollection<CardKey> keys, DateTimeOffset now, CancellationToken cancellationToken = default, IReadOnlySet<Guid>? excluded = null)
     {
         if (keys.Count == 0) return null;
@@ -297,7 +297,7 @@ public class VocabIssuedQuestionRepository : IVocabIssuedQuestionRepository
         return match is null ? null : ToModel(match);
     }
 
-    public Task AddRangeAsync(IReadOnlyCollection<VocabIssuedQuestionModel> questions, CancellationToken cancellationToken = default)
+    public Task AddRangeAsync(IReadOnlyCollection<VocabIssuedQuestion> questions, CancellationToken cancellationToken = default)
     {
         if (questions.Count == 0)
         {
@@ -307,7 +307,7 @@ public class VocabIssuedQuestionRepository : IVocabIssuedQuestionRepository
             questions.Select(ToEntity), cancellationToken);
     }
 
-    private static VocabIssuedQuestionEntity ToEntity(VocabIssuedQuestionModel model) => new()
+    private static VocabIssuedQuestionEntity ToEntity(VocabIssuedQuestion model) => new()
     {
         Id = model.Id,
         StudentId = model.StudentId,
@@ -338,7 +338,7 @@ public class VocabIssuedQuestionRepository : IVocabIssuedQuestionRepository
         AnsweredAt = model.AnsweredAt,
     };
 
-    private static VocabIssuedQuestionModel ToModel(VocabIssuedQuestionEntity entity) => new()
+    private static VocabIssuedQuestion ToModel(VocabIssuedQuestionEntity entity) => new()
     {
         Id = entity.Id,
         StudentId = entity.StudentId,
@@ -387,13 +387,13 @@ public class VocabAttemptRepository : IVocabAttemptRepository
         _dbContext = dbContext;
     }
 
-    public async Task<VocabAttemptModel?> FindByQuestionIdAsync(Guid questionId, CancellationToken cancellationToken = default)
+    public async Task<VocabAttempt?> FindByQuestionIdAsync(Guid questionId, CancellationToken cancellationToken = default)
     {
         var entity = await _dbContext.VocabAttempts.FindAsync(new object[] { questionId }, cancellationToken).ConfigureAwait(false);
         return entity is null ? null : ToModel(entity);
     }
 
-    public Task AddAsync(VocabAttemptModel attempt, CancellationToken cancellationToken = default)
+    public Task AddAsync(VocabAttempt attempt, CancellationToken cancellationToken = default)
     {
         return _dbContext.VocabAttempts.AddAsync(new VocabAttemptEntity
         {
@@ -408,7 +408,7 @@ public class VocabAttemptRepository : IVocabAttemptRepository
         }, cancellationToken).AsTask();
     }
 
-    private static VocabAttemptModel ToModel(VocabAttemptEntity entity) => new()
+    private static VocabAttempt ToModel(VocabAttemptEntity entity) => new()
     {
         IssuedQuestionId = entity.IssuedQuestionId,
         Result = (VocabAttemptResult)entity.Result,

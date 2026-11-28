@@ -158,10 +158,10 @@ public sealed class AdminAuthenticationPresentationHandler(
         Task.FromResult(AuthenticateResult.NoResult());
 
     protected override Task HandleChallengeAsync(AuthenticationProperties properties) =>
-        VocabularyHttpResponse.WriteFailureAsync(Response, StatusCodes.Status401Unauthorized, "Authentication is required.");
+        ApiResponse.WriteFailureAsync(Response, StatusCodes.Status401Unauthorized, "Authentication is required.");
 
     protected override Task HandleForbiddenAsync(AuthenticationProperties properties) =>
-        VocabularyHttpResponse.WriteFailureAsync(Response, StatusCodes.Status403Forbidden, "Administrator role is required.");
+        ApiResponse.WriteFailureAsync(Response, StatusCodes.Status403Forbidden, "Administrator role is required.");
 }
 
 // Covers both authentication Read and endpoint Revoke; neither may bypass browser
@@ -183,7 +183,7 @@ public sealed class AdminSessionFailureMiddleware(RequestDelegate next,
             var busy = exception is StorageBusyException;
             if (busy) context.Response.Headers.RetryAfter = "1";
             logger.LogWarning("Administrator session storage operation could not be confirmed.");
-            await VocabularyHttpResponse.WriteFailureAsync(context.Response,
+            await ApiResponse.WriteFailureAsync(context.Response,
                 busy ? StatusCodes.Status503ServiceUnavailable : StatusCodes.Status500InternalServerError,
                 AdminSessionRepository.StorageFailureMessage);
         }

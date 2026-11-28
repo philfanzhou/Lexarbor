@@ -15,12 +15,12 @@ public sealed record VocabularyAdminUnit(string UnitId, int Number, string? Titl
 
 /// <summary>One meaning of an administrative detail result together with its unit assignments.</summary>
 public sealed record VocabularyAdminMeaningDetail(
-    VocabularyMeaningModel Meaning,
+    VocabularyMeaning Meaning,
     IReadOnlyList<VocabularyAdminUnit> Units,
     MeaningPhoneticSnapshot UkPhoneticSnapshot,
     MeaningPhoneticSnapshot UsPhoneticSnapshot);
 
-public sealed record VocabularyAdminWord(VocabularyModel Word, IReadOnlyList<VocabularyAdminBook> Books,
+public sealed record VocabularyAdminWord(Vocabulary Word, IReadOnlyList<VocabularyAdminBook> Books,
     IReadOnlyList<VocabularyAdminMeaningDetail> Meanings);
 public sealed record VocabularyAdminPage(IReadOnlyList<VocabularyAdminWord> Items, int TotalCount, int TotalPage);
 public sealed record VocabularyAdminPhrasePosition(
@@ -29,7 +29,7 @@ public sealed record VocabularyAdminPhrasePosition(
     string? PhoneticUs, string? PartOfSpeech, string Meaning, string? Example);
 public sealed record VocabularyAdminPhrasePositionPage(
     IReadOnlyList<VocabularyAdminPhrasePosition> Items, int TotalCount, int TotalPage);
-public sealed record VocabularyAdminContent(VocabularyBookModel Book, int WordCount, int MeaningCount,
+public sealed record VocabularyAdminContent(VocabularyBook Book, int WordCount, int MeaningCount,
     VocabularyAdminPage Page);
 
 /// <summary>
@@ -56,8 +56,8 @@ public sealed record VocabularyAdminEntryKindCounts(int Word, int Phrase, int No
 /// whole unit.
 /// </summary>
 public sealed record VocabularyAdminUnitContent(
-    VocabularyBookModel Book,
-    VocabularyBookUnitModel Unit,
+    VocabularyBook Book,
+    VocabularyBookUnit Unit,
     int WordCount,
     int MeaningCount,
     VocabularyAdminSectionCounts SectionCounts,

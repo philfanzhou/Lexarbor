@@ -132,7 +132,7 @@ public sealed class AudioRuntimeConfiguration : IDisposable
                 }
             }
             // The reservation blocks new references; the short state lock is released.
-            // No SQLite transaction or remote storage call is part of this check.
+            // No database transaction or remote storage call is part of this check.
             if (reservation is not null && (_records is null || await _records.HasAnyAsync(cancellationToken)))
                 throw new ConfigurationChangeConflictException();
             cancellationToken.ThrowIfCancellationRequested();

@@ -8,7 +8,6 @@ using Lexarbor.Host.Audio;
 using Lexarbor.Service.Tests.TestInfrastructure;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Lexarbor.Service.Tests;

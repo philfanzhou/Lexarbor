@@ -13,8 +13,7 @@ namespace Lexarbor.Host.Authentication;
 /// <c>GET /admin/auth/csrf</c>, and a missing or wrong pair fails the session authentication
 /// itself with the fixed 401 — the boundary's historical shape under the session scheme. The
 /// same middleware keeps logout the idempotent browser cleanup it always was: the hosted
-/// session cookie and the retired password-login JWT cookie are deleted on every logout
-/// response.
+/// session cookie is deleted on every logout response.
 /// </summary>
 public sealed class AdminSessionIdentityMiddleware(RequestDelegate next)
 {
@@ -49,7 +48,7 @@ public sealed class AdminSessionIdentityMiddleware(RequestDelegate next)
                 {
                     // The session authentication itself fails closed: the fixed 401, and the
                     // endpoint never runs.
-                    await VocabularyHttpResponse.WriteFailureAsync(
+                    await ApiResponse.WriteFailureAsync(
                         context.Response, StatusCodes.Status401Unauthorized, "Authentication is required.");
                     return;
                 }

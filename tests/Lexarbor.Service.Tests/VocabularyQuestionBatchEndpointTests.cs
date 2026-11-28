@@ -1,6 +1,5 @@
 using System.Net;
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using Lexarbor.Database;
@@ -10,7 +9,6 @@ using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 using Lexarbor.Service.Tests.TestInfrastructure;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Lexarbor.Service.Tests;
@@ -188,7 +186,7 @@ public class VocabularyQuestionBatchEndpointTests :
         await client.UseCatalogKeyAsync(_factory);
 
         var items = Enumerable
-            .Range(0, VocabularyHttpEndpoints.MaxQuestionBatchItems + 1)
+            .Range(0, VocabularyEndpoints.MaxQuestionBatchItems + 1)
             .Select(_ => new { wordId = data.WordId, bookId = data.BookId })
             .ToArray();
 
@@ -199,7 +197,7 @@ public class VocabularyQuestionBatchEndpointTests :
         var refusedRoot = await HttpFailureAssertions.AssertFailureAsync(
             refused, HttpStatusCode.BadRequest);
         Assert.Equal(
-            $"A batch can contain at most {VocabularyHttpEndpoints.MaxQuestionBatchItems} items.",
+            $"A batch can contain at most {VocabularyEndpoints.MaxQuestionBatchItems} items.",
             refusedRoot.GetProperty("message").GetString());
 
         var accepted = await client.PostAsJsonAsync(
@@ -210,7 +208,7 @@ public class VocabularyQuestionBatchEndpointTests :
         using var body = JsonDocument.Parse(
             await accepted.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         var results = body.RootElement.GetProperty("data").GetProperty("results");
-        Assert.Equal(VocabularyHttpEndpoints.MaxQuestionBatchItems, results.GetArrayLength());
+        Assert.Equal(VocabularyEndpoints.MaxQuestionBatchItems, results.GetArrayLength());
         var index = 0;
         foreach (var row in results.EnumerateArray())
         {
@@ -257,7 +255,7 @@ public class VocabularyQuestionBatchEndpointTests :
 
         var overLimit = PaddedBatch(
             new { wordId = data.WordId, bookId = data.BookId },
-            VocabularyHttpEndpoints.MaxBatchRequestBytes + 1);
+            VocabularyEndpoints.MaxBatchRequestBytes + 1);
 
         using (var content = new ByteArrayContent(overLimit))
         {
@@ -284,7 +282,7 @@ public class VocabularyQuestionBatchEndpointTests :
         // At the limit the body parses and the batch answers per item.
         var atLimit = PaddedBatch(
             new { wordId = data.WordId, bookId = data.BookId },
-            VocabularyHttpEndpoints.MaxBatchRequestBytes);
+            VocabularyEndpoints.MaxBatchRequestBytes);
         using (var content = new ByteArrayContent(atLimit))
         {
             content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
@@ -467,18 +465,18 @@ public class VocabularyQuestionBatchEndpointTests :
         Func<Task> onGetById,
         Task release) : IVocabularyBookRepository
     {
-        public async Task<VocabularyBookModel?> GetByIdAsync(string id)
+        public async Task<VocabularyBook?> GetByIdAsync(string id)
         {
             await onGetById();
             await release;
             return await inner.GetByIdAsync(id);
         }
 
-        public Task<List<VocabularyBookModel>> GetAllAsync() => inner.GetAllAsync();
-        public Task<List<VocabularyBookModel>> GetActiveAsync(bool excludeManagedSupplement = false) => inner.GetActiveAsync(excludeManagedSupplement);
-        public Task<(List<VocabularyBookModel> Items, int TotalCount)> SearchAsync(
+        public Task<List<VocabularyBook>> GetAllAsync() => inner.GetAllAsync();
+        public Task<List<VocabularyBook>> GetActiveAsync(bool excludeManagedSupplement = false) => inner.GetActiveAsync(excludeManagedSupplement);
+        public Task<(List<VocabularyBook> Items, int TotalCount)> SearchAsync(
             string? keyword, int page, int size) => inner.SearchAsync(keyword, page, size);
-        public Task<List<VocabularyBookModel>> GetByCategoryAsync(
+        public Task<List<VocabularyBook>> GetByCategoryAsync(
             string? category, string? grade) => inner.GetByCategoryAsync(category, grade);
         public Task<List<string>> GetDistinctCategoriesAsync() => inner.GetDistinctCategoriesAsync();
         public Task<List<string>> GetDistinctEducationLevelsAsync()
@@ -487,10 +485,10 @@ public class VocabularyQuestionBatchEndpointTests :
         public Task<List<string>> GetDistinctGradesByEducationLevelAsync(
             string educationLevel) => inner.GetDistinctGradesByEducationLevelAsync(educationLevel);
         public Task<bool> HasMeaningsAsync(string bookId) => inner.HasMeaningsAsync(bookId);
-        public Task<(List<VocabularyModel> Items, int TotalCount)> GetWordsAsync(
+        public Task<(List<Vocabulary> Items, int TotalCount)> GetWordsAsync(
             string bookId, int page, int size) => inner.GetWordsAsync(bookId, page, size);
-        public Task AddAsync(VocabularyBookModel model) => inner.AddAsync(model);
-        public Task UpdateAsync(VocabularyBookModel model) => inner.UpdateAsync(model);
+        public Task AddAsync(VocabularyBook model) => inner.AddAsync(model);
+        public Task UpdateAsync(VocabularyBook model) => inner.UpdateAsync(model);
         public Task DeleteAsync(string id) => inner.DeleteAsync(id);
     }
 

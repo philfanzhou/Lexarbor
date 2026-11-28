@@ -1,7 +1,6 @@
 using Lexarbor.Domain.Services;
 using Lexarbor.Service.Dtos;
 using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
 
@@ -9,7 +8,7 @@ namespace Lexarbor.Service;
 
 public static class VocabularyMeaningEditEndpoints
 {
-    public static void MapVocabularyMeaningEditEndpoints(this IEndpointRouteBuilder app)
+    public static void MapVocabularyMeaningEdit(this IEndpointRouteBuilder app)
     {
         app.MapPut("/admin/vocabulary-books/{bookId}/words/{wordId}/meanings/{meaningId}",
             async (string bookId, string wordId, string meaningId, [FromBody] VocabularyMeaningEditRequest request,
@@ -18,7 +17,7 @@ public static class VocabularyMeaningEditEndpoints
             {
                 await service.ReplaceAsync(bookId, wordId, meaningId, request.PartOfSpeech, request.Meaning, request.Example,
                     request.Edits(bookId, wordId, meaningId), versions.Capture(), clock.GetUtcNow().ToUnixTimeMilliseconds(), cancellationToken);
-                return VocabularyHttpResponse.Ok(new BoolResponse { Success = true });
+                return ApiResponse.Ok(new BoolResponse { Success = true });
             }).RequireAuthorization(AdminEndpointAuthorization.PolicyName);
     }
 }

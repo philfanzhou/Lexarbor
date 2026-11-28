@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Net;
-using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Lexarbor.Database;
@@ -13,9 +12,6 @@ using Lexarbor.Service.Tests.TestInfrastructure;
 using Lexarbor.Tests.Shared;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Migrations;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Lexarbor.Service.Tests;

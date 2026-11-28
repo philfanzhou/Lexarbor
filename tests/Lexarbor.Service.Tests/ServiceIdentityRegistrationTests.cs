@@ -1,6 +1,5 @@
 using Lexarbor.Host;
 using Lexarbor.Service.Tests.TestInfrastructure;
-using Microsoft.Extensions.DependencyInjection;
 using ServiceMantle.Web.Logging;
 
 namespace Lexarbor.Service.Tests;

@@ -3,14 +3,11 @@ using Lexarbor.Database;
 using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
-using Lexarbor.Domain.Services;
 using Lexarbor.Host;
 using Lexarbor.Host.Integration;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
-using Npgsql;
 
 namespace Lexarbor.Service.Tests;
 

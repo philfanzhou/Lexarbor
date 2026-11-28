@@ -3,7 +3,6 @@ using Lexarbor.Domain.Exceptions;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Storage;
 
 namespace Lexarbor.Database.Repositories;
 
@@ -12,10 +11,10 @@ public sealed class VocabularyRelationRepository(VocabularyDbContext context) : 
     public Task<bool> WordExistsAsync(string id, CancellationToken cancellationToken) =>
         context.Vocabularies.AnyAsync(word => word.Id == id, cancellationToken);
 
-    public async Task<VocabularyRelationModel?> GetAsync(string id, CancellationToken cancellationToken) =>
+    public async Task<VocabularyRelation?> GetAsync(string id, CancellationToken cancellationToken) =>
         Model(await context.VocabularyRelations.AsNoTracking().SingleOrDefaultAsync(r => r.Id == id, cancellationToken));
 
-    public async Task<VocabularyRelationModel?> FindAsync(string sourceWordId, string targetWordId, string type,
+    public async Task<VocabularyRelation?> FindAsync(string sourceWordId, string targetWordId, string type,
         CancellationToken cancellationToken) => Model(await context.VocabularyRelations.AsNoTracking()
             .SingleOrDefaultAsync(r => r.SourceWordId == sourceWordId && r.TargetWordId == targetWordId && r.Type == type, cancellationToken));
 
@@ -45,7 +44,7 @@ public sealed class VocabularyRelationRepository(VocabularyDbContext context) : 
         finally { await context.Database.CloseConnectionAsync(); }
     }
 
-    public async Task AddAsync(VocabularyRelationModel relation, CancellationToken cancellationToken)
+    public async Task AddAsync(VocabularyRelation relation, CancellationToken cancellationToken)
     {
         await context.VocabularyRelations.AddAsync(new VocabularyRelationEntity
         {
@@ -65,7 +64,7 @@ public sealed class VocabularyRelationRepository(VocabularyDbContext context) : 
         }, cancellationToken);
     }
 
-    public async Task<bool> ReplaceAsync(VocabularyRelationModel relation, long expectedVersion, CancellationToken cancellationToken) =>
+    public async Task<bool> ReplaceAsync(VocabularyRelation relation, long expectedVersion, CancellationToken cancellationToken) =>
         await context.VocabularyRelations.Where(r => r.Id == relation.Id && r.Version == expectedVersion)
             .ExecuteUpdateAsync(set => set.SetProperty(r => r.SourceWordId, relation.SourceWordId)
                 .SetProperty(r => r.TargetWordId, relation.TargetWordId).SetProperty(r => r.Type, relation.Type)
@@ -83,7 +82,7 @@ public sealed class VocabularyRelationRepository(VocabularyDbContext context) : 
             .OrderBy(pair => pair.SourceMeaningId).ThenBy(pair => pair.TargetMeaningId)
             .Select(pair => new VocabularyRelationMeaningPair(pair.SourceMeaningId, pair.TargetMeaningId)).ToArrayAsync(cancellationToken);
 
-    public async Task ReplaceMeaningPairsAsync(VocabularyRelationModel relation, IReadOnlyList<VocabularyRelationMeaningPair> pairs,
+    public async Task ReplaceMeaningPairsAsync(VocabularyRelation relation, IReadOnlyList<VocabularyRelationMeaningPair> pairs,
         CancellationToken cancellationToken)
     {
         var ids = pairs.SelectMany(pair => new[] { pair.SourceMeaningId, pair.TargetMeaningId }).Distinct(StringComparer.Ordinal).ToArray();
@@ -105,7 +104,7 @@ public sealed class VocabularyRelationRepository(VocabularyDbContext context) : 
             ON CONFLICT (relation_id, source_meaning_id, target_meaning_id) DO NOTHING
             """, cancellationToken) == 1;
 
-    private static VocabularyRelationModel? Model(VocabularyRelationEntity? r) => r == null ? null : new(
+    private static VocabularyRelation? Model(VocabularyRelationEntity? r) => r == null ? null : new(
         r.Id, r.SourceWordId, r.TargetWordId, r.Type, r.UsageNote, r.Status, r.ReviewReason, r.OriginKind,
         r.OriginReference, r.Version, r.CreatedAtUnixMs, r.UpdatedAtUnixMs, r.LastConfirmedAtUnixMs);
 }

@@ -4,15 +4,11 @@ using System.Text;
 using System.Text.Json;
 using Lexarbor.Host.Configuration;
 using Lexarbor.Host.Integration;
-using Lexarbor.Learning.Domain.Models;
 using Lexarbor.Learning.Domain.Repositories;
 using Lexarbor.Learning.Domain.Services;
 using Lexarbor.Learning.Service;
 using Lexarbor.Service.Tests.TestInfrastructure;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Lexarbor.Service.Tests;

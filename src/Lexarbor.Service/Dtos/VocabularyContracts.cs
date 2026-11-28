@@ -152,12 +152,6 @@ public class StringListResponse
 
 // ==================== Request DTOs ====================
 
-public class GetDetailRequest
-{
-    public string WordId { get; set; } = string.Empty;
-    public string BookId { get; set; } = string.Empty;
-}
-
 public class AddOrUpdateRequest
 {
     public VocabularyDto? Word { get; set; }
@@ -227,13 +221,6 @@ public class VocabularyBatchEntryError
 {
     public int Index { get; set; }
     public string Message { get; set; } = string.Empty;
-}
-
-public class SearchRequest
-{
-    public string Keyword { get; set; } = string.Empty;
-    public int Page { get; set; }
-    public int Size { get; set; }
 }
 
 /// <summary>
@@ -339,15 +326,21 @@ public class OptionDto
     public string? MeaningId { get; set; }
 }
 
-public class SearchBookRequest
+/// <summary>The wire form of one generated question, shared by every endpoint that answers with it.</summary>
+public static class QuestionMapping
 {
-    public string Keyword { get; set; } = string.Empty;
-    public int Page { get; set; }
-    public int Size { get; set; }
-}
-
-public class GetByCategoryRequest
-{
-    public string Category { get; set; } = string.Empty;
-    public string? Grade { get; set; }
+    public static QuestionResponse From(VocabularyQuestion question) => new()
+    {
+        Word = question.Word,
+        WordId = question.WordId,
+        MeaningId = question.MeaningId,
+        ChineseToEnglish = question.ChineseToEnglish,
+        Options = question.Options.Select(option => new OptionDto
+        {
+            Meaning = option.Text,
+            IsCorrect = option.IsCorrect,
+            WordId = option.WordId,
+            MeaningId = option.MeaningId
+        }).ToList()
+    };
 }

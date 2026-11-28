@@ -5,7 +5,7 @@ namespace Lexarbor.Host;
 
 /// <summary>
 /// Redacts correlation query material from spans of the hosted-login callback
-/// and the prepared-logout return route. Those URLs necessarily carry a
+/// and the RP-initiated logout's return route. Those URLs necessarily carry a
 /// one-time authorization code or state; no span attribute may export them.
 /// </summary>
 internal sealed class AdminCallbackQueryRedactionProcessor : BaseProcessor<Activity>

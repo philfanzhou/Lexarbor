@@ -1,5 +1,3 @@
-using Lexarbor.Database;
-using Lexarbor.Database.Entities;
 using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Models;
 using Microsoft.EntityFrameworkCore;

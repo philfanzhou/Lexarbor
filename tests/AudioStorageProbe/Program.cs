@@ -1,26 +1,26 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
-using System.Text.Json;
 using System.Security.Claims;
+using System.Text.Json;
+using Lexarbor.Database;
+using Lexarbor.Database.Entities;
+using Lexarbor.Database.Repositories;
+using Lexarbor.Domain.Models;
+using Lexarbor.Domain.Repositories;
+using Lexarbor.Domain.Services;
+using Lexarbor.Host.Audio;
+using Lexarbor.Host.Configuration;
+using Lexarbor.Service;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Lexarbor.Domain.Repositories;
-using Lexarbor.Domain.Models;
-using Lexarbor.Domain.Services;
-using Lexarbor.Database;
-using Lexarbor.Database.Entities;
-using Lexarbor.Database.Repositories;
-using Lexarbor.Service;
-using Microsoft.EntityFrameworkCore;
-using Lexarbor.Host.Audio;
 using Microsoft.Extensions.Options;
-using Microsoft.Extensions.Configuration;
-using Lexarbor.Host.Configuration;
 using Minio;
 using Minio.DataModel.Args;
 
@@ -613,8 +613,8 @@ sealed class PlaybackProbeHost(WebApplication app, HttpClient client, PlaybackPr
             await next(context);
         });
         app.UseAuthorization();
-        app.MapAudioAdminPlaybackEndpoints();
-        app.MapAudioPublicPlaybackEndpoints();
+        app.MapAudioAdminPlayback();
+        app.MapAudioPublicPlayback();
         app.Use(async (context, next) =>
         {
             try { await next(context); }

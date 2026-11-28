@@ -1,6 +1,5 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Antiforgery;
-using Microsoft.AspNetCore.Http;
 
 namespace Lexarbor.Host.Authentication;
 

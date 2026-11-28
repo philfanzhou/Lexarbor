@@ -33,7 +33,7 @@ public sealed class VocabularyWordListService(IVocabularyWordListRepository repo
         foreach (var card in cards)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            staged.Add((card, memory.GetStage(new MemoryCardModel
+            staged.Add((card, memory.GetStage(new MemoryCard
             { StudentId = studentId, WordKey = card.WordKey, MeaningKey = card.MeaningKey, Stability = card.Stability })));
         }
         var masteredWords = staged.GroupBy(entry => entry.Card.WordKey, StringComparer.Ordinal)

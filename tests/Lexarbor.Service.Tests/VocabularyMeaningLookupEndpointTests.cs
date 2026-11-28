@@ -1,6 +1,5 @@
 using System.Data.Common;
 using System.Net;
-using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using Lexarbor.Database;
@@ -8,11 +7,9 @@ using Lexarbor.Database.Entities;
 using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Models;
 using Lexarbor.Service.Tests.TestInfrastructure;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Lexarbor.Service.Tests;
@@ -131,7 +128,7 @@ public sealed class VocabularyMeaningLookupEndpointTests
         }
         using var client = ((WebApplicationFactory<Program>)factory).CreateClient();
         await client.UseCatalogKeyAsync(factory);
-        var limit = (int)VocabularyHttpEndpoints.MaxBatchRequestBytes;
+        var limit = (int)VocabularyEndpoints.MaxBatchRequestBytes;
         Assert.Single(await ReadItems(await client.PostAsync(Lookup, Json("{\"words\":[\"missing\"]}".PadRight(limit)), Ct)));
         await Expect(await client.PostAsync(Lookup, Json(new string(' ', limit + 1)), Ct), HttpStatusCode.RequestEntityTooLarge);
         using var chunked = new HttpRequestMessage(HttpMethod.Post, Lookup)

@@ -6,6 +6,6 @@ namespace Lexarbor.Learning.Domain.Repositories;
 public interface IVocabularyOverviewSnapshot : IAsyncDisposable
 {
     bool StudentExists { get; }
-    VocabPlanModel? ActivePlan { get; }
-    Task<IReadOnlyList<MemoryCardModel>> ReadCardsAsync(CancellationToken cancellationToken = default);
+    VocabPlan? ActivePlan { get; }
+    Task<IReadOnlyList<MemoryCard>> ReadCardsAsync(CancellationToken cancellationToken = default);
 }

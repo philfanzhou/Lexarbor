@@ -1,6 +1,5 @@
 using System.Data.Common;
 using Lexarbor.Database;
-using Lexarbor.Database.Entities;
 using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
@@ -129,7 +128,7 @@ public sealed class AudioUploadRepositoryTests
             await new VocabularyWordEditService(new VocabularyRepository(db), new VocabularyWordEditRepository(db), new VocabularyMeaningRepository(db),
                 new VocabularyMeaningUnitRepository(db), uow).ReplaceAsync("word", "APPLE", "uk", "us", Token);
         if (change == "import")
-            await new VocabularyDomainService(new VocabularyRepository(db), new VocabularyBookRepository(db), new VocabularyMeaningRepository(db),
+            await new VocabularyService(new VocabularyRepository(db), new VocabularyBookRepository(db), new VocabularyMeaningRepository(db),
                 new VocabularyBookUnitRepository(db), new VocabularyMeaningUnitRepository(db), uow)
                 .ImportBatchAsync("book", [(new() { Word = "Apple", PhoneticUk = "changed" }, new() { PartOfSpeech = "n.", Meaning = "fruit" }, null, null, null)]);
         if (change == "meaning-edit")

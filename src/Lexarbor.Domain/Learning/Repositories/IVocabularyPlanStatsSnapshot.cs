@@ -4,7 +4,7 @@ namespace Lexarbor.Learning.Domain.Repositories;
 
 public interface IVocabularyPlanStatsSnapshot : IAsyncDisposable
 {
-    IReadOnlyList<VocabPlanModel> Plans { get; }
+    IReadOnlyList<VocabPlan> Plans { get; }
 
     IReadOnlyDictionary<Guid, VocabularyPlanReactivation> Reactivations { get; }
     Task<IReadOnlyDictionary<Guid, VocabularyPlanStatsCounts>> ReadCountsAsync(

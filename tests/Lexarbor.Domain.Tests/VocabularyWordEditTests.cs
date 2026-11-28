@@ -201,11 +201,11 @@ public class VocabularyWordEditTests : TestBase
     private static async Task WriteAsync(VocabularyDbContext db, string kind, string value, CancellationToken cancellationToken)
     {
         if (kind == "edit") await Service(db).ReplaceAsync("w", "original", value, null, cancellationToken);
-        else await new VocabularyDomainService(new VocabularyRepository(db), new VocabularyBookRepository(db),
+        else await new VocabularyService(new VocabularyRepository(db), new VocabularyBookRepository(db),
             new VocabularyMeaningRepository(db), new VocabularyBookUnitRepository(db),
             new VocabularyMeaningUnitRepository(db), new UnitOfWork(db)).AddOrUpdateAsync(
-            new VocabularyModel { Id = "w", Word = "original", PhoneticUk = value },
-            new VocabularyMeaningModel { Id = "a", BookId = "A", VocabularyId = "w", Meaning = "meaning-a" });
+            new Vocabulary { Id = "w", Word = "original", PhoneticUk = value },
+            new VocabularyMeaning { Id = "a", BookId = "A", VocabularyId = "w", Meaning = "meaning-a" });
     }
 
     private static async Task SeedAsync(VocabularyDbContext db)

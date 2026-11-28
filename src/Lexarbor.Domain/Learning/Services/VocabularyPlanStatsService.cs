@@ -20,7 +20,7 @@ public sealed class VocabularyPlanStatsService(IVocabularyPlanStatsRepository re
         var cache = new Dictionary<string, IReadOnlyList<CardKey>>(StringComparer.Ordinal);
         for (var attempt = 0; attempt < 2; attempt++)
         {
-            IReadOnlyList<VocabPlanModel> candidates;
+            IReadOnlyList<VocabPlan> candidates;
             string signature;
             await using (var metadata = await repository.OpenAsync(ids, cancellationToken).ConfigureAwait(false))
             {
@@ -71,7 +71,7 @@ public sealed class VocabularyPlanStatsService(IVocabularyPlanStatsRepository re
         throw new VocabularyStatisticsUnavailableException();
     }
 
-    private static string Signature(IReadOnlyList<VocabPlanModel> plans) => JsonSerializer.Serialize(
+    private static string Signature(IReadOnlyList<VocabPlan> plans) => JsonSerializer.Serialize(
         plans.OrderBy(plan => plan.Id).Select(plan => new
         { plan.Id, plan.StudentId, plan.Version, plan.Status, plan.TotalWords, plan.CreatedAt, plan.UpdatedAt, plan.Segments }));
 

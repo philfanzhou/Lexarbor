@@ -1,9 +1,7 @@
 using System.Text.Json.Nodes;
 using Lexarbor.Host.Authentication;
 using Lexarbor.Host.Configuration;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.FileProviders;
-using Microsoft.Extensions.Hosting;
 
 namespace Lexarbor.Service.Tests;
 

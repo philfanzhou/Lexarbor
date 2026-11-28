@@ -1,10 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
-using System.Text.Json;
 using Lexarbor.Domain.Repositories;
 using Lexarbor.Service.Tests.TestInfrastructure;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Lexarbor.Service.Tests;
@@ -287,17 +284,15 @@ public class AdminSecurityResponseHeaderTests
 
     private sealed class ThrowingRepository : IVocabularyRepository
     {
-        public Task<(List<Lexarbor.Domain.Models.VocabularyModel> Items, int TotalCount)> SearchAsync(
+        public Task<(List<Lexarbor.Domain.Models.Vocabulary> Items, int TotalCount)> SearchAsync(
             string? keyword, int page, int size)
             => throw new InvalidOperationException("header-baseline injected failure");
 
-        public Task<Lexarbor.Domain.Models.VocabularyModel?> GetByIdAsync(string id) => throw Unused();
-        public Task<Lexarbor.Domain.Models.VocabularyModel?> GetByWordAsync(string word) => throw Unused();
-        public Task<Lexarbor.Domain.Models.VocabularyModel?> GetByNormalizedWordAsync(string normalizedWord) => throw Unused();
-        public Task<List<Lexarbor.Domain.Models.VocabularyModel>> GetByIdsAsync(IReadOnlyCollection<string> ids) => throw Unused();
-        public Task AddAsync(Lexarbor.Domain.Models.VocabularyModel model) => throw Unused();
-        public Task UpdateAsync(Lexarbor.Domain.Models.VocabularyModel model) => throw Unused();
-        public Task<List<Lexarbor.Domain.Models.VocabularyModel>> GetRandomByBookExceptAsync(
+        public Task<Lexarbor.Domain.Models.Vocabulary?> GetByIdAsync(string id) => throw Unused();
+        public Task<Lexarbor.Domain.Models.Vocabulary?> GetByNormalizedWordAsync(string normalizedWord) => throw Unused();
+        public Task AddAsync(Lexarbor.Domain.Models.Vocabulary model) => throw Unused();
+        public Task UpdateAsync(Lexarbor.Domain.Models.Vocabulary model) => throw Unused();
+        public Task<List<Lexarbor.Domain.Models.Vocabulary>> GetRandomByBookExceptAsync(
             string bookId, string excludeVocabularyId, string excludeWord,
             string excludeEquivalentMeaning, int count,
             Lexarbor.Domain.Repositories.VocabularyDistractorScope? scope = null) => throw Unused();

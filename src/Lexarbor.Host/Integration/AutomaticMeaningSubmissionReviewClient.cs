@@ -1,9 +1,9 @@
 using System.Net;
 using System.Net.Http.Headers;
-using System.Text;
 using System.Text.Json;
 using Lexarbor.Domain.Models;
 using OpenTelemetry;
+using static Lexarbor.Host.Integration.SupplierJson;
 
 namespace Lexarbor.Host.Integration;
 
@@ -24,7 +24,7 @@ public sealed class AutomaticMeaningSubmissionReviewClient(IHttpClientFactory cl
         "Use null for optional absent values. IPA has no slashes; phrases must have null phoneticUk and phoneticUs. " +
         "POS max32, meaning max500, IPA max100 each, comment max500 characters. No tools, commands, URLs or credentials.";
 
-    public async Task<AutomaticReviewResponse> ReviewAsync(MeaningSubmissionModel submission, string attemptId,
+    public async Task<AutomaticReviewResponse> ReviewAsync(MeaningSubmission submission, string attemptId,
         ReviewAssistantOptions settings, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
@@ -49,11 +49,11 @@ public sealed class AutomaticMeaningSubmissionReviewClient(IHttpClientFactory cl
             if (delay <= TimeSpan.Zero) delay = null;
             if (response.StatusCode == HttpStatusCode.TooManyRequests) return new(null, "rate_limited", delay);
             if (!response.IsSuccessStatusCode) return new(null, (int)response.StatusCode >= 500 ? "service_unavailable" : "request_rejected");
-            var bytes = await ReadBoundedAsync(response.Content, cancellation.Token);
+            var bytes = await ReadBoundedAsync(response.Content, cancellation.Token, MaximumBodyBytes);
             if (bytes == null) return new(null, "response_too_large");
             using var envelope = JsonDocument.Parse(bytes, new JsonDocumentOptions { MaxDepth = 8 });
             var root = envelope.RootElement;
-            if (root.ValueKind != JsonValueKind.Object || !Unique(root) || ContainsPrivate(root, settings)
+            if (root.ValueKind != JsonValueKind.Object || !UniqueProperties(root) || ContainsPrivate(root, settings)
                 || root.TryGetProperty("error", out _) || !root.TryGetProperty("choices", out var choices)
                 || choices.ValueKind != JsonValueKind.Array || choices.GetArrayLength() != 1) return Invalid();
             var choice = choices[0];
@@ -69,16 +69,16 @@ public sealed class AutomaticMeaningSubmissionReviewClient(IHttpClientFactory cl
         catch (Exception error) when (error is JsonException or InvalidOperationException or FormatException) { return Invalid(); }
     }
 
-    internal AiTextItem<AutomaticReviewResponse> BatchItem(MeaningSubmissionModel submission, string attemptId,
+    internal AiTextItem<AutomaticReviewResponse> BatchItem(MeaningSubmission submission, string attemptId,
         ReviewAssistantOptions settings) => new(attemptId,
         JsonSerializer.Serialize(new { word = submission.Word, partOfSpeech = submission.PartOfSpeech, meaning = submission.Meaning, example = submission.Example }, Json),
         content => ValidateContent(content, submission, attemptId, settings));
 
-    private AutomaticReviewResponse ValidateContent(string content, MeaningSubmissionModel submission, string attemptId, ReviewAssistantOptions settings)
+    private AutomaticReviewResponse ValidateContent(string content, MeaningSubmission submission, string attemptId, ReviewAssistantOptions settings)
     {
         using var decision = JsonDocument.Parse(content, new JsonDocumentOptions { MaxDepth = 8 });
         var value = decision.RootElement;
-        if (value.ValueKind != JsonValueKind.Object || !Unique(value) || ContainsPrivate(value, settings)) return Invalid();
+        if (value.ValueKind != JsonValueKind.Object || !UniqueProperties(value) || ContainsPrivate(value, settings)) return Invalid();
         var allowed = new HashSet<string>(["verdict", "partOfSpeech", "meaning", "phoneticUk", "phoneticUs", "comment"], StringComparer.Ordinal);
         if (value.EnumerateObject().Any(p => !allowed.Contains(p.Name)) || !value.TryGetProperty("verdict", out var verdict)
             || verdict.ValueKind != JsonValueKind.String || verdict.GetString() is not ("accept" or "revise" or "reject")) return Invalid();
@@ -104,13 +104,6 @@ public sealed class AutomaticMeaningSubmissionReviewClient(IHttpClientFactory cl
         value = string.IsNullOrWhiteSpace(text) ? null : text.Trim();
         return true;
     }
-    private static bool Unique(JsonElement value) => value.ValueKind switch
-    {
-        JsonValueKind.Object => value.EnumerateObject().Select(p => p.Name).Distinct(StringComparer.Ordinal).Count() == value.EnumerateObject().Count()
-            && value.EnumerateObject().All(p => Unique(p.Value)),
-        JsonValueKind.Array => value.EnumerateArray().All(Unique),
-        _ => true
-    };
     private static bool ContainsPrivate(JsonElement value, ReviewAssistantOptions settings) => value.ValueKind switch
     {
         JsonValueKind.String => Private(value.GetString()!, settings),
@@ -122,17 +115,4 @@ public sealed class AutomaticMeaningSubmissionReviewClient(IHttpClientFactory cl
     private static bool Private(string text, ReviewAssistantOptions settings) =>
         !string.IsNullOrEmpty(settings.ApiKey) && text.Contains(settings.ApiKey, StringComparison.Ordinal)
         || !string.IsNullOrEmpty(settings.Endpoint) && text.Contains(settings.Endpoint, StringComparison.Ordinal);
-    private static async Task<byte[]?> ReadBoundedAsync(HttpContent content, CancellationToken token)
-    {
-        if (content.Headers.ContentLength > MaximumBodyBytes) return null;
-        await using var stream = await content.ReadAsStreamAsync(token);
-        using var output = new MemoryStream(); var buffer = new byte[8192];
-        while (true)
-        {
-            var count = await stream.ReadAsync(buffer.AsMemory(0, Math.Min(buffer.Length, MaximumBodyBytes + 1 - (int)output.Length)), token);
-            if (count == 0) return output.ToArray();
-            output.Write(buffer, 0, count);
-            if (output.Length > MaximumBodyBytes) return null;
-        }
-    }
 }

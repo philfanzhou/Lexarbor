@@ -9,7 +9,7 @@ namespace Lexarbor.Service;
 
 public static class AudioAdminQueryEndpoints
 {
-    public static void MapAudioAdminQueryEndpoints(this IEndpointRouteBuilder app)
+    public static void MapAudioAdminQuery(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/admin").RequireAuthorization(AdminEndpointAuthorization.PolicyName);
         group.MapGet("/audio-targets", async ([FromQuery] string? bookId, [FromQuery] string? locale,
@@ -18,14 +18,14 @@ public static class AudioAdminQueryEndpoints
         {
             using var operation = await operations.AcquireAsync(cancellationToken);
             var result = await service.SearchAsync(bookId, locale, status, page, size, cancellationToken);
-            return VocabularyHttpResponse.Ok(new { enabled = operation.Enabled, items = result.Items.Select(ToDto), result.TotalCount, result.TotalPage });
+            return ApiResponse.Ok(new { enabled = operation.Enabled, items = result.Items.Select(ToDto), result.TotalCount, result.TotalPage });
         });
         group.MapGet("/vocabulary/{wordId}/audio", async (string wordId, [FromQuery] string? meaningId,
             AudioAdminQueryService service, IAudioAdminOperationFactory operations, CancellationToken cancellationToken) =>
         {
             using var operation = await operations.AcquireAsync(cancellationToken);
             var items = await service.GetAsync(wordId, meaningId, cancellationToken);
-            return VocabularyHttpResponse.Ok(new { enabled = operation.Enabled, items = items.Select(ToDto) });
+            return ApiResponse.Ok(new { enabled = operation.Enabled, items = items.Select(ToDto) });
         });
     }
 

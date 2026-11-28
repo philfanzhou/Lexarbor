@@ -13,7 +13,7 @@ namespace Lexarbor.Domain.Tests;
 /// </summary>
 public class VocabularyBatchImportTests : TestBase
 {
-    private readonly VocabularyDomainService _service;
+    private readonly VocabularyService _service;
 
     public VocabularyBatchImportTests()
     {
@@ -395,7 +395,7 @@ public class VocabularyBatchImportTests : TestBase
                 stored => stored.Id == unit.Id, TestContext.Current.CancellationToken));
         await _dbContext.SaveChangesAsync(TestContext.Current.CancellationToken);
 
-        var service = new VocabularyDomainService(
+        var service = new VocabularyService(
             _vocabularyRepository,
             _bookRepository,
             _meaningRepository,
@@ -417,7 +417,7 @@ public class VocabularyBatchImportTests : TestBase
     {
         var book = await CreateBookAsync();
         var unit = await CreateUnitAsync(book.Id, 1);
-        var entries = new List<(VocabularyModel Word, VocabularyMeaningModel Meaning, string? UnitId, string? Section, string? EntryKind)>
+        var entries = new List<(Vocabulary Word, VocabularyMeaning Meaning, string? UnitId, string? Section, string? EntryKind)>
         {
             Entry("apple", "苹果", unitId: unit.Id)
         };
@@ -484,7 +484,7 @@ public class VocabularyBatchImportTests : TestBase
         await Assert.ThrowsAsync<DomainValidationException>(() => _service.ImportBatchAsync(book.Id, []));
         await Assert.ThrowsAsync<DomainValidationException>(() => _service.ImportBatchAsync(
             book.Id,
-            Enumerable.Range(0, VocabularyDomainService.MaxBatchEntries + 1)
+            Enumerable.Range(0, VocabularyService.MaxBatchEntries + 1)
                 .Select(index => Entry($"word{index}", "meaning"))
                 .ToList()));
         // A valid entry ahead of the invalid one is not written.
@@ -527,7 +527,7 @@ public class VocabularyBatchImportTests : TestBase
 
         Assert.Equal(
             expected,
-            VocabularyDomainService.ValidateBatchEntry(vocabulary, vocabularyMeaning, unitId, section, entryKind));
+            VocabularyService.ValidateBatchEntry(vocabulary, vocabularyMeaning, unitId, section, entryKind));
     }
 
     [Theory]
@@ -559,7 +559,7 @@ public class VocabularyBatchImportTests : TestBase
 
         Assert.Equal(
             expected,
-            VocabularyDomainService.ValidateBatchEntry(vocabulary, vocabularyMeaning, "unit-1", null, " phrase "));
+            VocabularyService.ValidateBatchEntry(vocabulary, vocabularyMeaning, "unit-1", null, " phrase "));
     }
 
     [Theory]
@@ -579,7 +579,7 @@ public class VocabularyBatchImportTests : TestBase
             unitId: unitId,
             entryKind: entryKind);
 
-        Assert.Null(VocabularyDomainService.ValidateBatchEntry(vocabulary, vocabularyMeaning, unitId, null, entryKind));
+        Assert.Null(VocabularyService.ValidateBatchEntry(vocabulary, vocabularyMeaning, unitId, null, entryKind));
     }
 
     [Fact]
@@ -632,9 +632,9 @@ public class VocabularyBatchImportTests : TestBase
         Assert.True(string.IsNullOrEmpty(phraseMeaning.PartOfSpeech));
     }
 
-    private VocabularyDomainService CreateService(IVocabularyMeaningRepository meaningRepository)
+    private VocabularyService CreateService(IVocabularyMeaningRepository meaningRepository)
     {
-        return new VocabularyDomainService(
+        return new VocabularyService(
             _vocabularyRepository,
             _bookRepository,
             meaningRepository,
@@ -650,9 +650,9 @@ public class VocabularyBatchImportTests : TestBase
             TestContext.Current.CancellationToken);
     }
 
-    private async Task<VocabularyBookUnitModel> CreateUnitAsync(string bookId, int number)
+    private async Task<VocabularyBookUnit> CreateUnitAsync(string bookId, int number)
     {
-        var unitService = new VocabularyBookUnitDomainService(
+        var unitService = new VocabularyBookUnitService(
             _bookRepository,
             _meaningRepository,
             _bookUnitRepository,
@@ -661,7 +661,7 @@ public class VocabularyBatchImportTests : TestBase
         return await unitService.CreateAsync(bookId, number, null);
     }
 
-    private static (VocabularyModel Word, VocabularyMeaningModel Meaning, string? UnitId, string? Section, string? EntryKind) Entry(
+    private static (Vocabulary Word, VocabularyMeaning Meaning, string? UnitId, string? Section, string? EntryKind) Entry(
         string word,
         string meaning,
         string? partOfSpeech = null,
@@ -673,8 +673,8 @@ public class VocabularyBatchImportTests : TestBase
         string? entryKind = null)
     {
         return (
-            new VocabularyModel { Word = word, PhoneticUk = phoneticUk, PhoneticUs = phoneticUs },
-            new VocabularyMeaningModel { PartOfSpeech = partOfSpeech, Meaning = meaning, Example = example },
+            new Vocabulary { Word = word, PhoneticUk = phoneticUk, PhoneticUs = phoneticUs },
+            new VocabularyMeaning { PartOfSpeech = partOfSpeech, Meaning = meaning, Example = example },
             unitId,
             section,
             entryKind);
@@ -687,27 +687,27 @@ public class VocabularyBatchImportTests : TestBase
     private sealed class NoEquivalentMeaningRepository(IVocabularyMeaningRepository inner)
         : IVocabularyMeaningRepository
     {
-        public Task<VocabularyMeaningModel?> GetEquivalentAsync(
+        public Task<VocabularyMeaning?> GetEquivalentAsync(
             string vocabularyId,
             string bookId,
             string normalizedPartOfSpeech,
-            string meaning) => Task.FromResult<VocabularyMeaningModel?>(null);
+            string meaning) => Task.FromResult<VocabularyMeaning?>(null);
 
-        public Task<VocabularyMeaningModel?> GetByIdAsync(string id) => inner.GetByIdAsync(id);
-        public Task<List<VocabularyMeaningModel>> GetByVocabularyIdAsync(string vocabularyId) =>
+        public Task<VocabularyMeaning?> GetByIdAsync(string id) => inner.GetByIdAsync(id);
+        public Task<List<VocabularyMeaning>> GetByVocabularyIdAsync(string vocabularyId) =>
             inner.GetByVocabularyIdAsync(vocabularyId);
-        public Task<List<VocabularyMeaningModel>> GetByBookIdAsync(string bookId) => inner.GetByBookIdAsync(bookId);
-        public Task<List<VocabularyMeaningModel>> GetByBookAndVocabularyIdAsync(string bookId, string vocabularyId) =>
+        public Task<List<VocabularyMeaning>> GetByBookIdAsync(string bookId) => inner.GetByBookIdAsync(bookId);
+        public Task<List<VocabularyMeaning>> GetByBookAndVocabularyIdAsync(string bookId, string vocabularyId) =>
             inner.GetByBookAndVocabularyIdAsync(bookId, vocabularyId);
-        public Task<List<VocabularyMeaningModel>> GetRandomDistinctVocabularyExceptAsync(
+        public Task<List<VocabularyMeaning>> GetRandomDistinctVocabularyExceptAsync(
             string bookId,
             string excludeVocabularyId,
             string excludeMeaning,
             int count,
             VocabularyDistractorScope? scope = null) =>
             inner.GetRandomDistinctVocabularyExceptAsync(bookId, excludeVocabularyId, excludeMeaning, count, scope);
-        public Task AddAsync(VocabularyMeaningModel model) => inner.AddAsync(model);
-        public Task UpdateAsync(VocabularyMeaningModel model) => inner.UpdateAsync(model);
+        public Task AddAsync(VocabularyMeaning model) => inner.AddAsync(model);
+        public Task UpdateAsync(VocabularyMeaning model) => inner.UpdateAsync(model);
         public Task DeleteAsync(string id) => inner.DeleteAsync(id);
         public Task DeleteByVocabularyIdAsync(string vocabularyId) => inner.DeleteByVocabularyIdAsync(vocabularyId);
     }
@@ -720,10 +720,10 @@ public class VocabularyBatchImportTests : TestBase
         IVocabularyBookUnitRepository inner,
         string deletedUnitId) : IVocabularyBookUnitRepository
     {
-        public async Task<List<VocabularyBookUnitModel>> GetByBookIdAsync(string bookId)
+        public async Task<List<VocabularyBookUnit>> GetByBookIdAsync(string bookId)
         {
             var units = await inner.GetByBookIdAsync(bookId);
-            units.Add(new VocabularyBookUnitModel
+            units.Add(new VocabularyBookUnit
             {
                 Id = deletedUnitId,
                 BookId = bookId,
@@ -732,11 +732,11 @@ public class VocabularyBatchImportTests : TestBase
             return units;
         }
 
-        public Task<VocabularyBookUnitModel?> GetByIdAsync(string id) => inner.GetByIdAsync(id);
+        public Task<VocabularyBookUnit?> GetByIdAsync(string id) => inner.GetByIdAsync(id);
         public Task<Dictionary<string, int>> GetAssignmentCountsByBookIdAsync(string bookId) =>
             inner.GetAssignmentCountsByBookIdAsync(bookId);
-        public Task AddAsync(VocabularyBookUnitModel model) => inner.AddAsync(model);
-        public Task UpdateAsync(VocabularyBookUnitModel model) => inner.UpdateAsync(model);
+        public Task AddAsync(VocabularyBookUnit model) => inner.AddAsync(model);
+        public Task UpdateAsync(VocabularyBookUnit model) => inner.UpdateAsync(model);
         public Task DeleteAsync(string id) => inner.DeleteAsync(id);
     }
 }

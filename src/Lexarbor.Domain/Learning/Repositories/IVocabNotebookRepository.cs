@@ -5,28 +5,28 @@ namespace Lexarbor.Learning.Domain.Repositories;
 public interface IVocabNotebookRepository
 {
     /// <summary>All items of a student, oldest first.</summary>
-    Task<List<VocabNotebookItemModel>> ListAsync(Guid studentId, CancellationToken cancellationToken = default);
+    Task<List<VocabNotebookItem>> ListAsync(Guid studentId, CancellationToken cancellationToken = default);
 
     Task<List<string>> PendingSubmissionIdsAsync(Guid studentId, CancellationToken cancellationToken);
 
-    Task<List<VocabNotebookItemModel>> ReviewedPendingAsync(Guid studentId, string[] submissionIds, CancellationToken cancellationToken);
+    Task<List<VocabNotebookItem>> ReviewedPendingAsync(Guid studentId, string[] submissionIds, CancellationToken cancellationToken);
 
     Task<VocabNotebookSummary> SummaryAsync(Guid studentId, DateTimeOffset recentStart, CancellationToken cancellationToken);
 
-    Task<VocabNotebookPage<VocabNotebookItemModel>> QueryAsync(Guid studentId, VocabNotebookQuery filters,
+    Task<VocabNotebookPage<VocabNotebookItem>> QueryAsync(Guid studentId, VocabNotebookQuery filters,
         DateTimeOffset recentStart, CancellationToken cancellationToken);
 
     Task<List<CardKey>> MembershipAsync(Guid studentId, IReadOnlyCollection<CardKey> keys, CancellationToken cancellationToken);
 
-    Task<VocabNotebookItemModel?> FindAsync(Guid studentId, Guid itemId, CancellationToken cancellationToken = default);
+    Task<VocabNotebookItem?> FindAsync(Guid studentId, Guid itemId, CancellationToken cancellationToken = default);
 
-    Task<VocabNotebookItemModel?> FindByKeyAsync(Guid studentId, CardKey key, CancellationToken cancellationToken = default);
+    Task<VocabNotebookItem?> FindByKeyAsync(Guid studentId, CardKey key, CancellationToken cancellationToken = default);
 
-    Task AddAsync(VocabNotebookItemModel item, CancellationToken cancellationToken = default);
+    Task AddAsync(VocabNotebookItem item, CancellationToken cancellationToken = default);
 
-    Task UpdateAsync(VocabNotebookItemModel item, CancellationToken cancellationToken = default);
+    Task UpdateAsync(VocabNotebookItem item, CancellationToken cancellationToken = default);
 
-    Task RemoveAsync(VocabNotebookItemModel item, CancellationToken cancellationToken = default);
+    Task RemoveAsync(VocabNotebookItem item, CancellationToken cancellationToken = default);
 
     /// <summary>Serialize writes for this student in the current transaction or a new one.</summary>
     Task<T> InStudentWriteAsync<T>(Guid studentId, Func<Task<T>> work, CancellationToken cancellationToken = default);

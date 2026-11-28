@@ -94,7 +94,7 @@ public class VocabularyCleanupTests : TestBase
         using var cancelled = new CancellationTokenSource(); cancelled.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Service(_dbContext).CommitAsync("A", new("clear"), cancelled.Token));
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Service(_dbContext).PreviewAsync("A", new("clear"), cancelled.Token));
-        await Assert.ThrowsAsync<ConflictException>(() => new VocabularyBookDomainService(_bookRepository, _unitOfWork).DeleteAsync("A"));
+        await Assert.ThrowsAsync<ConflictException>(() => new VocabularyBookService(_bookRepository, _unitOfWork).DeleteAsync("A"));
         Assert.Equal(before, await StateAsync(_dbContext));
     }
 

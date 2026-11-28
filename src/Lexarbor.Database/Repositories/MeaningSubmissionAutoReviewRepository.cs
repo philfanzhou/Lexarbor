@@ -1,5 +1,4 @@
 using System.Text.Json;
-using Lexarbor.Database.Entities;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 using Microsoft.EntityFrameworkCore;

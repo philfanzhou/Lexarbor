@@ -3,18 +3,12 @@ using System.Net;
 using System.Security.Claims;
 using System.Text;
 using Lexarbor.Database;
-using Lexarbor.Host;
 using Lexarbor.Host.Authentication;
 using Lexarbor.Tests.Shared;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Tokens;
 
 namespace Lexarbor.Service.Tests.TestInfrastructure;

@@ -8,7 +8,7 @@ namespace Lexarbor.Service;
 
 public static class MeaningSubmissionReviewAdminEndpoints
 {
-    public static void MapMeaningSubmissionReviewAdminEndpoints(this IEndpointRouteBuilder app)
+    public static void MapMeaningSubmissionReviewAdmin(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/admin/meaning-submission-reviews").RequireAuthorization(AdminEndpointAuthorization.PolicyName);
         group.MapGet("", async ([FromQuery] int? page, [FromQuery] int? size, [FromQuery] string? verdict,
@@ -16,17 +16,17 @@ public static class MeaningSubmissionReviewAdminEndpoints
             IMeaningSubmissionReviewAdminRepository repository, CancellationToken token) =>
         {
             if ((page ?? 1) < 1 || (size ?? 20) is < 1 or > 100 || (long)((page ?? 1) - 1) * (size ?? 20) > int.MaxValue)
-                return VocabularyHttpResponse.BadRequest("Page must be positive and size must be between 1 and 100.");
+                return ApiResponse.BadRequest("Page must be positive and size must be between 1 and 100.");
             if (verdict is not (null or "accept" or "revise" or "reject"))
-                return VocabularyHttpResponse.BadRequest("Verdict must be accept, revise or reject.");
+                return ApiResponse.BadRequest("Verdict must be accept, revise or reject.");
             if (recordId != null && (string.IsNullOrWhiteSpace(recordId) || recordId.Length > 100))
-                return VocabularyHttpResponse.BadRequest("Record ID must contain between 1 and 100 characters.");
+                return ApiResponse.BadRequest("Record ID must contain between 1 and 100 characters.");
             var query = new MeaningSubmissionReviewQuery(page ?? 1, size ?? 20, verdict, @checked, applied, recordId);
             var (items, total) = await repository.PageAsync(query, token);
-            return VocabularyHttpResponse.Ok(new { items = items.Select(MeaningSubmissionReviewDto.From), totalCount = total, page = query.Page, size = query.Size });
+            return ApiResponse.Ok(new { items = items.Select(MeaningSubmissionReviewDto.From), totalCount = total, page = query.Page, size = query.Size });
         });
         group.MapPost("/{recordId}/checked", async (string recordId, IMeaningSubmissionReviewAdminRepository repository, CancellationToken token) =>
-            VocabularyHttpResponse.Ok(await repository.CheckAsync(recordId, token)));
+            ApiResponse.Ok(await repository.CheckAsync(recordId, token)));
     }
 }
 

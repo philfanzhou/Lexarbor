@@ -19,10 +19,10 @@ public class MeaningSubmissionServiceTests : TestBase
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private (MeaningSubmissionService Submissions, VocabularyDomainService Vocabulary) Create(string? bookId)
+    private (MeaningSubmissionService Submissions, VocabularyService Vocabulary) Create(string? bookId)
     {
         var settings = new MeaningSubmissionSettings { BookId = bookId };
-        var vocabulary = new VocabularyDomainService(
+        var vocabulary = new VocabularyService(
             _vocabularyRepository, _bookRepository, _meaningRepository, _bookUnitRepository,
             _meaningUnitRepository, _unitOfWork, settings, _submissions);
         return (new MeaningSubmissionService(
@@ -38,8 +38,8 @@ public class MeaningSubmissionServiceTests : TestBase
         foreach (var (word, meaning) in new[] { ("apple", "苹果"), ("river", "河流"), ("cloud", "云"), ("stone", "石头") })
         {
             await vocabulary.AddOrUpdateAsync(
-                new VocabularyModel { Word = word },
-                new VocabularyMeaningModel { BookId = main.Id, PartOfSpeech = "n.", Meaning = meaning });
+                new Vocabulary { Word = word },
+                new VocabularyMeaning { BookId = main.Id, PartOfSpeech = "n.", Meaning = meaning });
         }
 
         return (supplementary.Id, main.Id);
@@ -66,8 +66,8 @@ public class MeaningSubmissionServiceTests : TestBase
         var (book, _) = await SeedAsync();
         var (service, vocabulary) = Create(book);
         var (word, meaning) = await vocabulary.AddOrUpdateAsync(
-            new VocabularyModel { Word = "zephyr" },
-            new VocabularyMeaningModel { BookId = book, PartOfSpeech = "n.", Meaning = "西风" });
+            new Vocabulary { Word = "zephyr" },
+            new VocabularyMeaning { BookId = book, PartOfSpeech = "n.", Meaning = "西风" });
 
         var submission = await service.SubmitAsync(Source, "Zephyr", "n.", "西风", null, Ct);
 
@@ -161,8 +161,8 @@ public class MeaningSubmissionServiceTests : TestBase
         var (_, vocabulary) = Create(book);
         var small = await CreateBookAsync();
         var (word, _) = await vocabulary.AddOrUpdateAsync(
-            new VocabularyModel { Word = "lonely" },
-            new VocabularyMeaningModel { BookId = small.Id, Meaning = "孤独的" });
+            new Vocabulary { Word = "lonely" },
+            new VocabularyMeaning { BookId = small.Id, Meaning = "孤独的" });
 
         await Assert.ThrowsAsync<BusinessRuleException>(() => vocabulary.CreateQuestionAsync(word.Id, small.Id, true));
         Assert.NotEqual(main, small.Id);
@@ -200,10 +200,10 @@ public class MeaningSubmissionServiceTests : TestBase
         var (book, main) = await SeedAsync();
         var (service, vocabulary) = Create(book);
         var disabled = await CreateBookAsync();
-        await vocabulary.AddOrUpdateAsync(new VocabularyModel { Word = "Apples" },
-            new VocabularyMeaningModel { BookId = main, Meaning = "复数苹果" });
-        var (_, hidden) = await vocabulary.AddOrUpdateAsync(new VocabularyModel { Word = "apple" },
-            new VocabularyMeaningModel { BookId = disabled.Id, Meaning = "停用书里的苹果" });
+        await vocabulary.AddOrUpdateAsync(new Vocabulary { Word = "Apples" },
+            new VocabularyMeaning { BookId = main, Meaning = "复数苹果" });
+        var (_, hidden) = await vocabulary.AddOrUpdateAsync(new Vocabulary { Word = "apple" },
+            new VocabularyMeaning { BookId = disabled.Id, Meaning = "停用书里的苹果" });
         disabled.Status = false;
         await _bookRepository.UpdateAsync(disabled);
         await _unitOfWork.SaveChangesAsync(Ct);

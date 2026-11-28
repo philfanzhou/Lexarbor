@@ -5,7 +5,6 @@ using Lexarbor.Database;
 using Lexarbor.Database.Entities;
 using Lexarbor.Service.Tests.TestInfrastructure;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace Lexarbor.Service.Tests;
 

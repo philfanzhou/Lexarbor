@@ -38,7 +38,7 @@ internal static class MiniMaxSpeechAdapter
     {
         using var document = JsonDocument.Parse(bytes, new JsonDocumentOptions { MaxDepth = 16 });
         var root = document.RootElement;
-        if (!PronunciationSpeechClient.UniqueProperties(root)
+        if (!SupplierJson.UniqueProperties(root)
             || !root.TryGetProperty("base_resp", out var status) || !status.TryGetProperty("status_code", out var code) || !code.TryGetInt32(out var number))
             return PronunciationSpeechClient.Failure(PronunciationSpeechOutcome.InvalidAudio, "invalid_response", true);
         if (number != 0) return BusinessFailure(number, retry);

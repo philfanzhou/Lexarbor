@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using System.IdentityModel.Tokens.Jwt;
 using System.Net;
-using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
@@ -9,10 +8,7 @@ using System.Text.Json;
 using Lexarbor.Database;
 using Lexarbor.Host.Authentication;
 using Lexarbor.Service.Tests.TestInfrastructure;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 
 namespace Lexarbor.Service.Tests;

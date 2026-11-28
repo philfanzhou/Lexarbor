@@ -15,12 +15,12 @@ public sealed class VocabularyWordEditRepository(VocabularyDbContext context) : 
             WHERE source_word_id={wordId} OR target_word_id={wordId}
             """);
 
-    public async Task<VocabularyModel?> GetCurrentAsync(string id)
+    public async Task<Vocabulary?> GetCurrentAsync(string id)
     {
         // Re-read inside the write transaction, even when this context tracked an
         // earlier version of the row before waiting for the shared write lock.
         var entity = await context.Vocabularies.AsNoTracking().SingleOrDefaultAsync(v => v.Id == id);
-        return entity?.Adapt<VocabularyModel>();
+        return entity?.Adapt<Vocabulary>();
     }
 
     public async Task<bool> HasOtherNormalizedWordAsync(string normalizedWord, string excludedId)

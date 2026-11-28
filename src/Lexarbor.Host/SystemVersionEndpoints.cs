@@ -7,9 +7,9 @@ internal static class SystemVersionEndpoints
 {
     internal const string Path = "/admin/system/version";
 
-    public static void MapSystemVersionEndpoints(this IEndpointRouteBuilder app)
+    public static void MapSystemVersion(this IEndpointRouteBuilder app)
     {
-        app.MapGet(Path, () => VocabularyHttpResponse.Ok(new
+        app.MapGet(Path, () => ApiResponse.Ok(new
         {
             version = ApplicationVersion.Current,
             revision = ApplicationVersion.Revision,

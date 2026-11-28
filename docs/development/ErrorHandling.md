@@ -38,7 +38,7 @@ retain their existing formats; an unknown-route 404 has no question-target code.
 Failures reach a caller in one of two shapes, depending on where they originate.
 
 **Endpoint-explicit failures** keep the legacy envelope, written through the
-`VocabularyHttpResponse` helper:
+`ApiResponse` helper:
 
 - success: `{ "success": true, "data": value }` or `{ "success": true }`
 - failure: `{ "success": false, "message": "..." }`

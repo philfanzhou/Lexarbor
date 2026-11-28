@@ -1,15 +1,11 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
-using Lexarbor.Service;
 using Lexarbor.Service.Tests.TestInfrastructure;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using ServiceMantle.Web.Management;

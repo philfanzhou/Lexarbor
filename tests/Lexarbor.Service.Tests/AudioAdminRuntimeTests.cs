@@ -3,7 +3,6 @@ using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Lexarbor.Database;
-using Lexarbor.Database.Entities;
 using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
@@ -12,8 +11,6 @@ using Lexarbor.Host.Configuration;
 using Lexarbor.Service.Tests.TestInfrastructure;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Lexarbor.Service.Tests;

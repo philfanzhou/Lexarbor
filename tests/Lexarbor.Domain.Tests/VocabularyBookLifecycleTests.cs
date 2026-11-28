@@ -8,18 +8,18 @@ namespace Lexarbor.Domain.Tests;
 
 public class VocabularyBookLifecycleTests : TestBase
 {
-    private readonly VocabularyBookDomainService _service;
+    private readonly VocabularyBookService _service;
 
     public VocabularyBookLifecycleTests()
     {
-        _service = new VocabularyBookDomainService(_bookRepository, _unitOfWork);
+        _service = new VocabularyBookService(_bookRepository, _unitOfWork);
     }
 
     [Fact]
     public async Task AddOrUpdateAsync_UnknownNonEmptyId_ThrowsResourceNotFound()
     {
         await Assert.ThrowsAsync<ResourceNotFoundException>(() => _service.AddOrUpdateAsync(
-            new VocabularyBookModel
+            new VocabularyBook
             {
                 Id = "missing-book",
                 BookName = "Missing",
@@ -40,13 +40,13 @@ public class VocabularyBookLifecycleTests : TestBase
     public async Task DeleteAsync_UsedBook_ThrowsConflict()
     {
         var book = await CreateBookAsync();
-        var word = new VocabularyModel
+        var word = new Vocabulary
         {
             Id = Guid.NewGuid().ToString(),
             Word = "apple"
         };
         await _vocabularyRepository.AddAsync(word);
-        await _meaningRepository.AddAsync(new VocabularyMeaningModel
+        await _meaningRepository.AddAsync(new VocabularyMeaning
         {
             Id = Guid.NewGuid().ToString(),
             VocabularyId = word.Id,

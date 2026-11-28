@@ -5,8 +5,6 @@ using System.Text.Json;
 using Lexarbor.Host.RateLimiting;
 using Lexarbor.Service.Tests.TestInfrastructure;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 using ServiceMantle.Web.RateLimiting;
 
 namespace Lexarbor.Service.Tests;

@@ -9,7 +9,7 @@ public sealed class VocabularyRelationService(IVocabularyRelationRepository repo
 {
     public const int MaxBatchSize = 100;
 
-    public async Task<VocabularyRelationModel> GetAsync(string id, CancellationToken cancellationToken = default) =>
+    public async Task<VocabularyRelation> GetAsync(string id, CancellationToken cancellationToken = default) =>
         await repository.GetAsync(Required(id, "Relation ID"), cancellationToken)
         ?? throw new ResourceNotFoundException("Vocabulary relation was not found.");
 
@@ -42,13 +42,13 @@ public sealed class VocabularyRelationService(IVocabularyRelationRepository repo
         });
     }
 
-    public async Task<VocabularyRelationModel> GetWithMeaningPairsAsync(string id, CancellationToken cancellationToken)
+    public async Task<VocabularyRelation> GetWithMeaningPairsAsync(string id, CancellationToken cancellationToken)
     {
         var relation = await GetAsync(id, cancellationToken);
         return await WithMeaningPairsAsync(relation, cancellationToken);
     }
 
-    public Task<VocabularyRelationModel> RecoverMeaningPairAsync(string id, long expectedVersion, CancellationToken cancellationToken)
+    public Task<VocabularyRelation> RecoverMeaningPairAsync(string id, long expectedVersion, CancellationToken cancellationToken)
     {
         ValidateVersion(expectedVersion);
         cancellationToken.ThrowIfCancellationRequested();
@@ -66,7 +66,7 @@ public sealed class VocabularyRelationService(IVocabularyRelationRepository repo
         });
     }
 
-    internal async Task<VocabularyRelationModel> AdvanceVersionAsync(VocabularyRelationModel current, CancellationToken cancellationToken)
+    internal async Task<VocabularyRelation> AdvanceVersionAsync(VocabularyRelation current, CancellationToken cancellationToken)
     {
         var updated = current with
         {
@@ -94,7 +94,7 @@ public sealed class VocabularyRelationService(IVocabularyRelationRepository repo
         {
             cancellationToken.ThrowIfCancellationRequested();
             var batchId = Guid.NewGuid().ToString();
-            var items = new List<VocabularyRelationModel>();
+            var items = new List<VocabularyRelation>();
             var created = 0;
             for (var index = 0; index < normalized.Length; index++)
             {
@@ -115,7 +115,7 @@ public sealed class VocabularyRelationService(IVocabularyRelationRepository repo
         });
     }
 
-    public Task<VocabularyRelationModel> ReplaceAsync(string id, VocabularyRelationInput input, long expectedVersion,
+    public Task<VocabularyRelation> ReplaceAsync(string id, VocabularyRelationInput input, long expectedVersion,
         CancellationToken cancellationToken = default)
     {
         id = Required(id, "Relation ID");
@@ -184,7 +184,7 @@ public sealed class VocabularyRelationService(IVocabularyRelationRepository repo
             return new(existing, false);
         }
         var now = time.GetUtcNow().ToUnixTimeMilliseconds();
-        var relation = new VocabularyRelationModel(Guid.NewGuid().ToString(), input.SourceWordId, input.TargetWordId,
+        var relation = new VocabularyRelation(Guid.NewGuid().ToString(), input.SourceWordId, input.TargetWordId,
             input.Type, input.UsageNote, input.Confirm ? "confirmed" : "needs_review",
             input.Confirm ? null : "new_relation", origin, reference, 1, now, now, input.Confirm ? now : null);
         await repository.AddAsync(relation, CancellationToken.None);
@@ -195,7 +195,7 @@ public sealed class VocabularyRelationService(IVocabularyRelationRepository repo
         return new(relation with { MeaningPairs = meaningPairs }, true);
     }
 
-    private async Task<VocabularyRelationModel> WithMeaningPairsAsync(VocabularyRelationModel relation, CancellationToken cancellationToken)
+    private async Task<VocabularyRelation> WithMeaningPairsAsync(VocabularyRelation relation, CancellationToken cancellationToken)
     {
         var pairs = await repository.GetMeaningPairsAsync(relation.Id, cancellationToken);
         return relation with { MeaningPairs = pairs.Count == 0 ? null : pairs };

@@ -17,9 +17,6 @@ public sealed class AdminSessionRepository(VocabularyDbContext context, IUnitOfW
         SafelyAsync(() => context.AdminSessions.AsNoTracking().SingleOrDefaultAsync(
             row => row.HandleHash == hash, cancellationToken));
 
-    public Task CreateOrReplaceAsync(AdminSessionEntity row, string? oldHash = null,
-        CancellationToken cancellationToken = default) => CreateOrReplaceAsync(row, oldHash, null, cancellationToken);
-
     /// <summary>
     /// Creates or replaces a session row, running <paramref name="participatingWrite"/> inside
     /// the same serialized transaction so a companion write (the management audit row for a
@@ -36,9 +33,6 @@ public sealed class AdminSessionRepository(VocabularyDbContext context, IUnitOfW
             await context.AdminSessions.Where(item => item.HandleHash == oldHash).ExecuteDeleteAsync(cancellationToken);
         return 0;
     }, cancellationToken));
-
-    public Task<AdminSessionEntity?> RevokeAndReadAsync(string hash, CancellationToken cancellationToken = default) =>
-        RevokeAndReadAsync(hash, null, cancellationToken);
 
     /// <summary>
     /// Replaces a session row under the same handle hash in one statement (a sign-in renewed

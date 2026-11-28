@@ -1,7 +1,6 @@
 using System.Globalization;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
-using ServiceMantle;
 using ServiceMantle.Web;
 using SharedPolicy = ServiceMantle.Web.RateLimiting.RateLimitPolicyOptions;
 

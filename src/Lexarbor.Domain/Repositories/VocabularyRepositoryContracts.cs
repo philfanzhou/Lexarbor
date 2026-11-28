@@ -26,83 +26,81 @@ public sealed record VocabularyDistractorScope(string? UnitId, bool? PhraseOnly)
 
 public interface IVocabularyRepository
 {
-    Task<VocabularyModel?> GetByIdAsync(string id);
-    Task<VocabularyModel?> GetByIdAsync(string id, CancellationToken cancellationToken) => RepositoryRead.WithCancellation(() => GetByIdAsync(id), cancellationToken);
-    Task<VocabularyModel?> GetByWordAsync(string word);
-    Task<VocabularyModel?> GetByNormalizedWordAsync(string normalizedWord);
-    Task<List<VocabularyModel>> GetByIdsAsync(IReadOnlyCollection<string> ids);
-    Task<(List<VocabularyModel> Items, int TotalCount)> SearchAsync(string? keyword, int page, int size);
-    Task AddAsync(VocabularyModel model);
-    Task UpdateAsync(VocabularyModel model);
+    Task<Vocabulary?> GetByIdAsync(string id);
+    Task<Vocabulary?> GetByIdAsync(string id, CancellationToken cancellationToken) => RepositoryRead.WithCancellation(() => GetByIdAsync(id), cancellationToken);
+    Task<Vocabulary?> GetByNormalizedWordAsync(string normalizedWord);
+    Task<(List<Vocabulary> Items, int TotalCount)> SearchAsync(string? keyword, int page, int size);
+    Task AddAsync(Vocabulary model);
+    Task UpdateAsync(Vocabulary model);
     /// <param name="excludeEquivalentMeaning">
     /// The definition the question is asking about. A candidate that carries an
     /// equivalent definition in the same book is a correct answer to that stem,
     /// not a distractor, so it is excluded along with the target word itself.
     /// </param>
-    Task<List<VocabularyModel>> GetRandomByBookExceptAsync(
+    Task<List<Vocabulary>> GetRandomByBookExceptAsync(
         string bookId,
         string excludeVocabularyId,
         string excludeWord,
         string excludeEquivalentMeaning,
         int count,
         VocabularyDistractorScope? scope = null);
-    Task<List<VocabularyModel>> GetRandomByBookExceptAsync(
+    Task<List<Vocabulary>> GetRandomByBookExceptAsync(
         string bookId, string excludeVocabularyId, string excludeWord, string excludeEquivalentMeaning, int count, VocabularyDistractorScope? scope, CancellationToken cancellationToken)
         => RepositoryRead.WithCancellation(() => GetRandomByBookExceptAsync(bookId, excludeVocabularyId, excludeWord, excludeEquivalentMeaning, count, scope), cancellationToken);
 }
 
 public interface IVocabularyBookRepository
 {
-    Task<VocabularyBookModel?> GetByIdAsync(string id);
-    Task<VocabularyBookModel?> GetByIdAsync(string id, CancellationToken cancellationToken) => RepositoryRead.WithCancellation(() => GetByIdAsync(id), cancellationToken);
-    Task<List<VocabularyBookModel>> GetAllAsync();
-    Task<List<VocabularyBookModel>> GetActiveAsync(bool excludeManagedSupplement = false);
-    Task<(List<VocabularyBookModel> Items, int TotalCount)> SearchAsync(string? keyword, int page, int size);
-    Task<List<VocabularyBookModel>> GetByCategoryAsync(string? category, string? grade);
+    Task<VocabularyBook?> GetByIdAsync(string id);
+    Task<VocabularyBook?> GetByIdAsync(string id, CancellationToken cancellationToken) => RepositoryRead.WithCancellation(() => GetByIdAsync(id), cancellationToken);
+    Task<List<VocabularyBook>> GetAllAsync();
+    Task<List<VocabularyBook>> GetActiveAsync(bool excludeManagedSupplement = false);
+    Task<(List<VocabularyBook> Items, int TotalCount)> SearchAsync(string? keyword, int page, int size);
+    Task<List<VocabularyBook>> GetByCategoryAsync(string? category, string? grade);
     Task<List<string>> GetDistinctCategoriesAsync();
     Task<List<string>> GetDistinctEducationLevelsAsync();
     Task<List<string>> GetDistinctGradesAsync();
     Task<List<string>> GetDistinctGradesByEducationLevelAsync(string educationLevel);
     Task<bool> HasMeaningsAsync(string bookId);
-    Task<(List<VocabularyModel> Items, int TotalCount)> GetWordsAsync(string bookId, int page, int size);
-    Task AddAsync(VocabularyBookModel model);
-    Task UpdateAsync(VocabularyBookModel model);
+    Task<(List<Vocabulary> Items, int TotalCount)> GetWordsAsync(string bookId, int page, int size);
+    Task AddAsync(VocabularyBook model);
+    Task UpdateAsync(VocabularyBook model);
     Task DeleteAsync(string id);
 }
 
 public interface IVocabularyMeaningRepository
 {
-    Task<VocabularyMeaningModel?> GetByIdAsync(string id);
-    Task<List<VocabularyMeaningModel>> GetByVocabularyIdAsync(string vocabularyId);
-    Task<List<VocabularyMeaningModel>> GetByBookIdAsync(string bookId);
-    Task<List<VocabularyMeaningModel>> GetByBookAndVocabularyIdAsync(string bookId, string vocabularyId);
-    Task<List<VocabularyMeaningModel>> GetByBookAndVocabularyIdAsync(string bookId, string vocabularyId, CancellationToken cancellationToken)
+    Task<VocabularyMeaning?> GetByIdAsync(string id);
+    Task<List<VocabularyMeaning>> GetByVocabularyIdAsync(string vocabularyId);
+    Task<List<VocabularyMeaning>> GetByBookIdAsync(string bookId);
+    Task<List<VocabularyMeaning>> GetByBookAndVocabularyIdAsync(string bookId, string vocabularyId);
+    Task<List<VocabularyMeaning>> GetByBookAndVocabularyIdAsync(string bookId, string vocabularyId, CancellationToken cancellationToken)
         => RepositoryRead.WithCancellation(() => GetByBookAndVocabularyIdAsync(bookId, vocabularyId), cancellationToken);
-    Task<VocabularyMeaningModel?> GetEquivalentAsync(
+    Task<VocabularyMeaning?> GetEquivalentAsync(
         string vocabularyId,
         string bookId,
         string normalizedPartOfSpeech,
         string meaning);
-    Task<List<VocabularyMeaningModel>> GetRandomDistinctVocabularyExceptAsync(
+    Task<List<VocabularyMeaning>> GetRandomDistinctVocabularyExceptAsync(
         string bookId,
         string excludeVocabularyId,
         string excludeMeaning,
         int count,
         VocabularyDistractorScope? scope = null);
-    Task<List<VocabularyMeaningModel>> GetRandomDistinctVocabularyExceptAsync(
+    Task<List<VocabularyMeaning>> GetRandomDistinctVocabularyExceptAsync(
         string bookId, string excludeVocabularyId, string excludeMeaning, int count, VocabularyDistractorScope? scope, CancellationToken cancellationToken)
         => RepositoryRead.WithCancellation(() => GetRandomDistinctVocabularyExceptAsync(bookId, excludeVocabularyId, excludeMeaning, count, scope), cancellationToken);
-    Task AddAsync(VocabularyMeaningModel model);
-    Task UpdateAsync(VocabularyMeaningModel model);
+    Task AddAsync(VocabularyMeaning model);
+    Task UpdateAsync(VocabularyMeaning model);
     Task DeleteAsync(string id);
     Task DeleteByVocabularyIdAsync(string vocabularyId);
 }
 
 public interface IVocabularyBookUnitRepository
 {
-    Task<VocabularyBookUnitModel?> GetByIdAsync(string id);
-    Task<VocabularyBookUnitModel?> GetByIdAsync(string id, CancellationToken cancellationToken) => RepositoryRead.WithCancellation(() => GetByIdAsync(id), cancellationToken);
-    Task<List<VocabularyBookUnitModel>> GetByBookIdAsync(string bookId);
+    Task<VocabularyBookUnit?> GetByIdAsync(string id);
+    Task<VocabularyBookUnit?> GetByIdAsync(string id, CancellationToken cancellationToken) => RepositoryRead.WithCancellation(() => GetByIdAsync(id), cancellationToken);
+    Task<List<VocabularyBookUnit>> GetByBookIdAsync(string bookId);
     /// <summary>
     /// How many distinct meanings each unit of one book has assigned, from a
     /// single grouped read. A meaning that holds two positions of one unit —
@@ -111,8 +109,8 @@ public interface IVocabularyBookUnitRepository
     /// missing key as zero.
     /// </summary>
     Task<Dictionary<string, int>> GetAssignmentCountsByBookIdAsync(string bookId);
-    Task AddAsync(VocabularyBookUnitModel model);
-    Task UpdateAsync(VocabularyBookUnitModel model);
+    Task AddAsync(VocabularyBookUnit model);
+    Task UpdateAsync(VocabularyBookUnit model);
     Task DeleteAsync(string id);
 }
 
@@ -121,11 +119,11 @@ public interface IVocabularyMeaningUnitRepository
     /// <param name="section">Null for the unsectioned position of the unit.</param>
     /// <param name="entryKind">Null for the unclassified position of that place.</param>
     Task<bool> ExistsAsync(string unitId, string meaningId, string? section, string? entryKind);
-    Task<List<VocabularyMeaningUnitModel>> GetByUnitIdAsync(string unitId);
-    Task<List<VocabularyMeaningUnitModel>> GetByMeaningIdAsync(string meaningId);
-    Task<List<VocabularyMeaningUnitModel>> GetByMeaningIdAsync(string meaningId, CancellationToken cancellationToken)
+    Task<List<VocabularyMeaningUnit>> GetByUnitIdAsync(string unitId);
+    Task<List<VocabularyMeaningUnit>> GetByMeaningIdAsync(string meaningId);
+    Task<List<VocabularyMeaningUnit>> GetByMeaningIdAsync(string meaningId, CancellationToken cancellationToken)
         => RepositoryRead.WithCancellation(() => GetByMeaningIdAsync(meaningId), cancellationToken);
-    Task AddAsync(VocabularyMeaningUnitModel model);
+    Task AddAsync(VocabularyMeaningUnit model);
     /// <param name="section">Null for the unsectioned position of the unit.</param>
     /// <param name="entryKind">Null for the unclassified position of that place.</param>
     Task DeleteAsync(string unitId, string meaningId, string? section, string? entryKind);

@@ -1,10 +1,7 @@
-using System.Collections.Concurrent;
 using System.Data.Common;
 using System.Globalization;
 using System.Net;
-using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
 using Lexarbor.Host.Authentication;
 using Lexarbor.Service.Tests.TestInfrastructure;
 using Lexarbor.Tests.Shared;
@@ -12,11 +9,6 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore.Diagnostics;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.IdentityModel.Protocols;
-using Microsoft.IdentityModel.Protocols.OpenIdConnect;
-using Microsoft.IdentityModel.Tokens;
 using Npgsql;
 
 namespace Lexarbor.Service.Tests;

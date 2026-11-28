@@ -55,7 +55,7 @@ internal sealed class PhotoImportWorker(LearningStorage storage, IServiceScopeFa
         deadline.CancelAfter(TimeSpan.FromMinutes(9));
         try
         {
-            entries = await VocabularyNotebookHttpEndpoints.PreviewWithTraceAsync(claim.StudentId, photo, service, trace,
+            entries = await VocabularyNotebookEndpoints.PreviewWithTraceAsync(claim.StudentId, photo, service, trace,
                 provider.GetRequiredService<VocabularyPhotoTraceStore>(), deadline.Token);
             if (entries.Count == 0) errorCode = "VOCAB_PHOTO_NO_ENTRIES";
         }
