@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getActiveBooks, getBookUnits } from '@/services/bookApi'
+import { unitOptionLabel } from '@/services/bookLabels'
 import { importVocabularyBatch } from '@/services/vocabularyApi'
 import type { VocabularyBatchImportPayload, VocabularyBatchImportResult } from '@/services/vocabularyApi'
 import { decodeUtf8, formatForFileName, parseVocabularyInput } from '@/services/vocabularyInput'
@@ -590,7 +591,7 @@ onBeforeUnmount(() => { alive = false; ++unitLoads; ++fileReads; stopReadingExce
         </el-form-item>
         <el-form-item v-if="mode !== 'mixed'" label="默认单元">
           <el-select v-model="defaultUnitId" class="batch-default-unit" placeholder="仅补充未填写单元的行" clearable :disabled="submitting || unitsState !== 'loaded'">
-            <el-option v-for="unit in units" :key="unit.id" :label="`第 ${unit.number} 单元 ${unit.title ?? ''}`" :value="unit.id" />
+            <el-option v-for="unit in units" :key="unit.id" :label="unitOptionLabel(unit)" :value="unit.id" />
           </el-select>
         </el-form-item>
       </el-form>
@@ -793,7 +794,7 @@ onBeforeUnmount(() => { alive = false; ++unitLoads; ++fileReads; stopReadingExce
         </ul>
       </el-alert>
 
-      <div class="batch-submit">
+      <div>
         <el-button type="primary" :loading="submitting" :disabled="!canSubmit" @click="handleSubmit">
           提交导入
         </el-button>

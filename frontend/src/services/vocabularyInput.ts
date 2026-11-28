@@ -8,7 +8,7 @@ export type VocabularyInputFormat = 'tsv' | 'csv' | 'json'
 /** The format of a chosen file: a text format, or Excel, which is read from the file's bytes rather than as text. */
 export type VocabularyFileFormat = VocabularyInputFormat | 'xlsx'
 
-export interface VocabularyParseResult {
+interface VocabularyParseResult {
   rows: VocabularyPreviewRow[]
   /** A file-level error; when it is set there are no rows and nothing can be submitted. */
   error?: string

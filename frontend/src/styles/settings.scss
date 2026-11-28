@@ -1123,16 +1123,6 @@
   gap: 6px;
 }
 
-.lx-stack {
-  display: flex;
-  flex-direction: column;
-  gap: var(--lx-space-3);
-}
-
-.lx-skeleton {
-  padding: var(--lx-space-5);
-}
-
 .lx-unknown {
   display: flex;
   flex-direction: column;
@@ -1158,26 +1148,6 @@
     color: var(--lx-color-text-secondary);
     font-size: var(--lx-font-size-sm);
     line-height: var(--lx-line-height);
-  }
-}
-
-.lx-text-button {
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: var(--lx-color-primary);
-  font: inherit;
-  font-size: var(--lx-font-size-xs);
-  text-decoration: none;
-  cursor: pointer;
-
-  &:hover {
-    text-decoration: underline;
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--lx-color-focus);
-    outline-offset: 2px;
   }
 }
 

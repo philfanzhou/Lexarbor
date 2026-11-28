@@ -66,7 +66,7 @@ export function readVocabularyWorkbook(buffer: ArrayBuffer, signal: AbortSignal)
  * header rules CSV uses. A row's position is its sheet row number: blank rows
  * are skipped but counted.
  */
-export function parseVocabularySheet(cells: string[][], sheetName: string, sheetCount: number): VocabularyWorkbook {
+function parseVocabularySheet(cells: string[][], sheetName: string, sheetCount: number): VocabularyWorkbook {
   const records = cells
     .map((fields, index) => ({ row: index + 1, fields }))
     .filter((record) => record.fields.some((field) => field.trim() !== ''))

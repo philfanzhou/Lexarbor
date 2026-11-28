@@ -11,7 +11,7 @@ import { ApiError } from './apiError'
 
 export type MeaningSubmissionStatus = 'pending' | 'approved' | 'rejected'
 
-export interface MeaningSubmission {
+interface MeaningSubmission {
   id: string
   word: string
   partOfSpeech?: string | null
@@ -47,7 +47,7 @@ export interface AutomaticReviewStatus {
   nextAttemptAt: string | null
 }
 
-export interface MeaningSubmissionPage {
+interface MeaningSubmissionPage {
   automaticReview?: AutomaticReviewStatus | null
   configured: boolean
   bookId?: string | null
@@ -57,7 +57,7 @@ export interface MeaningSubmissionPage {
   totalPage: number
 }
 
-export interface MeaningSubmissionApproval {
+interface MeaningSubmissionApproval {
   word: string
   partOfSpeech?: string
   meaning: string
@@ -101,7 +101,7 @@ export interface MeaningSubmissionReview {
   applied: boolean; checked: boolean; checkedAt: string | null; resultWordId: string | null
 }
 export interface ReviewQuery { verdict?: string; checked?: boolean; applied?: boolean; recordId?: string }
-export interface ReviewPage { items: MeaningSubmissionReview[]; totalCount: number; page: number; size: number }
+interface ReviewPage { items: MeaningSubmissionReview[]; totalCount: number; page: number; size: number }
 // Copy only the public projection, so unexpected configuration/runtime fields never enter page state.
 function parseReview(value: unknown): MeaningSubmissionReview {
   const invalid = (): never => { throw new ApiError('无法读取审核记录。') }

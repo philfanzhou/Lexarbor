@@ -12,7 +12,7 @@ type CsvRecordsResult =
   | { records: CsvRecord[]; error?: undefined }
   | { records?: undefined; error: string }
 
-export interface VocabularyCsvResult {
+interface VocabularyCsvResult {
   rows: VocabularyPreviewRow[]
   /** A file-level error; when it is set there are no rows. */
   error?: string

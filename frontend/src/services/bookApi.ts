@@ -2,11 +2,11 @@ import type { AxiosRequestConfig } from 'axios'
 import api from './api'
 import type { Book, BookPageData, BookUnit, StringListData } from '@/types'
 
-export interface BookListData {
+interface BookListData {
   books: Book[]
 }
 
-export interface BookUnitListData {
+interface BookUnitListData {
   units: BookUnit[]
 }
 
@@ -15,7 +15,7 @@ export interface BookUnitListData {
  * every time, with `null` as the explicit form of an absent title, matching
  * the server's strict request shape.
  */
-export interface BookUnitWrite {
+interface BookUnitWrite {
   number: number
   title: string | null
 }

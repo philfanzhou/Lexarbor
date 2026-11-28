@@ -22,9 +22,9 @@ export const VOCABULARY_COLUMNS = [
 const REQUIRED_COLUMNS = ['word', 'meaning'] as const
 
 /** Where each source column goes: a canonical index, or -1 for a blank column that is ignored. */
-export type VocabularyHeaderMapping = number[]
+type VocabularyHeaderMapping = number[]
 
-export type VocabularyHeaderResult =
+type VocabularyHeaderResult =
   | { mapping: VocabularyHeaderMapping; error?: undefined }
   | { mapping?: undefined; error: string }
 

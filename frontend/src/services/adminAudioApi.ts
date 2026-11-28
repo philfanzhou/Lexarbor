@@ -2,9 +2,9 @@ import type { AxiosRequestConfig } from 'axios'
 import api from './api'
 
 export type AudioLocale = 'en-GB' | 'en-US'
-export type AudioStatus = 'missing' | 'ready' | 'stale'
-export interface AudioBinding { assetId: string; sourceRevision: string }
-export interface AudioTarget {
+type AudioStatus = 'missing' | 'ready' | 'stale'
+interface AudioBinding { assetId: string; sourceRevision: string }
+interface AudioTarget {
   wordId: string
   meaningId: string | null
   locale: AudioLocale

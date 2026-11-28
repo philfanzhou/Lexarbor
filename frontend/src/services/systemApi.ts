@@ -1,7 +1,7 @@
 import api from './api'
 
 /** The three build-identity channels the Host assembly can report. */
-export type BuildChannel = 'release' | 'edge' | 'development'
+type BuildChannel = 'release' | 'edge' | 'development'
 
 /** The authorized `GET /admin/system/version` payload. */
 export interface SystemVersion {
@@ -31,7 +31,7 @@ export function isSystemVersion(value: unknown): value is SystemVersion {
   )
 }
 
-export interface SystemVersionRequestOptions {
+interface SystemVersionRequestOptions {
   signal?: AbortSignal
   isCurrent?: () => boolean
 }

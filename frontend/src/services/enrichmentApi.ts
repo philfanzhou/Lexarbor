@@ -3,19 +3,19 @@ import { ApiError } from './apiError'
 
 export const states = ['Pending', 'Running', 'Waiting', 'Succeeded', 'Failed', 'Cancelled'] as const
 export const steps = ['Prepare', 'Fields', 'Audio', 'Expand'] as const
-export type TaskState = typeof states[number]
+type TaskState = typeof states[number]
 export interface EnrichmentQuery {
   wordId?: string; meaningId?: string; locale?: string; state?: string; step?: string
   search?: string; attentionOnly?: boolean; sort?: 'word' | 'attention' | 'recent'
 }
-export interface EnrichmentPage<T> { items: T[]; totalCount: number; page: number; size: number }
-export interface EnrichmentRound {
+interface EnrichmentPage<T> { items: T[]; totalCount: number; page: number; size: number }
+interface EnrichmentRound {
   number: number; state: TaskState | 'Superseded'; requestCount: number; consumedFailures: number; failureBudget: number
   waitReason: string | null; errorCode: string | null; nextAttemptAtUnixMs: number | null
   createdAtUnixMs: number; updatedAtUnixMs: number
   automaticRecovery?: boolean; forceSingle?: boolean; fieldsNotRequired?: boolean
 }
-export interface EnrichmentCleanup {
+interface EnrichmentCleanup {
   waiting: number; running: number; observed: number; attempts: number
   nextAttemptAtUnixMs: number | null; errorCode: string | null
 }
@@ -25,14 +25,14 @@ export interface EnrichmentTask {
   state: TaskState; waitReason: string | null; current: EnrichmentRound; cleanup: EnrichmentCleanup
   automaticRecoveryAvailable?: boolean
 }
-export interface EnrichmentCall {
+interface EnrichmentCall {
   id: string; round: number; service: string; result: string; errorCode: string | null
   startedAtUnixMs: number; finishedAtUnixMs: number | null
 }
-export interface EnrichmentWait {
+interface EnrichmentWait {
   round: number; reason: string; errorCode: string | null; recordedAtUnixMs: number; nextAttemptAtUnixMs: number
 }
-export interface CleanupHistory {
+interface CleanupHistory {
   epoch: number; state: string; attempts: number; nextAttemptAtUnixMs: number
   errorCode: string | null; createdAtUnixMs: number; updatedAtUnixMs: number
 }

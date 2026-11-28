@@ -10,7 +10,7 @@ import type { VocabularyPreviewRow } from './vocabularyRow'
  */
 const JSON_FIELDS = ['word', 'phoneticUk', 'phoneticUs', 'partOfSpeech', 'meaning', 'example', 'unit', 'section', 'entryKind'] as const
 
-export interface VocabularyJsonResult {
+interface VocabularyJsonResult {
   rows: VocabularyPreviewRow[]
   /** A file-level error; when it is set there are no rows. */
   error?: string

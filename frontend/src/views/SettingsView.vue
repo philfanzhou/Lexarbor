@@ -81,7 +81,7 @@ watch(() => current.fullPath, () => { void nextTick(center) })
         </template>
       </div>
     </nav>
-    <div class="lx-settings__content">
+    <div>
       <RouterView v-slot="{ Component, route }">
         <component :is="Component" :key="route.name" />
       </RouterView>

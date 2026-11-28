@@ -235,7 +235,7 @@ async function remove(unit: BookUnit) {
           </template>
         </el-table>
 
-        <el-form class="unit-dialog__form" label-width="64px" @submit.prevent="submit">
+        <el-form label-width="64px" @submit.prevent="submit">
           <h3 class="unit-dialog__form-title">
             {{ editing ? `编辑单元 ${editing.number}` : '添加单元' }}
           </h3>
