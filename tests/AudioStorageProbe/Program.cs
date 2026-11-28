@@ -142,8 +142,12 @@ try
     await SafeFailure(() => denied.PutAsync(location, deniedStream, bytes.Length, "audio/mpeg", default));
     await SafeFailure(() => denied.RemoveAsync(location, default));
     var deniedUpload = new AudioUploadService(repository, denied, new(true, bucket, "audio/", 3), TimeProvider.System);
-    var deniedRequest = request with { IdempotencyKey = Guid.NewGuid().ToString(), Locale = AudioLocale.EnUs,
-        SourceRevision = AudioSelectionService.ComputeRevision(AudioSelectionService.GetInput(new("probe-word", "tone", null, null), null, AudioLocale.EnUs)) };
+    var deniedRequest = request with
+    {
+        IdempotencyKey = Guid.NewGuid().ToString(),
+        Locale = AudioLocale.EnUs,
+        SourceRevision = AudioSelectionService.ComputeRevision(AudioSelectionService.GetInput(new("probe-word", "tone", null, null), null, AudioLocale.EnUs))
+    };
     Require((await deniedUpload.UploadAsync(deniedRequest, default)).StatusCode == 503,
         "A real S3 denial must produce a safe upload failure.");
     Require((await repository.GetAsync(deniedRequest.IdempotencyKey, default))!.Operation.State == AudioUploadState.Abandoned,
@@ -386,8 +390,14 @@ static async Task VerifyInvalidationAsync(AudioOptions options, byte[] bytes)
         await uploads.BeginTransferAsync(request.IdempotencyKey, old.Operation.UploadLease, clock.Now, default);
         using (var content = new MemoryStream(bytes)) await store.PutAsync(old.Asset.Location, content, bytes.Length, "audio/mpeg", default);
         Require((await uploads.CompleteAsync(request.IdempotencyKey, old.Operation.UploadLease, clock.Now, default))?.Receipt?.StatusCode == 200, "Specific probe upload must publish.");
-        db.VocabularyAudioBindings.Add(new() { Id = "invalidation-default", WordId = "invalidation-word", Locale = AudioLocale.EnGb,
-            AssetId = old.Asset.Id, SourceRevision = revision });
+        db.VocabularyAudioBindings.Add(new()
+        {
+            Id = "invalidation-default",
+            WordId = "invalidation-word",
+            Locale = AudioLocale.EnGb,
+            AssetId = old.Asset.Id,
+            SourceRevision = revision
+        });
         await db.SaveChangesAsync(); db.ChangeTracker.Clear();
         var authority = new AudioInvalidationRepository(db, clock);
         var phonetics = new MeaningPhoneticRepository(db, authority, new EnrichmentTaskRepository(db, clock));
@@ -496,9 +506,13 @@ static async Task CrashUploadAsync(string connectionString, string markerPath, s
     var bucket = Environment.GetEnvironmentVariable("LEXARBOR_S3_TEST_BUCKET")!;
     using var store = new S3AudioObjectStore(Options.Create(new AudioOptions
     {
-        Enabled = true, Bucket = bucket, InternalEndpoint = Environment.GetEnvironmentVariable("LEXARBOR_S3_TEST_INTERNAL")!,
-        PublicEndpoint = Environment.GetEnvironmentVariable("LEXARBOR_S3_TEST_PUBLIC")!, AccessKey = "synthetic-audio-access",
-        SecretKey = "synthetic-audio-secret", OperationTimeoutSeconds = 3
+        Enabled = true,
+        Bucket = bucket,
+        InternalEndpoint = Environment.GetEnvironmentVariable("LEXARBOR_S3_TEST_INTERNAL")!,
+        PublicEndpoint = Environment.GetEnvironmentVariable("LEXARBOR_S3_TEST_PUBLIC")!,
+        AccessKey = "synthetic-audio-access",
+        SecretKey = "synthetic-audio-secret",
+        OperationTimeoutSeconds = 3
     }), TimeProvider.System);
     var bytes = await File.ReadAllBytesAsync(Path.Combine(AppContext.BaseDirectory, "Fixtures/tone.mp3"));
     var repo = new AudioUploadRepository(db);
@@ -598,8 +612,12 @@ sealed class PlaybackProbeHost(WebApplication app, HttpClient client, PlaybackPr
         builder.Services.AddSingleton<IAudioObjectStore>(store);
         builder.Services.AddSingleton(new AudioRuntimeConfiguration(Options.Create(new AudioOptions
         {
-            Enabled = true, InternalEndpoint = "http://127.0.0.1:9/", PublicEndpoint = "https://audio.example.test/",
-            AccessKey = "synthetic-probe-access", SecretKey = "synthetic-probe-secret", PlaybackTtlSeconds = 60,
+            Enabled = true,
+            InternalEndpoint = "http://127.0.0.1:9/",
+            PublicEndpoint = "https://audio.example.test/",
+            AccessKey = "synthetic-probe-access",
+            SecretKey = "synthetic-probe-secret",
+            PlaybackTtlSeconds = 60,
             OperationTimeoutSeconds = 3
         }), new PlaybackProbeFactory(store)));
         builder.Services.AddScoped<IAudioPlaybackOperationFactory, AudioPlaybackOperationFactory>();
