@@ -57,7 +57,7 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
         string provider = "OidcCode",
         IReadOnlyDictionary<string, string?>? extraConfiguration = null,
         string? keyContentRoot = null,
-        string? databasePath = null,
+        string? sharedDatabase = null,
         bool useProductionDatabase = false,
         string? contentRootPath = null)
     {
@@ -86,18 +86,19 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
         // Every host works on its own PostgreSQL database on the shared test
         // server, created from the migrated template and dropped with the
         // factory. A test that runs several hosts over the same data (a
-        // restart, a second instance) names that data with databasePath, which
-        // maps to one shared database for the run. A test may instead supply
-        // the whole connection string through ConnectionStrings:Default.
+        // restart, a second instance) names that data with sharedDatabase, a
+        // name of the test's choosing that maps to one database for the run.
+        // A test may instead supply the whole connection string through
+        // ConnectionStrings:Default.
         if (extraConfiguration is not null
             && extraConfiguration.TryGetValue("ConnectionStrings:Default", out var configured)
             && !string.IsNullOrWhiteSpace(configured))
         {
             _databaseConnectionString = configured;
         }
-        else if (databasePath is not null)
+        else if (sharedDatabase is not null)
         {
-            _databaseConnectionString = SharedTestDatabases.ConnectionString(databasePath);
+            _databaseConnectionString = SharedTestDatabases.ConnectionString(sharedDatabase);
         }
         else
         {
@@ -132,7 +133,7 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
             if (Directory.Exists(current) && new DirectoryInfo(current).LinkTarget is not null)
             {
                 throw new InvalidOperationException(
-                    $"The test database directory resolves through a symbolic link, which the " +
+                    $"The test directory resolves through a symbolic link, which the " +
                     $"startup gate rejects: {Path.GetFileName(current)}");
             }
         }

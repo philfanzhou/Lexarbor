@@ -30,12 +30,9 @@ public sealed class AdminSessionStoreTests : IDisposable
     // never touches the file, and share the same root for convenience.
     private readonly string _root = VocabularyWebApplicationFactory.CreateGateSafeDirectory(
         $"lexarbor-sessions-{Guid.NewGuid():N}");
-    // The database passes through the strict startup gate, so it lives in the
-    // gate-safe directory rather than beside the key-ring root.
-    private readonly string _databaseRoot = VocabularyWebApplicationFactory.CreateGateSafeDirectory(
-        $"lexarbor-sessions-db-{Guid.NewGuid():N}");
     private readonly Clock _clock = new();
-    private string DatabasePath => Path.Combine(_databaseRoot, "sessions.db");
+    // The name under which the hosts and connections of one test share a database.
+    private readonly string _database = $"lexarbor-sessions-db-{Guid.NewGuid():N}";
     private CancellationToken Ct => TestContext.Current.CancellationToken;
 
     public AdminSessionStoreTests()
@@ -98,7 +95,7 @@ public sealed class AdminSessionStoreTests : IDisposable
         services.AddDbContextFactory<VocabularyDbContext>(options =>
         {
             // Unmigrated until a test migrates it, as the SQLite file was.
-            options.UseNpgsql(SharedTestDatabases.WithLockTimeout(SharedTestDatabases.ConnectionString(DatabasePath, migrated: false), "1s"));
+            options.UseNpgsql(SharedTestDatabases.WithLockTimeout(SharedTestDatabases.ConnectionString(_database, migrated: false), "1s"));
             if (interceptor is not null) options.AddInterceptors(interceptor);
         });
         services.AddScoped(serviceProvider =>
@@ -159,7 +156,7 @@ public sealed class AdminSessionStoreTests : IDisposable
         Assert.NotNull(recovered);
         Assert.True(recovered.AccessToken == Session().AccessToken && recovered.Subject == Session().Subject);
         // Check bytes and values without printing the markers, handle or ciphertext on failure.
-        var database = await PostgreSqlTestServer.AllRowsTextAsync(SharedTestDatabases.ConnectionString(DatabasePath));
+        var database = await PostgreSqlTestServer.AllRowsTextAsync(SharedTestDatabases.ConnectionString(_database));
         Assert.True(!database.Contains(handle, StringComparison.Ordinal));
         foreach (var marker in new[] { Session().AccessToken, Session().IdToken!, Session().Issuer,
                      Session().Subject, Session().DisplayName!, Session().Roles[0] })
@@ -167,19 +164,19 @@ public sealed class AdminSessionStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task ActualHosts_RestartWithFileDatabaseAndPersistentRing()
+    public async Task ActualHosts_RestartWithSharedDatabaseAndPersistentRing()
     {
         Directory.CreateDirectory(_root);
         string handle;
         using (var first = new VocabularyWebApplicationFactory("Testing", true, keyContentRoot: _root,
-                   databasePath: DatabasePath))
+                   sharedDatabase: _database))
         {
             using var client = first.CreateClient();
             using var scope = first.Services.CreateScope();
             handle = await Store(scope).CreateAsync(Session(DateTimeOffset.UtcNow.AddMinutes(5)), Ct);
         }
         using var second = new VocabularyWebApplicationFactory("Testing", true, keyContentRoot: _root,
-            databasePath: DatabasePath);
+            sharedDatabase: _database);
         using var secondClient = second.CreateClient();
         using var secondScope = second.Services.CreateScope();
         Assert.NotNull(await Store(secondScope).ReadAsync(handle, Ct));
@@ -480,7 +477,7 @@ public sealed class AdminSessionStoreTests : IDisposable
         using var provider = Build();
         using var scope = provider.CreateScope();
         var handle = await Store(scope).CreateAsync(Session(), Ct);
-        await using var blocker = new NpgsqlConnection(SharedTestDatabases.ConnectionString(DatabasePath));
+        await using var blocker = new NpgsqlConnection(SharedTestDatabases.ConnectionString(_database));
         await blocker.OpenAsync(Ct);
         using var transaction = blocker.BeginTransaction();
         await using (var hold = new NpgsqlCommand("LOCK TABLE admin_session IN ACCESS EXCLUSIVE MODE", blocker, transaction))
@@ -667,13 +664,5 @@ public sealed class AdminSessionStoreTests : IDisposable
     public void Dispose()
     {
         if (Directory.Exists(_root)) Directory.Delete(_root, true);
-        try
-        {
-            if (Directory.Exists(_databaseRoot)) Directory.Delete(_databaseRoot, true);
-        }
-        catch (IOException)
-        {
-            // A file another process still holds is left behind.
-        }
     }
 }

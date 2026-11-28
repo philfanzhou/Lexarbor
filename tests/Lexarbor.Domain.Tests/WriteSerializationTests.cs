@@ -22,8 +22,8 @@ public sealed class WriteSerializationTests : IDisposable
     [Fact]
     public async Task ConcurrentEquivalentImports_AreIdempotent()
     {
-        var databasePath = _database.ConnectionString;
-        await using (var setupContext = CreateContext(databasePath))
+        var connectionString = _database.ConnectionString;
+        await using (var setupContext = CreateContext(connectionString))
         {
             await setupContext.Database.MigrateAsync(TestContext.Current.CancellationToken);
             var now = DateTimeOffset.UtcNow;
@@ -38,8 +38,8 @@ public sealed class WriteSerializationTests : IDisposable
             await setupContext.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
-        await using var firstContext = CreateContext(databasePath);
-        await using var secondContext = CreateContext(databasePath);
+        await using var firstContext = CreateContext(connectionString);
+        await using var secondContext = CreateContext(connectionString);
         var firstService = CreateService(firstContext);
         var secondService = CreateService(secondContext);
 
@@ -64,7 +64,7 @@ public sealed class WriteSerializationTests : IDisposable
         Assert.Equal(results[0].word.Id, results[1].word.Id);
         Assert.Equal(results[0].meaning.Id, results[1].meaning.Id);
 
-        await using var verificationContext = CreateContext(databasePath);
+        await using var verificationContext = CreateContext(connectionString);
         Assert.Equal(1, await verificationContext.Vocabularies.CountAsync(TestContext.Current.CancellationToken));
         Assert.Equal(1, await verificationContext.VocabularyMeanings.CountAsync(TestContext.Current.CancellationToken));
     }
@@ -75,8 +75,8 @@ public sealed class WriteSerializationTests : IDisposable
     [Fact]
     public async Task ConcurrentIdenticalBatches_AreSerializedAndIdempotent()
     {
-        var databasePath = _database.ConnectionString;
-        await using (var setupContext = CreateContext(databasePath))
+        var connectionString = _database.ConnectionString;
+        await using (var setupContext = CreateContext(connectionString))
         {
             await setupContext.Database.MigrateAsync(TestContext.Current.CancellationToken);
             var now = DateTimeOffset.UtcNow;
@@ -100,8 +100,8 @@ public sealed class WriteSerializationTests : IDisposable
                     (string?)null, (string?)null, (string?)null))
                 .ToList();
 
-        await using var firstContext = CreateContext(databasePath);
-        await using var secondContext = CreateContext(databasePath);
+        await using var firstContext = CreateContext(connectionString);
+        await using var secondContext = CreateContext(connectionString);
         var results = await Task.WhenAll(
             CreateService(firstContext).ImportBatchAsync("batch-book", Batch()),
             CreateService(secondContext).ImportBatchAsync("batch-book", Batch()));
@@ -109,7 +109,7 @@ public sealed class WriteSerializationTests : IDisposable
         Assert.Contains(new VocabularyBatchImportResult(entryCount, entryCount, 0), results);
         Assert.Contains(new VocabularyBatchImportResult(entryCount, 0, entryCount), results);
 
-        await using var verificationContext = CreateContext(databasePath);
+        await using var verificationContext = CreateContext(connectionString);
         Assert.Equal(entryCount, await verificationContext.Vocabularies.CountAsync(TestContext.Current.CancellationToken));
         Assert.Equal(entryCount, await verificationContext.VocabularyMeanings.CountAsync(TestContext.Current.CancellationToken));
     }
@@ -117,8 +117,8 @@ public sealed class WriteSerializationTests : IDisposable
     [Fact]
     public async Task BookWrite_WhileAnotherConnectionHoldsTheDatabase_ReportsStorageBusy()
     {
-        var databasePath = _database.ConnectionString;
-        await using (var setupContext = CreateContext(databasePath))
+        var connectionString = _database.ConnectionString;
+        await using (var setupContext = CreateContext(connectionString))
         {
             await setupContext.Database.MigrateAsync(TestContext.Current.CancellationToken);
             var now = DateTimeOffset.UtcNow;
@@ -134,14 +134,14 @@ public sealed class WriteSerializationTests : IDisposable
         }
 
         // Hold a real PostgreSQL row lock until the other connection hits lock_timeout.
-        await using var blockingContext = CreateContext(databasePath);
+        await using var blockingContext = CreateContext(connectionString);
         await blockingContext.Database.OpenConnectionAsync(TestContext.Current.CancellationToken);
         await blockingContext.Database.ExecuteSqlRawAsync(
             "BEGIN; SELECT 1 FROM vocabulary_book WHERE id = 'busy-book' FOR UPDATE;", TestContext.Current.CancellationToken);
 
         try
         {
-            await using var context = CreateContext(databasePath, timeoutSeconds: 1);
+            await using var context = CreateContext(connectionString, timeoutSeconds: 1);
             var bookRepository = new VocabularyBookRepository(context);
             var service = new VocabularyBookService(bookRepository, new UnitOfWork(context));
             var book = await service.GetAsync("busy-book");
@@ -170,8 +170,8 @@ public sealed class WriteSerializationTests : IDisposable
     [Fact]
     public async Task BookWrite_CanCommitBesideAnUnrelatedWordWrite()
     {
-        var databasePath = _database.ConnectionString;
-        await using (var setupContext = CreateContext(databasePath))
+        var connectionString = _database.ConnectionString;
+        await using (var setupContext = CreateContext(connectionString))
         {
             await setupContext.Database.MigrateAsync(TestContext.Current.CancellationToken);
             var now = DateTimeOffset.UtcNow;
@@ -186,8 +186,8 @@ public sealed class WriteSerializationTests : IDisposable
             await setupContext.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
-        await using var importContext = CreateContext(databasePath, timeoutSeconds: 1);
-        await using var bookContext = CreateContext(databasePath, timeoutSeconds: 1);
+        await using var importContext = CreateContext(connectionString, timeoutSeconds: 1);
+        await using var bookContext = CreateContext(connectionString, timeoutSeconds: 1);
 
         // An import transaction, held open on demand so the race is a fact of
         // the test rather than a matter of timing.
@@ -236,7 +236,7 @@ public sealed class WriteSerializationTests : IDisposable
         await import;
         await bookWrite;
 
-        await using var verificationContext = CreateContext(databasePath);
+        await using var verificationContext = CreateContext(connectionString);
         var stored = await verificationContext.VocabularyBooks.SingleAsync(
             item => item.Id == "serialized-book", TestContext.Current.CancellationToken);
         Assert.Equal("Renamed while an import was in flight", stored.Description);
@@ -299,8 +299,8 @@ public sealed class WriteSerializationTests : IDisposable
     [Fact]
     public async Task ImportWrite_NestsSaveChangesInsideItsTransaction_WithoutDeadlocking()
     {
-        var databasePath = _database.ConnectionString;
-        await using var context = CreateContext(databasePath);
+        var connectionString = _database.ConnectionString;
+        await using var context = CreateContext(connectionString);
         await context.Database.MigrateAsync(TestContext.Current.CancellationToken);
         var now = DateTimeOffset.UtcNow;
         context.VocabularyBooks.Add(new VocabularyBookEntity

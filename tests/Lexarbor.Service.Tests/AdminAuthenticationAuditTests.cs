@@ -305,9 +305,8 @@ public class AdminAuthenticationAuditTests
         public static readonly string Code =
             WebEncoders.Base64UrlEncode(Encoding.ASCII.GetBytes("synthetic-code-marker-0123456789"));
 
-        private readonly string _databasePath = Path.Combine(
-            VocabularyWebApplicationFactory.CreateGateSafeDirectory($"lexarbor-audit-{Guid.NewGuid():N}"),
-            "audit.db");
+        // The name under which the fixture's hosts and connections share one database.
+        private readonly string _database = $"lexarbor-audit-db-{Guid.NewGuid():N}";
 
         public SignaCoreAuthorityStub Authority { get; } = new(TimeProvider.System);
         public VocabularyWebApplicationFactory Base { get; private set; } = null!;
@@ -350,7 +349,7 @@ public class AdminAuthenticationAuditTests
                 ["RateLimits:AdminLogin:Enabled"] = "false"
             };
             Base = new VocabularyWebApplicationFactory("Testing", true, "OidcCode", config,
-                databasePath: _databasePath);
+                sharedDatabase: _database);
             Host = Base.WithWebHostBuilder(builder =>
             {
                 builder.ConfigureServices(services =>
@@ -440,7 +439,7 @@ public class AdminAuthenticationAuditTests
             var rows = new List<AuditRow>();
             // The audit table is append-only in these tests, so physical row
             // order is insertion order — what SQLite's rowid order expressed.
-            await using var connection = new NpgsqlConnection(SharedTestDatabases.ConnectionString(_databasePath));
+            await using var connection = new NpgsqlConnection(SharedTestDatabases.ConnectionString(_database));
             await connection.OpenAsync(Ct);
             await using var command = connection.CreateCommand();
             command.CommandText =
@@ -479,7 +478,7 @@ public class AdminAuthenticationAuditTests
 
         public async Task<int> SessionCountAsync()
         {
-            await using var connection = new NpgsqlConnection(SharedTestDatabases.ConnectionString(_databasePath));
+            await using var connection = new NpgsqlConnection(SharedTestDatabases.ConnectionString(_database));
             await connection.OpenAsync(Ct);
             await using var command = connection.CreateCommand();
             command.CommandText = "SELECT COUNT(*) FROM admin_session";
@@ -488,7 +487,7 @@ public class AdminAuthenticationAuditTests
 
         public async Task<int> AuditCountAsync(string action)
         {
-            await using var connection = new NpgsqlConnection(SharedTestDatabases.ConnectionString(_databasePath));
+            await using var connection = new NpgsqlConnection(SharedTestDatabases.ConnectionString(_database));
             await connection.OpenAsync(Ct);
             await using var command = connection.CreateCommand();
             command.CommandText = "SELECT COUNT(*) FROM service_audit_logs WHERE action = @action";

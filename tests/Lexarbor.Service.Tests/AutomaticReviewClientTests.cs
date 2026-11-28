@@ -442,6 +442,8 @@ public sealed partial class AutomaticReviewClientTests
     private sealed class Fixture : IAsyncDisposable
     {
         private readonly string _root = VocabularyWebApplicationFactory.CreateGateSafeDirectory("auto-review-" + Guid.NewGuid().ToString("N"));
+        // The name under which the connections of this fixture share one database.
+        private readonly string _database = "auto-review-db-" + Guid.NewGuid().ToString("N");
         private readonly Dictionary<string, string?> _settings;
         private readonly List<IDisposable> _configurations = [];
         public Clock Clock { get; } = new(); public Handler Http { get; } = new();
@@ -481,7 +483,7 @@ public sealed partial class AutomaticReviewClientTests
         public MeaningSubmissionReviewWorker NewWorker() => new(Provider.GetRequiredService<IServiceScopeFactory>(), Runtime, _submissionSettings, Notifications, Clock, Client, NullLogger<MeaningSubmissionReviewWorker>.Instance);
         public AutomaticReviewBatchExecutor BatchWorker() => new(Provider.GetRequiredService<IServiceScopeFactory>(), Runtime, _submissionSettings,
             new AiTextBatchClient(Clients, Clock), Client, Clock);
-        public VocabularyDbContext Open() => new(new DbContextOptionsBuilder<VocabularyDbContext>().UseNpgsql(SharedTestDatabases.ConnectionString(Path.Combine(_root, "fixture.db"))).AddInterceptors(Fault).Options);
+        public VocabularyDbContext Open() => new(new DbContextOptionsBuilder<VocabularyDbContext>().UseNpgsql(SharedTestDatabases.ConnectionString(_database)).AddInterceptors(Fault).Options);
         public (MeaningSubmissionService Submissions, VocabularyService Vocabulary) Service(VocabularyDbContext db)
         {
             var submissions = new MeaningSubmissionRepository(db); var words = new VocabularyRepository(db); var meanings = new VocabularyMeaningRepository(db); var uow = new UnitOfWork(db);

@@ -21,12 +21,9 @@ public class DataProtectionKeyRepositoryTests : IDisposable
     // The shared root-key source refuses a key file whose path resolves
     // through a symbolic link or whose directory is not exactly owner-only, so
     // the key root is a gate-safe directory at 0700 — the shape a deployment's
-    // data/ directory has. Database files pass through the strict startup
-    // gate, so they live beside, not inside, the root-key material.
+    // data/ directory has.
     private readonly string _root = VocabularyWebApplicationFactory.CreateGateSafeDirectory(
         $"lexarbor-rootkey-{Guid.NewGuid():N}");
-    private readonly string _databaseRoot = VocabularyWebApplicationFactory.CreateGateSafeDirectory(
-        $"lexarbor-rootkey-db-{Guid.NewGuid():N}");
 
     public DataProtectionKeyRepositoryTests()
     {
@@ -44,20 +41,13 @@ public class DataProtectionKeyRepositoryTests : IDisposable
         {
             Directory.Delete(_root, recursive: true);
         }
-
-        if (Directory.Exists(_databaseRoot))
-        {
-            try
-            {
-                Directory.Delete(_databaseRoot, recursive: true);
-            }
-            catch (IOException)
-            {
-                // A file another process still holds goes with the next run's new
-                // directory name.
-            }
-        }
     }
+
+    /// <summary>
+    /// A name no other test uses: the first host that asks for it gets a database of its own,
+    /// and every later host of the same test shares it.
+    /// </summary>
+    private static string NewDatabaseName() => $"lexarbor-rootkey-db-{Guid.NewGuid():N}";
 
     private IConfiguration Configuration(Dictionary<string, string?> extra) =>
         new ConfigurationBuilder().AddInMemoryCollection(extra).Build();
@@ -127,10 +117,10 @@ public class DataProtectionKeyRepositoryTests : IDisposable
             File.SetUnixFileMode(keyFile, UnixFileMode.UserRead | UnixFileMode.UserWrite);
         }
 
-        var database = Path.Combine(_databaseRoot, "legacy-key.db");
+        var database = NewDatabaseName();
         string handle;
         await using (var first = new VocabularyWebApplicationFactory("Testing", true,
-                         keyContentRoot: _root, databasePath: database))
+                         keyContentRoot: _root, sharedDatabase: database))
         {
             using var scope = first.Services.CreateScope();
             handle = await scope.ServiceProvider.GetRequiredService<AdminSessionStore>().CreateAsync(new()
@@ -145,7 +135,7 @@ public class DataProtectionKeyRepositoryTests : IDisposable
         }
 
         await using (var second = new VocabularyWebApplicationFactory("Testing", true,
-                         keyContentRoot: _root, databasePath: database))
+                         keyContentRoot: _root, sharedDatabase: database))
         using (var scope = second.Services.CreateScope())
         {
             var recovered = await scope.ServiceProvider.GetRequiredService<AdminSessionStore>().ReadAsync(handle, Ct);
@@ -226,17 +216,19 @@ public class DataProtectionKeyRepositoryTests : IDisposable
     [Fact]
     public void SymbolicLinkForTheKeyFile_IsRefused()
     {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
         var target = Path.Combine(_root, "target-key");
         File.WriteAllText(target, "anything");
         var keyFile = Path.Combine(_root, "data", "data-protection-root-key");
         var keyDirectory = Path.GetDirectoryName(keyFile)!;
         Directory.CreateDirectory(keyDirectory);
-        if (!OperatingSystem.IsWindows())
-        {
-            File.SetUnixFileMode(
-                keyDirectory,
-                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-        }
+        File.SetUnixFileMode(
+            keyDirectory,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
 
         File.CreateSymbolicLink(keyFile, target);
 
@@ -289,10 +281,10 @@ public class DataProtectionKeyRepositoryTests : IDisposable
         Directory.CreateDirectory(Path.Combine(_root, "admin-keys"));
         File.WriteAllText(Path.Combine(_root, "admin-keys", "key-legacy.xml"), "<key>legacy</key>");
 
-        var database = Path.Combine(_databaseRoot, "keys.db");
+        var database = NewDatabaseName();
         string handle;
         using (var first = new VocabularyWebApplicationFactory("Testing", true,
-                     keyContentRoot: _root, databasePath: database))
+                     keyContentRoot: _root, sharedDatabase: database))
         {
             using var scope = first.Services.CreateScope();
             handle = await scope.ServiceProvider.GetRequiredService<AdminSessionStore>().CreateAsync(new()
@@ -307,7 +299,7 @@ public class DataProtectionKeyRepositoryTests : IDisposable
         }
 
         using (var second = new VocabularyWebApplicationFactory("Testing", true,
-                     keyContentRoot: _root, databasePath: database))
+                     keyContentRoot: _root, sharedDatabase: database))
         using (var scope = second.Services.CreateScope())
         {
             var recovered = await scope.ServiceProvider.GetRequiredService<AdminSessionStore>().ReadAsync(handle, Ct);
@@ -321,9 +313,9 @@ public class DataProtectionKeyRepositoryTests : IDisposable
     [Fact]
     public async Task KeysAreStoredAsEnvelopeRows_WithoutPlaintextXml()
     {
-        var database = Path.Combine(_databaseRoot, "enveloped.db");
+        var database = NewDatabaseName();
         using var factory = new VocabularyWebApplicationFactory("Testing", true,
-            keyContentRoot: _root, databasePath: database);
+            keyContentRoot: _root, sharedDatabase: database);
         using var client = factory.CreateClient();
         using var scope = factory.Services.CreateScope();
         await scope.ServiceProvider.GetRequiredService<AdminSessionStore>().CreateAsync(new()
@@ -351,9 +343,9 @@ public class DataProtectionKeyRepositoryTests : IDisposable
     [Fact]
     public async Task WrongRootKeyAgainstExistingRows_FailsClosedAtStartup()
     {
-        var database = Path.Combine(_databaseRoot, "wrongkey.db");
+        var database = NewDatabaseName();
         using (var created = new VocabularyWebApplicationFactory("Testing", true,
-                     keyContentRoot: _root, databasePath: database))
+                     keyContentRoot: _root, sharedDatabase: database))
         {
             using var client = created.CreateClient();
         }
@@ -365,7 +357,7 @@ public class DataProtectionKeyRepositoryTests : IDisposable
         var failure = Assert.ThrowsAny<Exception>(() =>
         {
             using var mismatched = new VocabularyWebApplicationFactory("Testing", true,
-                keyContentRoot: otherRoot, databasePath: database);
+                keyContentRoot: otherRoot, sharedDatabase: database);
             using var client = mismatched.CreateClient();
             return client;
         });

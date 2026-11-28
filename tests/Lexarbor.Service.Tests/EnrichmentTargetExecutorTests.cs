@@ -627,6 +627,8 @@ public sealed partial class EnrichmentTargetExecutorTests
     private sealed class Fixture : IAsyncDisposable
     {
         private readonly string _root = VocabularyWebApplicationFactory.CreateGateSafeDirectory("executor-" + Guid.NewGuid().ToString("N"));
+        // The name under which the connections of this fixture share one database.
+        private readonly string _database = "executor-db-" + Guid.NewGuid().ToString("N");
         private readonly Dictionary<string, string?> _settings;
         private readonly List<IDisposable> _configurations = [];
         public VocabularyDbContext Db { get; }
@@ -681,7 +683,7 @@ public sealed partial class EnrichmentTargetExecutorTests
             await f.Db.SaveChangesAsync(Ct); f.Db.ChangeTracker.Clear(); return f;
         }
         public VocabularyDbContext Open(params IInterceptor[] interceptors) => new(new DbContextOptionsBuilder<VocabularyDbContext>()
-            .UseNpgsql(SharedTestDatabases.ConnectionString(Path.Combine(_root, "fixture.db"))).AddInterceptors(interceptors).Options);
+            .UseNpgsql(SharedTestDatabases.ConnectionString(_database)).AddInterceptors(interceptors).Options);
         public EnrichmentTargetExecutor ExecutorFor(VocabularyDbContext db, EnrichmentTaskRepository tasks,
             IAudioUploadOperationFactory? operations = null, VocabularyExpansionExecutor? expansion = null) => new(tasks,
             new EnrichmentExecutionRepository(db, tasks, Clock), new AudioUploadRepository(db, Clock),
