@@ -134,7 +134,7 @@ internal static class EnrichmentRecoveryProbe
             Tasks = new(db, TimeProvider.System); Uploads = new(db, TimeProvider.System);
             _audio = new(Options.Create(options), new S3AudioObjectStoreFactory(TimeProvider.System));
             Executor = new(Tasks, new EnrichmentExecutionRepository(db, Tasks, TimeProvider.System), Uploads,
-                new OpenAiCompatiblePronunciationPreparationClient(Network, runtime), new PronunciationSpeechClient(Network, runtime),
+                new OpenAiPreparationClient(Network, runtime), new PronunciationSpeechClient(Network, runtime),
                 new AudioUploadOperationFactory(_audio, Uploads, TimeProvider.System), new AudioUploadAdmission(2, 8, TimeSpan.FromSeconds(3)),
                 runtime, TimeProvider.System, new EnrichmentServiceGate(new EnrichmentSchedulerRepository(db, Tasks), runtime, TimeProvider.System));
         }

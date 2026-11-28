@@ -58,9 +58,9 @@ public interface IVocabularyBookRepository
     Task<(List<VocabularyBook> Items, int TotalCount)> SearchAsync(string? keyword, int page, int size);
     Task<List<VocabularyBook>> GetByCategoryAsync(string? category, string? grade);
     Task<List<string>> GetDistinctCategoriesAsync();
-    Task<List<string>> GetDistinctEducationLevelsAsync();
+    Task<List<string>> GetEducationLevelsAsync();
     Task<List<string>> GetDistinctGradesAsync();
-    Task<List<string>> GetDistinctGradesByEducationLevelAsync(string educationLevel);
+    Task<List<string>> GetGradesByEducationLevelAsync(string educationLevel);
     Task<bool> HasMeaningsAsync(string bookId);
     Task<(List<Vocabulary> Items, int TotalCount)> GetWordsAsync(string bookId, int page, int size);
     Task AddAsync(VocabularyBook model);
@@ -108,7 +108,7 @@ public interface IVocabularyBookUnitRepository
     /// no assignments are absent from the dictionary, and the caller treats a
     /// missing key as zero.
     /// </summary>
-    Task<Dictionary<string, int>> GetAssignmentCountsByBookIdAsync(string bookId);
+    Task<Dictionary<string, int>> GetAssignmentCountsAsync(string bookId);
     Task AddAsync(VocabularyBookUnit model);
     Task UpdateAsync(VocabularyBookUnit model);
     Task DeleteAsync(string id);

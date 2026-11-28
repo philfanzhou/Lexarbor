@@ -74,20 +74,13 @@ public static class EnrichmentSettingsEndpoints
     }
     private static async Task<IResult> SaveAsync(HttpContext context, PersistentConfigurationCoordinator coordinator, EnrichmentRuntimeConfiguration runtime)
     {
-        using var buffer = new MemoryStream();
-        var bytes = new byte[1024];
-        while (true)
-        {
-            var count = await context.Request.Body.ReadAsync(bytes, context.RequestAborted);
-            if (count == 0) break;
-            if (buffer.Length + count > 16384) return SettingsError.Write(413, "Settings request is too large.");
-            buffer.Write(bytes, 0, count);
-        }
+        var body = await SettingsRequest.ReadBodyAsync(context, 16384, context.RequestAborted);
+        if (body is null) return SettingsError.Write(413, "Settings request is too large.");
         var changes = new Dictionary<string, JsonNode?>(StringComparer.OrdinalIgnoreCase);
         var supplied = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         try
         {
-            using var document = JsonDocument.Parse(buffer.ToArray(), new JsonDocumentOptions { MaxDepth = 8 });
+            using var document = JsonDocument.Parse(body, new JsonDocumentOptions { MaxDepth = 8 });
             if (!ReadChanges(document.RootElement, "", changes, supplied) || supplied.Count == 0) return SettingsError.Write(400, Invalid);
         }
         catch (JsonException) { return SettingsError.Write(400, Invalid); }
@@ -101,16 +94,10 @@ public static class EnrichmentSettingsEndpoints
         return result.Status switch
         {
             ConfigurationSaveStatus.Success => await ReadResponse(context, coordinator, runtime, CancellationToken.None),
-            ConfigurationSaveStatus.MissingRevision => SettingsError.Write(428, "If-Match is required. Reload settings."),
-            ConfigurationSaveStatus.InvalidRevision => SettingsError.Write(400, "Invalid If-Match. Reload settings."),
-            ConfigurationSaveStatus.Conflict => SettingsError.Write(412, "Settings changed. Reload settings; offline edits require a restart."),
-            ConfigurationSaveStatus.Overridden => Results.Json(new
-            {
-                message = "Settings are overridden by deployment configuration.",
-                fields = result.OverriddenFields?.Select(key => EnrichmentConfigurationFields.Find(key)!.Name)
-            }, statusCode: 409),
+            ConfigurationSaveStatus.Overridden => SettingsRequest.Overridden(
+                result.OverriddenFields?.Select(key => EnrichmentConfigurationFields.Find(key)!.Name)),
             ConfigurationSaveStatus.InvalidCandidate => SettingsError.Write(400, Invalid),
-            _ => SettingsError.Write(503, ConfigurationSaveResult.StorageFailureMessage)
+            _ => SettingsRequest.SaveFailure(result.Status)
         };
     }
     internal static bool ReadChanges(JsonElement element, string prefix, Dictionary<string, JsonNode?> changes, HashSet<string> supplied)
@@ -142,7 +129,7 @@ public static class EnrichmentSettingsEndpoints
             JsonNode? candidate;
             if (field.Secret)
             {
-                if (!Credential(property.Value, out var action, out var value)) return false;
+                if (!SettingsRequest.TryReadCredential(property.Value, 4096, out var action, out var value)) return false;
                 if (action == "keep") continue;
                 candidate = JsonValue.Create(action == "clear" ? "" : value);
             }
@@ -154,25 +141,5 @@ public static class EnrichmentSettingsEndpoints
             if (!changes.TryAdd(field.Key, candidate) && !JsonNode.DeepEquals(changes[field.Key], candidate)) return false;
         }
         return seen.Count > 0;
-    }
-
-    private static bool Credential(JsonElement element, out string? action, out string? value)
-    {
-        action = null; value = null;
-        if (element.ValueKind != JsonValueKind.Object) return false;
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var item in element.EnumerateObject())
-        {
-            if (!seen.Add(item.Name) || item.Value.ValueKind != JsonValueKind.String) return false;
-            if (item.Name == "action") action = item.Value.GetString();
-            else if (item.Name == "value") value = item.Value.GetString();
-            else return false;
-        }
-        return action switch
-        {
-            "replace" => !string.IsNullOrWhiteSpace(value) && value.Length <= 4096,
-            "keep" or "clear" => !seen.Contains("value"),
-            _ => false
-        };
     }
 }

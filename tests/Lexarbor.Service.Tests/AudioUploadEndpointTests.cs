@@ -554,7 +554,7 @@ public sealed class AudioUploadEndpointTests
         var old = Put(host, await host.Revision());
         await arrived.Task.WaitAsync(TimeSpan.FromSeconds(10), Ct);
         var before = host.Runtime.CopyCurrentOptions();
-        await Assert.ThrowsAsync<ConfigurationChangeConflictException>(() => host.PublishAsync(options => options.Bucket = "next-bucket"));
+        await Assert.ThrowsAsync<ChangeConflictException>(() => host.PublishAsync(options => options.Bucket = "next-bucket"));
         Assert.Equal(before.Bucket, host.Runtime.CopyCurrentOptions().Bucket);
         await host.PublishAsync(options =>
         {
@@ -569,7 +569,7 @@ public sealed class AudioUploadEndpointTests
         Assert.Equal("synthetic-next-secret", newStore.Options.SecretKey);
         Assert.Equal("synthetic", host.Store.Options.SecretKey);
         Assert.Equal("https://new.example.test/media/", newStore.Options.PublicEndpoint);
-        // This write succeeds while storage/parse is paused: no long SQLite transaction.
+        // This write succeeds while storage/parse is paused: no long database transaction.
         using (var scope = host.App.Services.CreateScope())
             await scope.ServiceProvider.GetRequiredService<VocabularyDbContext>().Vocabularies.Where(word => word.Id == "other")
                 .ExecuteUpdateAsync(set => set.SetProperty(word => word.Word, "During rotation"), Ct);
@@ -627,7 +627,7 @@ public sealed class AudioUploadEndpointTests
         for (var attempt = 0; ; attempt++)
         {
             try { await host.PublishAsync(options => options.Bucket = "next-bucket"); break; }
-            catch (ConfigurationChangeConflictException) when (attempt < 100) { await Task.Delay(10, Ct); }
+            catch (ChangeConflictException) when (attempt < 100) { await Task.Delay(10, Ct); }
         }
         Assert.Equal("next-bucket", host.Runtime.CopyCurrentOptions().Bucket);
         using var scope = host.App.Services.CreateScope();
@@ -654,7 +654,7 @@ public sealed class AudioUploadEndpointTests
         using var response = await request;
         Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
         Assert.Equal(0, host.Store.Disposals);
-        await Assert.ThrowsAsync<ConfigurationChangeConflictException>(() => host.PublishAsync(options => options.Bucket = "next-bucket"));
+        await Assert.ThrowsAsync<ChangeConflictException>(() => host.PublishAsync(options => options.Bucket = "next-bucket"));
         finish.TrySetResult(); await ended.Task.WaitAsync(TimeSpan.FromSeconds(10), Ct);
         for (var i = 0; i < 100 && host.Store.Disposals == 0; i++) await Task.Delay(10, Ct);
         Assert.Equal(1, host.Store.Disposals);
@@ -682,7 +682,7 @@ public sealed class AudioUploadEndpointTests
             await db.SaveChangesAsync(Ct);
             Assert.Empty(await db.VocabularyAudioBindings.ToListAsync(Ct));
         }
-        await Assert.ThrowsAsync<ConfigurationChangeConflictException>(() => host.PublishAsync(options => options.KeyPrefix = "new/"));
+        await Assert.ThrowsAsync<ChangeConflictException>(() => host.PublishAsync(options => options.KeyPrefix = "new/"));
         Assert.Equal("audio/", host.Runtime.CopyCurrentOptions().KeyPrefix);
         Assert.Equal(1, host.Stores.Stores.Last().Disposals);
         Assert.Equal(0, host.Store.Calls);
@@ -773,5 +773,4 @@ public sealed class AudioUploadEndpointTests
         cancel.Cancel(); await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelled);
         first.Dispose(); using var next = await admission.EnterAsync(Ct); Assert.NotNull(next);
     }
-
 }

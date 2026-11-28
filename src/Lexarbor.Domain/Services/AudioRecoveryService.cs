@@ -27,7 +27,7 @@ public sealed class AudioRecoveryService(IAudioUploadRepository repository, IAud
             }
             else if (candidate.Operation.State == AudioUploadState.CleanupClaimed)
             {
-                if (await repository.ExpireCleanupAsync(key, Now(), RetryAt(candidate.Operation.Cleanup.Attempts), cancellationToken)) expired++;
+                if (await repository.ExpireCleanupAsync(key, Now(), AudioRecoveryPolicy.RetryAt(candidate.Operation.Cleanup.Attempts, settings, Now()), cancellationToken)) expired++;
                 continue;
             }
             var now = Now();
@@ -38,7 +38,7 @@ public sealed class AudioRecoveryService(IAudioUploadRepository repository, IAud
             // CAS above rechecks publication, upload lease, age and retry time.
             try
             {
-                if (!Controlled(claim.Asset.Location)) throw new InvalidOperationException("Audio recovery location is invalid.");
+                if (!AudioRecoveryPolicy.IsControlled(claim.Asset.Location, settings)) throw new InvalidOperationException("Audio recovery location is invalid.");
                 using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 deadline.CancelAfter(TimeSpan.FromSeconds(settings.TimeoutSeconds));
                 await store.RemoveAsync(claim.Asset.Location, deadline.Token).WaitAsync(deadline.Token);
@@ -59,20 +59,11 @@ public sealed class AudioRecoveryService(IAudioUploadRepository repository, IAud
                 // No provider error, URL, endpoint or credential crosses this boundary.
                 failed++;
                 await repository.ReleaseCleanupAsync(key, claim.Operation.Cleanup.Lease, Now(),
-                    RetryAt(claim.Operation.Cleanup.Attempts), "audio.cleanup_failed", cancellationToken);
+                    AudioRecoveryPolicy.RetryAt(claim.Operation.Cleanup.Attempts, settings, Now()), "audio.cleanup_failed", cancellationToken);
             }
         }
         return new(candidates.Count, expired, observed, failed);
     }
 
-    private bool Controlled(AudioObjectLocation location)
-    {
-        if (location.Bucket != settings.Bucket || !location.Key.StartsWith(settings.KeyPrefix, StringComparison.Ordinal)) return false;
-        var suffix = location.Key[settings.KeyPrefix.Length..];
-        return suffix.Length == 36 && suffix.EndsWith(".mp3", StringComparison.Ordinal)
-            && Guid.TryParseExact(suffix[..32], "N", out _) && suffix[..32] == suffix[..32].ToLowerInvariant();
-    }
     private long Now() => clock.GetUtcNow().ToUnixTimeMilliseconds();
-    private long RetryAt(int attempts) => Now() + Math.Min(settings.MaxRetrySeconds,
-        settings.RetrySeconds * (1L << Math.Clamp(attempts - 1, 0, 20))) * 1000;
 }

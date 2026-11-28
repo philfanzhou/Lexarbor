@@ -53,7 +53,7 @@ public class DataProtectionKeyRepositoryTests : IDisposable
             }
             catch (IOException)
             {
-                // A WAL sidecar SQLite still holds goes with the next run's new
+                // A file another process still holds goes with the next run's new
                 // directory name.
             }
         }

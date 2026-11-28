@@ -28,7 +28,7 @@ public sealed partial class MeaningSubmissionService
     private readonly IMeaningSubmissionReviewAssistant? _assistant;
     private readonly TimeProvider _time;
     private readonly IMeaningSubmissionChangeNotifier? _changes;
-    private readonly IMeaningSubmissionAutomaticReviewStatusProvider? _automaticReview;
+    private readonly IAutomaticReviewStatusProvider? _automaticReview;
 
     public MeaningSubmissionService(
         IMeaningSubmissionRepository submissions,
@@ -40,7 +40,7 @@ public sealed partial class MeaningSubmissionService
         TimeProvider time,
         IMeaningSubmissionReviewAssistant? assistant = null,
         IMeaningSubmissionChangeNotifier? changes = null,
-        IMeaningSubmissionAutomaticReviewStatusProvider? automaticReview = null,
+        IAutomaticReviewStatusProvider? automaticReview = null,
         LearningQuestionGenerator? learningQuestions = null)
     {
         _learningQuestions = learningQuestions ?? new LearningQuestionGenerator();
@@ -61,9 +61,9 @@ public sealed partial class MeaningSubmissionService
     public string? BookId => _settings.IsConfigured ? _settings.BookId!.Trim() : null;
 
     public bool ReviewAssistantEnabled => _assistant?.IsEnabled == true;
-    public Task<MeaningSubmissionAutomaticReviewStatus?> AutomaticReviewStatusAsync(CancellationToken token) =>
-        _automaticReview == null ? Task.FromResult<MeaningSubmissionAutomaticReviewStatus?>(null) : ReadAutomaticReviewAsync(token);
-    private async Task<MeaningSubmissionAutomaticReviewStatus?> ReadAutomaticReviewAsync(CancellationToken token) => await _automaticReview!.ReadAsync(token);
+    public Task<AutomaticReviewStatus?> AutomaticReviewStatusAsync(CancellationToken token) =>
+        _automaticReview == null ? Task.FromResult<AutomaticReviewStatus?>(null) : ReadAutomaticReviewAsync(token);
+    private async Task<AutomaticReviewStatus?> ReadAutomaticReviewAsync(CancellationToken token) => await _automaticReview!.ReadAsync(token);
 
     /// <summary>
     /// Records a proposed definition and answers its submission. An equivalent
@@ -458,7 +458,7 @@ public sealed partial class MeaningSubmissionService
     {
         if (!_settings.IsConfigured)
         {
-            throw new MeaningSubmissionsNotConfiguredException();
+            throw new SubmissionsNotConfiguredException();
         }
 
         return _settings.BookId!.Trim();
@@ -494,14 +494,5 @@ public sealed partial class MeaningSubmissionService
         }
 
         return trimmed;
-    }
-}
-
-/// <summary>The deployment names no supplementary book, so submissions are off.</summary>
-public sealed class MeaningSubmissionsNotConfiguredException : Exception
-{
-    public MeaningSubmissionsNotConfiguredException()
-        : base("Meaning submissions are not configured.")
-    {
     }
 }

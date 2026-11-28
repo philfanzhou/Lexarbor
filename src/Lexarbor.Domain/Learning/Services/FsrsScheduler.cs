@@ -4,7 +4,6 @@ namespace Lexarbor.Learning.Domain.Services;
 
 public sealed class FsrsScheduler
 {
-
     public static readonly IReadOnlyList<double> DefaultParameters =
     [
         0.212, 1.2931, 2.3065, 8.2956, 6.4133, 0.8334, 3.0194, 0.001, 1.8722,
@@ -48,7 +47,6 @@ public sealed class FsrsScheduler
         ReviewRating rating,
         DateTimeOffset now)
     {
-
         var wasNew = card.State == MemoryCardState.New;
         var state = wasNew ? MemoryCardState.Learning : card.State;
         var step = wasNew ? 0 : card.LearningStep;

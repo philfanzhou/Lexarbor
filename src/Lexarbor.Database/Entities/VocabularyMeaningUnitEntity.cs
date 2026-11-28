@@ -13,13 +13,13 @@ namespace Lexarbor.Database.Entities;
 /// <remarks>
 /// <para>
 /// <c>section</c> and <c>entry_kind</c> are stored as non-nullable sentinels
-/// rather than NULL: SQLite treats NULLs in a composite primary key as mutually
-/// unequal, so NULL storage would let the same unsectioned or unclassified
-/// assignment be inserted twice and cannot back the idempotent re-import the
-/// batch contract promises. The sentinels are the empty string, with
-/// <c>A</c> and <c>B</c> the only section names and <c>word</c> and
-/// <c>phrase</c> the only entry kinds; a CHECK constraint enforces each
-/// domain. The domain model hides the sentinels behind nullable
+/// rather than NULL. The schema was built on SQLite, which treats NULLs in a
+/// composite primary key as mutually unequal: NULL storage would have let the
+/// same unsectioned or unclassified assignment be inserted twice and could not
+/// back the idempotent re-import the batch contract promises. The sentinels are
+/// the empty string, with <c>A</c> and <c>B</c> the only section names and
+/// <c>word</c> and <c>phrase</c> the only entry kinds; a CHECK constraint
+/// enforces each domain. The domain model hides the sentinels behind nullable
 /// <see cref="string"/>s where null means no section or no kind; the
 /// repository translates.
 /// </para>

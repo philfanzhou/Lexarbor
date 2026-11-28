@@ -665,9 +665,11 @@ Invalid, expired or unreadable selected credentials return 401 without falling b
 or mixing roles from another source. Authenticated users without the configured role
 receive 403. Challenges remain JSON, with no HTML redirect. `/admin/auth/session`
 retains `{success:true,data:{username,roles}}`. Health probes are anonymous. Business routes use the API key policy.
-For authenticated cookie requests, all non-safe `/admin` methods require exactly
-`X-Requested-With: XMLHttpRequest`; Bearer requests are exempt even when carrying
-the session cookie. Unauthenticated protected writes return 401.
+For authenticated cookie requests, all non-safe `/admin` methods must echo the
+antiforgery token issued by `GET /admin/auth/csrf` in `X-SignaCore-CSRF`, together
+with the antiforgery cookie set alongside it; a missing or wrong pair is answered
+with the fixed 401 and the endpoint never runs. Bearer requests are exempt even when
+carrying the session cookie. Unauthenticated protected writes return 401.
 
 The session cookie name is fixed, with HttpOnly, Secure, SameSite=Lax, Path=/ and no
 Domain. Its Expires/Max-Age never exceeds the independently verified access

@@ -8,12 +8,6 @@ using Lexarbor.Service;
 
 namespace Lexarbor.Host;
 
-public sealed record EnrichmentTextDispatchResult(IReadOnlyList<string> Ready, IReadOnlyList<string> Deferred,
-    long NextCheckAtUnixMs = 0, int Requests = 0, double RequestMilliseconds = 0)
-{
-    public static readonly EnrichmentTextDispatchResult Empty = new([], []);
-}
-
 /// <summary>Stages several independently validated plans; existing executors retain publication and recovery ownership.</summary>
 public sealed class EnrichmentTextBatchExecutor(IEnrichmentTaskRepository tasks, IEnrichmentExecutionRepository catalog,
     IVocabularyExpansionRepository expansions, IVocabularyBookRepository books, IAiRequestBatchRepository batches,
@@ -81,7 +75,7 @@ public sealed class EnrichmentTextBatchExecutor(IEnrichmentTaskRepository tasks,
             {
                 var input = await catalog.ReadAsync(key, token);
                 if (input == null || input.Request.InputVersion != round.Input) continue;
-                var item = OpenAiCompatiblePronunciationPreparationClient.BatchItem(call,
+                var item = OpenAiPreparationClient.BatchItem(call,
                     input.Request with { PreviousFailures = round.ConsumedFailures, PreviousError = round.ErrorCode }, snapshot);
                 if (item == null) continue;
                 work.Add(new(id, task, new(call, item.Prompt, content =>
@@ -96,7 +90,7 @@ public sealed class EnrichmentTextBatchExecutor(IEnrichmentTaskRepository tasks,
         foreach (var group in work.GroupBy(w => w.Task.Target.Step))
         {
             var kind = group.Key.ToString();
-            var instructions = group.Key == EnrichmentStep.Expand ? VocabularyExpansionClient.Instructions : OpenAiCompatiblePronunciationPreparationClient.Instructions;
+            var instructions = group.Key == EnrichmentStep.Expand ? VocabularyExpansionClient.Instructions : OpenAiPreparationClient.Instructions;
             var size = BatchSize(kind);
             var limit = await batches.LimitAsync(kind, snapshot.TextVersion!, size.Initial, size.Maximum, token);
             var queue = group.ToArray();

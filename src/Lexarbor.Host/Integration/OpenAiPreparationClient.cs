@@ -14,7 +14,7 @@ using static Lexarbor.Host.Integration.SupplierJson;
 namespace Lexarbor.Host.Integration;
 
 /// <summary>Independent, bounded JSON chat preparation. No database or speech IO.</summary>
-public sealed class OpenAiCompatiblePronunciationPreparationClient(
+public sealed class OpenAiPreparationClient(
     IHttpClientFactory clients, EnrichmentRuntimeConfiguration runtime, TimeProvider? timeProvider = null)
     : IPronunciationPreparationClient
 {

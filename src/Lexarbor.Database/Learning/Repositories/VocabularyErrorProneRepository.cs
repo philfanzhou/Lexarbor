@@ -1,36 +1,14 @@
-using System.Data;
 using Lexarbor.Learning.Domain.Models;
 using Lexarbor.Learning.Domain.Repositories;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Diagnostics;
-using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage;
 
 namespace Lexarbor.Learning.Database.Repositories;
 
 public sealed class VocabularyErrorProneRepository(LearningDbContext context) : IVocabularyErrorProneRepository
 {
-    public async Task<IVocabularyErrorProneSnapshot> OpenAsync(Guid studentId, CancellationToken cancellationToken = default)
-    {
-        var transaction = await context.Database.BeginTransactionAsync(IsolationLevel.RepeatableRead, cancellationToken).ConfigureAwait(false);
-        try
-        {
-            await context.Database.ExecuteSqlRawAsync("SET TRANSACTION READ ONLY", cancellationToken).ConfigureAwait(false);
-            await using var rows = await ExecuteReaderAsync(context, "SELECT id FROM learner_identity WHERE id = {0}", [studentId], cancellationToken).ConfigureAwait(false);
-            var exists = await rows.ReadAsync(cancellationToken).ConfigureAwait(false);
-            return new Snapshot(context, transaction, studentId, exists);
-        }
-        catch { await transaction.DisposeAsync().ConfigureAwait(false); throw; }
-    }
-
-    private static Task<RelationalDataReader> ExecuteReaderAsync(LearningDbContext context, string sql,
-        object[] parameters, CancellationToken cancellationToken)
-    {
-        var command = context.GetService<IRawSqlCommandBuilder>().Build(sql, parameters);
-        return command.RelationalCommand.ExecuteReaderAsync(new RelationalCommandParameterObject(
-            context.GetService<IRelationalConnection>(), command.ParameterValues, null, context,
-            context.GetService<IRelationalCommandDiagnosticsLogger>()), cancellationToken);
-    }
+    public Task<IVocabularyErrorProneSnapshot> OpenAsync(Guid studentId, CancellationToken cancellationToken = default)
+        => LearningCommands.OpenSnapshotAsync<IVocabularyErrorProneSnapshot>(context, studentId,
+            (db, transaction, learner, exists) => new Snapshot(db, transaction, learner, exists), cancellationToken);
 
     private sealed class Snapshot(LearningDbContext context, IDbContextTransaction transaction, Guid studentId, bool exists) : IVocabularyErrorProneSnapshot
     {
@@ -38,7 +16,7 @@ public sealed class VocabularyErrorProneRepository(LearningDbContext context) : 
         public async Task<VocabularyHistoryCoverage> ReadCoverageAsync(DateTimeOffset now, DateTimeOffset windowStart,
             CancellationToken cancellationToken = default)
         {
-            await using var rows = await ExecuteReaderAsync(context, """
+            await using var rows = await LearningCommands.ExecuteReaderAsync(context, """
                 WITH logs AS MATERIALIZED (
                     SELECT reviewed_at, COALESCE(state_before BETWEEN 0 AND 3 AND state_after BETWEEN 1 AND 3, false) AS known
                     FROM vocab_review_log WHERE student_id = {0} AND reviewed_at <= {1}
@@ -60,7 +38,7 @@ public sealed class VocabularyErrorProneRepository(LearningDbContext context) : 
         public async Task<IReadOnlyList<VocabularyErrorProneRow>> ReadCardsAsync(DateTimeOffset now, DateTimeOffset windowStart,
             CancellationToken cancellationToken = default)
         {
-            await using var rows = await ExecuteReaderAsync(context, """
+            await using var rows = await LearningCommands.ExecuteReaderAsync(context, """
                 WITH logs AS (
                     SELECT word_key COLLATE "C" AS word_key, meaning_key COLLATE "C" AS meaning_key, reviewed_at, state_before, state_after,
                         COALESCE(state_before BETWEEN 0 AND 3 AND state_after BETWEEN 1 AND 3, false) AS known

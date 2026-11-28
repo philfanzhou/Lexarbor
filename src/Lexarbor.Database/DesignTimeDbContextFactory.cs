@@ -9,7 +9,7 @@ namespace Lexarbor.Database;
 /// migration never connects, so the placeholder connection string is never
 /// opened; commands that do connect take <c>--connection</c>.
 /// </summary>
-internal sealed class VocabularyDbContextDesignTimeFactory : IDesignTimeDbContextFactory<VocabularyDbContext>
+internal sealed class DesignTimeDbContextFactory : IDesignTimeDbContextFactory<VocabularyDbContext>
 {
     public VocabularyDbContext CreateDbContext(string[] args) =>
         new(new DbContextOptionsBuilder<VocabularyDbContext>()

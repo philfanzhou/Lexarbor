@@ -5,7 +5,6 @@ namespace Lexarbor.Learning.Service;
 
 public sealed class CatalogScopeEntryReader : IVocabularyScopeEntryReader
 {
-
     private const int PageSize = 100;
 
     private readonly ICatalogClient _client;
@@ -76,7 +75,6 @@ public sealed class CatalogScopeEntryReader : IVocabularyScopeEntryReader
             var position = SelectPosition(entry, unitOrder);
             if (position is null)
             {
-
                 continue;
             }
 
@@ -105,7 +103,6 @@ public sealed class CatalogScopeEntryReader : IVocabularyScopeEntryReader
         var positions = entry.Positions;
         if (positions.Count == 0)
         {
-
             return unitOrder is null ? (null, int.MaxValue, SectionRank(null)) : null;
         }
 

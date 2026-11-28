@@ -11,14 +11,14 @@ namespace Lexarbor.Database.Repositories;
 public sealed class VocabularyAdminQueryRepository(VocabularyDbContext context) : IVocabularyAdminQueryRepository
 {
     public Task<VocabularyAdminPage> SearchAsync(string? keyword, string? bookId, int page, int size, CancellationToken cancellationToken)
-        => SnapshotAsync(async () =>
+        => ReadSnapshot.ReadAsync(context, async () =>
         {
             if (bookId != null) await GetBookAsync(bookId, cancellationToken);
             return await PageAsync(keyword, bookId, page, size, false, cancellationToken);
         }, cancellationToken);
 
     public Task<VocabularyAdminWord> GetAsync(string wordId, CancellationToken cancellationToken)
-        => SnapshotAsync(async () =>
+        => ReadSnapshot.ReadAsync(context, async () =>
         {
             var word = await context.Vocabularies.AsNoTracking().SingleOrDefaultAsync(v => v.Id == wordId, cancellationToken)
                 ?? throw new ResourceNotFoundException("Vocabulary word was not found.");
@@ -26,7 +26,7 @@ public sealed class VocabularyAdminQueryRepository(VocabularyDbContext context) 
         }, cancellationToken);
 
     public Task<VocabularyAdminContent> GetContentAsync(string bookId, string? keyword, int page, int size, CancellationToken cancellationToken)
-        => SnapshotAsync(async () =>
+        => ReadSnapshot.ReadAsync(context, async () =>
         {
             var book = await GetBookAsync(bookId, cancellationToken);
             var meanings = context.VocabularyMeanings.Where(m => m.BookId == bookId);
@@ -38,7 +38,7 @@ public sealed class VocabularyAdminQueryRepository(VocabularyDbContext context) 
 
     public Task<VocabularyAdminUnitContent> GetUnitContentAsync(string bookId, string unitId, string? keyword,
         string? section, string? entryKind, int page, int size, CancellationToken cancellationToken)
-        => SnapshotAsync(async () =>
+        => ReadSnapshot.ReadAsync(context, async () =>
         {
             var book = await GetBookAsync(bookId, cancellationToken);
             // A unit of another book answers the same 404 as a missing one: the
@@ -88,7 +88,7 @@ public sealed class VocabularyAdminQueryRepository(VocabularyDbContext context) 
 
     public Task<VocabularyAdminPhrasePositionPage> GetPhrasePositionsAsync(string bookId, string? unitId,
         string? section, string? keyword, int page, int size, CancellationToken cancellationToken)
-        => SnapshotAsync(async () =>
+        => ReadSnapshot.ReadAsync(context, async () =>
         {
             await GetBookAsync(bookId, cancellationToken);
             if (unitId != null && !await context.VocabularyBookUnits.AsNoTracking()
@@ -256,23 +256,5 @@ public sealed class VocabularyAdminQueryRepository(VocabularyDbContext context) 
                             u.UnitId, u.Number, u.Title, u.Section == string.Empty ? null : u.Section,
                             u.EntryKind == string.Empty ? null : u.EntryKind)).ToList(),
                     Snapshot(word, m, AudioLocale.EnGb), Snapshot(word, m, AudioLocale.EnUs))).ToList())).ToList();
-    }
-
-    private async Task<T> SnapshotAsync<T>(Func<Task<T>> read, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        await context.Database.OpenConnectionAsync(cancellationToken);
-        try
-        {
-            // BEGIN (deferred), not UnitOfWork's serialized BEGIN IMMEDIATE.
-            await using var transaction = await ReadSnapshot.BeginAsync(context, cancellationToken);
-            var result = await read();
-            await transaction.CommitAsync(cancellationToken);
-            return result;
-        }
-        finally
-        {
-            await context.Database.CloseConnectionAsync();
-        }
     }
 }

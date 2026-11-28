@@ -297,5 +297,4 @@ public sealed class AudioStorageTests
                 => owner.Entries.Add(formatter(state, exception) + exception?.ToString());
         }
     }
-
 }

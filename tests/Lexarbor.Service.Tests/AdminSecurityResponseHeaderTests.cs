@@ -120,7 +120,7 @@ public class AdminSecurityResponseHeaderTests
         using var client = WithNoRedirects(factory);
 
         // The optional-login degradation answers every start with its fixed 503
-        // before the return target is even read — the package's ordering.
+        // before the return target is even read — the retired package's ordering.
         using var badTarget = await client.GetAsync("/admin/auth/start?returnUrl=https%3A%2F%2Fevil.test", Ct);
         Assert.Equal(HttpStatusCode.ServiceUnavailable, badTarget.StatusCode);
         AssertBaseline(badTarget);

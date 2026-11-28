@@ -57,21 +57,14 @@ public static class AudioStorageSettingsEndpoints
 
     private static async Task<IResult> SaveAsync(HttpContext context, PersistentConfigurationCoordinator coordinator, AudioRuntimeConfiguration runtime)
     {
-        // Manual bounded parsing keeps credential-bearing DTOs and binder diagnostics
+        // Manual bounded parsing keeps credential-bearing payloads and binder diagnostics
         // out of model binding, response objects, and request-body logging.
-        using var buffer = new MemoryStream();
-        var bytes = new byte[1024];
-        while (true)
-        {
-            var count = await context.Request.Body.ReadAsync(bytes, context.RequestAborted);
-            if (count == 0) break;
-            if (buffer.Length + count > 16384) return SettingsError.Write(413, "Settings request is too large.");
-            buffer.Write(bytes, 0, count);
-        }
+        var body = await SettingsRequest.ReadBodyAsync(context, 16384, context.RequestAborted);
+        if (body is null) return SettingsError.Write(413, "Settings request is too large.");
         var changes = new Dictionary<string, JsonNode?>();
         try
         {
-            using var document = JsonDocument.Parse(buffer.ToArray());
+            using var document = JsonDocument.Parse(body);
             if (document.RootElement.ValueKind != JsonValueKind.Object) return SettingsError.Write(400, InvalidMessage);
             var seen = new HashSet<string>(StringComparer.Ordinal);
             foreach (var item in document.RootElement.EnumerateObject())
@@ -80,7 +73,7 @@ public static class AudioStorageSettingsEndpoints
                 var key = "Audio:" + name;
                 if (item.Name is "accessKey" or "secretKey")
                 {
-                    if (!Credential(item.Value, out var action, out var value)) return SettingsError.Write(400, InvalidMessage);
+                    if (!SettingsRequest.TryReadCredential(item.Value, null, out var action, out var value)) return SettingsError.Write(400, InvalidMessage);
                     if (action != "keep") changes.Add(key, JsonValue.Create(action == "clear" ? "" : value));
                 }
                 else if (item.Name == "enabled")
@@ -113,17 +106,11 @@ public static class AudioStorageSettingsEndpoints
         return result.Status switch
         {
             ConfigurationSaveStatus.Success => await ReadResponseAsync(context, coordinator, runtime, CancellationToken.None),
-            ConfigurationSaveStatus.MissingRevision => SettingsError.Write(428, "If-Match is required. Reload settings."),
-            ConfigurationSaveStatus.InvalidRevision => SettingsError.Write(400, "Invalid If-Match. Reload settings."),
-            ConfigurationSaveStatus.Conflict => SettingsError.Write(412, "Settings changed. Reload settings; offline edits require a restart."),
-            ConfigurationSaveStatus.Overridden => Results.Json(new
-            {
-                message = "Settings are overridden by deployment configuration.",
-                fields = result.OverriddenFields?.Select(key => Names.Single(item => "Audio:" + item.Value == key).Key)
-            }, statusCode: 409),
             ConfigurationSaveStatus.ResourceConflict => SettingsError.Write(409, "Existing audio or active operations require a separate storage migration."),
+            ConfigurationSaveStatus.Overridden => SettingsRequest.Overridden(
+                result.OverriddenFields?.Select(key => Names.Single(item => "Audio:" + item.Value == key).Key)),
             ConfigurationSaveStatus.InvalidCandidate => SettingsError.Write(400, AudioOptions.ConfigurationFailure),
-            _ => SettingsError.Write(503, ConfigurationSaveResult.StorageFailureMessage)
+            _ => SettingsRequest.SaveFailure(result.Status)
         };
     }
 
@@ -138,24 +125,4 @@ public static class AudioStorageSettingsEndpoints
         ["Audio:AccessKey"] = JsonValue.Create(options.AccessKey),
         ["Audio:SecretKey"] = JsonValue.Create(options.SecretKey)
     };
-
-    private static bool Credential(JsonElement element, out string? action, out string? value)
-    {
-        action = null; value = null;
-        if (element.ValueKind != JsonValueKind.Object) return false;
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var item in element.EnumerateObject())
-        {
-            if (!seen.Add(item.Name) || item.Value.ValueKind != JsonValueKind.String) return false;
-            if (item.Name == "action") action = item.Value.GetString();
-            else if (item.Name == "value") value = item.Value.GetString();
-            else return false;
-        }
-        return action switch
-        {
-            "replace" => !string.IsNullOrWhiteSpace(value),
-            "keep" or "clear" => !seen.Contains("value"),
-            _ => false
-        };
-    }
 }

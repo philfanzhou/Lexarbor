@@ -3,7 +3,6 @@ using System.Security.Cryptography;
 using Lexarbor.Database;
 using Lexarbor.Database.Diagnostics;
 using Lexarbor.Database.Repositories;
-using Lexarbor.Domain.Exceptions;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 using Lexarbor.Domain.Services;
@@ -20,13 +19,11 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
-using OpenTelemetry.Trace;
 using ServiceMantle;
 using ServiceMantle.Audit;
 using ServiceMantle.Persistence.Relational.DataProtection;
 using ServiceMantle.Persistence.Relational.Stores;
 using ServiceMantle.Web.Management;
-using KestrelBadHttpRequestException = Microsoft.AspNetCore.Server.Kestrel.Core.BadHttpRequestException;
 
 // Before anything is built. The container HEALTHCHECK runs this same assembly,
 // and a health probe that first composed configuration, opened the database and
@@ -174,8 +171,7 @@ builder.Services.AddScoped<IEnrichmentAdminRepository, EnrichmentAdminRepository
 builder.Services.AddScoped<IAiRequestBatchRepository, AiRequestBatchRepository>();
 builder.Services.AddScoped<EnrichmentTextBatchExecutor>();
 builder.Services.AddHttpClient(AiTextBatchClient.HttpClientName, client => client.Timeout = Timeout.InfiniteTimeSpan)
-    .RemoveAllLoggers()
-    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false });
+.WithoutRedirectsCookiesOrLogging();
 builder.Services.AddSingleton<AiTextBatchClient>();
 builder.Services.AddScoped<IEnrichmentAdminConfigurationProvider, EnrichmentAdminConfigurationProvider>();
 builder.Services.AddScoped<IEnrichmentExecutionRepository, EnrichmentExecutionRepository>();
@@ -189,8 +185,7 @@ builder.Services.AddScoped<IVocabularyExpansionRepository, VocabularyExpansionRe
 builder.Services.AddScoped<VocabularyExpansionService>();
 builder.Services.AddScoped<VocabularyExpansionExecutor>();
 builder.Services.AddHttpClient(VocabularyExpansionClient.HttpClientName, client => client.Timeout = Timeout.InfiniteTimeSpan)
-    .RemoveAllLoggers()
-    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false });
+.WithoutRedirectsCookiesOrLogging();
 builder.Services.AddSingleton<VocabularyExpansionClient>();
 builder.Services.AddHostedService<EnrichmentWorker>();
 builder.Services.AddScoped<IMeaningPhoneticRepository, MeaningPhoneticRepository>();
@@ -231,29 +226,26 @@ builder.Services.AddScoped<IMeaningSubmissionRepository, MeaningSubmissionReposi
 builder.Services.AddScoped<IMeaningSubmissionReviewAdminRepository, MeaningSubmissionReviewAdminRepository>();
 builder.Services.AddScoped<MeaningSubmissionService>();
 builder.Services.AddScoped<IMeaningSubmissionAutoReviewRepository, MeaningSubmissionAutoReviewRepository>();
-builder.Services.AddScoped<IMeaningSubmissionAutomaticReviewStatusProvider, MeaningSubmissionAutomaticReviewStatusProvider>();
-builder.Services.AddSingleton<MeaningSubmissionReviewNotifications>();
-builder.Services.AddSingleton<IMeaningSubmissionChangeNotifier>(p => p.GetRequiredService<MeaningSubmissionReviewNotifications>());
-builder.Services.AddHttpClient(AutomaticMeaningSubmissionReviewClient.HttpClientName, client => client.Timeout = Timeout.InfiniteTimeSpan)
-    .RemoveAllLoggers()
-    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false });
-builder.Services.AddSingleton<AutomaticMeaningSubmissionReviewClient>();
-builder.Services.AddSingleton<MeaningSubmissionReviewBatchExecutor>();
+builder.Services.AddScoped<IAutomaticReviewStatusProvider, AutomaticReviewStatusProvider>();
+builder.Services.AddSingleton<MeaningSubmissionNotifications>();
+builder.Services.AddSingleton<IMeaningSubmissionChangeNotifier>(p => p.GetRequiredService<MeaningSubmissionNotifications>());
+builder.Services.AddHttpClient(AutomaticReviewClient.HttpClientName, client => client.Timeout = Timeout.InfiniteTimeSpan)
+.WithoutRedirectsCookiesOrLogging();
+builder.Services.AddSingleton<AutomaticReviewClient>();
+builder.Services.AddSingleton<AutomaticReviewBatchExecutor>();
 builder.Services.AddHostedService<MeaningSubmissionReviewWorker>();
 builder.Services.AddScoped<BusinessApiKeyRepository>();
 builder.Services.AddLearnerServices(builder.Configuration, connectionString);
 builder.Services.AddSingleton<EnrichmentRuntimeConfiguration>();
 builder.Services.AddHttpClient(OpenAiCompatibleReviewAssistant.HttpClientName);
 builder.Services.AddSingleton<IMeaningSubmissionReviewAssistant, OpenAiCompatibleReviewAssistant>();
-builder.Services.AddHttpClient(OpenAiCompatiblePronunciationPreparationClient.HttpClientName,
+builder.Services.AddHttpClient(OpenAiPreparationClient.HttpClientName,
         client => client.Timeout = Timeout.InfiniteTimeSpan)
-    .RemoveAllLoggers()
-    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false });
-builder.Services.AddSingleton<IPronunciationPreparationClient, OpenAiCompatiblePronunciationPreparationClient>();
+.WithoutRedirectsCookiesOrLogging();
+builder.Services.AddSingleton<IPronunciationPreparationClient, OpenAiPreparationClient>();
 builder.Services.AddHttpClient(PronunciationSpeechClient.HttpClientName,
         client => client.Timeout = Timeout.InfiniteTimeSpan)
-    .RemoveAllLoggers()
-    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false });
+.WithoutRedirectsCookiesOrLogging();
 builder.Services.AddSingleton<PronunciationSpeechClient>();
 builder.Services.AddSingleton<IPronunciationSpeechClient>(p => p.GetRequiredService<PronunciationSpeechClient>());
 builder.Services.AddSingleton<SpeechPreviewAdmission>();
@@ -319,7 +311,7 @@ builder.Services
         options.ForwardChallenge = AdminAuthenticationSource.PresentationScheme;
         options.ForwardForbid = AdminAuthenticationSource.PresentationScheme;
     })
-    .AddScheme<AuthenticationSchemeOptions, AdminAuthenticationPresentationHandler>(
+    .AddScheme<AuthenticationSchemeOptions, AdminAuthenticationHandler>(
         AdminAuthenticationSource.PresentationScheme, null)
     .AddScheme<AuthenticationSchemeOptions, BusinessApiKeyAuthentication>(
         BusinessApiKeyAuthentication.SchemeName, null)
@@ -465,72 +457,9 @@ builder.Services.AddSingleton<ServiceMantle.Health.IServiceHealthSnapshotSource>
     serviceProvider => new HealthSnapshotSource(
         healthState,
         serviceProvider.GetRequiredService<IServiceScopeFactory>()));
-// Business exceptions map to HTTP through the ServiceMantle Problem Details
-// pipeline: a fixed type/title/status/errorCode (plus correlation id) per
-// mapping, with no room for exception text, SQL or credentials to reach a
-// response. The titles are deliberately generic — the per-case domain reasons
-// stay in server logs, not in public responses. Endpoint-explicit failures
-// keep the existing envelope; only exception-generated responses change shape.
-serviceMantle.AddExceptionMapping<DomainValidationException>(
-    StatusCodes.Status400BadRequest, "vocabulary.validation", "The request is invalid.");
-serviceMantle.AddConditionalExceptionMapping<BadHttpRequestException>(
-[
-    // Kestrel reports a body over the endpoint's size limit this way; ordered so
-    // the 413 case wins before the generic bad-request fallback.
-    new(413, "vocabulary.request_too_large", "The request body is too large.",
-        exception => exception.StatusCode == StatusCodes.Status413PayloadTooLarge),
-    new(400, "vocabulary.bad_request", "The request is invalid.")
-]);
-// Kestrel rejects oversized bodies with its own derived BadHttpRequestException
-// whose exact type the registry matches separately from the public base class.
-// The type is marked obsolete in favor of the public base class, but Kestrel
-// still throws it, so the mapping targets it deliberately.
-#pragma warning disable CS0618 // Type or member is obsolete
-serviceMantle.AddConditionalExceptionMapping<KestrelBadHttpRequestException>(
-[
-    new(413, "vocabulary.request_too_large", "The request body is too large.",
-        exception => exception.StatusCode == StatusCodes.Status413PayloadTooLarge),
-    new(400, "vocabulary.bad_request", "The request is invalid.")
-]);
-#pragma warning restore CS0618 // Type or member is obsolete
-serviceMantle.AddExceptionMapping<ResourceNotFoundException>(
-    StatusCodes.Status404NotFound, "vocabulary.not_found", "The requested resource was not found.");
-serviceMantle.AddExceptionMapping<ConflictException>(
-    StatusCodes.Status409Conflict, "vocabulary.conflict", "The request conflicts with existing data.");
-serviceMantle.AddExceptionMapping<BusinessRuleException>(
-    StatusCodes.Status422UnprocessableEntity, "vocabulary.business_rule", "The request violates a business rule.");
-serviceMantle.AddExceptionMapping<MeaningSubmissionsNotConfiguredException>(
-    StatusCodes.Status503ServiceUnavailable, "vocabulary.submissions_not_configured",
-    "Meaning submissions are not configured.");
-serviceMantle.AddExceptionMapping<ReviewAssistantUnavailableException>(
-    StatusCodes.Status502BadGateway, "vocabulary.review_assistant_unavailable",
-    "The review assistant did not return usable advice.");
-serviceMantle.AddConditionalExceptionMapping<StorageBusyException>(
-[
-    // The one caller-retryable storage failure keeps its bounded Retry-After;
-    // the library clamps the value to a safe range.
-    new(503, "vocabulary.storage_busy", "The vocabulary database is temporarily busy.",
-        retryAfterSeconds: 1)
-]);
+AddExceptionMappings(serviceMantle);
 
-// Console logging runs through the ServiceMantle Serilog pipeline: every
-// structured property is sanitized before it reaches the console, and the
-// service identity travels with each event. The `Logging:LogLevel` section is
-// mapped onto the pipeline: `Default` becomes the minimum level, every other
-// category becomes a minimum-level override, and `None` — which an override
-// cannot express — keeps its LoggerFilterOptions rule below.
-var mappedLogLevels = LoggingSetup.Map(builder.Configuration.GetSection("Logging:LogLevel"));
-builder.AddServiceMantleSerilog(options =>
-{
-    options.MinimumLevel = mappedLogLevels.MinimumLevel;
-    options.MinimumLevelOverrides = mappedLogLevels.Overrides.Count > 0
-        ? new Dictionary<string, LogLevel>(mappedLogLevels.Overrides, StringComparer.Ordinal)
-        : null;
-});
-foreach (var category in mappedLogLevels.NoneLevelCategories)
-{
-    builder.Logging.AddFilter(category, LogLevel.None);
-}
+ConfigureLogging(builder);
 
 // The built-in denied list (Authorization, Proxy-Authorization, Cookie,
 // Set-Cookie, X-Api-Key, X-Auth-Token) already covers every header Lexarbor
@@ -547,64 +476,7 @@ if (useTrustedForwarding)
         options.ForwardLimit = networkOptions.ForwardLimit;
     });
 }
-// Optional OpenTelemetry, default off: with neither signal enabled nothing
-// is registered — no provider, no exporter, no outbound connection — and the
-// process behaves exactly as before. The resource carries only the ServiceMantle
-// identity (service.name, service.version, service.instance.id).
-var telemetryTracesEnabled = builder.Configuration.GetValue("Telemetry:Otlp:Traces:Enabled", false);
-var telemetryMetricsEnabled = builder.Configuration.GetValue("Telemetry:Otlp:Metrics:Enabled", false);
-if (telemetryTracesEnabled || telemetryMetricsEnabled)
-{
-    serviceMantle.AddOpenTelemetryInstrumentation(options =>
-    {
-        options.EnableAspNetCoreTracing = telemetryTracesEnabled;
-        options.EnableHttpClientTracing = telemetryTracesEnabled;
-        options.EnableRuntimeMetrics = telemetryMetricsEnabled;
-    });
-    serviceMantle.AddOpenTelemetryOtlpExporter(options =>
-    {
-        MapOtlpSignal(builder.Configuration.GetSection("Telemetry:Otlp:Traces"), options.Traces);
-        MapOtlpSignal(builder.Configuration.GetSection("Telemetry:Otlp:Metrics"), options.Metrics);
-        options.Traces.Enabled = telemetryTracesEnabled;
-        options.Metrics.Enabled = telemetryMetricsEnabled;
-    });
-    if (telemetryTracesEnabled)
-    {
-        // The callback and logout-return URLs carry one-time code/state values;
-        // no span attribute may export them.
-        builder.Services.ConfigureOpenTelemetryTracerProvider((_, tracing) =>
-            tracing.AddProcessor(new AdminCallbackQueryRedactionProcessor()));
-    }
-
-    // The header name is configuration; the value comes from the environment
-    // only — read once, at construction, into one shared fixed resolver per
-    // configured signal — and never reaches logs or exceptions. With the
-    // environment value absent every query answers false, which the runtime
-    // reports as its authentication_missing startup failure.
-    builder.Services.AddSingleton<ServiceMantle.Diagnostics.IRemoteTelemetryAuthenticationResolver>(
-        new ConfiguredOtlpAuthenticationResolver(
-        [
-            builder.Configuration["Telemetry:Otlp:Traces:AuthenticationHeaderName"],
-            builder.Configuration["Telemetry:Otlp:Metrics:AuthenticationHeaderName"]
-        ]));
-}
-
-static void MapOtlpSignal(IConfiguration section, ServiceMantle.Diagnostics.Export.Otlp.OtlpSignalOptions signal)
-{
-    if (Uri.TryCreate(section["Endpoint"], UriKind.Absolute, out var endpoint))
-    {
-        signal.Endpoint = endpoint;
-    }
-
-    // The transport scheme is the deployment's decision since ServiceMantle
-    // 0.3.2: http and https endpoints are both accepted, and the retired
-    // AllowInsecureLoopbackForTesting key is no longer read.
-    signal.AuthenticationHeaderName = section["AuthenticationHeaderName"];
-    if (Enum.TryParse<ServiceMantle.Diagnostics.Export.Otlp.OtlpProtocol>(section["Protocol"], ignoreCase: true, out var protocol))
-    {
-        signal.Protocol = protocol;
-    }
-}
+AddTelemetry(builder, serviceMantle);
 
 serviceMantle.AddLexarborRateLimiting(builder.Configuration);
 builder.Services.AddSingleton<RateLimitRuntime>();
@@ -616,8 +488,6 @@ app.Services.GetRequiredService<PersistentConfigurationCoordinator>();
 app.Services.GetRequiredService<MeaningSubmissionSettings>();
 await app.Services.GetRequiredService<EnrichmentRuntimeConfiguration>().InitializeAsync(
     app.Services.GetRequiredService<PersistentConfigurationCoordinator>());
-
-
 
 app.Logger.LogInformation("Lexarbor starting, version {Version}", ApplicationVersion.Current);
 app.Logger.LogInformation(
@@ -742,7 +612,7 @@ if (builder.Configuration.GetValue("Database:InitializeOnStartup", true))
         // PostgreSQL database, refuse unusable ones, and run the EF migration
         // orchestration under the advisory migration lock. A failure keeps
         // its fixed safe diagnostic and stops startup with a non-zero exit.
-        await DatabaseStartup.RunStartupMigrationAsync(app.Services);
+        await DatabaseStartup.RunMigrationAsync(app.Services);
         healthState.MigrationStatus = ServiceMantle.Health.ServiceMigrationReadinessState.Succeeded;
     }
     catch
@@ -840,7 +710,7 @@ app.UseAuthentication();
 // carry the official antiforgery boundary inside the session scheme itself.
 app.UseMiddleware<AdminSessionIdentityMiddleware>();
 app.UseAuthorization();
-app.Use(LearningEndpoints.PrepareAsync);
+app.Use(LearnerEndpoints.PrepareAsync);
 // One requirement for the whole administration surface. The empty-prefix group
 // changes no route; it only carries the ServiceMantle security response-header
 // marker down to every endpoint and nested group these mappers create, so the

@@ -61,7 +61,7 @@ public sealed class AudioAdminRuntimeTests
         using (var disabled = await host.Delete()) Assert.Equal(HttpStatusCode.ServiceUnavailable, disabled.StatusCode);
         Assert.Equal(host.Asset, await host.Binding());
         // Active metadata/unbind references also participate in the destination guard.
-        await Assert.ThrowsAsync<ConfigurationChangeConflictException>(() => host.Change(o => o.Bucket = "new-bucket"));
+        await Assert.ThrowsAsync<ChangeConflictException>(() => host.Change(o => o.Bucket = "new-bucket"));
         finish.SetResult();
         using (var response = await pending)
         {
@@ -74,7 +74,7 @@ public sealed class AudioAdminRuntimeTests
         Assert.Equal(1, old.Disposed);
         Assert.Equal(route == 2 ? null : host.Asset, await host.Binding());
         Assert.Equal(history, await host.History());
-        await Assert.ThrowsAsync<ConfigurationChangeConflictException>(() => host.Change(o => o.KeyPrefix = "next/"));
+        await Assert.ThrowsAsync<ChangeConflictException>(() => host.Change(o => o.KeyPrefix = "next/"));
         Assert.All(host.Stores.Created, store => Assert.Equal(0, store.Calls));
     }
 

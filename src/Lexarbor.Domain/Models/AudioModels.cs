@@ -46,7 +46,7 @@ public sealed record AudioPlaybackLink(string Url, DateTimeOffset ExpiresAt);
 public sealed record AudioUploadReceipt(int StatusCode, string? AssetId, string? SourceRevision,
     string? ErrorCode, long CompletedAtUnixMs);
 public sealed record AudioLease(string? Owner, long Fence, long? ExpiresAtUnixMs);
-public sealed record AudioCleanupProgress(AudioLease Lease, AudioUploadState? ReturnState,
+public sealed record AudioCleanupProgress(AudioLease Lease,
     int Attempts, long? NextAttemptAtUnixMs, string? LastErrorCode, long? ObservedAtUnixMs);
 public sealed record AudioUploadOperation(string IdempotencyKey, string RequestFingerprint,
     string WordId, string? MeaningId, AudioLocale Locale, string SourceRevision,

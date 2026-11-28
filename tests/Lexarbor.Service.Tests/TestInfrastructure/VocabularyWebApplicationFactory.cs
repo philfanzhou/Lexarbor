@@ -419,7 +419,6 @@ public sealed class VocabularyWebApplicationFactory : WebApplicationFactory<Prog
     }
 }
 
-
 /// <summary>
 /// Creates a client with an https origin from a host whose static type is the base
 /// factory (a WithWebHostBuilder derivative): the antiforgery boundary's Secure

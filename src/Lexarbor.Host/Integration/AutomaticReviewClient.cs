@@ -10,7 +10,7 @@ namespace Lexarbor.Host.Integration;
 public sealed record AutomaticReviewResponse(MeaningSubmissionAiReview? Review, string? FailureCode = null, TimeSpan? RetryAfter = null);
 
 /// <summary>Strict automatic decisions, independent of the compatible manual-advice contract.</summary>
-public sealed class AutomaticMeaningSubmissionReviewClient(IHttpClientFactory clients, TimeProvider clock)
+public sealed class AutomaticReviewClient(IHttpClientFactory clients, TimeProvider clock)
 {
     public const string HttpClientName = "MeaningSubmissionAutomaticReview";
     public const int MaximumBodyBytes = 65536;

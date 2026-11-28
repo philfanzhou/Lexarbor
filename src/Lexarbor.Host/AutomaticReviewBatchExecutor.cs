@@ -6,8 +6,8 @@ using Lexarbor.Host.Integration;
 
 namespace Lexarbor.Host;
 
-public sealed class MeaningSubmissionReviewBatchExecutor(IServiceScopeFactory scopes, EnrichmentRuntimeConfiguration runtime,
-    MeaningSubmissionSettings settings, AiTextBatchClient client, AutomaticMeaningSubmissionReviewClient validator, TimeProvider clock)
+public sealed class AutomaticReviewBatchExecutor(IServiceScopeFactory scopes, EnrichmentRuntimeConfiguration runtime,
+    MeaningSubmissionSettings settings, AiTextBatchClient client, AutomaticReviewClient validator, TimeProvider clock)
 {
     private readonly string _owner = Guid.NewGuid().ToString("N");
     private long Now => clock.GetUtcNow().ToUnixTimeMilliseconds();
@@ -17,7 +17,7 @@ public sealed class MeaningSubmissionReviewBatchExecutor(IServiceScopeFactory sc
     public async Task<int> RunAsync(CancellationToken token)
     {
         var snapshot = runtime.Current;
-        if (MeaningSubmissionAutomaticReviewStatusProvider.PauseCode(snapshot.ReviewAssistant, settings) != null) return 0;
+        if (AutomaticReviewStatusProvider.PauseCode(snapshot.ReviewAssistant, settings) != null) return 0;
         await using var scope = scopes.CreateAsyncScope();
         var repository = scope.ServiceProvider.GetRequiredService<IMeaningSubmissionAutoReviewRepository>();
         var submissions = scope.ServiceProvider.GetRequiredService<IMeaningSubmissionRepository>();
@@ -45,7 +45,7 @@ public sealed class MeaningSubmissionReviewBatchExecutor(IServiceScopeFactory sc
                 var item = submission == null ? null : validator.BatchItem(submission, lease.AttemptId, options);
                 entries[^1] = new(lease, item, saved);
                 var planned = entries.Where(e => e.Item != null).Select(e => e.Item!).ToArray();
-                if (planned.Length > 0 && AiTextBatchClient.Body(clientSettings, AutomaticMeaningSubmissionReviewClient.Instructions, planned).Length > AiTextBatchClient.MaximumBytes)
+                if (planned.Length > 0 && AiTextBatchClient.Body(clientSettings, AutomaticReviewClient.Instructions, planned).Length > AiTextBatchClient.MaximumBytes)
                 {
                     // Defer the last oversized member; never charge a request that was not sent.
                     entries[^1] = new(lease, null, saved, planned.Length == 1 ? "response_too_large" : null);
@@ -55,14 +55,14 @@ public sealed class MeaningSubmissionReviewBatchExecutor(IServiceScopeFactory sc
             var pending = entries.Where(e => e.Item != null).ToArray();
             if (pending.Length > 0)
             {
-                if (MeaningSubmissionAutomaticReviewStatusProvider.PauseCode(runtime.Current.ReviewAssistant, settings) != null)
+                if (AutomaticReviewStatusProvider.PauseCode(runtime.Current.ReviewAssistant, settings) != null)
                 { await operation.CancelAsync(); return entries.Count; }
                 operation.Token.ThrowIfCancellationRequested();
                 var receipt = await batches.BeginAsync("Review", version, pending.Select(e => new AiBatchMember(e.Lease.AttemptId, Review: e.Lease)).ToArray(), Now, operation.Token);
                 if (receipt != null)
                 {
                     var admitted = receipt.Members.Select(m => m.Id).ToHashSet(StringComparer.Ordinal);
-                    response = await client.SendAsync(clientSettings, AutomaticMeaningSubmissionReviewClient.Instructions,
+                    response = await client.SendAsync(clientSettings, AutomaticReviewClient.Instructions,
                         pending.Where(e => admitted.Contains(e.Lease.AttemptId)).Select(e => e.Item!).ToArray(), operation.Token);
                     var valid = response.Items.Values.Count(r => r.Review != null);
                     var outcome = response.Outcome == "Ready" && valid != receipt.Members.Count ? "Partial" : response.Outcome;
@@ -80,7 +80,7 @@ public sealed class MeaningSubmissionReviewBatchExecutor(IServiceScopeFactory sc
                     try
                     {
                         await ApplyAsync(review, entry.Lease, () => !operation.IsCancellationRequested
-                        && MeaningSubmissionAutomaticReviewStatusProvider.PauseCode(runtime.Current.ReviewAssistant, settings) == null, operation.Token);
+                        && AutomaticReviewStatusProvider.PauseCode(runtime.Current.ReviewAssistant, settings) == null, operation.Token);
                     }
                     catch (OperationCanceledException) when (operation.IsCancellationRequested)
                     {
@@ -131,7 +131,7 @@ public sealed class MeaningSubmissionReviewBatchExecutor(IServiceScopeFactory sc
             while (true)
             {
                 snapshot = await runtime.WaitForChangeAsync(snapshot, token);
-                if (MeaningSubmissionAutomaticReviewStatusProvider.PauseCode(snapshot.ReviewAssistant, settings) != null)
+                if (AutomaticReviewStatusProvider.PauseCode(snapshot.ReviewAssistant, settings) != null)
                 { await operation.CancelAsync(); return; }
             }
         }

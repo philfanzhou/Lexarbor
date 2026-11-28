@@ -193,7 +193,7 @@ public partial class VocabularyService
         string bookId,
         IReadOnlyList<(Vocabulary Word, VocabularyMeaning Meaning, string? UnitId, string? Section, string? EntryKind)> entries)
     {
-        var normalizedBookId = NormalizeRequired(bookId, "Book ID is required.");
+        var normalizedBookId = DomainText.RequireNonBlank(bookId, "Book ID is required.");
         if (entries.Count == 0)
         {
             throw new DomainValidationException("At least one entry is required.");
@@ -313,8 +313,8 @@ public partial class VocabularyService
         AddOrUpdateCoreAsync(Vocabulary vocabulary, VocabularyMeaning meaning)
     {
         var normalizedWord = NormalizeWord(vocabulary.Word);
-        var bookId = NormalizeRequired(meaning.BookId, "BookId is required.");
-        var normalizedMeaning = NormalizeRequired(meaning.Meaning, "Meaning is required.");
+        var bookId = DomainText.RequireNonBlank(meaning.BookId, "BookId is required.");
+        var normalizedMeaning = DomainText.RequireNonBlank(meaning.Meaning, "Meaning is required.");
         var normalizedPartOfSpeech = NormalizePartOfSpeech(meaning.PartOfSpeech);
 
         var book = await _bookRepository.GetByIdAsync(bookId)
@@ -808,17 +808,6 @@ public partial class VocabularyService
     private static string NormalizePartOfSpeech(string? partOfSpeech)
     {
         return partOfSpeech?.Trim().ToLowerInvariant() ?? string.Empty;
-    }
-
-    private static string NormalizeRequired(string? value, string message)
-    {
-        var normalized = value?.Trim() ?? string.Empty;
-        if (normalized.Length == 0)
-        {
-            throw new DomainValidationException(message);
-        }
-
-        return normalized;
     }
 
     private static void Shuffle<T>(IList<T> items)

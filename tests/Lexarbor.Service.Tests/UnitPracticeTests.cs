@@ -328,7 +328,7 @@ public sealed class UnitPracticeTests
         public bool QuestionsAvailable { get; set; } = true;
         public Task<CatalogEntryPage> GetEntriesAsync(string bookId, string? unitId, int page, int size, CancellationToken cancellationToken)
         {
-            if (!Available) throw new CatalogException(VocabularyCatalogErrorCodes.CatalogUnavailable, true, "Catalog offline.");
+            if (!Available) throw new CatalogException(VocabularyCatalogErrorCodes.CatalogUnavailable, "Catalog offline.");
             Assert.Equal("book", bookId);
             Assert.Equal("one", unitId);
             var apple = Entry("apple", "苹果", "one");

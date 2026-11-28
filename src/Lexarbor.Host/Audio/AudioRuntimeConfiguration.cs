@@ -4,17 +4,6 @@ using Microsoft.Extensions.Options;
 
 namespace Lexarbor.Host.Audio;
 
-/// <summary>Construction is local only: do not probe, list or create remote resources.</summary>
-public interface IAudioObjectStoreFactory
-{
-    IAudioObjectStore Create(AudioOptions options);
-}
-
-public sealed class S3AudioObjectStoreFactory(TimeProvider time) : IAudioObjectStoreFactory
-{
-    public IAudioObjectStore Create(AudioOptions options) => new S3AudioObjectStore(Options.Create(options), time);
-}
-
 /// <summary>
 /// Internal configuration generations. The persistent coordinator is the sole publisher;
 /// callers hold one reference until their complete operation has actually ended.
@@ -126,7 +115,7 @@ public sealed class AudioRuntimeConfiguration : IDisposable
                 if (!SameDestination(_current.Snapshot, candidate.Snapshot))
                 {
                     if (_activeReferences != 0 || _destinationPending is not null)
-                        throw new ConfigurationChangeConflictException();
+                        throw new ChangeConflictException();
                     reservation = new(TaskCreationOptions.RunContinuationsAsynchronously);
                     _destinationPending = reservation;
                 }
@@ -134,7 +123,7 @@ public sealed class AudioRuntimeConfiguration : IDisposable
             // The reservation blocks new references; the short state lock is released.
             // No database transaction or remote storage call is part of this check.
             if (reservation is not null && (_records is null || await _records.HasAnyAsync(cancellationToken)))
-                throw new ConfigurationChangeConflictException();
+                throw new ChangeConflictException();
             cancellationToken.ThrowIfCancellationRequested();
             var prepared = candidate;
             var pending = reservation;
@@ -148,7 +137,7 @@ public sealed class AudioRuntimeConfiguration : IDisposable
                 DisposeStore(prepared);
             });
         }
-        catch (ConfigurationChangeConflictException)
+        catch (ChangeConflictException)
         {
             EndDestinationChange(reservation);
             if (candidate is not null) DisposeStore(candidate);

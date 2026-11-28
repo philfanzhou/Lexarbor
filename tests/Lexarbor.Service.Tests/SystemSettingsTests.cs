@@ -23,7 +23,6 @@ public sealed class SystemSettingsTests : IDisposable
             """{"Logging":{"LogLevel":{"Default":"Information","Microsoft.AspNetCore":"Warning","Microsoft.EntityFrameworkCore.Database.Command":"Warning"}}}""");
     }
 
-
     private VocabularyWebApplicationFactory Factory(Dictionary<string, string?>? config = null) => new("Testing", true,
         extraConfiguration: config, contentRootPath: _root);
     private static HttpClient Admin(VocabularyWebApplicationFactory factory)

@@ -5,12 +5,7 @@ namespace Lexarbor.Learning.Database;
 
 public class LearningDbContext : DbContext
 {
-    internal DbContextOptions<LearningDbContext> ContextOptions { get; }
-
-    public LearningDbContext(DbContextOptions<LearningDbContext> options) : base(options)
-    {
-        ContextOptions = options;
-    }
+    public LearningDbContext(DbContextOptions<LearningDbContext> options) : base(options) { }
 
     public DbSet<LearnerIdentity> Learners => Set<LearnerIdentity>();
     public DbSet<UnitPracticeSession> UnitPracticeSessions => Set<UnitPracticeSession>();
@@ -104,7 +99,6 @@ public class LearningDbContext : DbContext
 
         modelBuilder.Entity<VocabPlanEntity>(entity =>
         {
-
             entity.HasIndex(e => e.StudentId)
                 .IsUnique()
                 .HasDatabaseName("IX_vocab_plan_student_id_active")
@@ -200,7 +194,6 @@ public class LearningDbContext : DbContext
 
         modelBuilder.Entity<VocabAttemptEntity>(entity =>
         {
-
             entity.HasKey(e => e.IssuedQuestionId);
             entity.Property(e => e.Result).HasColumnType("smallint");
             entity.Property(e => e.Rating).HasColumnType("smallint");

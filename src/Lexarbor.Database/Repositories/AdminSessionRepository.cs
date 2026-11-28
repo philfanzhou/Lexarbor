@@ -113,5 +113,3 @@ public sealed class AdminSessionRepository(VocabularyDbContext context, IUnitOfW
         finally { SessionOperation.Value = previous; }
     }
 }
-
-public sealed class AdminSessionStorageException() : Exception(AdminSessionRepository.StorageFailureMessage);

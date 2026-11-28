@@ -25,5 +25,4 @@ public sealed class VocabularyAudioBindingEntity
 
     [Column("source_revision")]
     public string SourceRevision { get; set; } = string.Empty;
-
 }

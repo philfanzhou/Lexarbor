@@ -73,7 +73,6 @@ public sealed class VocabularyMemoryService
             }
             catch (MemoryCardConflictException) when (attempt == 0)
             {
-
                 _unitOfWork.DiscardChanges();
             }
         }

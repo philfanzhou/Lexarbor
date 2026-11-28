@@ -17,6 +17,32 @@ namespace Lexarbor.Database.Repositories;
 /// </remarks>
 internal static class ReadSnapshot
 {
+    /// <summary>
+    /// Runs <paramref name="read"/> inside one snapshot on an explicitly opened connection,
+    /// which is closed again whether the read succeeds or fails.
+    /// </summary>
+    /// <remarks>
+    /// The transaction is a plain <c>BEGIN</c>, not the unit of work's serialized
+    /// <c>BEGIN IMMEDIATE</c>: a read must neither queue behind writers nor hold the
+    /// write slot.
+    /// </remarks>
+    internal static async Task<T> ReadAsync<T>(VocabularyDbContext context, Func<Task<T>> read, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        await context.Database.OpenConnectionAsync(cancellationToken);
+        try
+        {
+            await using var transaction = await BeginAsync(context, cancellationToken);
+            var result = await read();
+            await transaction.CommitAsync(cancellationToken);
+            return result;
+        }
+        finally
+        {
+            await context.Database.CloseConnectionAsync();
+        }
+    }
+
     internal static async Task<IDbContextTransaction> BeginAsync(
         VocabularyDbContext context,
         CancellationToken cancellationToken)

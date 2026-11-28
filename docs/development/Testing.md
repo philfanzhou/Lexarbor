@@ -662,7 +662,7 @@ cross-component regression coverage.
 
 ## Automatic submission review verification
 
-`AutomaticMeaningSubmissionReviewTests` drives the real independent client,
+`AutomaticReviewClientTests` drives the real independent client,
 PostgreSQL repository, result service and hosted worker with synthetic HTTP responses
 and a controlled TimeProvider. It covers default-off/missing settings and manual
 advice compatibility; accept/revise/reject and spelling-reason instructions;

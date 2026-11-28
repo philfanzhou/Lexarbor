@@ -202,8 +202,8 @@ public class AdminAuthenticationTests :
 
         Assert.Equal(HttpStatusCode.OK, logout.StatusCode);
         var cookies = logout.Headers.GetValues("Set-Cookie").ToArray();
-        // The session cookie is the only name deleted; the package's own session
-        // deletion may appear beside the middleware's, so the assertion is on the
+        // The session cookie is the only name deleted; the cookie handler's own
+        // session deletion may appear beside the middleware's, so the assertion is on the
         // distinct names.
         Assert.Single(cookies.Select(value => value.Split('=')[0]).Distinct());
         Assert.Contains(cookies, value => value.StartsWith(AdminSessionCookie.Name + "=", StringComparison.Ordinal));

@@ -328,7 +328,7 @@ public sealed partial class EnrichmentTargetExecutorTests
         f.Http.BeforeTextResponse = () => { stop.Cancel(); stop.Token.ThrowIfCancellationRequested(); return Task.CompletedTask; };
         using var clients = new HttpFactory(f.Http);
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => gate.ProbeAsync("text",
-            new OpenAiCompatiblePronunciationPreparationClient(clients, f.Runtime, f.Clock),
+            new OpenAiPreparationClient(clients, f.Runtime, f.Clock),
             new PronunciationSpeechClient(clients, f.Runtime, f.Clock), stop.Token));
         var status = (await scheduler.ServiceAsync(failed.ServiceId, Ct))!;
         Assert.True(status.Paused); Assert.Null(status.LeaseId); Assert.Equal(1, status.ConsecutiveFailures);

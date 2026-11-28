@@ -36,7 +36,7 @@ public sealed partial class PronunciationSpeechTests
             f.Handler.Respond = (request, _) => Task.FromResult(request.RequestUri!.AbsolutePath.EndsWith("/chat/completions", StringComparison.Ordinal)
                 ? IpaCompletion(spoken, ipa, ipa) : Native());
             var request = NotationRequest(word, ipa, locale);
-            var result = await new OpenAiCompatiblePronunciationPreparationClient(f.Factory, f.Runtime).PrepareAsync(request, Ct);
+            var result = await new OpenAiPreparationClient(f.Factory, f.Runtime).PrepareAsync(request, Ct);
             Assert.Equal(PronunciationPreparationOutcome.Ready, result.Outcome);
             Assert.Equal(word, result.Plan!.Input.Word);
             Assert.Equal(PronunciationSpeechOutcome.Ready, (await f.Client.GenerateAsync(result, Ct)).Outcome);
@@ -55,13 +55,13 @@ public sealed partial class PronunciationSpeechTests
     {
         using var f = new Fixture(true);
         f.Handler.Respond = (_, _) => Task.FromResult(IpaCompletion(spoken, null, "test", "test", kind: "word"));
-        var result = await new OpenAiCompatiblePronunciationPreparationClient(f.Factory, f.Runtime).PrepareAsync(NotationRequest(word, null, AudioLocale.EnGb), Ct);
+        var result = await new OpenAiPreparationClient(f.Factory, f.Runtime).PrepareAsync(NotationRequest(word, null, AudioLocale.EnGb), Ct);
         Assert.Equal(PronunciationPreparationOutcome.InvalidPlan, result.Outcome);
         Assert.Equal("pronunciation_text_mismatch", result.ErrorCode);
         Assert.Null(result.Plan); Assert.Single(f.Handler.Bodies);
         await f.Publish(new() { ["Enrichment:Tts:ApiKey"] = "" });
         Assert.Equal(PronunciationPreparationOutcome.Ready,
-            (await new OpenAiCompatiblePronunciationPreparationClient(f.Factory, f.Runtime).PrepareAsync(NotationRequest(word, null, AudioLocale.EnGb), Ct)).Outcome);
+            (await new OpenAiPreparationClient(f.Factory, f.Runtime).PrepareAsync(NotationRequest(word, null, AudioLocale.EnGb), Ct)).Outcome);
     }
 
     [Fact]
@@ -69,7 +69,7 @@ public sealed partial class PronunciationSpeechTests
     {
         using var f = new Fixture(true);
         f.Handler.Respond = (_, _) => Task.FromResult(IpaCompletion("I M Pei", null, "ˌaɪ ɛm ˈpeɪ", "ˌaɪ ɛm ˈpeɪ", kind: "word"));
-        var result = await new OpenAiCompatiblePronunciationPreparationClient(f.Factory, f.Runtime).PrepareAsync(NotationRequest("I.M.Pei", null, AudioLocale.EnGb), Ct);
+        var result = await new OpenAiPreparationClient(f.Factory, f.Runtime).PrepareAsync(NotationRequest("I.M.Pei", null, AudioLocale.EnGb), Ct);
         Assert.Equal(PronunciationPreparationOutcome.Ready, result.Outcome);
         Assert.Equal("I M Pei", result.Plan!.Content.SpokenText);
         Assert.Equal("ˌaɪ ɛm ˈpeɪ", result.Plan.Content.Phonetic);
@@ -80,7 +80,7 @@ public sealed partial class PronunciationSpeechTests
     {
         using var f = new Fixture(true);
         f.Handler.Respond = (_, _) => Task.FromResult(IpaCompletion("doctors", null, "ˈdɒktəz", "ˈdɒktəz", kind: "word"));
-        var result = await new OpenAiCompatiblePronunciationPreparationClient(f.Factory, f.Runtime).PrepareAsync(NotationRequest("Drs", null, AudioLocale.EnGb), Ct);
+        var result = await new OpenAiPreparationClient(f.Factory, f.Runtime).PrepareAsync(NotationRequest("Drs", null, AudioLocale.EnGb), Ct);
         Assert.Equal(PronunciationPreparationOutcome.Ready, result.Outcome);
         Assert.Equal("doctors", result.Plan!.Content.SpokenText);
         Assert.Equal("ˈdɒktəz", result.Plan.Content.Phonetic);

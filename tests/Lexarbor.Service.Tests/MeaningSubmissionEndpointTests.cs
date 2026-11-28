@@ -348,5 +348,4 @@ public sealed partial class MeaningSubmissionEndpointTests : IAsyncLifetime
     {
         public Task<bool> CanApplyAsync(string submissionId, string attemptId, CancellationToken cancellationToken) => Task.FromResult(true);
     }
-
 }

@@ -287,7 +287,7 @@ internal sealed partial class StartupConfigurationValidator(IHostEnvironment env
             Require(header.Length == 0 || HeaderNamePattern().IsMatch(header), section.Path + ":AuthenticationHeaderName");
             // The exporter fails startup closed when it is told to authenticate without a value.
             var value = (authorizationValue ?? (() => Environment.GetEnvironmentVariable(
-                ConfiguredOtlpAuthenticationResolver.ValueEnvironmentVariable)))();
+                OtlpAuthenticationResolver.ValueEnvironmentVariable)))();
             Require(!(enabled && header.Length > 0) || !string.IsNullOrWhiteSpace(value), section.Path + ":AuthenticationHeaderName");
         }
     }

@@ -6,8 +6,6 @@ using System.Text.Json;
 using Lexarbor.Learning.Domain.Models;
 using Lexarbor.Learning.Domain.Repositories;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Diagnostics;
-using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage;
 using Npgsql;
 using NpgsqlTypes;
@@ -25,7 +23,7 @@ public sealed class VocabularyPlanStatsRepository(LearningDbContext context) : I
             var plans = new List<VocabPlan>();
             var reactivations = new Dictionary<Guid, VocabularyPlanReactivation>();
             // One plan query also reads each plan's latest reactivate and the latest complete before it (ADR-0019 continuous plans).
-            await using (var rows = await ExecuteReaderAsync(context, """
+            await using (var rows = await LearningCommands.ExecuteReaderAsync(context, """
                 SELECT p.id, p.student_id, p.segments, p.status::integer, p.total_words, p.created_at, p.updated_at,
                     r.created_at, c.created_at, p.version
                 FROM vocab_plan p
@@ -34,7 +32,7 @@ public sealed class VocabularyPlanStatsRepository(LearningDbContext context) : I
                 LEFT JOIN LATERAL (SELECT max(created_at) AS created_at FROM vocab_plan_change
                     WHERE plan_id = p.id AND action = 'complete' AND created_at <= r.created_at) c ON true
                 WHERE p.id = ANY({0})
-                """, new NpgsqlParameter("ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = planIds.ToArray() }, cancellationToken).ConfigureAwait(false))
+                """, [new NpgsqlParameter("ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = planIds.ToArray() }], cancellationToken).ConfigureAwait(false))
             {
                 var reader = rows.DbDataReader;
                 while (await rows.ReadAsync(cancellationToken).ConfigureAwait(false))
@@ -58,15 +56,6 @@ public sealed class VocabularyPlanStatsRepository(LearningDbContext context) : I
             return new Snapshot(context, transaction, plans, reactivations);
         }
         catch { await transaction.DisposeAsync().ConfigureAwait(false); throw; }
-    }
-
-    private static Task<RelationalDataReader> ExecuteReaderAsync(LearningDbContext context, string sql,
-        object parameter, CancellationToken cancellationToken)
-    {
-        var command = context.GetService<IRawSqlCommandBuilder>().Build(sql, [parameter]);
-        return command.RelationalCommand.ExecuteReaderAsync(new RelationalCommandParameterObject(
-            context.GetService<IRelationalConnection>(), command.ParameterValues, null, context,
-            context.GetService<IRelationalCommandDiagnosticsLogger>()), cancellationToken);
     }
 
     private sealed class Snapshot(LearningDbContext context, IDbContextTransaction transaction,
@@ -111,7 +100,7 @@ public sealed class VocabularyPlanStatsRepository(LearningDbContext context) : I
             }
             var payload = Encoding.UTF8.GetString(buffer.WrittenSpan);
             var counts = new Dictionary<Guid, VocabularyPlanStatsCounts>();
-            await using (var rows = await ExecuteReaderAsync(context, """
+            await using (var rows = await LearningCommands.ExecuteReaderAsync(context, """
                 WITH requested AS MATERIALIZED (
                     SELECT * FROM jsonb_to_recordset(CAST({0} AS jsonb)->'plans')
                         q(plan_id uuid, student_id uuid, scope_id integer)
@@ -131,13 +120,13 @@ public sealed class VocabularyPlanStatsRepository(LearningDbContext context) : I
                         AND c.first_learned_plan_id <> q.plan_id)::integer
                 FROM requested q JOIN matching_cards c ON c.student_id = q.student_id AND c.scope_id = q.scope_id
                 GROUP BY q.plan_id
-                """, payload, cancellationToken).ConfigureAwait(false))
+                """, [payload], cancellationToken).ConfigureAwait(false))
             {
                 var reader = rows.DbDataReader;
                 while (await rows.ReadAsync(cancellationToken).ConfigureAwait(false))
                     counts.Add(reader.GetGuid(0), new(reader.GetInt32(1), reader.GetInt32(2), 0));
             }
-            await using (var rows = await ExecuteReaderAsync(context, """
+            await using (var rows = await LearningCommands.ExecuteReaderAsync(context, """
                 WITH requested AS MATERIALIZED (
                     SELECT * FROM jsonb_to_recordset(CAST({0} AS jsonb)->'plans')
                         q(plan_id uuid, student_id uuid, start_date date, end_date date)
@@ -153,7 +142,7 @@ public sealed class VocabularyPlanStatsRepository(LearningDbContext context) : I
                     WHERE (day->>'date')::date <= q.end_date
                 )
                 SELECT plan_id, count(*)::integer FROM completed_dates GROUP BY plan_id
-                """, payload, cancellationToken).ConfigureAwait(false))
+                """, [payload], cancellationToken).ConfigureAwait(false))
             {
                 var reader = rows.DbDataReader;
                 while (await rows.ReadAsync(cancellationToken).ConfigureAwait(false))

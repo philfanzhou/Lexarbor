@@ -199,7 +199,6 @@ public class VocabularyEditCleanupCombinationEndpointTests
     private static Task FailureAsync(HttpResponseMessage response, HttpStatusCode status)
         => TestInfrastructure.HttpFailureAssertions.AssertFailureAsync(response, status);
 
-
     private static (string?, string, string?) AsTuple(VocabularyMeaningEntity meaning) =>
         (meaning.PartOfSpeech, meaning.Meaning, meaning.Example);
 

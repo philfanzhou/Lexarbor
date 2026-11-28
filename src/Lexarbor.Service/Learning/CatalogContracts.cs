@@ -12,12 +12,9 @@ public sealed class CatalogException : Exception
 {
     public string ErrorCode { get; }
 
-    public bool Retryable { get; }
-
-    public CatalogException(string errorCode, bool retryable, string message) : base(message)
+    public CatalogException(string errorCode, string message) : base(message)
     {
         ErrorCode = errorCode;
-        Retryable = retryable;
     }
 }
 

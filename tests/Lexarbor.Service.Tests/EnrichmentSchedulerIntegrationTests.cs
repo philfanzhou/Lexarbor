@@ -27,7 +27,7 @@ public sealed partial class EnrichmentTargetExecutorTests
         services.AddScoped(p => f.ExecutorFor(p.GetRequiredService<VocabularyDbContext>(),
             (EnrichmentTaskRepository)p.GetRequiredService<IEnrichmentTaskRepository>()));
         using var clients = new HttpFactory(f.Http);
-        services.AddSingleton<IPronunciationPreparationClient>(new OpenAiCompatiblePronunciationPreparationClient(clients, f.Runtime, f.Clock));
+        services.AddSingleton<IPronunciationPreparationClient>(new OpenAiPreparationClient(clients, f.Runtime, f.Clock));
         services.AddSingleton<IPronunciationSpeechClient>(new PronunciationSpeechClient(clients, f.Runtime, f.Clock));
         services.AddSingleton<IAudioUploadOperationFactory>(f.Operations);
         await using var provider = services.BuildServiceProvider();
@@ -153,7 +153,7 @@ public sealed partial class EnrichmentTargetExecutorTests
         await using var resumedDb = f.Open();
         var gate = new EnrichmentServiceGate(new EnrichmentSchedulerRepository(resumedDb, new EnrichmentTaskRepository(resumedDb, f.Clock)), f.Runtime, f.Clock, f.Admission);
         using var clients = new HttpFactory(f.Http);
-        await gate.ProbeAsync("tts", new OpenAiCompatiblePronunciationPreparationClient(clients, f.Runtime, f.Clock),
+        await gate.ProbeAsync("tts", new OpenAiPreparationClient(clients, f.Runtime, f.Clock),
             new PronunciationSpeechClient(clients, f.Runtime, f.Clock), Ct);
         Assert.Equal(6, f.Http.SpeechCalls); Assert.Equal(0, f.Store.Puts);
         Assert.False((await repository.ServiceAsync(serviceId, Ct))!.Paused);

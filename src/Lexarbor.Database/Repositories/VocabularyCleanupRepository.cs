@@ -10,19 +10,8 @@ namespace Lexarbor.Database.Repositories;
 
 public sealed class VocabularyCleanupRepository(VocabularyDbContext context) : IVocabularyCleanupRepository
 {
-    public async Task<T> ReadSnapshotAsync<T>(Func<Task<T>> read, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        await context.Database.OpenConnectionAsync(cancellationToken);
-        try
-        {
-            await using var transaction = await ReadSnapshot.BeginAsync(context, cancellationToken);
-            var result = await read();
-            await transaction.CommitAsync(cancellationToken);
-            return result;
-        }
-        finally { await context.Database.CloseConnectionAsync(); }
-    }
+    public Task<T> ReadSnapshotAsync<T>(Func<Task<T>> read, CancellationToken cancellationToken)
+        => ReadSnapshot.ReadAsync(context, read, cancellationToken);
 
     public async Task<VocabularyBook?> GetBookAsync(string bookId, CancellationToken cancellationToken)
         => (await context.VocabularyBooks.AsNoTracking().SingleOrDefaultAsync(b => b.Id == bookId, cancellationToken))?.Adapt<VocabularyBook>();

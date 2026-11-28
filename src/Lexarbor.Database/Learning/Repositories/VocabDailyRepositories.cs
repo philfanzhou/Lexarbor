@@ -95,8 +95,6 @@ public class VocabPlanDayRepository : IVocabPlanDayRepository
 
     public async Task UpdateAsync(VocabPlanDay day, CancellationToken cancellationToken = default)
     {
-
-
         var entity = await _dbContext.VocabPlanDays.FindAsync(
             new object[] { day.PlanId, day.LocalDate }, cancellationToken).ConfigureAwait(false);
         if (entity is null)
@@ -249,7 +247,7 @@ public class VocabIssuedQuestionRepository : IVocabIssuedQuestionRepository
         return entities.ToHashSet(StringComparer.Ordinal);
     }
 
-    public async Task<HashSet<CardKey>> FindPendingReviewCardKeysAsync(Guid studentId, DateTimeOffset now, CancellationToken cancellationToken = default)
+    public async Task<HashSet<CardKey>> FindPendingReviewKeysAsync(Guid studentId, DateTimeOffset now, CancellationToken cancellationToken = default)
     {
         var entities = await _dbContext.VocabIssuedQuestions.AsNoTracking()
             .Where(question => question.StudentId == studentId
@@ -261,7 +259,7 @@ public class VocabIssuedQuestionRepository : IVocabIssuedQuestionRepository
         return entities.Select(key => new CardKey(key.WordKey, key.MeaningKey)).ToHashSet();
     }
 
-    public async Task<VocabIssuedQuestion?> FindLatestAnsweredByCardKeyAsync(Guid studentId, string wordKey, string meaningKey, CancellationToken cancellationToken = default)
+    public async Task<VocabIssuedQuestion?> FindLatestAnsweredAsync(Guid studentId, string wordKey, string meaningKey, CancellationToken cancellationToken = default)
     {
         var entity = await _dbContext.VocabIssuedQuestions.AsNoTracking()
             .Where(question => question.StudentId == studentId

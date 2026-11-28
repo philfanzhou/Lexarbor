@@ -290,7 +290,7 @@ static async Task VerifyRuntimeUploadGenerationsAsync(AudioOptions initial, byte
         using var rejected = await runtime.PrepareAsync(RuntimeConfig(destination), default);
         throw new InvalidOperationException("Active audio operations must reject destination changes.");
     }
-    catch (ConfigurationChangeConflictException) { }
+    catch (ChangeConflictException) { }
     factory.Stores[0].Finish.TrySetResult();
     Require((await upload).StatusCode == 200, "The old generation must finish using its original real S3 client.");
     var locations = await oldDb.AudioAssets.AsNoTracking().Select(asset => new AudioObjectLocation(asset.Bucket, asset.ObjectKey)).ToListAsync();
@@ -310,7 +310,7 @@ static async Task VerifyRuntimeUploadGenerationsAsync(AudioOptions initial, byte
         using var rejected = await runtime.PrepareAsync(RuntimeConfig(destination), default);
         throw new InvalidOperationException("Historical audio records must reject destination changes.");
     }
-    catch (ConfigurationChangeConflictException) { }
+    catch (ChangeConflictException) { }
     oldDb.VocabularyBooks.Add(new() { Id = "runtime-book", BookName = "Runtime", Status = true });
     oldDb.VocabularyMeanings.Add(new() { Id = "runtime-meaning", VocabularyId = "runtime-word", BookId = "runtime-book", Meaning = "tone" });
     await oldDb.SaveChangesAsync();

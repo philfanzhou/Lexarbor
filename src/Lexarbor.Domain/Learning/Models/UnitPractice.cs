@@ -69,7 +69,6 @@ public sealed record UnitPracticeProgress(Guid SessionId, string BookId, string 
     int Total, int Answered, int FirstPassCorrect, int RoundTotal, int RoundAnswered,
     UnitPracticeQuestion? NextQuestion, IReadOnlyList<UnitPracticeMistake> Mistakes);
 
-
 // Two different spellings can share the same definition and part of speech in a unit.
 // Reveal only positions needed to distinguish those targets during a spelling exercise.
 public static class UnitPracticeSpelling

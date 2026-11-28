@@ -65,9 +65,7 @@ public sealed class VocabularyExpansionClient(IHttpClientFactory clients, TimePr
         try
         {
             using var response = await clients.CreateClient(HttpClientName).SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
-            var delay = response.Headers.RetryAfter?.Delta
-                ?? (response.Headers.RetryAfter?.Date is { } date ? date - clock.GetUtcNow() : (TimeSpan?)null);
-            var retry = delay > TimeSpan.Zero ? delay : null;
+            var retry = SupplierJson.RetryAfter(response, clock);
             if (response.StatusCode == HttpStatusCode.TooManyRequests)
             {
                 var errorBytes = await SupplierJson.ReadBoundedAsync(response.Content, timeout.Token);

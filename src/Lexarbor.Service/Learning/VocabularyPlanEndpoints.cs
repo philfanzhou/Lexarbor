@@ -5,7 +5,6 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
-using static Lexarbor.Learning.Service.VocabularyCatalogErrorCodes;
 
 namespace Lexarbor.Learning.Service;
 
@@ -25,7 +24,6 @@ public static class VocabularyPlanEndpoints
 
         return app;
     }
-
 
     private static async Task<IResult> GetStudentPlan(
         Guid studentId,
@@ -222,7 +220,6 @@ public static class VocabularyPlanEndpoints
         return Results.Ok(new { success = true, data = new { plans = plans.Select(ToDto).ToList() } });
     }
 
-
     private static bool TryParseActor(VocabPlanActorRequest? request, out VocabPlanActor actor, out string error)
     {
         actor = VocabPlanActor.AsStudent();
@@ -324,30 +321,19 @@ public static class VocabularyPlanEndpoints
         teacherAdjustedAt,
     };
 
-    private static IResult MapDomainError(Exception error) => error switch
+    private static IResult MapDomainError(Exception error)
     {
-        VocabPlanNotFoundException => ApiResponse.Failure(404, "VOCAB_PLAN_NOT_FOUND", error.Message),
-        VocabPlanActiveExistsException => ApiResponse.Failure(409, "VOCAB_PLAN_ACTIVE_EXISTS", error.Message),
-        VocabPlanVersionConflictException => ApiResponse.Failure(409, "VOCAB_PLAN_VERSION_CONFLICT", error.Message),
-        VocabPlanNotActiveException => ApiResponse.Failure(409, "VOCAB_PLAN_NOT_ACTIVE", error.Message),
-        VocabPlanForbiddenException => ApiResponse.Failure(403, "VOCAB_PLAN_FORBIDDEN", error.Message),
-        VocabPlanScopeEmptyException => ApiResponse.Failure(400, "VOCAB_PLAN_SCOPE_EMPTY", error.Message),
-        VocabPlanScopeInvalidException => ApiResponse.Failure(400, "VOCAB_PLAN_SCOPE_INVALID", error.Message),
-        CatalogException catalog => catalog.ErrorCode switch
+        if (LearningErrors.PlanOrCatalogFailure(error) is { } failure) return failure;
+        return error switch
         {
-            BookNotFound => ApiResponse.Failure(404, catalog.ErrorCode, catalog.Message),
-            BookDisabled => ApiResponse.Failure(422, catalog.ErrorCode, catalog.Message),
-            UnitNotFound => ApiResponse.Failure(404, catalog.ErrorCode, catalog.Message),
-            _ => ApiResponse.Failure(503, catalog.ErrorCode, catalog.Message),
-        },
-        _ => ApiResponse.Failure(500, "VOCAB_PLAN_INTERNAL", "An unexpected error occurred."),
-    };
+            VocabPlanScopeInvalidException => ApiResponse.Failure(400, "VOCAB_PLAN_SCOPE_INVALID", error.Message),
+            _ => ApiResponse.Failure(500, "VOCAB_PLAN_INTERNAL", "An unexpected error occurred."),
+        };
+    }
 }
-
 
 public sealed class VocabPlanActorRequest
 {
-
     public string? Type { get; set; }
 
     public Guid? TeacherId { get; set; }

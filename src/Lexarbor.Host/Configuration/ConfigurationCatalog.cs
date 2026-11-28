@@ -342,7 +342,7 @@ internal static class ConfigurationCatalog
         }
         fields.Add(new()
         {
-            Key = ConfiguredOtlpAuthenticationResolver.ValueEnvironmentVariable,
+            Key = OtlpAuthenticationResolver.ValueEnvironmentVariable,
             Group = "telemetry",
             Section = "authentication",
             Name = "OTLP authorization value",

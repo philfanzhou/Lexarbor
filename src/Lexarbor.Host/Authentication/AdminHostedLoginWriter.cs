@@ -105,8 +105,9 @@ public static class AdminHostedLoginWriter
         return ApiResponse.Ok(new { username, roles }).ExecuteAsync(context);
     }
 
-    /// <summary>The antiforgery-rejected logout: the package's fixed bare
-    /// <c>{"outcome":"csrf_rejected"}</c> body; no session is touched.</summary>
+    /// <summary>The antiforgery-rejected logout: the fixed bare
+    /// <c>{"outcome":"csrf_rejected"}</c> body the retired package answered with;
+    /// no session is touched.</summary>
     public static async Task WriteLogoutCsrfRejectedAsync(HttpContext context)
     {
         context.Response.StatusCode = StatusCodes.Status400BadRequest;

@@ -11,7 +11,7 @@ public sealed partial class VocabularyPublicQueryRepository
 
     public Task<IReadOnlyList<VocabularyFamilyLookup>> LookupRelationsAsync(IReadOnlyList<VocabularyFamilyQuery> queries,
         CancellationToken cancellationToken)
-        => SnapshotAsync<IReadOnlyList<VocabularyFamilyLookup>>(async () =>
+        => ReadSnapshot.ReadAsync<IReadOnlyList<VocabularyFamilyLookup>>(context, async () =>
         {
             var normalized = queries.Select(query => new VocabularyFamilyQuery(query.WordId,
                 query.Word == null ? null : CatalogKeys.Of(query.Word),

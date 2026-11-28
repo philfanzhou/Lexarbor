@@ -13,7 +13,7 @@ using Npgsql;
 
 namespace Lexarbor.Host;
 
-internal static class LearningEndpoints
+internal static class LearnerEndpoints
 {
     internal static void AddLearnerServices(this IServiceCollection services, IConfiguration configuration, string connection)
     {
@@ -65,8 +65,7 @@ internal static class LearningEndpoints
         services.AddScoped<VocabularyFamilyService>();
         services.AddScoped<IVocabularyNotebookSource>(provider => provider.GetRequiredService<VocabularyNotebookService>());
         services.AddHttpClient(VisionPhotoRecognizer.HttpClientName, client => client.Timeout = Timeout.InfiniteTimeSpan)
-            .RemoveAllLoggers()
-            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false });
+.WithoutRedirectsCookiesOrLogging();
         services.AddScoped<VocabularyPhotoTrace>();
         services.AddScoped<IVocabularyPhotoRecognizer, VisionPhotoRecognizer>();
         // The latest photo imports stay under the persistent data/ directory for offline analysis.

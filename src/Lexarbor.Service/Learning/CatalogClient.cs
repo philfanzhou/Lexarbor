@@ -33,7 +33,6 @@ public sealed partial class CatalogClient : ICatalogClient
     {
         RejectSupplementary(bookId);
 
-
         var notFound = string.IsNullOrEmpty(unitId) ? BookNotFound : UnitNotFound;
         var query = $"?page={page}&size={size}";
         if (!string.IsNullOrEmpty(unitId))
@@ -132,7 +131,7 @@ public sealed partial class CatalogClient : ICatalogClient
         var baseUrl = GetBaseUrl();
         if (baseUrl.Length == 0)
         {
-            throw new CatalogException(CatalogUnavailable, retryable: false,
+            throw new CatalogException(CatalogUnavailable,
                 "The vocabulary catalog is not configured (Lexarbor:BaseUrl is empty).");
         }
 
@@ -144,15 +143,14 @@ public sealed partial class CatalogClient : ICatalogClient
         }
         catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-
             _logger?.LogWarning("Vocabulary catalog request timed out: {Url}", relativeUrl);
-            throw new CatalogException(CatalogUnavailable, retryable: true,
+            throw new CatalogException(CatalogUnavailable,
                 "The vocabulary catalog did not respond in time.");
         }
         catch (HttpRequestException)
         {
             _logger?.LogWarning("Vocabulary catalog request failed: {Url}", relativeUrl);
-            throw new CatalogException(CatalogUnavailable, retryable: true,
+            throw new CatalogException(CatalogUnavailable,
                 "The vocabulary catalog is unreachable.");
         }
 
@@ -166,31 +164,31 @@ public sealed partial class CatalogClient : ICatalogClient
                     var envelope = await ReadEnvelopeAsync<T>(response, cancellationToken).ConfigureAwait(false);
                     if (envelope is null || !envelope.Success || envelope.Data is null)
                     {
-                        throw new CatalogException(CatalogUnavailable, retryable: false,
+                        throw new CatalogException(CatalogUnavailable,
                             "The vocabulary catalog returned an unreadable response.");
                     }
                     payload = envelope.Data;
                     return payload!;
 
                 case 404:
-                    throw new CatalogException(notFoundError, retryable: false,
+                    throw new CatalogException(notFoundError,
                         notFoundError == BookNotFound
                             ? "The vocabulary book was not found."
                             : "The vocabulary unit was not found.");
 
                 case 422:
-                    throw new CatalogException(BookDisabled, retryable: false,
+                    throw new CatalogException(BookDisabled,
                         "The vocabulary book is disabled.");
 
                 case 429:
                 case >= 500:
                     _logger?.LogWarning("Vocabulary catalog answered {Status} for {Url}", status, relativeUrl);
-                    throw new CatalogException(CatalogUnavailable, retryable: true,
+                    throw new CatalogException(CatalogUnavailable,
                         "The vocabulary catalog is temporarily unavailable.");
 
                 default:
                     _logger?.LogWarning("Vocabulary catalog answered unexpected {Status} for {Url}", status, relativeUrl);
-                    throw new CatalogException(CatalogUnavailable, retryable: false,
+                    throw new CatalogException(CatalogUnavailable,
                         "The vocabulary catalog answered an unexpected status.");
             }
         }
@@ -223,7 +221,7 @@ public sealed partial class CatalogClient : ICatalogClient
     private void RejectSupplementary(string bookId)
     {
         if (IsSupplementary(bookId))
-            throw new CatalogException(BookNotFound, retryable: false, "The vocabulary book was not found.");
+            throw new CatalogException(BookNotFound, "The vocabulary book was not found.");
     }
 
     private static string EscapeSegment(string segment) => Uri.EscapeDataString((segment ?? string.Empty).Trim());

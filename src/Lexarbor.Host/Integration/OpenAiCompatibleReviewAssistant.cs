@@ -44,7 +44,7 @@ public sealed class OpenAiCompatibleReviewAssistant : IMeaningSubmissionReviewAs
         CancellationToken cancellationToken = default)
     {
         var options = _runtime.Current.ReviewAssistant;
-        if (!options.IsEnabled) throw new ReviewAssistantUnavailableException();
+        if (!options.IsEnabled) throw new AssistantUnavailableException();
         var client = _clients.CreateClient(HttpClientName);
         client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
         using var request = new HttpRequestMessage(HttpMethod.Post, options.Endpoint!.TrimEnd('/') + "/chat/completions");
@@ -77,22 +77,22 @@ public sealed class OpenAiCompatibleReviewAssistant : IMeaningSubmissionReviewAs
             using var response = await client.SendAsync(request, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
-                throw new ReviewAssistantUnavailableException();
+                throw new AssistantUnavailableException();
             }
 
             var completion = await response.Content.ReadFromJsonAsync<Completion>(Json, cancellationToken);
             var content = completion?.Choices?.FirstOrDefault()?.Message?.Content;
             if (string.IsNullOrWhiteSpace(content))
             {
-                throw new ReviewAssistantUnavailableException();
+                throw new AssistantUnavailableException();
             }
 
             var advice = JsonSerializer.Deserialize<Advice>(StripFence(content), Json)
-                ?? throw new ReviewAssistantUnavailableException();
+                ?? throw new AssistantUnavailableException();
             var verdict = advice.Verdict?.Trim().ToLowerInvariant();
             if (verdict is not ("accept" or "revise" or "reject"))
             {
-                throw new ReviewAssistantUnavailableException();
+                throw new AssistantUnavailableException();
             }
 
             return new MeaningSubmissionReviewAdvice(
@@ -102,7 +102,7 @@ public sealed class OpenAiCompatibleReviewAssistant : IMeaningSubmissionReviewAs
         catch (Exception error) when (error is HttpRequestException or JsonException or TaskCanceledException
                                           && !cancellationToken.IsCancellationRequested)
         {
-            throw new ReviewAssistantUnavailableException();
+            throw new AssistantUnavailableException();
         }
     }
 
@@ -134,24 +134,4 @@ public sealed class OpenAiCompatibleReviewAssistant : IMeaningSubmissionReviewAs
 
     private sealed record Advice(
         string? Verdict, string? PartOfSpeech, string? Meaning, string? PhoneticUk, string? PhoneticUs, string? Comment);
-}
-
-public sealed class ReviewAssistantOptions
-{
-    public string? Endpoint { get; init; }
-    public string? Model { get; init; }
-    public string? ApiKey { get; init; }
-    public int TimeoutSeconds { get; init; } = EnrichmentClientSettings.DefaultTimeoutSeconds;
-    public bool AutoReviewEnabled { get; init; }
-
-    public bool IsEnabled => !string.IsNullOrWhiteSpace(Endpoint) && !string.IsNullOrWhiteSpace(Model);
-    public bool CanAutomaticallyReview => AutoReviewEnabled && IsEnabled && Model!.Length <= 200;
-}
-
-public sealed class ReviewAssistantUnavailableException : Exception
-{
-    public ReviewAssistantUnavailableException()
-        : base("The review assistant did not return usable advice.")
-    {
-    }
 }

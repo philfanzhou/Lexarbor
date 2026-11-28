@@ -65,8 +65,9 @@ public sealed class MeaningSubmissionEntity
     [Column("ai_review_verdict")]
     public string? AiReviewVerdict { get; set; }
 
-    // Unix milliseconds, like the audio tables: the SQLite provider cannot order
-    // by DateTimeOffset, and both review queues are ordered by time.
+    // Unix milliseconds, like the audio tables. The column keeps the form chosen
+    // under SQLite, whose provider could not order by DateTimeOffset; both review
+    // queues are ordered by time.
     [Column("created_at_unix_ms")]
     public long CreatedAtUnixMs { get; set; }
 

@@ -138,13 +138,13 @@ with status codes 401 and 403.
 
 ### 5.5 CSRF protection for cookie write requests
 
-A `POST`, `PUT`, `PATCH`, or `DELETE` administration request authenticated by cookie rather than by an Authorization header must include:
+A `POST`, `PUT`, `PATCH`, or `DELETE` administration request authenticated by cookie rather than by an Authorization header must include the antiforgery token issued by `GET /admin/auth/csrf`:
 
 ```text
-X-Requested-With: XMLHttpRequest
+X-SignaCore-CSRF: <token>
 ```
 
-The frontend Axios instance adds that header for all of them. The service opens no CORS policy that lets an arbitrary origin send credentials. Together with `SameSite=Lax`, this check reduces the risk of a cross-site form submission.
+The token is paired with the browser-bound antiforgery cookie the same route sets. The frontend Axios instance fetches the token once and adds that header for all of them. The service opens no CORS policy that lets an arbitrary origin send credentials. Together with `SameSite=Lax`, this check reduces the risk of a cross-site form submission.
 
 Logout depends on that header when it is cookie-authenticated; the hosted login start and callback establish no cookie and are not subject to it.
 
@@ -464,7 +464,7 @@ Authentication state is maintained by a small TypeScript module or composable; n
 
 - Use same-origin relative paths and configure no Identity address.
 - Authenticate by cookie and never read or write an access token.
-- Add `X-Requested-With: XMLHttpRequest` to administration write requests.
+- Add the `X-SignaCore-CSRF` antiforgery token to administration write requests.
 - A shared typed `ApiError` carries the HTTP status and the public message.
 - 401: clear the local authentication state and redirect to the login page.
 - 403: redirect to the forbidden page.
@@ -580,7 +580,7 @@ Anonymous/invalid credentials receive 401; authenticated non-administrators rece
 
 `PUT /admin/vocabulary/{wordId}` requires `ServiceMantle.ManagementAdmin`. Send all three fields: `{word:string,phoneticUk:string|null,phoneticUs:string|null}`. Missing fields, undeclared fields (including IDs or meanings), invalid JSON types, and null/blank word return 400 without writes. Word equivalence uses `Trim().ToLowerInvariant()`; phonetics are trimmed and null/blank explicitly clears them. The submitted spelling is stored as the display value, trimmed but with its casing: this endpoint is the one sanctioned way to correct a word's casing, because it is confined to a row whose normalized key is unchanged. Imports never rewrite display spelling. To retain a field, send its current value. This is separate from import's optional-field merge behavior.
 
-The write transaction re-reads the existing target (404 if missing), rejects any other ID with the same normalized spelling (409), and updates only the shared word, phonetics and that word's `updatedAt`. All meanings and book memberships remain unchanged, including disabled-book memberships. Historical unassigned words can be edited. Success uses the existing BoolResponse envelope (`success:true` in both the envelope and data). Cookie writes still require `X-Requested-With: XMLHttpRequest`; Bearer writes retain existing semantics. Anonymous/non-admin requests return 401/403 without writes.
+The write transaction re-reads the existing target (404 if missing), rejects any other ID with the same normalized spelling (409), and updates only the shared word, phonetics and that word's `updatedAt`. All meanings and book memberships remain unchanged, including disabled-book memberships. Historical unassigned words can be edited. Success uses the existing BoolResponse envelope (`success:true` in both the envelope and data). Cookie writes still require the `X-SignaCore-CSRF` antiforgery token; Bearer writes retain existing semantics. Anonymous/non-admin requests return 401/403 without writes.
 
 Edits and imports serialize through the existing UnitOfWork. Last successful complete replacement wins; there is no optimistic version or cross-request atomicity. Constraint failure rolls back (409); an external SQLite writer can cause 503 with `Retry-After: 1`. Pre-transaction cancellation writes nothing; once admitted, the transaction finishes commit or rollback even if the request disconnects. A lost response means the client must query the state before deciding what to do, and must not assume a committed write was undone.
 
@@ -606,7 +606,7 @@ The serialized write transaction checks the book and unit exist (404), and that 
 
 The two exact-position routes require `ServiceMantle.ManagementAdmin`. `PUT /admin/vocabulary-books/{bookId}/meanings/{meaningId}/positions` accepts `{"from":{"unitId":"...","section":"A"|"B"|null,"entryKind":"word"|"phrase"|null},"to":{...}}`; every field is required and unknown fields or invalid values return 400. It moves the source assignment to the target in one serialized SQLite transaction. Replaying `from=to` succeeds only when that source exists. A missing book, meaning, source/target unit in the book, or source assignment returns 404; a distinct existing target returns 409 without modifying either assignment. Disabled books may be edited.
 
-`DELETE /admin/vocabulary-books/{bookId}/meanings/{meaningId}/positions/{unitId}?section=...&entryKind=...` removes only the named quadruple. Both query keys are mandatory; `A`/`B` or `none` select a section and `word`/`phrase` or `none` select an entry kind. `none` denotes the unsectioned or unclassified stored position. A missing position returns 404, including a repeated delete. The meaning, shared word, other unit and section positions, and another entry kind at the same unit and section survive. Both routes return `{success:true}` inside the management success envelope. Cookie writes still require `X-Requested-With: XMLHttpRequest`; Bearer writes do not. Authentication, rate limits, public `/api`, and the existing meaning-delete scope are unchanged. A disconnected caller must query the current state before retrying an uncertain write result.
+`DELETE /admin/vocabulary-books/{bookId}/meanings/{meaningId}/positions/{unitId}?section=...&entryKind=...` removes only the named quadruple. Both query keys are mandatory; `A`/`B` or `none` select a section and `word`/`phrase` or `none` select an entry kind. `none` denotes the unsectioned or unclassified stored position. A missing position returns 404, including a repeated delete. The meaning, shared word, other unit and section positions, and another entry kind at the same unit and section survive. Both routes return `{success:true}` inside the management success envelope. Cookie writes still require the `X-SignaCore-CSRF` antiforgery token; Bearer writes do not. Authentication, rate limits, public `/api`, and the existing meaning-delete scope are unchanged. A disconnected caller must query the current state before retrying an uncertain write result.
 
 ### Administrator vocabulary reads
 

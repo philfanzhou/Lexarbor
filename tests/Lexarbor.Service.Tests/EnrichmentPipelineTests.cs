@@ -246,7 +246,7 @@ public sealed partial class EnrichmentTargetExecutorTests
             expansion: publishExpansion ? Expansion(f, p.GetRequiredService<VocabularyDbContext>(), clients, "book") : null));
         services.AddScoped(p => BatchExecutor(f, p.GetRequiredService<VocabularyDbContext>(), p.GetRequiredService<EnrichmentTaskRepository>(),
             (EnrichmentSchedulerRepository)p.GetRequiredService<IEnrichmentSchedulerRepository>(), p.GetRequiredService<IAiRequestBatchRepository>(), clients));
-        services.AddSingleton<IPronunciationPreparationClient>(new OpenAiCompatiblePronunciationPreparationClient(clients, f.Runtime, f.Clock));
+        services.AddSingleton<IPronunciationPreparationClient>(new OpenAiPreparationClient(clients, f.Runtime, f.Clock));
         services.AddSingleton<IPronunciationSpeechClient>(new PronunciationSpeechClient(clients, f.Runtime, f.Clock));
         services.AddSingleton<IAudioUploadOperationFactory>(f.Operations);
         return services.BuildServiceProvider();

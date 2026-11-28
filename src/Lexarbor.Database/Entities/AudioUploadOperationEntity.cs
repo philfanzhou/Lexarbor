@@ -97,5 +97,4 @@ public sealed class AudioUploadOperationEntity
 
     [Column("cleanup_observed_at_unix_ms")]
     public long? CleanupObservedAtUnixMs { get; set; }
-
 }

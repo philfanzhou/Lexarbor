@@ -261,7 +261,7 @@ public class VocabularyServiceTests : TestBase
             new VocabularyMeaning { BookId = "b1", Meaning = "香蕉" });
 
         // The keyword is the ESCAPE character itself, so it has to be doubled
-        // before it reaches SQLite or the pattern ends in a dangling escape.
+        // before it reaches the database or the pattern ends in a dangling escape.
         var (items, totalCount) = await _service.SearchAsync(@"\", 1, 10);
 
         Assert.Equal(1, totalCount);
@@ -276,10 +276,10 @@ public class VocabularyServiceTests : TestBase
             new Vocabulary { Word = "café" },
             new VocabularyMeaning { BookId = "b1", Meaning = "咖啡馆" });
 
-        // SQLite folds ASCII only -- its LIKE and its lower() agree on that, and
-        // neither touches É. Pinned rather than fixed: case-folding the rest of
-        // Unicode needs FTS5 or an ICU build, which is a larger decision than
-        // this change. Stated here so the boundary is a known one.
+        // Only ASCII letters fold: the "C" collation keeps ILIKE and lower() at
+        // the ASCII-only rule SQLite's LIKE applied, and neither touches É.
+        // Pinned rather than fixed: case-folding the rest of Unicode is a larger
+        // decision than this change. Stated here so the boundary is a known one.
         Assert.Equal(1, (await _service.SearchAsync("café", 1, 10)).TotalCount);
         Assert.Equal(1, (await _service.SearchAsync("CAF", 1, 10)).TotalCount);
         Assert.Equal(0, (await _service.SearchAsync("CAFÉ", 1, 10)).TotalCount);

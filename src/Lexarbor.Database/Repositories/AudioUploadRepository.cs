@@ -288,7 +288,7 @@ public sealed class AudioUploadRepository(VocabularyDbContext context, TimeProvi
         row.WordId, row.MeaningId, row.Locale, row.SourceRevision, row.ExpectedAssetId, row.AssetId, row.Producer, row.Voice,
         row.State, row.CreatedAtUnixMs, row.UpdatedAtUnixMs, new(row.UploadLeaseOwner, row.UploadLeaseFence, row.UploadLeaseExpiresAtUnixMs),
         row.ReceiptStatusCode == null ? null : new(row.ReceiptStatusCode.Value, row.ReceiptAssetId, row.ReceiptSourceRevision, row.ReceiptErrorCode, row.CompletedAtUnixMs!.Value),
-        new(new(row.CleanupLeaseOwner, row.CleanupLeaseFence, row.CleanupLeaseExpiresAtUnixMs), row.CleanupReturnState,
+        new(new(row.CleanupLeaseOwner, row.CleanupLeaseFence, row.CleanupLeaseExpiresAtUnixMs),
             row.CleanupAttempts, row.CleanupNextAttemptAtUnixMs, row.CleanupLastErrorCode, row.CleanupObservedAtUnixMs));
     private static void ValidateLease(string? owner, long now, long expires)
     {

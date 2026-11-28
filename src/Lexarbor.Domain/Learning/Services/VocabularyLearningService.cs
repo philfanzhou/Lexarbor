@@ -15,7 +15,6 @@ public enum VocabQuestionMode
 }
 public sealed partial class VocabularyLearningService
 {
-
     private const int WordChunkSize = 16;
 
     /// <summary>Due-card page size; the cursor advances through all pages.</summary>
@@ -283,7 +282,6 @@ public sealed partial class VocabularyLearningService
         return correct;
     }
 
-
     private async Task<VocabPlan> RequireActivePlanAsync(Guid studentId, CancellationToken cancellationToken)
     {
         var plan = await _planRepository.FindActiveByStudentAsync(studentId, cancellationToken).ConfigureAwait(false)
@@ -440,7 +438,6 @@ public sealed partial class VocabularyLearningService
             }
         }
     }
-
 
     private Task<IReadOnlyList<VocabularyPlanScopeEntry>> ReadScopeAsync(VocabPlan plan, CancellationToken cancellationToken) =>
         VocabularyPlanScopeEntry.ReadAsync(_scopeEntryReader, plan.Segments, cancellationToken);
@@ -689,7 +686,6 @@ public sealed partial class VocabularyLearningService
 
         if (generated is null)
         {
-
             _logger?.LogWarning(
                 "Vocabulary question generation skipped for word {WordId} meaning {MeaningId} (kind {Kind}, plan {PlanId}).",
                 entry.WordId, entry.MeaningId, kind, planId);
@@ -866,7 +862,7 @@ public sealed partial class VocabularyLearningService
                 new(saved.WordId, key.WordKey, saved.MeaningId, key.MeaningKey, null), null, now, cancellationToken, state).ConfigureAwait(false);
             if (question is not null) return question;
         }
-        var latest = await _questionRepository.FindLatestAnsweredByCardKeyAsync(studentId, key.WordKey, key.MeaningKey, cancellationToken).ConfigureAwait(false);
+        var latest = await _questionRepository.FindLatestAnsweredAsync(studentId, key.WordKey, key.MeaningKey, cancellationToken).ConfigureAwait(false);
         if (latest is not null && !string.IsNullOrWhiteSpace(latest.BookId) && !string.IsNullOrWhiteSpace(latest.WordId)
             && !string.IsNullOrWhiteSpace(latest.MeaningId)
             && (saved is null || (saved.BookId, saved.WordId, saved.MeaningId) != (latest.BookId, latest.WordId, latest.MeaningId)))

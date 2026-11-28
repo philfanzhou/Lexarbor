@@ -147,7 +147,7 @@ public class BatchImportConcurrentReadTests
         }
         catch (IOException)
         {
-            // A journal or sidecar file SQLite still holds goes with the next
+            // A file another process still holds goes with the next
             // run's new directory name.
         }
     }
