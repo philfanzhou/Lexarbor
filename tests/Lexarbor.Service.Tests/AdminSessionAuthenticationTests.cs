@@ -298,19 +298,16 @@ public sealed class AdminSessionAuthenticationTests
                 root,
                 UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         }
-        // The database passes through the strict startup gate, so it lives in
-        // the gate-safe directory; the key ring keeps its own temp root.
-        var databaseDirectory = VocabularyWebApplicationFactory.CreateGateSafeDirectory(
-            $"lexarbor-http-session-{Guid.NewGuid():N}");
-        var database = Path.Combine(databaseDirectory, "sessions.db");
+        // The name under which the hosts of this test share one database.
+        var database = $"lexarbor-http-session-db-{Guid.NewGuid():N}";
         try
         {
             string handle;
-            using (var first = new VocabularyWebApplicationFactory("Testing", true, keyContentRoot: root, databasePath: database))
+            using (var first = new VocabularyWebApplicationFactory("Testing", true, keyContentRoot: root, sharedDatabase: database))
             {
                 handle = await Seed(first);
             }
-            using (var second = new VocabularyWebApplicationFactory("Testing", true, keyContentRoot: root, databasePath: database))
+            using (var second = new VocabularyWebApplicationFactory("Testing", true, keyContentRoot: root, sharedDatabase: database))
             using (var client = Client(second))
             {
                 Assert.Equal(HttpStatusCode.OK, (await Send(client, "GET", "/admin/auth/session", Cookie(second, handle))).StatusCode);
@@ -320,7 +317,7 @@ public sealed class AdminSessionAuthenticationTests
             Assert.ThrowsAny<Exception>(() =>
             {
                 using var lost = new VocabularyWebApplicationFactory("Testing", true,
-                    keyContentRoot: Path.Combine(root, "new-ring"), databasePath: database);
+                    keyContentRoot: Path.Combine(root, "new-ring"), sharedDatabase: database);
                 using var lostClient = Client(lost);
                 return lostClient;
             });
@@ -328,14 +325,6 @@ public sealed class AdminSessionAuthenticationTests
         finally
         {
             Directory.Delete(root, recursive: true);
-            try
-            {
-                Directory.Delete(databaseDirectory, recursive: true);
-            }
-            catch (IOException)
-            {
-                // A file another process still holds is left behind.
-            }
         }
     }
 

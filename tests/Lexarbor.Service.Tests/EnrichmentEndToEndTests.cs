@@ -28,13 +28,15 @@ public sealed class EnrichmentEndToEndTests
     public async Task ExistingCatalog_AutomaticallyPreparesDestination_ExpandsAndFillsAudio_AndRestartDoesNotRepeat(bool existingSupplement)
     {
         var root = VocabularyWebApplicationFactory.CreateGateSafeDirectory("expansion-e2e-" + Guid.NewGuid().ToString("N"));
+        // The name under which the hosts of this test share one database.
+        var database = "expansion-e2e-db-" + Guid.NewGuid().ToString("N");
         File.WriteAllText(Path.Combine(root, "appsettings.json"), "{}");
         using var network = new Network(false); var store = new Objects();
         try
         {
             // Persist a catalog before the Host takes over.
             await using (var old = new VocabularyDbContext(new DbContextOptionsBuilder<VocabularyDbContext>()
-                .UseNpgsql(SharedTestDatabases.ConnectionString(Path.Combine(root, "vocabulary.db"))).Options))
+                .UseNpgsql(SharedTestDatabases.ConnectionString(database)).Options))
             {
                 await old.Database.MigrateAsync(Ct);
                 old.VocabularyBooks.Add(new() { Id = "book", BookName = "Fixture", Status = true });
@@ -45,7 +47,7 @@ public sealed class EnrichmentEndToEndTests
                 old.VocabularyMeaningUnits.Add(new() { UnitId = "unit", BookId = "book", MeaningId = "meaning", EntryKind = "word" });
                 await old.SaveChangesAsync(Ct);
             }
-            var host = new Host(root, network, store, expand: true);
+            var host = new Host(root, database, network, store, expand: true);
             await using (host)
             {
                 // No enable switches: model configuration alone starts the shared worker.
@@ -68,7 +70,7 @@ public sealed class EnrichmentEndToEndTests
                 await Eventually(async () => (await host.Data("/admin/enrichment/summary"))["discovery"]!["initialCompleted"]!.GetValue<bool>());
             }
             var requests = network.Requests.Count;
-            await using var restarted = new Host(root, network, store, expand: true);
+            await using var restarted = new Host(root, database, network, store, expand: true);
             await Task.Delay(1500, Ct);
             Assert.Equal(4, await restarted.Bindings()); Assert.Equal(requests, network.Requests.Count);
             using var restartedScope = restarted.App.Services.CreateScope();
@@ -85,12 +87,14 @@ public sealed class EnrichmentEndToEndTests
     public async Task HttpSettings_HostedWorker_Adapters_Publication_Edit_Playback_AndRestart(bool native)
     {
         var root = VocabularyWebApplicationFactory.CreateGateSafeDirectory("enrichment-e2e-" + Guid.NewGuid().ToString("N"));
+        // The name under which the hosts of this test share one database.
+        var database = "enrichment-e2e-db-" + Guid.NewGuid().ToString("N");
         File.WriteAllText(Path.Combine(root, "appsettings.json"), "{}");
         var network = new Network(native); var store = new Objects();
         try
         {
             string defaultUk; string defaultUs; string textVersion; string ukVersion; int speechCalls;
-            await using (var host = new Host(root, network, store))
+            await using (var host = new Host(root, database, network, store))
             {
                 await host.Seed();
                 // No configuration/default disabled means no actual provider request.
@@ -143,7 +147,7 @@ public sealed class EnrichmentEndToEndTests
                 textVersion = runtime.TextVersion!; ukVersion = runtime.UkTtsVersion!; speechCalls = network.SpeechCount;
             }
             // Same database and persisted file, a new Host/worker/runtime generation.
-            await using (var restarted = new Host(root, network, store))
+            await using (var restarted = new Host(root, database, network, store))
             {
                 var runtime = restarted.App.Services.GetRequiredService<EnrichmentRuntimeConfiguration>().Current;
                 Assert.Equal(textVersion, runtime.TextVersion); Assert.Equal(ukVersion, runtime.UkTtsVersion);
@@ -179,11 +183,13 @@ public sealed class EnrichmentEndToEndTests
     public async Task UnsupportedControlledModel_IsVisibleWithoutTts_AndHttpCorrectionResumesAutomatically()
     {
         var root = VocabularyWebApplicationFactory.CreateGateSafeDirectory("enrichment-capability-" + Guid.NewGuid().ToString("N"));
+        // The name under which the hosts of this test share one database.
+        var database = "enrichment-capability-db-" + Guid.NewGuid().ToString("N");
         File.WriteAllText(Path.Combine(root, "appsettings.json"), "{}");
         using var network = new Network(false); var store = new Objects();
         try
         {
-            await using var host = new Host(root, network, store); await host.Seed();
+            await using var host = new Host(root, database, network, store); await host.Seed();
             await host.Configure(false, "tts-1");
             await Eventually(async () => (await host.Data("/admin/enrichment/tasks?wordId=word&step=Prepare")).ToJsonString().Contains("text.pronunciation_control_unsupported", StringComparison.Ordinal));
             Assert.Equal(0, network.SpeechCount); Assert.Empty(store.Bytes);
@@ -201,11 +207,13 @@ public sealed class EnrichmentEndToEndTests
     public async Task ConditionalUnbind_WakesHostedGenerationWithoutWaitingForHistoricalScan(bool meaning, bool beyondFirstPage)
     {
         var root = VocabularyWebApplicationFactory.CreateGateSafeDirectory("enrichment-unbind-" + Guid.NewGuid().ToString("N"));
+        // The name under which the hosts of this test share one database.
+        var database = "enrichment-unbind-db-" + Guid.NewGuid().ToString("N");
         File.WriteAllText(Path.Combine(root, "appsettings.json"), "{}");
         using var network = new Network(true); var store = new Objects();
         try
         {
-            await using var host = new Host(root, network, store); await host.Seed(); await host.Configure(true);
+            await using var host = new Host(root, database, network, store); await host.Seed(); await host.Configure(true);
             await Eventually(async () => await host.Bindings() == 2);
             if (meaning)
             {
@@ -238,9 +246,9 @@ public sealed class EnrichmentEndToEndTests
         private readonly VocabularyWebApplicationFactory _base;
         public WebApplicationFactory<Program> App { get; }
         private readonly HttpClient _client;
-        public Host(string root, Network network, Objects store, bool expand = false)
+        public Host(string root, string database, Network network, Objects store, bool expand = false)
         {
-            _base = new("Testing", true, databasePath: Path.Combine(root, "vocabulary.db"), contentRootPath: root,
+            _base = new("Testing", true, sharedDatabase: database, contentRootPath: root,
                 keyContentRoot: Path.Combine(root, "keys"), extraConfiguration: new Dictionary<string, string?>
                 {
                     ["MeaningSubmissions:BookId"] = expand ? "supplement" : null,

@@ -36,9 +36,9 @@ not fall back to anything else when it is missing.
   declared `COLLATE "C"`, not because the database was created with it.
 - Durability settings are relaxed (`fsync=off`) because the server is
   discarded with the run.
-- Hosts that must share data across a restart name it through `databasePath`
+- Hosts that must share data across a restart name it through `sharedDatabase`
   on `VocabularyWebApplicationFactory`, which maps the name to one database for
-  the run (`SharedTestDatabases`).
+  the run (`SharedTestDatabases`). The name is a plain string, not a path.
 - Query-plan tests read `EXPLAIN` with sequential scans disabled
   (`PostgreSqlPlan`): with the handful of rows a test holds, a plan that still
   scans the table has no index able to answer the predicate.

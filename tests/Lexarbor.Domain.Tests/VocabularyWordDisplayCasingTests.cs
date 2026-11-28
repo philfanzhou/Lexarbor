@@ -24,10 +24,10 @@ public sealed class VocabularyWordDisplayCasingTests : IDisposable
     [Fact]
     public async Task LegacyLowercaseRows_KeepTheirValueWhileNewWordsKeepImportedCasing()
     {
-        var databasePath = _database.ConnectionString;
+        var connectionString = _database.ConnectionString;
 
         // Rows the previous release would have written: every word lower-cased.
-        await using (var setup = CreateContext(databasePath))
+        await using (var setup = CreateContext(connectionString))
         {
             await setup.Database.ExecuteSqlRawAsync(
                 """
@@ -41,7 +41,7 @@ public sealed class VocabularyWordDisplayCasingTests : IDisposable
             await InsertLegacyWordAsync(setup, "legacy-nobel-prize", "nobel prize");
         }
 
-        await using (var context = CreateContext(databasePath))
+        await using (var context = CreateContext(connectionString))
         {
             var service = CreateService(context);
 

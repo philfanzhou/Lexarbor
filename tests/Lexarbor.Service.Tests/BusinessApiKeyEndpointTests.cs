@@ -126,8 +126,10 @@ public sealed class BusinessApiKeyEndpointTests
         try
         {
             var settings = new Dictionary<string, string?> { ["MeaningSubmissions:BookId"] = "supplement" };
+            // The name under which both hosts of this test share one database.
+            var database = $"lexarbor-api-keys-{Guid.NewGuid():N}";
             VocabularyWebApplicationFactory Create() => new("Testing", true, extraConfiguration: settings, keyContentRoot: root,
-                databasePath: Path.Combine(root, "vocabulary.db"));
+                sharedDatabase: database);
             string oldKey, oldId, activeKey, oldSubmissionId;
             await using (var factory = Create())
             await using (var host = factory.WithWebHostBuilder(builder => builder.ConfigureLogging(logging => logging.AddProvider(logs))))

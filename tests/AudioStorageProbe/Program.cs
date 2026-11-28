@@ -64,7 +64,7 @@ try
     Require(Mp3Validation.IsValid(bytes), "The uploaded fixture must contain complete MP3 frames.");
     using var databaseRoot = new ProbeDatabaseRoot();
     await using var db = new VocabularyDbContext(new DbContextOptionsBuilder<VocabularyDbContext>()
-        .UseNpgsql(databaseRoot.Path).Options);
+        .UseNpgsql(databaseRoot.ConnectionString).Options);
     await db.Database.MigrateAsync();
     db.Vocabularies.Add(new VocabularyEntity { Id = "probe-word", Word = "tone" });
     db.VocabularyBooks.Add(new() { Id = "probe-book", BookName = "Probe", Status = true });
@@ -162,8 +162,8 @@ try
     await playbackHost.RequireUnavailableAsync(publicAudio: true);
     // Restore the harness object for the independent backup-retention scenario.
     using (var stream = new MemoryStream(bytes)) await store.PutAsync(location, stream, bytes.Length, "audio/mpeg", default);
-    await VerifyRecoveryAsync(db, databaseRoot.Path, repository, store, denied, bucket, bytes, location, http);
-    await VerifyProcessCrashesAsync(databaseRoot.Path, store, bucket);
+    await VerifyRecoveryAsync(db, databaseRoot.ConnectionString, repository, store, denied, bucket, bytes, location, http);
+    await VerifyProcessCrashesAsync(databaseRoot.ConnectionString, store, bucket);
     await store.RemoveAsync(location, default);
     Console.WriteLine("Private S3 upload/stat/GET/MIME/Range/expiry/renewal/denial/deletion passed.");
 }
@@ -195,7 +195,7 @@ static async Task SafeFailure(Func<Task> operation)
 static async Task VerifyRuntimeRecoveryGenerationsAsync(AudioOptions initial, byte[] bytes)
 {
     using var root = new ProbeDatabaseRoot();
-    var dbOptions = new DbContextOptionsBuilder<VocabularyDbContext>().UseNpgsql(root.Path).Options;
+    var dbOptions = new DbContextOptionsBuilder<VocabularyDbContext>().UseNpgsql(root.ConnectionString).Options;
     var clock = new RecoveryProbeClock { Now = 0 };
     var locations = new List<AudioObjectLocation>();
     await using (var db = new VocabularyDbContext(dbOptions))
@@ -257,7 +257,7 @@ static async Task VerifyRuntimeRecoveryGenerationsAsync(AudioOptions initial, by
 static async Task VerifyRuntimeUploadGenerationsAsync(AudioOptions initial, byte[] bytes)
 {
     using var root = new ProbeDatabaseRoot();
-    var dbOptions = new DbContextOptionsBuilder<VocabularyDbContext>().UseNpgsql(root.Path).Options;
+    var dbOptions = new DbContextOptionsBuilder<VocabularyDbContext>().UseNpgsql(root.ConnectionString).Options;
     await using var oldDb = new VocabularyDbContext(dbOptions);
     await oldDb.Database.MigrateAsync();
     oldDb.Vocabularies.Add(new() { Id = "runtime-word", Word = "tone" });
@@ -363,7 +363,7 @@ static IConfiguration RuntimeConfig(AudioOptions options) => new ConfigurationBu
 static async Task VerifyInvalidationAsync(AudioOptions options, byte[] bytes)
 {
     using var root = new ProbeDatabaseRoot();
-    var dbOptions = new DbContextOptionsBuilder<VocabularyDbContext>().UseNpgsql(root.Path).Options;
+    var dbOptions = new DbContextOptionsBuilder<VocabularyDbContext>().UseNpgsql(root.ConnectionString).Options;
     var clock = new RecoveryProbeClock { Now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() };
     using var store = new S3AudioObjectStore(Options.Create(options), clock);
     var deniedOptions = JsonSerializer.Deserialize<AudioOptions>(JsonSerializer.Serialize(options))!;
@@ -435,11 +435,11 @@ static async Task VerifyInvalidationAsync(AudioOptions options, byte[] bytes)
     Console.WriteLine("Private S3 atomic phonetic edit, persisted regeneration, reference wait, denial, restart, absence and receipt replay passed.");
 }
 
-static async Task VerifyRecoveryAsync(VocabularyDbContext db, string databasePath, AudioUploadRepository liveRepository,
+static async Task VerifyRecoveryAsync(VocabularyDbContext db, string connectionString, AudioUploadRepository liveRepository,
     IAudioObjectStore store, IAudioObjectStore denied, string bucket, byte[] bytes,
     AudioObjectLocation published, HttpClient http)
 {
-    var backupPath = await ProbeDatabase.CopyAsync(databasePath);
+    var backupPath = await ProbeDatabase.CopyAsync(connectionString);
     var created = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
     var request = new AudioUploadRequest(Guid.NewGuid().ToString(), new string('a', 64), "probe-word", null, AudioLocale.EnUs,
         AudioSelectionService.ComputeRevision(AudioSelectionService.GetInput(new("probe-word", "tone", null, null), null, AudioLocale.EnUs)),
@@ -452,7 +452,7 @@ static async Task VerifyRecoveryAsync(VocabularyDbContext db, string databasePat
     var clock = new RecoveryProbeClock { Now = candidate.Operation.CreatedAtUnixMs + 86400001 };
     // A fresh context/coordinator models restart: no upload process memory is reused.
     await using var restarted = new VocabularyDbContext(new DbContextOptionsBuilder<VocabularyDbContext>()
-        .UseNpgsql(databasePath).Options);
+        .UseNpgsql(connectionString).Options);
     var repository = new AudioUploadRepository(restarted, clock);
     var settings = new AudioRecoverySettings(true, bucket, "audio/", TimeoutSeconds: 3);
     var deniedRecovery = new AudioRecoveryService(repository, denied, settings, clock);
@@ -487,10 +487,10 @@ static async Task VerifyRecoveryAsync(VocabularyDbContext db, string databasePat
     Require((await http.GetByteArrayAsync(link.Url)).SequenceEqual(bytes), "Restoring the backup must still download its real published MP3.");
     Console.WriteLine("Private S3 restart/retry/late-Put/tombstone/backup-retention recovery passed.");
 }
-static async Task CrashUploadAsync(string databasePath, string markerPath, string stage)
+static async Task CrashUploadAsync(string connectionString, string markerPath, string stage)
 {
     await using var db = new VocabularyDbContext(new DbContextOptionsBuilder<VocabularyDbContext>()
-        .UseNpgsql(databasePath).Options);
+        .UseNpgsql(connectionString).Options);
     var word = "crash-" + stage;
     db.Vocabularies.Add(new VocabularyEntity { Id = word, Word = word }); await db.SaveChangesAsync();
     var bucket = Environment.GetEnvironmentVariable("LEXARBOR_S3_TEST_BUCKET")!;
@@ -517,14 +517,14 @@ static async Task CrashUploadAsync(string databasePath, string markerPath, strin
     await File.WriteAllTextAsync(markerPath, request.IdempotencyKey);
     await Task.Delay(Timeout.InfiniteTimeSpan); // The parent kills this process without disposing PostgreSQL/S3.
 }
-static async Task VerifyProcessCrashesAsync(string databasePath, IAudioObjectStore store, string bucket)
+static async Task VerifyProcessCrashesAsync(string connectionString, IAudioObjectStore store, string bucket)
 {
     var keys = new List<(string Key, bool Published)>();
     foreach (var stage in new[] { "reserved", "before-put", "after-put", "response-lost" })
     {
         var marker = Path.Combine(Path.GetTempPath(), $"lexarbor-probe-crash-{Guid.NewGuid():N}.{stage}");
         var start = new ProcessStartInfo("dotnet") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
-        foreach (var arg in new[] { typeof(ProbeFailure).Assembly.Location, "--crash-upload", databasePath, marker, stage }) start.ArgumentList.Add(arg);
+        foreach (var arg in new[] { typeof(ProbeFailure).Assembly.Location, "--crash-upload", connectionString, marker, stage }) start.ArgumentList.Add(arg);
         using var process = Process.Start(start)!;
         try
         {
@@ -543,7 +543,7 @@ static async Task VerifyProcessCrashesAsync(string databasePath, IAudioObjectSto
     }
     var clock = new RecoveryProbeClock { Now = DateTimeOffset.UtcNow.AddDays(2).ToUnixTimeMilliseconds() };
     await using var db = new VocabularyDbContext(new DbContextOptionsBuilder<VocabularyDbContext>()
-        .UseNpgsql(databasePath).Options);
+        .UseNpgsql(connectionString).Options);
     var repo = new AudioUploadRepository(db, clock);
     await new AudioRecoveryService(repo, store, new(true, bucket, "audio/", TimeoutSeconds: 3), clock).RunBatchAsync(default);
     foreach (var (key, published) in keys)
@@ -569,11 +569,11 @@ sealed class OffsetClock : TimeProvider
 
 sealed class ProbeFailure(string message) : Exception(message);
 
-/// <summary>A disposable probe database; <see cref="Path"/> is its connection string.</summary>
+/// <summary>A disposable probe database; <see cref="ConnectionString"/> is how to reach it.</summary>
 sealed class ProbeDatabaseRoot : IDisposable
 {
     private readonly Lexarbor.Tests.Shared.PostgreSqlTestDatabase _database = new();
-    public string Path => _database.ConnectionString;
+    public string ConnectionString => _database.ConnectionString;
     public void Dispose() => _database.Dispose();
 }
 
