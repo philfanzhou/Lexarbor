@@ -174,7 +174,7 @@ onBeforeUnmount(() => { stop(); document.removeEventListener('visibilitychange',
     <div class="refresh-line"><span role="status" aria-label="自动刷新状态">{{ polling }}{{ loading ? ' · 正在读取…' : '' }}</span><span v-if="lastUpdated">上次更新 {{ new Date(lastUpdated).toLocaleTimeString() }}</span></div>
     <p v-if="notice" class="notice" role="status" aria-label="单条重试结果">{{ notice }}</p>
     <p v-if="summaryError" class="notice error" role="alert">{{ summaryError }}</p>
-    <section v-if="summary" aria-label="当前需求与服务" class="overview">
+    <section v-if="summary" aria-label="当前需求与服务">
       <div class="section-heading"><h2>当前词汇范围</h2><span class="muted">按单词搜索、口音及精确定位统计，不随任务状态筛选变化</span></div>
       <p v-if="summary.discovery" class="muted" aria-label="历史扫描进度">{{ summary.discovery.initialCompleted ? '首次历史扫描已完成，后台持续检查新增和变更。' : !summary.discovery.wordsTotal && !summary.discovery.meaningsTotal ? '历史扫描尚未开始，文本配置就绪后自动进行。' : '首次接管历史数据，正在分批发现任务。' }} 已扫描单词 {{ summary.discovery.wordsScanned }} / {{ summary.discovery.wordsTotal }}，释义 {{ summary.discovery.meaningsScanned }} / {{ summary.discovery.meaningsTotal }}。扫描完成不代表 AI 已处理完毕。</p>
       <p v-if="summary.destination" class="muted" aria-label="扩词目标词书">扩词目标词书：{{ summary.destination.state === 'Disabled' ? '已停用，扩词暂停；启用后自动继续。' : summary.destination.state === 'Missing' ? '尚未就绪，文本配置就绪后后台自动准备。' : summary.destination.managed ? '程序管理的补充词书已就绪。' : '指定词书已就绪。' }}<RouterLink to="/books">查看词书</RouterLink></p>

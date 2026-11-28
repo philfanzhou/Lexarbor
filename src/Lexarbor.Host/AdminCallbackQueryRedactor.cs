@@ -8,7 +8,7 @@ namespace Lexarbor.Host;
 /// and the RP-initiated logout's return route. Those URLs necessarily carry a
 /// one-time authorization code or state; no span attribute may export them.
 /// </summary>
-internal sealed class AdminCallbackQueryRedactionProcessor : BaseProcessor<Activity>
+internal sealed class AdminCallbackQueryRedactor : BaseProcessor<Activity>
 {
     internal const string RedactedValue = "[REDACTED]";
 

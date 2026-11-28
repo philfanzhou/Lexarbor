@@ -124,8 +124,8 @@ public sealed class AdminSessionStoreTests : IDisposable
             scope.ServiceProvider.GetRequiredService<VocabularyDbContext>().Database.Migrate();
             // The real host runs its protect/unprotect probe at startup, which
             // also creates the initial key row outside any request transaction.
-            // Mirroring that here keeps later per-transaction Protect calls from
-            // contending with the SQLite file lock the way production never does.
+            // Mirroring that here creates the initial key row the same way,
+            // before any per-transaction Protect call.
             var probe = provider.GetRequiredService<IDataProtectionProvider>()
                 .CreateProtector("Lexarbor.AdminKeys.StartupProbe.v1");
             if (probe.Unprotect(probe.Protect("lexarbor-key-storage-probe")) != "lexarbor-key-storage-probe")
@@ -516,9 +516,9 @@ public sealed class AdminSessionStoreTests : IDisposable
     {
         var logger = new CapturingLogger();
         using var provider = Build(migrate: false, ticketStoreLogger: logger);
-        // The sweep behind the official package's cleanup service: a missing table is
+        // The sweep the host's cleanup service drives: a missing table is
         // contained as the fixed warning, and the next batch retries after the schema
-        // exists — the package's sweep loop and the host survive the failure.
+        // exists — the cleanup loop and the host survive the failure.
         var cleanup = provider.GetRequiredService<AdminSessionTicketStore>();
         cleanup.RemoveExpired(CancellationToken.None);
         Assert.Equal(["Expired administrator session cleanup failed; the next batch will retry."], logger.Messages);
@@ -673,7 +673,7 @@ public sealed class AdminSessionStoreTests : IDisposable
         }
         catch (IOException)
         {
-            // A WAL sidecar SQLite still holds is left behind.
+            // A file another process still holds is left behind.
         }
     }
 }

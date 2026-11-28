@@ -17,6 +17,7 @@ import { getBookUnits } from '@/services/bookApi'
 import type { Book, BookUnit } from '@/types'
 import { getApiError } from '@/services/apiError'
 import PageHeader from '@/components/PageHeader.vue'
+import PaginationBar from '@/components/PaginationBar.vue'
 import VocabularyDetailDrawer from '@/components/VocabularyDetailDrawer.vue'
 import VocabularyCleanupDialog from '@/components/VocabularyCleanupDialog.vue'
 
@@ -69,7 +70,6 @@ const keyword = ref('')
 const searchedKeyword = ref('')
 const page = ref(1)
 const size = ref(20)
-const pageSizes = [10, 20, 50, 100]
 
 const units = ref<BookUnit[]>([])
 const unitsLoading = ref(false)
@@ -341,21 +341,10 @@ function handleSearch() {
   load()
 }
 
-function handleSizeChange(newSize: number) {
-  size.value = newSize
-  page.value = 1
-  load()
-}
-
 /** A section or a kind picked in the unit view: same restart as a size change, without touching the unit. */
 function handleSectionChange() {
   page.value = 1
   selectedWordIds.value = []
-  load()
-}
-
-function handlePageChange(newPage: number) {
-  page.value = newPage
   load()
 }
 
@@ -581,30 +570,7 @@ const emptyDescription = computed(() =>
           </template>
         </el-table>
 
-        <div class="pagination-wrapper">
-          <el-select
-            v-model="size"
-            class="page-size"
-            aria-label="每页条数"
-            @change="handleSizeChange"
-          >
-            <el-option
-              v-for="option in pageSizes"
-              :key="option"
-              :label="`${option} 条/页`"
-              :value="option"
-            />
-          </el-select>
-          <el-pagination
-            v-model:current-page="page"
-            v-model:page-size="size"
-            :total="totalCount"
-            layout="total, prev, pager, next, jumper"
-            background
-            @size-change="handleSizeChange"
-            @current-change="handlePageChange"
-          />
-        </div>
+        <PaginationBar v-model:page="page" v-model:size="size" :total="totalCount" @change="load" />
       </template>
     </section>
 
@@ -690,17 +656,5 @@ const emptyDescription = computed(() =>
 }
 .book-words__meanings li + li {
   margin-top: var(--lx-space-1);
-}
-
-.pagination-wrapper {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--lx-space-3);
-  margin-top: var(--lx-space-4);
-}
-.page-size {
-  width: 120px;
 }
 </style>

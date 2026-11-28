@@ -30,7 +30,7 @@ public sealed class AiTextBatchClient(IHttpClientFactory clients, TimeProvider c
             items.Count == 1 ? items[0].Prompt : JsonSerializer.Serialize(new
             { items = items.Select(i => new { id = i.Id, data = JsonSerializer.Deserialize<JsonElement>(i.Prompt) }) }, Json),
             items.Sum(i => i.MaximumTokens), instructions == VocabularyExpansionClient.Instructions
-                || instructions == OpenAiCompatiblePronunciationPreparationClient.Instructions);
+                || instructions == OpenAiPreparationClient.Instructions);
 
     internal async Task<AiTextResult<T>> SendAsync<T>(EnrichmentClientSettings settings, string instructions,
         IReadOnlyList<AiTextItem<T>> items, CancellationToken token)
@@ -48,8 +48,7 @@ public sealed class AiTextBatchClient(IHttpClientFactory clients, TimeProvider c
         try
         {
             using var response = await clients.CreateClient(HttpClientName).SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
-            var delay = response.Headers.RetryAfter?.Delta ?? (response.Headers.RetryAfter?.Date is { } date ? date - clock.GetUtcNow() : (TimeSpan?)null);
-            var retry = delay > TimeSpan.Zero ? delay : null;
+            var retry = SupplierJson.RetryAfter(response, clock);
             if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
                 return new("Rejected", empty, "credentials_rejected");
             if (response.StatusCode == HttpStatusCode.RequestTimeout || (int)response.StatusCode >= 500)

@@ -6,7 +6,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Xunit;
 
-
 namespace Lexarbor.Domain.Tests;
 
 public sealed class AudioPublicReadRepositoryTests

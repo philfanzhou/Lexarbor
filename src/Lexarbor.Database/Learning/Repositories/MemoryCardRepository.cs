@@ -26,13 +26,8 @@ public class MemoryCardRepository : IMemoryCardRepository
         return _dbContext.MemoryCards.AddAsync(ToEntity(card), cancellationToken).AsTask();
     }
 
-    public Task<bool> HasWordAsync(Guid studentId, string wordKey, CancellationToken cancellationToken = default) =>
-        _dbContext.MemoryCards.AnyAsync(card => card.StudentId == studentId && card.WordKey == wordKey, cancellationToken);
-
     public async Task UpdateAsync(MemoryCard card, CancellationToken cancellationToken = default)
     {
-
-
         var entity = await _dbContext.MemoryCards.FindAsync(
             new object[] { card.StudentId, card.WordKey, card.MeaningKey }, cancellationToken).ConfigureAwait(false);
         if (entity is null)
@@ -61,8 +56,6 @@ public class MemoryCardRepository : IMemoryCardRepository
         var query = _dbContext.MemoryCards.AsNoTracking().Where(e => e.StudentId == studentId && e.DueAt <= now);
         if (keys is { Count: > 0 })
         {
-
-
             var tokens = keys.Select(k => k.WordKey + "\n" + k.MeaningKey).ToList();
             query = query.Where(e => tokens.Contains(e.WordKey + "\n" + e.MeaningKey));
         }

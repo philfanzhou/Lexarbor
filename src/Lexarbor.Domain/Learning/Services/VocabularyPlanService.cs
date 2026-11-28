@@ -42,7 +42,7 @@ public sealed class VocabularyPlanService
         Guid studentId, CancellationToken cancellationToken = default) =>
         _planRepository.FindActiveByStudentAsync(studentId, cancellationToken);
     public Task<DateTimeOffset?> GetTeacherAdjustedAtAsync(Guid planId, CancellationToken cancellationToken = default) =>
-        _changeRepository.FindLatestTeacherUpdateAtAsync(planId, cancellationToken);
+        _changeRepository.FindTeacherAdjustedAtAsync(planId, cancellationToken);
 
     public Task<List<VocabPlan>> ListByIdsAsync(IReadOnlyCollection<Guid> planIds, CancellationToken cancellationToken = default) =>
         _planRepository.ListByIdsAsync(planIds, cancellationToken);
@@ -178,7 +178,6 @@ public sealed class VocabularyPlanService
             var scope = await _scopeReader.ReadScopeAsync(plan.Segments, cancellationToken).ConfigureAwait(false);
             if (scope.WordCount <= 0)
             {
-
                 throw new VocabPlanScopeEmptyException();
             }
             plan.TotalWords = scope.WordCount;

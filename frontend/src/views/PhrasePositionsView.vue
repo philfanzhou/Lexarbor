@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { getBooks, getBookUnits } from '@/services/bookApi'
+import { unitOptionLabel } from '@/services/bookLabels'
 import { getAdminPhrasePositions } from '@/services/adminVocabularyApi'
 import type { AdminPhrasePosition, AdminUnitSectionFilter } from '@/services/adminVocabularyApi'
 import type { Book, BookUnit } from '@/types'
@@ -194,7 +195,7 @@ onBeforeUnmount(() => { requestId += 1; unitRequestId += 1; bookRequestId += 1; 
         </div>
         <el-select v-model="unitId" class="phrase-positions__unit" aria-label="筛选单元" placeholder="全部单元" :disabled="!bookId || unitsLoading || !!unitsError">
           <el-option label="全部单元" value="" />
-          <el-option v-for="unit in units" :key="unit.id" :label="`第 ${unit.number} 单元 ${unit.title ?? ''}`" :value="unit.id" />
+          <el-option v-for="unit in units" :key="unit.id" :label="unitOptionLabel(unit)" :value="unit.id" />
         </el-select>
         <el-select v-model="section" class="phrase-positions__section" aria-label="筛选分节" :disabled="!bookId">
           <el-option label="全部分节" value="" /><el-option label="Section A" value="A" />

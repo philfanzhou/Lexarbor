@@ -260,7 +260,7 @@ public sealed class VocabularyPhotoTraceTests : IAsyncDisposable
         using var provider = services.BuildServiceProvider();
         var recognizer = new VisionPhotoRecognizer(provider.GetRequiredService<IHttpClientFactory>(), runtime,
             new(), NullLogger<VisionPhotoRecognizer>.Instance);
-        await Assert.ThrowsAsync<VocabPhotoImportUnavailableException>(() => recognizer.RecognizeAsync(new VocabPhoto(Jpeg, "image/jpeg"), Ct));
+        await Assert.ThrowsAsync<VocabPhotoUnavailableException>(() => recognizer.RecognizeAsync(new VocabPhoto(Jpeg, "image/jpeg"), Ct));
         Assert.Equal(0, answer.Calls);
     }
 
@@ -273,7 +273,7 @@ public sealed class VocabularyPhotoTraceTests : IAsyncDisposable
     {
         var body = Encoding.UTF8.GetBytes(Completion(content));
         if (valid) Assert.Empty(VisionPhotoRecognizer.Parse(body));
-        else Assert.Throws<VocabPhotoImportUnavailableException>(() => VisionPhotoRecognizer.Parse(body));
+        else Assert.Throws<VocabPhotoUnavailableException>(() => VisionPhotoRecognizer.Parse(body));
     }
 
     private static string Completion(string content) =>

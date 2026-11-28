@@ -139,6 +139,20 @@ public static partial class VocabularyEndpoints
         return ApiResponse.Ok(new BoolResponse { Success = true });
     }
 
+    /// <summary>The JSON body, or null when the content type is not JSON or the body does not parse.</summary>
+    private static async Task<T?> ReadJsonBodyAsync<T>(HttpRequest httpRequest) where T : class
+    {
+        if (!httpRequest.HasJsonContentType()) return null;
+        try
+        {
+            return await httpRequest.ReadFromJsonAsync<T>(httpRequest.HttpContext.RequestAborted);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     // The body is read here rather than bound as a parameter. Bound, a body
     // over the size limit is answered by the framework with an empty 413, and
     // malformed JSON with a generic 400; read explicitly, both reach the
@@ -148,19 +162,7 @@ public static partial class VocabularyEndpoints
         VocabularyService vocabularyService,
         ILoggerFactory loggerFactory)
     {
-        VocabularyBatchImportRequest? request = null;
-        if (httpRequest.HasJsonContentType())
-        {
-            try
-            {
-                request = await httpRequest.ReadFromJsonAsync<VocabularyBatchImportRequest>(
-                    httpRequest.HttpContext.RequestAborted);
-            }
-            catch (JsonException)
-            {
-                request = null;
-            }
-        }
+        var request = await ReadJsonBodyAsync<VocabularyBatchImportRequest>(httpRequest);
 
         if (request == null)
         {
@@ -282,19 +284,7 @@ public static partial class VocabularyEndpoints
         HttpRequest httpRequest,
         VocabularyService vocabularyService)
     {
-        CreateQuestionsRequest? request = null;
-        if (httpRequest.HasJsonContentType())
-        {
-            try
-            {
-                request = await httpRequest.ReadFromJsonAsync<CreateQuestionsRequest>(
-                    httpRequest.HttpContext.RequestAborted);
-            }
-            catch (JsonException)
-            {
-                request = null;
-            }
-        }
+        var request = await ReadJsonBodyAsync<CreateQuestionsRequest>(httpRequest);
 
         if (request == null)
         {

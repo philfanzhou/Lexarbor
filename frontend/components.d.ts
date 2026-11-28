@@ -39,6 +39,8 @@ declare module 'vue' {
     MeaningPositionDialog: typeof import('./src/components/MeaningPositionDialog.vue')['default']
     MeaningSubmissionReviewsPanel: typeof import('./src/components/MeaningSubmissionReviewsPanel.vue')['default']
     PageHeader: typeof import('./src/components/PageHeader.vue')['default']
+    PaginationBar: typeof import('./src/components/PaginationBar.vue')['default']
+    RereadButton: typeof import('./src/components/settings/RereadButton.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     SecretControl: typeof import('./src/components/settings/SecretControl.vue')['default']

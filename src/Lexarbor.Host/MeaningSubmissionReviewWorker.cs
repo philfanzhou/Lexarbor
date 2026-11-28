@@ -1,4 +1,3 @@
-using System.Threading.Channels;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 using Lexarbor.Domain.Services;
@@ -7,36 +6,11 @@ using Lexarbor.Host.Integration;
 
 namespace Lexarbor.Host;
 
-public sealed class MeaningSubmissionReviewNotifications : IMeaningSubmissionChangeNotifier
-{
-    private readonly Channel<bool> _channel = Channel.CreateBounded<bool>(new BoundedChannelOptions(1)
-    { FullMode = BoundedChannelFullMode.DropWrite, SingleReader = true });
-    public void Notify() => _channel.Writer.TryWrite(true);
-    public void Drain() { while (_channel.Reader.TryRead(out _)) { } }
-    public Task WaitAsync(CancellationToken token) => _channel.Reader.WaitToReadAsync(token).AsTask();
-}
-
-public sealed class MeaningSubmissionAutomaticReviewStatusProvider(EnrichmentRuntimeConfiguration runtime,
-    MeaningSubmissionSettings settings, IMeaningSubmissionAutoReviewRepository repository) : IMeaningSubmissionAutomaticReviewStatusProvider
-{
-    public async Task<MeaningSubmissionAutomaticReviewStatus> ReadAsync(CancellationToken token)
-    {
-        var options = runtime.Current.ReviewAssistant;
-        var code = PauseCode(options, settings);
-        var backlog = await repository.ReadBacklogAsync(token);
-        return new(options.AutoReviewEnabled, code != null, code, backlog.PendingCount,
-            backlog.LastFailureCode, backlog.LastFailureAt, backlog.NextAttemptAt);
-    }
-    internal static string? PauseCode(ReviewAssistantOptions options, MeaningSubmissionSettings settings) =>
-        !options.AutoReviewEnabled ? "disabled" : !settings.IsConfigured ? "submissions_not_configured"
-        : !options.IsEnabled ? "configuration_missing" : !options.CanAutomaticallyReview ? "configuration_invalid" : null;
-}
-
 /// <summary>One bounded queue, one concurrent call, no shared enrichment pause or failure budget.</summary>
 public sealed class MeaningSubmissionReviewWorker(IServiceScopeFactory scopes, EnrichmentRuntimeConfiguration runtime,
-    MeaningSubmissionSettings settings, MeaningSubmissionReviewNotifications notifications, TimeProvider clock,
-    AutomaticMeaningSubmissionReviewClient client, ILogger<MeaningSubmissionReviewWorker> logger,
-    MeaningSubmissionReviewBatchExecutor? batching = null) : BackgroundService
+    MeaningSubmissionSettings settings, MeaningSubmissionNotifications notifications, TimeProvider clock,
+    AutomaticReviewClient client, ILogger<MeaningSubmissionReviewWorker> logger,
+    AutomaticReviewBatchExecutor? batching = null) : BackgroundService
 {
     public const int BatchSize = 20;
     public static readonly TimeSpan ScanInterval = TimeSpan.FromSeconds(5);
@@ -76,7 +50,7 @@ public sealed class MeaningSubmissionReviewWorker(IServiceScopeFactory scopes, E
             token.ThrowIfCancellationRequested();
             var snapshot = runtime.Current;
             var options = snapshot.ReviewAssistant;
-            if (MeaningSubmissionAutomaticReviewStatusProvider.PauseCode(options, settings) != null) break;
+            if (AutomaticReviewStatusProvider.PauseCode(options, settings) != null) break;
             await using var scope = scopes.CreateAsyncScope();
             var repository = scope.ServiceProvider.GetRequiredService<IMeaningSubmissionAutoReviewRepository>();
             var lease = await repository.ClaimAsync(_owner, TimeSpan.FromSeconds(options.TimeoutSeconds + 30), token);
@@ -88,7 +62,7 @@ public sealed class MeaningSubmissionReviewWorker(IServiceScopeFactory scopes, E
             try
             {
                 // Recheck after acquiring the short writer; no request is sent while paused.
-                if (MeaningSubmissionAutomaticReviewStatusProvider.PauseCode(runtime.Current.ReviewAssistant, settings) != null) continue;
+                if (AutomaticReviewStatusProvider.PauseCode(runtime.Current.ReviewAssistant, settings) != null) continue;
                 var submission = await scope.ServiceProvider.GetRequiredService<IMeaningSubmissionRepository>().GetByIdAsync(lease.SubmissionId, operation.Token);
                 if (submission == null) continue;
                 var validated = await repository.ReadValidatedAsync(lease, operation.Token);
@@ -103,7 +77,7 @@ public sealed class MeaningSubmissionReviewWorker(IServiceScopeFactory scopes, E
                     // conclusion still gets a permanent Applied=false record under the same writer.
                     var service = scope.ServiceProvider.GetRequiredService<MeaningSubmissionService>();
                     var eligibility = new Eligibility(repository, lease, () => !operation.IsCancellationRequested
-                        && MeaningSubmissionAutomaticReviewStatusProvider.PauseCode(runtime.Current.ReviewAssistant, settings) == null);
+                        && AutomaticReviewStatusProvider.PauseCode(runtime.Current.ReviewAssistant, settings) == null);
                     try { await service.ApplyAiReviewAsync(review, eligibility, operation.Token); }
                     catch (OperationCanceledException) when (operation.IsCancellationRequested)
                     {
@@ -138,7 +112,7 @@ public sealed class MeaningSubmissionReviewWorker(IServiceScopeFactory scopes, E
             while (true)
             {
                 observed = await runtime.WaitForChangeAsync(observed, token);
-                if (MeaningSubmissionAutomaticReviewStatusProvider.PauseCode(observed.ReviewAssistant, settings) == null) continue;
+                if (AutomaticReviewStatusProvider.PauseCode(observed.ReviewAssistant, settings) == null) continue;
                 await operation.CancelAsync(); return;
             }
         }

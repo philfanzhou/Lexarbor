@@ -10,7 +10,6 @@ public enum VocabQuestionKind
 /// <summary>Question direction; a card first appears as English to Chinese.</summary>
 public enum VocabQuestionDirection
 {
-
     EnglishToChinese = 1,
 
     ChineseToEnglish = 2,

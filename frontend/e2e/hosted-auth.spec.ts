@@ -439,4 +439,3 @@ test('the hosted logout fetches the antiforgery token and echoes it in the heade
     { method: 'POST', headers: expect.objectContaining({ 'x-signacore-csrf': 'synthetic-antiforgery-token' }) }
   ])
 })
-

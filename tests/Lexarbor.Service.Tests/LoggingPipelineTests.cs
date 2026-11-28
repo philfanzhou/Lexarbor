@@ -42,7 +42,6 @@ public class LoggingPipelineTests
         }
     }
 
-
     [Fact]
     public async Task ConsoleOutput_CarriesIdentityFieldsAndNeverTheCallbackSecrets()
     {

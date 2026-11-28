@@ -30,5 +30,4 @@ public sealed class AudioAssetEntity
 
     [Column("first_published_at_unix_ms")]
     public long? FirstPublishedAtUnixMs { get; set; }
-
 }

@@ -63,28 +63,6 @@ public class MeaningSubmission
     private static string Normalize(string value) => CatalogKeys.Of(value);
 }
 
-/// <summary>
-/// The comparison key the public entries read calls <c>normalizedWord</c> and
-/// <c>meaningKey</c>: SQLite's <c>lower(trim(text))</c>, which folds ASCII letters
-/// only. Computed in process for text that is not stored yet, so a client keying
-/// its records by these values sees one rule.
-/// </summary>
-public static class CatalogKeys
-{
-    public static string Of(string text)
-    {
-        var trimmed = text.Trim(' ');
-        return string.Create(trimmed.Length, trimmed, static (span, source) =>
-        {
-            for (var index = 0; index < source.Length; index++)
-            {
-                var character = source[index];
-                span[index] = character is >= 'A' and <= 'Z' ? (char)(character + 32) : character;
-            }
-        });
-    }
-}
-
 /// <summary>One meaning of a word in an enabled book, as the catalog search answers it.</summary>
 public sealed record CatalogMeaningMatch(
     string WordId,
@@ -121,18 +99,6 @@ public sealed record MeaningSubmissionReviewAdvice(
     string? PhoneticUk,
     string? PhoneticUs,
     string? Comment);
-
-/// <summary>Deployment settings of the submission feature.</summary>
-public sealed class MeaningSubmissionSettings
-{
-    /// <summary>
-    /// The supplementary book approved submissions are written into. Unset turns
-    /// the feature off: submissions are refused and approval is impossible.
-    /// </summary>
-    public string? BookId { get; init; }
-
-    public bool IsConfigured => !string.IsNullOrWhiteSpace(BookId);
-}
 
 /// <summary>
 /// A validated, bounded conclusion captured from one actual model call. No raw

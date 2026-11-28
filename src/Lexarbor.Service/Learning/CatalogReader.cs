@@ -22,7 +22,6 @@ public interface ICatalogClient
 }
 public sealed class CatalogReader : IVocabularyPlanScopeReader
 {
-
     private const int PageSize = 100;
 
     private readonly ICatalogClient _client;
@@ -36,12 +35,11 @@ public sealed class CatalogReader : IVocabularyPlanScopeReader
     {
         if (segments.Count == 0)
         {
-            throw new CatalogException(BookNotFound, retryable: false, "The vocabulary plan scope has no book.");
+            throw new CatalogException(BookNotFound, "The vocabulary plan scope has no book.");
         }
 
         if (segments.Count == 1 && Normalize(segments[0].UnitIds) is null)
         {
-
             var firstPage = await _client.GetEntriesAsync(RequireBookId(segments[0].BookId), null, page: 1, size: 1, cancellationToken).ConfigureAwait(false);
             return new VocabularyPlanScope(firstPage.WordCount);
         }
@@ -61,11 +59,9 @@ public sealed class CatalogReader : IVocabularyPlanScopeReader
         var normalizedUnits = Normalize(segment.UnitIds);
         if (normalizedUnits is null)
         {
-
             await ReadPagesAsync(bookId, null, words, new HashSet<string>(StringComparer.Ordinal), cancellationToken).ConfigureAwait(false);
             return;
         }
-
 
         var units = await _client.GetUnitsAsync(bookId, cancellationToken).ConfigureAwait(false);
         var knownUnitIds = units.Select(unit => unit.Id).ToHashSet(StringComparer.Ordinal);
@@ -73,7 +69,7 @@ public sealed class CatalogReader : IVocabularyPlanScopeReader
         {
             if (!knownUnitIds.Contains(unitId))
             {
-                throw new CatalogException(UnitNotFound, retryable: false,
+                throw new CatalogException(UnitNotFound,
                     $"The vocabulary unit was not found in book {bookId}.");
             }
         }
@@ -92,7 +88,6 @@ public sealed class CatalogReader : IVocabularyPlanScopeReader
             var result = await _client.GetEntriesAsync(bookId, unitId, page, PageSize, cancellationToken).ConfigureAwait(false);
             foreach (var entry in result.Items)
             {
-
                 if (seenMeanings.Add(entry.MeaningId))
                 {
                     words.Add(entry.NormalizedWord);
@@ -108,7 +103,7 @@ public sealed class CatalogReader : IVocabularyPlanScopeReader
 
     private static string RequireBookId(string? bookId) =>
         string.IsNullOrWhiteSpace(bookId)
-            ? throw new CatalogException(BookNotFound, retryable: false, "The vocabulary book id is empty.")
+            ? throw new CatalogException(BookNotFound, "The vocabulary book id is empty.")
             : bookId.Trim();
 
     private static List<string>? Normalize(IReadOnlyList<string>? unitIds)

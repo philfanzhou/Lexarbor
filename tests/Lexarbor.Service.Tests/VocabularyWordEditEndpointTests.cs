@@ -195,5 +195,4 @@ public class VocabularyWordEditEndpointTests
     }
     private static Task FailureAsync(HttpResponseMessage response, HttpStatusCode status)
         => TestInfrastructure.HttpFailureAssertions.AssertFailureAsync(response, status);
-
 }

@@ -174,7 +174,7 @@ public static partial class VocabularyNotebookEndpoints
     private static string TraceOutcome(Exception error) => error switch
     {
         VocabPhotoInvalidException => "invalid",
-        VocabPhotoImportUnavailableException => "unavailable",
+        VocabPhotoUnavailableException => "unavailable",
         VocabCatalogUnavailableException => "catalog-unavailable",
         _ => "failed",
     };
@@ -254,7 +254,7 @@ public static partial class VocabularyNotebookEndpoints
     private static bool IsMapped(Exception error) => error is VocabStudentNotFoundException or VocabNotebookInvalidException
         or VocabNotebookItemNotFoundException or VocabNotebookMeaningNotFoundException or VocabNotebookRemovalForbiddenException
         or VocabNotebookItemNotRejectedException or VocabCatalogUnavailableException
-        or VocabPhotoInvalidException or VocabPhotoImportUnavailableException;
+        or VocabPhotoInvalidException or VocabPhotoUnavailableException;
 
     private static IResult MapError(Exception error) => error switch
     {
@@ -265,14 +265,13 @@ public static partial class VocabularyNotebookEndpoints
         VocabNotebookRemovalForbiddenException => ApiResponse.Failure(403, "VOCAB_NOTEBOOK_REMOVE_FORBIDDEN", error.Message),
         VocabNotebookItemNotRejectedException => ApiResponse.Failure(409, "VOCAB_NOTEBOOK_ITEM_NOT_REJECTED", error.Message),
         VocabPhotoInvalidException => ApiResponse.Failure(400, "VOCAB_PHOTO_INVALID", error.Message),
-        VocabPhotoImportUnavailableException => ApiResponse.Failure(503, "VOCAB_PHOTO_IMPORT_UNAVAILABLE", "Photo import is temporarily unavailable."),
+        VocabPhotoUnavailableException => ApiResponse.Failure(503, "VOCAB_PHOTO_IMPORT_UNAVAILABLE", "Photo import is temporarily unavailable."),
         _ => ApiResponse.Failure(503, "VOCAB_CATALOG_UNAVAILABLE", "The vocabulary catalog is temporarily unavailable."),
     };
 }
 
 public sealed class VocabNotebookActorRequest
 {
-
     public string? Type { get; set; }
 
     public Guid? TeacherId { get; set; }

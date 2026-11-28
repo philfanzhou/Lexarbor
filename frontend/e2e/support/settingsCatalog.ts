@@ -187,9 +187,9 @@ const ownedReasons: Record<string, string> = {
   "ConnectionStrings:Default": "The running process is bound to this database; moving it is an offline operation with the host stopped.",
   "LEXARBOR_TELEMETRY_OTLP_AUTHORIZATION": "The value lives only in the process environment and never enters configuration.",
 }
-export type Definition = [string, string, string, Field['kind'], Field['apply'], Field['value'], number | null, number | null, string[] | null, string | null, string | null, boolean]
-export type Source = 'default' | 'file' | 'environment' | 'commandLine'
-export interface Field {
+type Definition = [string, string, string, Field['kind'], Field['apply'], Field['value'], number | null, number | null, string[] | null, string | null, string | null, boolean]
+type Source = 'default' | 'file' | 'environment' | 'commandLine'
+interface Field {
   key: string
   group: string
   section: string
@@ -217,7 +217,7 @@ export interface Field {
   module: string | null
   wire: string | null
 }
-export interface Fact { id: string; name: string; value: string | null; detail: string | null }
+interface Fact { id: string; name: string; value: string | null; detail: string | null }
 export interface Catalog {
   revision: string
   storageAvailable: boolean
@@ -389,7 +389,7 @@ export function modelOf(catalog: Catalog, at = revision) {
 }
 
 /** The catalog entry of a live key, by its name in its module's request body. */
-export function wired(catalog: Catalog, wire: string): Field {
+function wired(catalog: Catalog, wire: string): Field {
   // The review assistant's connection names remain aliases of the reasoning model's.
   const field = catalog.fields.find(item => item.wire === wire)
     ?? catalog.fields.find(item => item.wire === wire.replace(/^reviewAssistant\./, 'enrichment.text.'))

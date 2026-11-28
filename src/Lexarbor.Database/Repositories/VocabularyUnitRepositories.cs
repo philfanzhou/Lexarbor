@@ -35,7 +35,7 @@ public class VocabularyBookUnitRepository : IVocabularyBookUnitRepository
         return entities.Adapt<List<VocabularyBookUnit>>();
     }
 
-    public async Task<Dictionary<string, int>> GetAssignmentCountsByBookIdAsync(string bookId)
+    public async Task<Dictionary<string, int>> GetAssignmentCountsAsync(string bookId)
     {
         // One grouped read over the book's memberships answers every unit at
         // once; counting per unit instead would turn a list endpoint into one
@@ -138,10 +138,11 @@ public class VocabularyMeaningUnitRepository : IVocabularyMeaningUnitRepository
     }
 
     // The entity stores no section and no entry kind as the empty string,
-    // because SQLite treats NULLs in a composite primary key as mutually
-    // unequal and the key is what makes a repeated assignment a conflict. The
-    // model uses null for "no section" and "no kind" so writers never need to
-    // know the sentinels; these methods are the only place that translates.
+    // because the key is what makes a repeated assignment a conflict and the
+    // schema was built on SQLite, which treats NULLs in a composite primary key
+    // as mutually unequal. The model uses null for "no section" and "no kind"
+    // so writers never need to know the sentinels; these methods are the only
+    // place that translates.
     private static string ToStoredSection(string? section)
     {
         return section ?? string.Empty;

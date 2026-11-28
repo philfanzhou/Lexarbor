@@ -9,7 +9,7 @@ public sealed partial class VocabularyPublicQueryRepository
 {
     public Task<PartOfSpeechChoiceCandidates?> GetPartOfSpeechChoiceAsync(Vocabulary word, VocabularyMeaning meaning,
         VocabularyPartOfSpeech partOfSpeech, VocabularyDistractorScope? scope, bool supplementary, CancellationToken cancellationToken) =>
-        SnapshotAsync<PartOfSpeechChoiceCandidates?>(async () =>
+        ReadSnapshot.ReadAsync<PartOfSpeechChoiceCandidates?>(context, async () =>
         {
             var confirmed = context.VocabularyRelations.AsNoTracking().Where(edge => edge.Status == "confirmed");
             var derivatives = confirmed.Where(edge => edge.Type == "derived_noun" || edge.Type == "derived_verb"

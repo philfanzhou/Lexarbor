@@ -461,7 +461,7 @@ public sealed partial class EnrichmentSettingsTests : IDisposable
         Assert.Equal(new[] { "first-model", "next-model" }, handler.Models); Assert.Equal(new[] { Secret, "synthetic-next-key" }, handler.Keys);
         Assert.Equal(HttpStatusCode.OK, (await Put(client, Revision(await Read(client)), """{"reviewAssistant":{"endpoint":"","apiKey":{"action":"clear"}}}""")).StatusCode);
         Assert.False(assistant.IsEnabled);
-        await Assert.ThrowsAsync<ReviewAssistantUnavailableException>(() => assistant.ReviewAsync(new MeaningSubmission(), Ct)); Assert.Equal(2, handler.Models.Count);
+        await Assert.ThrowsAsync<AssistantUnavailableException>(() => assistant.ReviewAsync(new MeaningSubmission(), Ct)); Assert.Equal(2, handler.Models.Count);
     }
     private sealed class ReviewHandler : HttpMessageHandler
     {

@@ -1,14 +1,14 @@
-import api from './api'
 import { ApiError } from './apiError'
+import { isRevision, putWithRevision } from './settingsRevision'
 
-export interface RateLimitPolicy {
+interface RateLimitPolicy {
   enabled: boolean
   permitLimit: number
   windowSeconds: number
   source: 'default' | 'file' | 'environment' | 'commandLine'
   editable: boolean
 }
-export interface RateLimitSettings {
+interface RateLimitSettings {
   revision: string
   adminLogin: RateLimitPolicy
 }
@@ -22,9 +22,7 @@ function parse(value: unknown): RateLimitSettings {
     && typeof policy.enabled === 'boolean' && Number.isInteger(policy.permitLimit)
     && Number.isInteger(policy.windowSeconds) && typeof policy.editable === 'boolean'
     && ['default', 'file', 'environment', 'commandLine'].includes(policy.source)
-  if (!settings || typeof settings.revision !== 'string'
-    || !/^"[0-9a-f]{32}"$/.test(settings.revision)
-    || !validPolicy(settings.adminLogin)) {
+  if (!settings || !isRevision(settings.revision) || !validPolicy(settings.adminLogin)) {
     throw new ApiError('无法读取有效的限流状态。')
   }
   return settings as RateLimitSettings
@@ -32,6 +30,5 @@ function parse(value: unknown): RateLimitSettings {
 
 /** Saves the two live switches; the page shows their values through the settings catalog. */
 export async function saveRateLimits(revision: string, changes: RateLimitChanges, signal: AbortSignal, isCurrent: () => boolean) {
-  return parse(await api.put<unknown>('/admin/system/settings/rate-limits', changes,
-    { headers: { 'If-Match': revision }, signal, lxIsCurrent: isCurrent }))
+  return parse(await putWithRevision('/admin/system/settings/rate-limits', revision, changes, signal, isCurrent))
 }

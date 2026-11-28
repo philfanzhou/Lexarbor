@@ -103,7 +103,7 @@ public class VocabularyBookService
 
     public Task<List<string>> GetAllEducationLevelsAsync()
     {
-        return _bookRepository.GetDistinctEducationLevelsAsync();
+        return _bookRepository.GetEducationLevelsAsync();
     }
 
     public Task<List<string>> GetAllGradesAsync()
@@ -113,6 +113,6 @@ public class VocabularyBookService
 
     public Task<List<string>> GetGradesByEducationLevelAsync(string educationLevel)
     {
-        return _bookRepository.GetDistinctGradesByEducationLevelAsync(educationLevel);
+        return _bookRepository.GetGradesByEducationLevelAsync(educationLevel);
     }
 }

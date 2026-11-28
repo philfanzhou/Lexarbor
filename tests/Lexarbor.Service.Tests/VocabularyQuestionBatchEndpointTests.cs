@@ -479,11 +479,11 @@ public class VocabularyQuestionBatchEndpointTests :
         public Task<List<VocabularyBook>> GetByCategoryAsync(
             string? category, string? grade) => inner.GetByCategoryAsync(category, grade);
         public Task<List<string>> GetDistinctCategoriesAsync() => inner.GetDistinctCategoriesAsync();
-        public Task<List<string>> GetDistinctEducationLevelsAsync()
-            => inner.GetDistinctEducationLevelsAsync();
+        public Task<List<string>> GetEducationLevelsAsync()
+            => inner.GetEducationLevelsAsync();
         public Task<List<string>> GetDistinctGradesAsync() => inner.GetDistinctGradesAsync();
-        public Task<List<string>> GetDistinctGradesByEducationLevelAsync(
-            string educationLevel) => inner.GetDistinctGradesByEducationLevelAsync(educationLevel);
+        public Task<List<string>> GetGradesByEducationLevelAsync(
+            string educationLevel) => inner.GetGradesByEducationLevelAsync(educationLevel);
         public Task<bool> HasMeaningsAsync(string bookId) => inner.HasMeaningsAsync(bookId);
         public Task<(List<Vocabulary> Items, int TotalCount)> GetWordsAsync(
             string bookId, int page, int size) => inner.GetWordsAsync(bookId, page, size);

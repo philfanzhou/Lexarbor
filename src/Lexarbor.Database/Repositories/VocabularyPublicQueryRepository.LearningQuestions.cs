@@ -9,7 +9,7 @@ public sealed partial class VocabularyPublicQueryRepository
 {
     /// <summary>Reads the directed link, competing answers and form choices in a single snapshot.</summary>
     public Task<LearningQuestionRelationContext?> GetLearningRelationAsync(VocabularyMeaning targetMeaning, LearningQuestionRelation relation,
-        CancellationToken cancellationToken) => SnapshotAsync<LearningQuestionRelationContext?>(async () =>
+        CancellationToken cancellationToken) => ReadSnapshot.ReadAsync<LearningQuestionRelationContext?>(context, async () =>
     {
         var confirmed = context.VocabularyRelations.AsNoTracking().Where(row => row.Status == "confirmed");
         var words = context.Vocabularies.AsNoTracking();
@@ -53,7 +53,7 @@ public sealed partial class VocabularyPublicQueryRepository
     /// <summary>Returns null when the target has no family so review can use its ordinary choice generator.</summary>
     public Task<IReadOnlyList<VocabularyQuestionOption>?> GetReviewDistractorsAsync(Vocabulary word,
         VocabularyMeaning meaning, VocabularyDistractorScope? scope, bool chineseToEnglish, bool supplementary,
-        CancellationToken cancellationToken) => SnapshotAsync<IReadOnlyList<VocabularyQuestionOption>?>(async () =>
+        CancellationToken cancellationToken) => ReadSnapshot.ReadAsync<IReadOnlyList<VocabularyQuestionOption>?>(context, async () =>
     {
         var confirmed = context.VocabularyRelations.AsNoTracking().Where(row => row.Status == "confirmed");
         var wordId = word.Id;

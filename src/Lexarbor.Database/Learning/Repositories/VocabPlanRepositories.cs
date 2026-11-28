@@ -58,8 +58,6 @@ public class VocabPlanRepository : IVocabPlanRepository
 
     public async Task UpdateAsync(VocabPlan plan, CancellationToken cancellationToken = default)
     {
-
-
         var entity = await _dbContext.VocabPlans.FindAsync(new object[] { plan.Id }, cancellationToken).ConfigureAwait(false);
         if (entity is null)
         {
@@ -144,7 +142,7 @@ public class VocabPlanChangeRepository : IVocabPlanChangeRepository
         }, cancellationToken).AsTask();
     }
 
-    public async Task<DateTimeOffset?> FindLatestTeacherUpdateAtAsync(Guid planId, CancellationToken cancellationToken = default)
+    public async Task<DateTimeOffset?> FindTeacherAdjustedAtAsync(Guid planId, CancellationToken cancellationToken = default)
     {
         // max(created_at) over one plan's rows; served by IX_vocab_plan_change_plan_id_created_at.
         var latest = await _dbContext.VocabPlanChanges.AsNoTracking()

@@ -55,10 +55,11 @@ The application uses hash history. On first entry to a protected page it calls `
 | `GET /admin/auth/session` | Returns the current administrator session |
 | `POST /admin/auth/logout` | Deletes the server-side cookie; the frontend always clears its local state. Hosted mode may answer `{ logoutUrl }`, which the browser is then navigated to; without it the logout was local-only |
 
-Axios uses `withCredentials=true`. Administration write requests send:
+Axios uses `withCredentials=true`. Administration write requests fetch the antiforgery
+token from `GET /admin/auth/csrf` (once per token lifetime) and send it in:
 
 ```text
-X-Requested-With: XMLHttpRequest
+X-SignaCore-CSRF: <token>
 ```
 
 No Authorization token, localStorage token, or sessionStorage token may be added.
@@ -222,7 +223,7 @@ Flow:
 1. Pick an enabled book. The picker reads `GET /api/vocabulary-books/all`, the same as the single-entry page. Picking a book also reads its units from `GET /admin/vocabulary-books/{bookId}/units`, and so does every change of book; the answer for a book no longer chosen is dropped. While the list cannot be loaded, `.batch-units-error` shows a retryable error and submission is blocked, because the page can neither display nor resolve a unit number.
 2. Pick the format, TSV (the default), CSV, or JSON, and paste text into the text area; changing the format parses the same text again. Or choose a local `.tsv`, `.txt`, `.csv`, `.json`, or `.xlsx` file: `.tsv` and `.txt` select TSV, `.csv` selects CSV, `.json` selects JSON, and `.xlsx` selects Excel, ignoring case, and any other extension, `.xls` included, is refused. A file larger than 1 MiB is refused before it is read, so an oversized file cannot stall the preview. The file is read in the browser with `file.arrayBuffer()` and decoded with `new TextDecoder('utf-8', { fatal: true })`, which removes a leading byte-order mark; a file that is not UTF-8 is refused with a message asking for it to be saved as UTF-8, and the text area and the format are left as they were. A file that decodes is placed in the text area and switches the selector to its format; it is never uploaded. An `.xlsx` file is read in a worker instead: the selector shows Excel and, like the text area, is disabled, the text area shows the file name, and **移除文件** (`.batch-remove-file`) returns to an empty TSV text area. A workbook is also cleared by choosing another file and by a successful import.
 3. The preview counts data rows, valid rows, and invalid rows, and lists each row with its position (the source line number it starts on, the sheet row number for Excel, or for JSON the item's number, in a column headed 序号 instead of 行号), its nine columns in the canonical order, and its status. The unit column shows the resolved unit's number and title (`2 · School Life`, or just `2` when the unit has no title), the raw value when it matches no unit, and nothing when the row carries no assignment; the section and entry-kind columns show the raw values as written. The table shows 100 rows per page and can be filtered to invalid rows only. When the input cannot be read as a whole — for example a CSV header that is unknown, duplicated, or missing `word` or `meaning`, an unclosed quote, a JSON syntax error, a JSON top level that is not an array, or a workbook that cannot be read or takes longer than 15 seconds — the page shows that file-level error in `.batch-parse-error` instead of the preview, and the submit checks list only that error, plus the missing book if there is none.
-4. Submitting sends the parsed JSON, never the file. The request uses the same cookie session and `X-Requested-With` header as every other administration write, and the button stays disabled while the request is in flight, so repeated clicks send one request.
+4. Submitting sends the parsed JSON, never the file. The request uses the same cookie session and `X-SignaCore-CSRF` header as every other administration write, and the button stays disabled while the request is in flight, so repeated clicks send one request.
 5. On success the page shows `total`, `created`, and `reused`, clears the text and the preview so the same batch is not sent twice by accident, and keeps the selected book.
 
 Browser-side TSV rules, in addition to the format ADR-005 defines:

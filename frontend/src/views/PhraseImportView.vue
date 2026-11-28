@@ -2,6 +2,7 @@
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { FormInstance, FormRules } from 'element-plus'
 import { getActiveBooks, getBookUnits } from '@/services/bookApi'
+import { unitOptionLabel } from '@/services/bookLabels'
 import { importVocabularyBatch } from '@/services/vocabularyApi'
 import { getApiError } from '@/services/apiError'
 import PageHeader from '@/components/PageHeader.vue'
@@ -164,7 +165,7 @@ onMounted(() => { void loadBooks() })
           </el-form-item>
           <el-form-item label="单元" prop="unitId">
             <el-select v-model="form.unitId" class="phrase-import__unit" placeholder="选择现有单元" :disabled="submitting || !form.bookId || unitsLoading || !!unitsError || !units.length">
-              <el-option v-for="unit in units" :key="unit.id" :label="`第 ${unit.number} 单元 ${unit.title ?? ''}`" :value="unit.id" />
+              <el-option v-for="unit in units" :key="unit.id" :label="unitOptionLabel(unit)" :value="unit.id" />
             </el-select>
           </el-form-item>
           <el-alert v-if="form.bookId && !unitsLoading && !unitsError && !units.length" type="info" title="该教材尚未建立单元，请先在教材管理中新增单元。" :closable="false">

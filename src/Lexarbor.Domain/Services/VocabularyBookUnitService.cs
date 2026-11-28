@@ -43,7 +43,7 @@ public class VocabularyBookUnitService
 
     public async Task<VocabularyBookUnit> CreateAsync(string bookId, int number, string? title)
     {
-        var normalizedBookId = NormalizeRequired(bookId, "BookId is required.");
+        var normalizedBookId = DomainText.RequireNonBlank(bookId, "BookId is required.");
         if (number < 1)
         {
             throw new DomainValidationException("Unit number must be a positive integer.");
@@ -84,7 +84,7 @@ public class VocabularyBookUnitService
 
     public async Task<List<VocabularyBookUnit>> GetByBookAsync(string bookId)
     {
-        var normalizedBookId = NormalizeRequired(bookId, "BookId is required.");
+        var normalizedBookId = DomainText.RequireNonBlank(bookId, "BookId is required.");
 
         _ = await _bookRepository.GetByIdAsync(normalizedBookId)
             ?? throw new ResourceNotFoundException("Vocabulary book was not found.");
@@ -102,13 +102,13 @@ public class VocabularyBookUnitService
     public async Task<List<(VocabularyBookUnit Unit, int MeaningCount)>> GetByBookWithCountsAsync(
         string bookId)
     {
-        var normalizedBookId = NormalizeRequired(bookId, "BookId is required.");
+        var normalizedBookId = DomainText.RequireNonBlank(bookId, "BookId is required.");
 
         _ = await _bookRepository.GetByIdAsync(normalizedBookId)
             ?? throw new ResourceNotFoundException("Vocabulary book was not found.");
 
         var units = await _unitRepository.GetByBookIdAsync(normalizedBookId);
-        var counts = await _unitRepository.GetAssignmentCountsByBookIdAsync(normalizedBookId);
+        var counts = await _unitRepository.GetAssignmentCountsAsync(normalizedBookId);
         return units
             .OrderBy(unit => unit.Number)
             .Select(unit => (unit, counts.TryGetValue(unit.Id, out var count) ? count : 0))
@@ -124,8 +124,8 @@ public class VocabularyBookUnitService
     public async Task<(VocabularyBookUnit Unit, int MeaningCount)> UpdateAsync(
         string bookId, string unitId, int number, string? title)
     {
-        var normalizedBookId = NormalizeRequired(bookId, "BookId is required.");
-        var normalizedUnitId = NormalizeRequired(unitId, "Unit ID is required.");
+        var normalizedBookId = DomainText.RequireNonBlank(bookId, "BookId is required.");
+        var normalizedUnitId = DomainText.RequireNonBlank(unitId, "Unit ID is required.");
         if (number < 1)
         {
             throw new DomainValidationException("Unit number must be a positive integer.");
@@ -159,7 +159,7 @@ public class VocabularyBookUnitService
 
             // Read inside the transaction that updates the unit, so the count a
             // replace answers with belongs to the same state as the edit.
-            var counts = await _unitRepository.GetAssignmentCountsByBookIdAsync(normalizedBookId);
+            var counts = await _unitRepository.GetAssignmentCountsAsync(normalizedBookId);
 
             unit.Number = number;
             unit.Title = normalizedTitle;
@@ -176,8 +176,8 @@ public class VocabularyBookUnitService
     /// </summary>
     public async Task DeleteAsync(string bookId, string unitId)
     {
-        var normalizedBookId = NormalizeRequired(bookId, "BookId is required.");
-        var normalizedUnitId = NormalizeRequired(unitId, "Unit ID is required.");
+        var normalizedBookId = DomainText.RequireNonBlank(bookId, "BookId is required.");
+        var normalizedUnitId = DomainText.RequireNonBlank(unitId, "Unit ID is required.");
 
         await _unitOfWork.ExecuteCatalogWriteAsync(async () =>
         {
@@ -215,8 +215,8 @@ public class VocabularyBookUnitService
     /// </summary>
     public async Task AssignMeaningAsync(string unitId, string meaningId, string? section, string? entryKind)
     {
-        var normalizedUnitId = NormalizeRequired(unitId, "Unit ID is required.");
-        var normalizedMeaningId = NormalizeRequired(meaningId, "Meaning ID is required.");
+        var normalizedUnitId = DomainText.RequireNonBlank(unitId, "Unit ID is required.");
+        var normalizedMeaningId = DomainText.RequireNonBlank(meaningId, "Meaning ID is required.");
         var normalizedSection = NormalizeSection(section);
         var normalizedEntryKind = NormalizeEntryKind(entryKind);
 
@@ -260,8 +260,8 @@ public class VocabularyBookUnitService
     /// </summary>
     public async Task RemoveMeaningAsync(string unitId, string meaningId, string? section, string? entryKind)
     {
-        var normalizedUnitId = NormalizeRequired(unitId, "Unit ID is required.");
-        var normalizedMeaningId = NormalizeRequired(meaningId, "Meaning ID is required.");
+        var normalizedUnitId = DomainText.RequireNonBlank(unitId, "Unit ID is required.");
+        var normalizedMeaningId = DomainText.RequireNonBlank(meaningId, "Meaning ID is required.");
         var normalizedSection = NormalizeSection(section);
         var normalizedEntryKind = NormalizeEntryKind(entryKind);
 
@@ -284,10 +284,10 @@ public class VocabularyBookUnitService
         string fromUnitId, string? fromSection, string? fromEntryKind,
         string toUnitId, string? toSection, string? toEntryKind, CancellationToken cancellationToken = default)
     {
-        var book = NormalizeRequired(bookId, "BookId is required.");
-        var meaning = NormalizeRequired(meaningId, "Meaning ID is required.");
-        var sourceUnit = NormalizeRequired(fromUnitId, "Source unit ID is required.");
-        var targetUnit = NormalizeRequired(toUnitId, "Target unit ID is required.");
+        var book = DomainText.RequireNonBlank(bookId, "BookId is required.");
+        var meaning = DomainText.RequireNonBlank(meaningId, "Meaning ID is required.");
+        var sourceUnit = DomainText.RequireNonBlank(fromUnitId, "Source unit ID is required.");
+        var targetUnit = DomainText.RequireNonBlank(toUnitId, "Target unit ID is required.");
         var sourceSection = NormalizeSection(fromSection);
         var targetSection = NormalizeSection(toSection);
         var sourceKind = NormalizeEntryKind(fromEntryKind);
@@ -327,9 +327,9 @@ public class VocabularyBookUnitService
     public async Task RemovePositionAsync(string bookId, string meaningId,
         string unitId, string? section, string? entryKind, CancellationToken cancellationToken = default)
     {
-        var book = NormalizeRequired(bookId, "BookId is required.");
-        var meaning = NormalizeRequired(meaningId, "Meaning ID is required.");
-        var unit = NormalizeRequired(unitId, "Unit ID is required.");
+        var book = DomainText.RequireNonBlank(bookId, "BookId is required.");
+        var meaning = DomainText.RequireNonBlank(meaningId, "Meaning ID is required.");
+        var unit = DomainText.RequireNonBlank(unitId, "Unit ID is required.");
         var normalizedSection = NormalizeSection(section);
         var normalizedKind = NormalizeEntryKind(entryKind);
         cancellationToken.ThrowIfCancellationRequested();
@@ -389,17 +389,6 @@ public class VocabularyBookUnitService
         if (!VocabularyMeaningUnitEntryKinds.IsValid(normalized))
         {
             throw new DomainValidationException("EntryKind must be word or phrase.");
-        }
-
-        return normalized;
-    }
-
-    private static string NormalizeRequired(string? value, string message)
-    {
-        var normalized = value?.Trim() ?? string.Empty;
-        if (normalized.Length == 0)
-        {
-            throw new DomainValidationException(message);
         }
 
         return normalized;

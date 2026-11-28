@@ -22,7 +22,7 @@ export interface AdminBookRef {
 }
 
 /** A unit a meaning is assigned to, in unit-number order. `section` is `A` or `B` when the assignment sits in one of the unit's sections; `entryKind` is `word` or `phrase` when the entry is classified; absent in older reads. */
-export interface AdminMeaningUnit {
+interface AdminMeaningUnit {
   unitId: string
   number: number
   title?: string | null
@@ -48,12 +48,12 @@ export interface AdminMeaning {
   units?: AdminMeaningUnit[]
 }
 
-export interface AdminPronunciationAccent {
+interface AdminPronunciationAccent {
   phonetic: string | null
   source: 'default' | 'meaning'
 }
 
-export interface AdminPhoneticCondition {
+interface AdminPhoneticCondition {
   epoch: number
   sourceRevision: string
   ownAssetId: string | null
@@ -76,14 +76,14 @@ export interface AdminWordDetail extends AdminWordSummary {
   meanings: AdminMeaning[]
 }
 
-export interface AdminWordPage {
+interface AdminWordPage {
   items: AdminWordSummary[]
   totalCount: number
   totalPage: number
 }
 
 /** The whole-book content page: whole-book counts plus the keyword-matching page. */
-export interface AdminBookContent {
+interface AdminBookContent {
   book: Book
   wordCount: number
   meaningCount: number
@@ -93,7 +93,7 @@ export interface AdminBookContent {
 }
 
 /** The unit a unit-content response is scoped to. */
-export interface AdminUnitRef {
+interface AdminUnitRef {
   id: string
   bookId: string
   number: number
@@ -134,7 +134,7 @@ export interface AdminUnitContent {
   totalPage: number
 }
 
-export interface AdminWordListQuery {
+interface AdminWordListQuery {
   keyword?: string
   page?: number
   size?: number
@@ -164,7 +164,7 @@ export interface AdminPhrasePosition {
   example: string | null
 }
 
-export interface AdminPhrasePositionPage {
+interface AdminPhrasePositionPage {
   items: AdminPhrasePosition[]
   totalCount: number
   totalPage: number
@@ -177,7 +177,7 @@ export interface AdminMeaningPositionKey {
   entryKind: 'word' | 'phrase' | null
 }
 
-export interface AdminMeaningPositionMove {
+interface AdminMeaningPositionMove {
   from: AdminMeaningPositionKey
   to: AdminMeaningPositionKey
 }

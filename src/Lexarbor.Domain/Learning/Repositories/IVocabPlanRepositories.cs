@@ -16,7 +16,6 @@ public interface IVocabPlanRepository
 
 public interface IVocabPlanChangeRepository
 {
-
     Task AddAsync(VocabPlanChange change, CancellationToken cancellationToken = default);
-    Task<DateTimeOffset?> FindLatestTeacherUpdateAtAsync(Guid planId, CancellationToken cancellationToken = default);
+    Task<DateTimeOffset?> FindTeacherAdjustedAtAsync(Guid planId, CancellationToken cancellationToken = default);
 }

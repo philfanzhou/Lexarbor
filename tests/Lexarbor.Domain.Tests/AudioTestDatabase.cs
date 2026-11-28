@@ -19,8 +19,6 @@ internal sealed class AudioTestDatabase : IDisposable
 
     public VocabularyDbContext Open(params IInterceptor[] interceptors) => _database.Open(interceptors);
 
-    public DbContextOptionsBuilder<VocabularyDbContext> Options() => PostgreSqlTestServer.Options(ConnectionString);
-
     public static async Task SeedAsync(VocabularyDbContext db)
     {
         db.VocabularyBooks.Add(new() { Id = "book", BookName = "Audio test", Status = true });

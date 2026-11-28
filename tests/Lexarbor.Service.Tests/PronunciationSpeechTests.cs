@@ -454,7 +454,7 @@ public sealed partial class PronunciationSpeechTests
         var input = AudioSelectionService.GetInput(word, null, AudioLocale.EnGb);
         var request = new PronunciationPreparationRequest(word, null, AudioLocale.EnGb,
             new("input", AudioSelectionService.ComputeRevision(input), null), [new(new("meaning", null, "give"), ["phrase"])]);
-        var prepared = await new OpenAiCompatiblePronunciationPreparationClient(f.Factory, f.Runtime).PrepareAsync(request, Ct);
+        var prepared = await new OpenAiPreparationClient(f.Factory, f.Runtime).PrepareAsync(request, Ct);
         Assert.Equal(PronunciationPreparationOutcome.Ready, prepared.Outcome);
         Assert.Equal(PronunciationControl.Ipa, prepared.Plan!.Control); Assert.Equal(ipa, prepared.Plan.SpeechPhonetic);
         Assert.Null(prepared.Plan.Content.Phonetic); Assert.Empty(prepared.Plan.Content.PartsOfSpeech!);
@@ -498,7 +498,7 @@ public sealed partial class PronunciationSpeechTests
         var word = new AudioWordInput("word", "lead", "liːd", "liːd");
         var input = AudioSelectionService.GetInput(word, null, AudioLocale.EnGb);
         var request = new PronunciationPreparationRequest(word, null, AudioLocale.EnGb, new("input", AudioSelectionService.ComputeRevision(input), null), []);
-        var prepared = await new OpenAiCompatiblePronunciationPreparationClient(f.Factory, f.Runtime).PrepareAsync(request, Ct);
+        var prepared = await new OpenAiPreparationClient(f.Factory, f.Runtime).PrepareAsync(request, Ct);
         if (scenario == "human-conflict")
         {
             Assert.Equal(PronunciationPreparationOutcome.Ready, prepared.Outcome);

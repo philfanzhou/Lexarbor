@@ -22,7 +22,7 @@ public sealed record ConfigurationReadResult(string Revision, IReadOnlyDictionar
 }
 
 /// <summary>One startup-bound key as this process started with it, and as the next start will read it.</summary>
-public sealed record ConfigurationCatalogValue(string? Text, IReadOnlyDictionary<string, string?> Children, JsonNode? FileNode)
+public sealed record ConfigurationCatalogValue(string? Text, IReadOnlyDictionary<string, string?> Children)
 {
     /// <summary>What the next start reads for the key: the deployment's own value, else the file's, else the default.</summary>
     public string? NextStartText { get; init; }
@@ -34,10 +34,10 @@ public sealed record ConfigurationSaveResult(ConfigurationSaveStatus Status, str
     public const string StorageFailureMessage = "Persistent configuration is unavailable.";
 }
 
-public sealed class ConfigurationChangeConflictException() : Exception("Existing audio requires a separate storage migration.");
+public sealed class ChangeConflictException() : Exception("Existing audio requires a separate storage migration.");
 
 /// <summary>A module refused a candidate configuration; names the keys only, never their values.</summary>
-public sealed class InvalidConfigurationCandidateException(IReadOnlyList<string> fields)
+public sealed class InvalidCandidateException(IReadOnlyList<string> fields)
     : Exception("The candidate configuration is invalid.")
 {
     public IReadOnlyList<string> Fields { get; } = fields;
@@ -243,11 +243,11 @@ public sealed class PersistentConfigurationCoordinator
             {
                 throw;
             }
-            catch (ConfigurationChangeConflictException)
+            catch (ChangeConflictException)
             {
                 return new(ConfigurationSaveStatus.ResourceConflict);
             }
-            catch (InvalidConfigurationCandidateException exception)
+            catch (InvalidCandidateException exception)
             {
                 // The module's own verdict, with the keys it refused.
                 return new(ConfigurationSaveStatus.InvalidCandidate, InvalidFields: exception.Fields);
@@ -491,7 +491,7 @@ public sealed class PersistentConfigurationCoordinator
                     children[entry.Key[prefix.Length..]] = entry.Value;
                 }
             }
-            values[field.Key] = new(_startup.GetValueOrDefault(field.Key), children, Node(_lastValidDocument, field.Key)?.DeepClone())
+            values[field.Key] = new(_startup.GetValueOrDefault(field.Key), children)
             {
                 NextStartText = NextStart(field.Key),
                 NextStartItems = NextStartItems(field.Key)

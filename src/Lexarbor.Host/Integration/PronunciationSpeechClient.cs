@@ -129,7 +129,7 @@ public sealed class PronunciationSpeechClient(IHttpClientFactory clients, Enrich
                 ? PronunciationPhonetics.Allows(plan.Content.Phonetic!, plan.SpeechPhonetic!)
                 : PronunciationPhonetics.ShareReading(plan.RequiredPhonetic!, plan.Content.Phonetic!)))
         && plan.InputVersion.SourceRevision == AudioSelectionService.ComputeRevision(plan.Input)
-        && OpenAiCompatiblePronunciationPreparationClient.TemplateExpanded(plan.Input.Word, plan.Content.SpokenText);
+        && OpenAiPreparationClient.TemplateExpanded(plan.Input.Word, plan.Content.SpokenText);
     internal static PronunciationSpeechResult ValidateAudio(byte[] bytes) => bytes.Length is >= 300 and <= MaximumAudioBytes && Mp3Validation.IsValid(bytes)
         ? new(PronunciationSpeechOutcome.Ready, bytes, RequestMade: true)
         : Failure(PronunciationSpeechOutcome.InvalidAudio, "invalid_audio", true);

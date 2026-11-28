@@ -175,7 +175,7 @@ public class MeaningSubmissionServiceTests : TestBase
         var (service, _) = Create(null);
 
         Assert.False(service.IsConfigured);
-        await Assert.ThrowsAsync<MeaningSubmissionsNotConfiguredException>(
+        await Assert.ThrowsAsync<SubmissionsNotConfiguredException>(
             () => service.SubmitAsync(Source, "serendipity", null, "意外发现", null, Ct));
     }
 

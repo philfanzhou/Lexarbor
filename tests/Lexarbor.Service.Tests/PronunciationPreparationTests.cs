@@ -96,7 +96,7 @@ public sealed class PronunciationPreparationTests
         Assert.Single(fixture.Handler.Bodies); Assert.Equal(Secret, fixture.Handler.Keys.Single());
         Assert.Contains("planner-model", fixture.Handler.Bodies.Single());
         Assert.DoesNotContain("review-model", fixture.Handler.Bodies.Single());
-        Assert.Equal(OpenAiCompatiblePronunciationPreparationClient.HttpClientName, fixture.Factory.Names.Single());
+        Assert.Equal(OpenAiPreparationClient.HttpClientName, fixture.Factory.Names.Single());
     }
 
     [Fact]
@@ -367,7 +367,7 @@ public sealed class PronunciationPreparationTests
     public void HostRegistersIndependentPreparationWithoutStartingCalls()
     {
         using var factory = new VocabularyWebApplicationFactory();
-        Assert.IsType<OpenAiCompatiblePronunciationPreparationClient>(factory.Services.GetRequiredService<IPronunciationPreparationClient>());
+        Assert.IsType<OpenAiPreparationClient>(factory.Services.GetRequiredService<IPronunciationPreparationClient>());
     }
 
     private sealed class Fixture : IDisposable
@@ -378,7 +378,7 @@ public sealed class PronunciationPreparationTests
         public Handler Handler { get; } = new();
         public Factory Factory { get; }
         public EnrichmentRuntimeConfiguration Runtime { get; }
-        public OpenAiCompatiblePronunciationPreparationClient Client { get; }
+        public OpenAiPreparationClient Client { get; }
         public Fixture(bool fields = true, bool enabled = true, bool configured = true, bool publish = true, int timeout = 30)
         {
             _settings = new()

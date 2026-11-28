@@ -8,7 +8,7 @@ using Microsoft.Extensions.Options;
 
 namespace Lexarbor.Service.Tests;
 
-public sealed class LexarborClientQuestionTypesTests
+public sealed class CatalogClientQuestionTypesTests
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
     private const string Choice = """

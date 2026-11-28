@@ -271,7 +271,7 @@ public sealed class AudioRecoveryWorkerTests
         {
             var id = Guid.NewGuid().ToString(); var lease = new AudioLease("cleanup", 1, 40000);
             return new(new(id, "hash", "word", null, AudioLocale.EnGb, "revision", null, id, null, null, AudioUploadState.Abandoned,
-                0, 0, lease, new(503, null, null, "audio.storage_failed", 0), new(lease, AudioUploadState.Abandoned, 1, 0, null, null)),
+                0, 0, lease, new(503, null, null, "audio.storage_failed", 0), new(lease, 1, 0, null, null)),
                 new(id, new(bucket, $"audio/{id.Replace("-", "")}.mp3"), "hash", 128, "audio/mpeg", 0, null));
         }
     }

@@ -733,8 +733,8 @@ public class VocabularyBatchImportTests : TestBase
         }
 
         public Task<VocabularyBookUnit?> GetByIdAsync(string id) => inner.GetByIdAsync(id);
-        public Task<Dictionary<string, int>> GetAssignmentCountsByBookIdAsync(string bookId) =>
-            inner.GetAssignmentCountsByBookIdAsync(bookId);
+        public Task<Dictionary<string, int>> GetAssignmentCountsAsync(string bookId) =>
+            inner.GetAssignmentCountsAsync(bookId);
         public Task AddAsync(VocabularyBookUnit model) => inner.AddAsync(model);
         public Task UpdateAsync(VocabularyBookUnit model) => inner.UpdateAsync(model);
         public Task DeleteAsync(string id) => inner.DeleteAsync(id);

@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Lexarbor.Service.Tests;
 
-public sealed partial class AutomaticMeaningSubmissionReviewTests
+public sealed partial class AutomaticReviewClientTests
 {
     [Fact]
     public async Task BatchReviewProcessesSixSubmissionsInOneRequestAndDrainsRemainder()

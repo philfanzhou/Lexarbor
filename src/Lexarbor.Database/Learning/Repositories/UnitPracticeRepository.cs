@@ -85,7 +85,7 @@ public sealed class UnitPracticeRepository(LearningDbContext db)
             round == 1 ? count.Total : count.RetryTotal, round == 1 ? count.Answered : count.RetryAnswered, next, mistakes);
     }
 
-    /// <summary>Null when the question is unknown; throws UnitPracticeAnswerInvalidException when the answer does not suit it.</summary>
+    /// <summary>Null when the question is unknown; throws AnswerInvalidException when the answer does not suit it.</summary>
     public async Task<UnitPracticeFeedback?> AnswerAsync(Guid sessionId, Guid questionId, UnitPracticeAnswer answer, CancellationToken ct)
     {
         var item = await db.UnitPracticeItems.SingleOrDefaultAsync(i => i.SessionId == sessionId
@@ -93,7 +93,7 @@ public sealed class UnitPracticeRepository(LearningDbContext db)
         if (item is null) return null;
         var first = item.FirstQuestionId == questionId;
         var issued = Deserialize(first ? item.FirstQuestion : item.RetryQuestion);
-        var correct = UnitPracticeGrading.Judge(issued, item.Word, answer) ?? throw new UnitPracticeAnswerInvalidException();
+        var correct = UnitPracticeGrading.Judge(issued, item.Word, answer) ?? throw new AnswerInvalidException();
         bool result;
         if (first) result = item.FirstCorrect ??= correct;
         else result = item.RetryCorrect ??= correct;
@@ -160,5 +160,3 @@ public sealed class UnitPracticeRepository(LearningDbContext db)
 }
 
 public sealed record UnitPracticeRetryItem(int Position, UnitPracticeTarget Target, UnitPracticeIssued? FirstQuestion);
-
-public sealed class UnitPracticeAnswerInvalidException() : Exception("The answer does not suit the question.");

@@ -7,6 +7,7 @@ import { getBooks } from '@/services/bookApi'
 import type { Book } from '@/types'
 import { getApiError } from '@/services/apiError'
 import PageHeader from '@/components/PageHeader.vue'
+import PaginationBar from '@/components/PaginationBar.vue'
 import VocabularyDetailDrawer from '@/components/VocabularyDetailDrawer.vue'
 
 /**
@@ -27,7 +28,6 @@ const searchedKeyword = ref('')
 const bookId = ref('')
 const page = ref(1)
 const size = ref(20)
-const pageSizes = [10, 20, 50, 100]
 
 const loading = ref(false)
 const loadError = ref('')
@@ -92,17 +92,6 @@ function handleFilterChange(value: string | number | boolean | undefined) {
   }
 
   page.value = 1
-  load()
-}
-
-function handleSizeChange(newSize: number) {
-  size.value = newSize
-  page.value = 1
-  load()
-}
-
-function handlePageChange(newPage: number) {
-  page.value = newPage
   load()
 }
 
@@ -333,30 +322,7 @@ onBeforeUnmount(() => {
         </template>
       </el-table>
 
-      <div class="pagination-wrapper">
-        <el-select
-          v-model="size"
-          class="page-size"
-          aria-label="每页条数"
-          @change="handleSizeChange"
-        >
-          <el-option
-            v-for="option in pageSizes"
-            :key="option"
-            :label="`${option} 条/页`"
-            :value="option"
-          />
-        </el-select>
-        <el-pagination
-          v-model:current-page="page"
-          v-model:page-size="size"
-          :total="totalCount"
-          layout="total, prev, pager, next, jumper"
-          background
-          @size-change="handleSizeChange"
-          @current-change="handlePageChange"
-        />
-      </div>
+      <PaginationBar v-model:page="page" v-model:size="size" :total="totalCount" @change="load" />
     </section>
 
     <VocabularyDetailDrawer
@@ -424,17 +390,5 @@ onBeforeUnmount(() => {
 .book-filter__pager {
   display: inline-flex;
   gap: var(--lx-space-1);
-}
-
-.pagination-wrapper {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--lx-space-3);
-  margin-top: var(--lx-space-4);
-}
-.page-size {
-  width: 120px;
 }
 </style>

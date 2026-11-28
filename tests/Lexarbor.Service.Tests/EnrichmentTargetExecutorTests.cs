@@ -685,7 +685,7 @@ public sealed partial class EnrichmentTargetExecutorTests
         public EnrichmentTargetExecutor ExecutorFor(VocabularyDbContext db, EnrichmentTaskRepository tasks,
             IAudioUploadOperationFactory? operations = null, VocabularyExpansionExecutor? expansion = null) => new(tasks,
             new EnrichmentExecutionRepository(db, tasks, Clock), new AudioUploadRepository(db, Clock),
-            new OpenAiCompatiblePronunciationPreparationClient(_clients, Runtime, Clock), new PronunciationSpeechClient(_clients, Runtime, Clock),
+            new OpenAiPreparationClient(_clients, Runtime, Clock), new PronunciationSpeechClient(_clients, Runtime, Clock),
             operations ?? new Operations(new AudioUploadRepository(db, Clock), Store, Clock) { SettingsSource = Operations }, Admission, Runtime, Clock,
             Shared ? new EnrichmentServiceGate(new EnrichmentSchedulerRepository(db, tasks), Runtime, Clock) : null, expansion);
         public Task<EnrichmentTask> Ensure(EnrichmentTargetKey key) => EnsureCore(key);

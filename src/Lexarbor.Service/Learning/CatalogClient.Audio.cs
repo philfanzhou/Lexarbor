@@ -45,5 +45,5 @@ public sealed partial class CatalogClient
                 && item.ExpiresAt is { Offset: var offset } && offset == TimeSpan.Zero);
 
     private static CatalogException AudioError() =>
-        new(AudioUnavailable, retryable: true, "Pronunciation is temporarily unavailable.");
+        new(AudioUnavailable, "Pronunciation is temporarily unavailable.");
 }

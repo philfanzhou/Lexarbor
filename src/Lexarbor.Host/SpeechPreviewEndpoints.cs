@@ -18,21 +18,14 @@ public static class SpeechPreviewEndpoints
         var revision = context.Request.Headers.IfMatch.ToString();
         if (revision.Length == 0) return Error(428, "revision_required");
         if (!Regex.IsMatch(revision, "^\"[0-9a-f]{32}\"$", RegexOptions.CultureInvariant)) return Error(400, "invalid_revision");
-        using var buffer = new MemoryStream();
-        var bytes = new byte[1024];
-        while (true)
-        {
-            var count = await context.Request.Body.ReadAsync(bytes, context.RequestAborted);
-            if (count == 0) break;
-            if (buffer.Length + count > 16384) return Error(413, "request_too_large");
-            buffer.Write(bytes, 0, count);
-        }
+        var body = await SettingsRequest.ReadBodyAsync(context, 16384, context.RequestAborted);
+        if (body is null) return Error(413, "request_too_large");
         var changes = new Dictionary<string, JsonNode?>(StringComparer.OrdinalIgnoreCase);
         var supplied = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         string? locale = null, sample = null;
         try
         {
-            using var document = JsonDocument.Parse(buffer.ToArray(), new JsonDocumentOptions { MaxDepth = 8 });
+            using var document = JsonDocument.Parse(body, new JsonDocumentOptions { MaxDepth = 8 });
             if (document.RootElement.ValueKind != JsonValueKind.Object) return Error(400, "invalid_preview");
             var seen = new HashSet<string>(StringComparer.Ordinal);
             foreach (var property in document.RootElement.EnumerateObject())

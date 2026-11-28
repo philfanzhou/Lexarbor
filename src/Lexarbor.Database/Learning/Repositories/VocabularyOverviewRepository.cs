@@ -2,8 +2,6 @@ using System.Data;
 using Lexarbor.Learning.Domain.Models;
 using Lexarbor.Learning.Domain.Repositories;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Diagnostics;
-using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage;
 
 namespace Lexarbor.Learning.Database.Repositories;
@@ -26,14 +24,14 @@ public sealed class VocabularyOverviewRepository(LearningDbContext context) : IV
         {
             await context.Database.ExecuteSqlRawAsync("SET TRANSACTION READ ONLY", cancellationToken).ConfigureAwait(false);
             // Fixed projections use EF's relational command pipeline without per-request query compilation.
-            await using var rows = await ExecuteReaderAsync(context, """
+            await using var rows = await LearningCommands.ExecuteReaderAsync(context, """
                 SELECT s.id, p.id, p.segments, p.daily_new_words, p.controller::integer,
                     p.controller_teacher_id, p.status::integer, p.start_date, p.total_words,
                     p.version, p.created_at, p.updated_at
                 FROM learner_identity s
                 LEFT JOIN vocab_plan p ON p.student_id = s.id AND p.status = 1
                 WHERE s.id = {0}
-                """, studentId, cancellationToken).ConfigureAwait(false);
+                """, [studentId], cancellationToken).ConfigureAwait(false);
             var exists = await rows.ReadAsync(cancellationToken).ConfigureAwait(false);
             var reader = rows.DbDataReader;
             VocabPlan? plan = null;
@@ -64,15 +62,6 @@ public sealed class VocabularyOverviewRepository(LearningDbContext context) : IV
         }
     }
 
-    private static Task<RelationalDataReader> ExecuteReaderAsync(LearningDbContext context, string sql,
-        Guid studentId, CancellationToken cancellationToken)
-    {
-        var command = context.GetService<IRawSqlCommandBuilder>().Build(sql, [studentId]);
-        return command.RelationalCommand.ExecuteReaderAsync(new RelationalCommandParameterObject(
-            context.GetService<IRelationalConnection>(), command.ParameterValues, null, context,
-            context.GetService<IRelationalCommandDiagnosticsLogger>()), cancellationToken);
-    }
-
     private sealed class MaterializedSnapshot(bool exists, VocabPlan? plan, IReadOnlyList<MemoryCard> cards) : IVocabularyOverviewSnapshot
     {
         public bool StudentExists => exists;
@@ -90,10 +79,10 @@ public sealed class VocabularyOverviewRepository(LearningDbContext context) : IV
 
         public async Task<IReadOnlyList<MemoryCard>> ReadCardsAsync(CancellationToken cancellationToken = default)
         {
-            await using var rows = await ExecuteReaderAsync(context, """
+            await using var rows = await LearningCommands.ExecuteReaderAsync(context, """
                 SELECT word_key, meaning_key, stability, due_at
                 FROM vocab_memory_card WHERE student_id = {0}
-                """, studentId, cancellationToken).ConfigureAwait(false);
+                """, [studentId], cancellationToken).ConfigureAwait(false);
             var cards = new List<MemoryCard>();
             var reader = rows.DbDataReader;
             while (await rows.ReadAsync(cancellationToken).ConfigureAwait(false))

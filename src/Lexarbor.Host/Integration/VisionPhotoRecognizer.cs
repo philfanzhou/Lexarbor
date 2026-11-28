@@ -38,7 +38,7 @@ public sealed class VisionPhotoRecognizer(IHttpClientFactory clients, Enrichment
     {
         var model = runtime.Current.Enrichment.Text;
         if (model.Endpoint.Length == 0 || model.Model.Length == 0)
-            throw new VocabPhotoImportUnavailableException("The vision model is not configured.");
+            throw new VocabPhotoUnavailableException("The vision model is not configured.");
 
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var seconds = model.TimeoutSeconds;
@@ -89,11 +89,11 @@ public sealed class VisionPhotoRecognizer(IHttpClientFactory clients, Enrichment
             if (response.StatusCode != HttpStatusCode.OK)
             {
                 logger.LogWarning("Vision model image recognition answered status {Status}.", status);
-                throw new VocabPhotoImportUnavailableException();
+                throw new VocabPhotoUnavailableException();
             }
 
             var body = await SupplierJson.ReadBoundedAsync(response.Content, budget.Token, MaxResponseBytes)
-                .ConfigureAwait(false) ?? throw new VocabPhotoImportUnavailableException("The vision model response is too large.");
+                .ConfigureAwait(false) ?? throw new VocabPhotoUnavailableException("The vision model response is too large.");
             trace.RecognitionResponse = body;
             var entries = Parse(body);
             logger.LogInformation("Vision model returned {Entries} vocabulary entries.", entries.Count);
@@ -110,7 +110,7 @@ public sealed class VisionPhotoRecognizer(IHttpClientFactory clients, Enrichment
                 ? $"No answer within {seconds} seconds."
                 : error.GetType().Name;
             logger.LogWarning("Vision model image recognition failed: {Error}.", error.GetType().Name);
-            throw new VocabPhotoImportUnavailableException();
+            throw new VocabPhotoUnavailableException();
         }
         finally
         {
@@ -140,7 +140,7 @@ public sealed class VisionPhotoRecognizer(IHttpClientFactory clients, Enrichment
             using var completion = JsonDocument.Parse(body);
             var choice = completion.RootElement.GetProperty("choices").EnumerateArray().First();
             if (choice.TryGetProperty("finish_reason", out var finish) && finish.GetString() != "stop")
-                throw new VocabPhotoImportUnavailableException("The vision model did not finish the transcription.");
+                throw new VocabPhotoUnavailableException("The vision model did not finish the transcription.");
             var content = choice.GetProperty("message").GetProperty("content").GetString();
             using var document = JsonDocument.Parse(content ?? "");
             var entries = new List<VocabPhotoEntry>();
@@ -153,14 +153,14 @@ public sealed class VisionPhotoRecognizer(IHttpClientFactory clients, Enrichment
                 if (string.IsNullOrEmpty(word) || word.Length > VocabNotebook.MaxWordLength ||
                     part?.Length > VocabNotebook.MaxPartOfSpeechLength || review?.Length > VocabNotebook.MaxMeaningLength ||
                     meaning is null || meaning.Length > VocabNotebook.MaxMeaningLength)
-                    throw new VocabPhotoImportUnavailableException("The vision model returned an invalid vocabulary entry.");
+                    throw new VocabPhotoUnavailableException("The vision model returned an invalid vocabulary entry.");
                 entries.Add(new(word, string.IsNullOrEmpty(part) ? null : part, meaning, string.IsNullOrEmpty(review) ? null : review));
             }
             return entries;
         }
         catch (Exception error) when (error is JsonException or KeyNotFoundException or InvalidOperationException)
         {
-            throw new VocabPhotoImportUnavailableException("The vision model returned an invalid transcription.");
+            throw new VocabPhotoUnavailableException("The vision model returned an invalid transcription.");
         }
     }
 

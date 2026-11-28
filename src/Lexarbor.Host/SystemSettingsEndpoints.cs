@@ -56,19 +56,12 @@ public static class SystemSettingsEndpoints
     private static async Task<IResult> SaveAsync(HttpContext context, PersistentConfigurationCoordinator coordinator, RateLimitRuntime runtime)
     {
         // Bound the tiny switch payload before parsing, including chunked requests.
-        using var buffer = new MemoryStream();
-        var bytes = new byte[1024];
-        while (true)
-        {
-            var count = await context.Request.Body.ReadAsync(bytes, context.RequestAborted);
-            if (count == 0) break;
-            if (buffer.Length + count > 4096) return SettingsError.Write(413, "Settings request is too large.");
-            buffer.Write(bytes, 0, count);
-        }
+        var body = await SettingsRequest.ReadBodyAsync(context, 4096, context.RequestAborted);
+        if (body is null) return SettingsError.Write(413, "Settings request is too large.");
         var fields = new Dictionary<string, JsonNode?>();
         try
         {
-            using var document = JsonDocument.Parse(buffer.ToArray());
+            using var document = JsonDocument.Parse(body);
             if (document.RootElement.ValueKind != JsonValueKind.Object) return SettingsError.Write(400, "Invalid rate limit settings.");
             foreach (var item in document.RootElement.EnumerateObject())
             {
@@ -92,12 +85,9 @@ public static class SystemSettingsEndpoints
         return result.Status switch
         {
             ConfigurationSaveStatus.Success => await ReadCommittedAsync(context, coordinator, runtime),
-            ConfigurationSaveStatus.MissingRevision => SettingsError.Write(428, "If-Match is required. Reload settings."),
-            ConfigurationSaveStatus.InvalidRevision => SettingsError.Write(400, "Invalid If-Match. Reload settings."),
-            ConfigurationSaveStatus.Conflict => SettingsError.Write(412, "Settings changed. Reload settings; offline edits require a restart."),
-            ConfigurationSaveStatus.Overridden => Results.Json(new { message = "Settings are overridden by deployment configuration.", fields = result.OverriddenFields }, statusCode: 409),
+            ConfigurationSaveStatus.Overridden => SettingsRequest.Overridden(result.OverriddenFields),
             ConfigurationSaveStatus.InvalidCandidate => SettingsError.Write(400, "Invalid rate limit settings. Check the configured permit limit and window."),
-            _ => SettingsError.Write(503, ConfigurationSaveResult.StorageFailureMessage)
+            _ => SettingsRequest.SaveFailure(result.Status)
         };
     }
 

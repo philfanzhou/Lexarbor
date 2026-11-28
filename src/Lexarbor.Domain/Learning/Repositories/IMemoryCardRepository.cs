@@ -4,7 +4,6 @@ namespace Lexarbor.Learning.Domain.Repositories;
 
 public interface IMemoryCardRepository
 {
-
     Task<MemoryCard?> FindAsync(Guid studentId, string wordKey, string meaningKey, CancellationToken cancellationToken = default);
 
     Task AddAsync(MemoryCard card, CancellationToken cancellationToken = default);
@@ -17,8 +16,6 @@ public interface IMemoryCardRepository
     Task<List<MemoryCard>> GetDuePageAsync(Guid studentId, DateTimeOffset now, MemoryCardCursor? after, int limit, CancellationToken cancellationToken = default);
 
     Task<HashSet<CardKey>> FindExistingKeysAsync(Guid studentId, IReadOnlyCollection<CardKey> keys, CancellationToken cancellationToken = default);
-
-    Task<bool> HasWordAsync(Guid studentId, string wordKey, CancellationToken cancellationToken = default);
 
     Task<int> CountDueAsync(Guid studentId, DateTimeOffset now, CancellationToken cancellationToken = default);
 }

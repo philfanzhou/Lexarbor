@@ -87,7 +87,7 @@ public static class UnitPracticeEndpoints
             var result = await store.AnswerAsync(sessionId, request.QuestionId, answer, ct);
             return result is null ? Missing() : Ok(result);
         }
-        catch (UnitPracticeAnswerInvalidException) { return AnswerInvalid(); }
+        catch (AnswerInvalidException) { return AnswerInvalid(); }
     }, ct));
 
     // Generated retry questions come from the catalog outside the learner lock. The round is checked

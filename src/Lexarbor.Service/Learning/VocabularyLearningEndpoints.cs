@@ -225,7 +225,6 @@ public static class VocabularyLearningEndpoints
         }
     }
 
-
     /// <summary>The server decides the learning day; the client's localDate and offset are only range-checked.</summary>
     private static DateOnly LearningToday(HttpContext context) =>
         context.RequestServices.GetRequiredService<LearningCalendar>()
@@ -255,7 +254,6 @@ public static class VocabularyLearningEndpoints
                 return false;
         }
     }
-
 
     private static object ToDto(VocabTodaySnapshot snapshot) => new
     {
@@ -388,34 +386,25 @@ public static class VocabularyLearningEndpoints
             dueAt = result.DueAt,
         };
 
-    private static IResult MapDomainError(Exception error) => error switch
+    private static IResult MapDomainError(Exception error)
     {
-        VocabAudioLockedException => ApiResponse.Failure(409, "VOCAB_AUDIO_LOCKED", error.Message),
-        VocabAudioUnavailableException => ApiResponse.Failure(503, AudioUnavailable, error.Message),
-        VocabStudentNotFoundException => ApiResponse.Failure(404, "VOCAB_STUDENT_NOT_FOUND", error.Message),
-        VocabQuestionNotFoundException => ApiResponse.Failure(404, "VOCAB_QUESTION_NOT_FOUND", error.Message),
-        VocabQuestionExpiredException => ApiResponse.Failure(410, "VOCAB_QUESTION_EXPIRED", error.Message),
-        VocabLettersInvalidException => ApiResponse.Failure(400, "VOCAB_LETTERS_INVALID", error.Message),
-        VocabOptionInvalidException => ApiResponse.Failure(400, "VOCAB_OPTION_INVALID", error.Message),
-        VocabDayNotCompletedException => ApiResponse.Failure(409, "VOCAB_DAY_NOT_COMPLETED", error.Message),
-        VocabCatalogUnavailableException => ApiResponse.Failure(503, CatalogUnavailable, error.Message),
-        VocabPlanNotFoundException => ApiResponse.Failure(404, "VOCAB_PLAN_NOT_FOUND", error.Message),
-        VocabPlanActiveExistsException => ApiResponse.Failure(409, "VOCAB_PLAN_ACTIVE_EXISTS", error.Message),
-        VocabPlanVersionConflictException => ApiResponse.Failure(409, "VOCAB_PLAN_VERSION_CONFLICT", error.Message),
-        VocabPlanNotActiveException => ApiResponse.Failure(409, "VOCAB_PLAN_NOT_ACTIVE", error.Message),
-        VocabPlanForbiddenException => ApiResponse.Failure(403, "VOCAB_PLAN_FORBIDDEN", error.Message),
-        VocabPlanScopeEmptyException => ApiResponse.Failure(400, "VOCAB_PLAN_SCOPE_EMPTY", error.Message),
-        CatalogException catalog => catalog.ErrorCode switch
+        // Plan and catalog failures read the same in every learning endpoint.
+        if (LearningErrors.PlanOrCatalogFailure(error) is { } failure) return failure;
+        return error switch
         {
-            BookNotFound => ApiResponse.Failure(404, catalog.ErrorCode, catalog.Message),
-            BookDisabled => ApiResponse.Failure(422, catalog.ErrorCode, catalog.Message),
-            UnitNotFound => ApiResponse.Failure(404, catalog.ErrorCode, catalog.Message),
-            _ => ApiResponse.Failure(503, catalog.ErrorCode, catalog.Message),
-        },
-        _ => ApiResponse.Failure(500, "VOCAB_LEARNING_INTERNAL", "An unexpected error occurred."),
-    };
+            VocabAudioLockedException => ApiResponse.Failure(409, "VOCAB_AUDIO_LOCKED", error.Message),
+            VocabAudioUnavailableException => ApiResponse.Failure(503, AudioUnavailable, error.Message),
+            VocabStudentNotFoundException => ApiResponse.Failure(404, "VOCAB_STUDENT_NOT_FOUND", error.Message),
+            VocabQuestionNotFoundException => ApiResponse.Failure(404, "VOCAB_QUESTION_NOT_FOUND", error.Message),
+            VocabQuestionExpiredException => ApiResponse.Failure(410, "VOCAB_QUESTION_EXPIRED", error.Message),
+            VocabLettersInvalidException => ApiResponse.Failure(400, "VOCAB_LETTERS_INVALID", error.Message),
+            VocabOptionInvalidException => ApiResponse.Failure(400, "VOCAB_OPTION_INVALID", error.Message),
+            VocabDayNotCompletedException => ApiResponse.Failure(409, "VOCAB_DAY_NOT_COMPLETED", error.Message),
+            VocabCatalogUnavailableException => ApiResponse.Failure(503, CatalogUnavailable, error.Message),
+            _ => ApiResponse.Failure(500, "VOCAB_LEARNING_INTERNAL", "An unexpected error occurred."),
+        };
+    }
 }
-
 
 public sealed class NextVocabQuestionRequest
 {

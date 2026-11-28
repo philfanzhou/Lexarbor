@@ -18,7 +18,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Lexarbor.Service.Tests;
 
-public sealed partial class AutomaticMeaningSubmissionReviewTests
+public sealed partial class AutomaticReviewClientTests
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
     private static string Decision(string verdict = "accept", string? meaning = "corrected", string? pos = "v.", string? uk = "ai-uk", string? us = "ai-us", string? comment = "Synthetic explanation") =>
@@ -333,7 +333,7 @@ public sealed partial class AutomaticMeaningSubmissionReviewTests
         try
         {
             using var factory = new VocabularyWebApplicationFactory();
-            using var client = factory.Services.GetRequiredService<IHttpClientFactory>().CreateClient(AutomaticMeaningSubmissionReviewClient.HttpClientName);
+            using var client = factory.Services.GetRequiredService<IHttpClientFactory>().CreateClient(AutomaticReviewClient.HttpClientName);
             client.BaseAddress = new Uri(supplier.Urls.Single());
             using var redirect = await client.GetAsync("/start", Ct);
             Assert.Equal(HttpStatusCode.Found, redirect.StatusCode); Assert.Equal(0, followed);
@@ -446,11 +446,11 @@ public sealed partial class AutomaticMeaningSubmissionReviewTests
         private readonly List<IDisposable> _configurations = [];
         public Clock Clock { get; } = new(); public Handler Http { get; } = new();
         public FaultInterceptor Fault { get; } = new();
-        public MeaningSubmissionReviewNotifications Notifications { get; } = new();
+        public MeaningSubmissionNotifications Notifications { get; } = new();
         public EnrichmentRuntimeConfiguration Runtime { get; }
         public ServiceProvider Provider { get; }
         public HttpFactory Clients { get; }
-        public AutomaticMeaningSubmissionReviewClient Client { get; }
+        public AutomaticReviewClient Client { get; }
         public MeaningSubmissionReviewWorker Worker { get; }
         public Dictionary<string, string> Ids { get; } = [];
         private readonly MeaningSubmissionSettings _submissionSettings = new() { BookId = "book" };
@@ -479,7 +479,7 @@ public sealed partial class AutomaticMeaningSubmissionReviewTests
             db.VocabularyBooks.Add(new() { Id = "book", BookName = "Synthetic", Status = true }); await db.SaveChangesAsync(Ct); return f;
         }
         public MeaningSubmissionReviewWorker NewWorker() => new(Provider.GetRequiredService<IServiceScopeFactory>(), Runtime, _submissionSettings, Notifications, Clock, Client, NullLogger<MeaningSubmissionReviewWorker>.Instance);
-        public MeaningSubmissionReviewBatchExecutor BatchWorker() => new(Provider.GetRequiredService<IServiceScopeFactory>(), Runtime, _submissionSettings,
+        public AutomaticReviewBatchExecutor BatchWorker() => new(Provider.GetRequiredService<IServiceScopeFactory>(), Runtime, _submissionSettings,
             new AiTextBatchClient(Clients, Clock), Client, Clock);
         public VocabularyDbContext Open() => new(new DbContextOptionsBuilder<VocabularyDbContext>().UseNpgsql(SharedTestDatabases.ConnectionString(Path.Combine(_root, "fixture.db"))).AddInterceptors(Fault).Options);
         public (MeaningSubmissionService Submissions, VocabularyService Vocabulary) Service(VocabularyDbContext db)
@@ -495,8 +495,8 @@ public sealed partial class AutomaticMeaningSubmissionReviewTests
         }
         public async Task<MeaningSubmission> Read(string word)
         { await using var db = Open(); return (await new MeaningSubmissionRepository(db).GetByIdAsync(Ids[word], Ct))!; }
-        public async Task<MeaningSubmissionAutomaticReviewStatus> Status()
-        { await using var db = Open(); return await new MeaningSubmissionAutomaticReviewStatusProvider(Runtime, _submissionSettings, new MeaningSubmissionAutoReviewRepository(db, Clock)).ReadAsync(Ct); }
+        public async Task<AutomaticReviewStatus> Status()
+        { await using var db = Open(); return await new AutomaticReviewStatusProvider(Runtime, _submissionSettings, new MeaningSubmissionAutoReviewRepository(db, Clock)).ReadAsync(Ct); }
         public async Task WaitUntilReviewed(string word)
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(Ct); timeout.CancelAfter(TimeSpan.FromSeconds(10));

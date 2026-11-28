@@ -6,6 +6,7 @@ import type { FormInstance, FormRules } from 'element-plus'
 import { getBooks, addBook, updateBook, deleteBook, getCategories, getEducationLevels } from '@/services/bookApi'
 import { getApiError } from '@/services/apiError'
 import PageHeader from '@/components/PageHeader.vue'
+import PaginationBar from '@/components/PaginationBar.vue'
 import VocabularyCleanupDialog from '@/components/VocabularyCleanupDialog.vue'
 import VocabularyBookUnitDialog from '@/components/VocabularyBookUnitDialog.vue'
 import type { AdminCleanupResult, AdminCleanupSelection } from '@/services/adminVocabularyApi'
@@ -26,7 +27,6 @@ const keyword = ref('')
 const page = ref(1)
 const size = ref(20)
 const totalCount = ref(0)
-const pageSizes = [10, 20, 50, 100]
 
 // For display only: which empty state to show, and whether the list failed.
 const searchedKeyword = ref('')
@@ -77,17 +77,6 @@ async function loadFilters() {
 
 function handleSearch() {
   page.value = 1
-  loadBooks()
-}
-
-function handleSizeChange(newSize: number) {
-  size.value = newSize
-  page.value = 1
-  loadBooks()
-}
-
-function handlePageChange(newPage: number) {
-  page.value = newPage
   loadBooks()
 }
 
@@ -274,25 +263,7 @@ onMounted(() => {
         </template>
       </el-table>
 
-      <div class="pagination-wrapper">
-        <el-select
-          v-model="size"
-          class="page-size"
-          aria-label="每页条数"
-          @change="handleSizeChange"
-        >
-          <el-option v-for="option in pageSizes" :key="option" :label="`${option} 条/页`" :value="option" />
-        </el-select>
-        <el-pagination
-          v-model:current-page="page"
-          v-model:page-size="size"
-          :total="totalCount"
-          layout="total, prev, pager, next, jumper"
-          background
-          @size-change="handleSizeChange"
-          @current-change="handlePageChange"
-        />
-      </div>
+      <PaginationBar v-model:page="page" v-model:size="size" :total="totalCount" @change="loadBooks" />
     </section>
 
     <el-dialog
@@ -375,18 +346,6 @@ onMounted(() => {
 }
 .books-error__retry {
   margin-top: var(--lx-space-2);
-}
-
-.pagination-wrapper {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--lx-space-3);
-  margin-top: var(--lx-space-4);
-}
-.page-size {
-  width: 120px;
 }
 
 .book-form__group {

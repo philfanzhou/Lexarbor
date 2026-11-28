@@ -14,7 +14,7 @@ import type { SystemVersion } from './systemApi'
  * it. Nothing is persisted and nothing retries within a session.
  */
 
-export type VersionStatus = 'idle' | 'loading' | 'ready' | 'unknown'
+type VersionStatus = 'idle' | 'loading' | 'ready' | 'unknown'
 
 export const versionStatus = ref<VersionStatus>('idle')
 export const versionInfo = ref<SystemVersion | null>(null)

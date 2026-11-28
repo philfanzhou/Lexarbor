@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { Refresh, WarningFilled } from '@element-plus/icons-vue'
+import { WarningFilled } from '@element-plus/icons-vue'
+import RereadButton from '@/components/settings/RereadButton.vue'
 import SettingRow from '@/components/settings/SettingRow.vue'
 import SettingsFacts from '@/components/settings/SettingsFacts.vue'
 import SettingsNotice from '@/components/settings/SettingsNotice.vue'
@@ -134,12 +135,7 @@ watch(() => page.status.value, async status => {
         <h2 class="lx-page__title">{{ group.label }}</h2>
         <p class="lx-page__description">{{ group.description }}</p>
       </div>
-      <!-- One reread on the page at a time: here while the state is known, in the card otherwise. -->
-      <div v-if="page.status.value === 'ready'" class="lx-page__actions">
-        <el-button :loading="page.busy.value" @click="page.load()">
-          <el-icon v-if="!page.busy.value" aria-hidden="true"><Refresh /></el-icon>重新读取
-        </el-button>
-      </div>
+      <RereadButton :page="page" />
     </div>
 
     <SettingsNotice :tone="page.tone.value" :message="page.notice.value" />

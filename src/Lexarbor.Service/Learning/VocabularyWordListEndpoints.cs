@@ -1,4 +1,3 @@
-using System.Globalization;
 using Lexarbor.Learning.Domain.Services;
 using Lexarbor.Service;
 using Microsoft.AspNetCore.Builder;
@@ -28,7 +27,7 @@ public static class VocabularyWordListEndpoints
             return ApiResponse.Failure(400, "VOCAB_WORD_VIEW_INVALID", "Send one view: mastered or due.");
         if (!ReadText(context.Request, "q", out var query) || !VocabularyWordListService.ValidQuery(query))
             return ApiResponse.Failure(400, "VOCAB_WORD_QUERY_INVALID", "Send at most one search text of up to 50 characters.");
-        if (!ReadInt(context.Request, "page", 1, out var page) || !ReadInt(context.Request, "size", 20, out var size) ||
+        if (!LearningInput.TryReadInt(context.Request, "page", 1, out var page) || !LearningInput.TryReadInt(context.Request, "size", 20, out var size) ||
             !VocabularyErrorProneService.ValidPaging(page, size))
             return ApiResponse.Failure(400, "VOCAB_PAGING_INVALID", "Send one valid page and size between 1 and 100.");
         try
@@ -52,12 +51,5 @@ public static class VocabularyWordListEndpoints
         if (values.Count != 1) return false;
         value = values[0];
         return true;
-    }
-
-    private static bool ReadInt(HttpRequest request, string key, int defaultValue, out int value)
-    {
-        value = defaultValue;
-        return !request.Query.TryGetValue(key, out var values) ||
-            (values.Count == 1 && int.TryParse(values[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out value));
     }
 }

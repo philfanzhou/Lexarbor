@@ -5,7 +5,7 @@ namespace Lexarbor.Domain.Repositories;
 public sealed record MeaningSubmissionReviewLease(string SubmissionId, string AttemptId, string Owner, long Epoch);
 public sealed record MeaningSubmissionReviewBacklog(int PendingCount, string? LastFailureCode,
     DateTimeOffset? LastFailureAt, DateTimeOffset? NextAttemptAt);
-public sealed record MeaningSubmissionAutomaticReviewStatus(bool Enabled, bool Paused, string? PauseCode,
+public sealed record AutomaticReviewStatus(bool Enabled, bool Paused, string? PauseCode,
     int PendingCount, string? LastFailureCode, DateTimeOffset? LastFailureAt, DateTimeOffset? NextAttemptAt);
 
 /// <summary>Short persistent scheduling operations; provider IO must remain outside them.</summary>
@@ -22,9 +22,9 @@ public interface IMeaningSubmissionAutoReviewRepository
     Task<MeaningSubmissionReviewBacklog> ReadBacklogAsync(CancellationToken token);
 }
 
-public interface IMeaningSubmissionAutomaticReviewStatusProvider
+public interface IAutomaticReviewStatusProvider
 {
-    Task<MeaningSubmissionAutomaticReviewStatus> ReadAsync(CancellationToken token);
+    Task<AutomaticReviewStatus> ReadAsync(CancellationToken token);
 }
 
 /// <summary>A lossy wakeup after a successful submission commit. Pending rows are authoritative.</summary>

@@ -1,5 +1,6 @@
 import api from './api'
 import { ApiError } from './apiError'
+import { isRevision, putWithRevision } from './settingsRevision'
 
 /**
  * The complete configuration surface behind `/#/settings`: one entry for every key Lexarbor
@@ -8,9 +9,9 @@ import { ApiError } from './apiError'
  * read-only key belongs to the deployment.
  */
 export type SettingValue = string | number | boolean | null | string[] | number[]
-export type ValueKind = 'text' | 'url' | 'boolean' | 'triState' | 'integer' | 'number' | 'secret' | 'list' | 'integerList' | 'select'
+type ValueKind = 'text' | 'url' | 'boolean' | 'triState' | 'integer' | 'number' | 'secret' | 'list' | 'integerList' | 'select'
 export type SettingApply = 'live' | 'restart' | 'readOnly'
-export type SettingSource = 'default' | 'file' | 'environment' | 'commandLine'
+type SettingSource = 'default' | 'file' | 'environment' | 'commandLine'
 export type LiveModule = 'rateLimits' | 'audioStorage' | 'enrichment'
 
 export interface SettingField {
@@ -52,13 +53,13 @@ export interface SettingField {
    */
   location: string | null
 }
-export interface SettingGroup {
+interface SettingGroup {
   id: string
   area: string
   name: string
   description: string | null
 }
-export interface SettingSection {
+interface SettingSection {
   group: string
   id: string
   name: string
@@ -152,7 +153,7 @@ function field(input: Record<string, unknown>): SettingField {
 function parse(input: unknown): SettingsCatalog {
   const catalog = object(input)
   const { fields, groups, sections, facts, unknownFileKeys } = catalog
-  if (typeof catalog.revision !== 'string' || !/^"[0-9a-f]{32}"$/.test(catalog.revision)
+  if (!isRevision(catalog.revision)
     || typeof catalog.storageAvailable !== 'boolean' || typeof catalog.fileExists !== 'boolean'
     || typeof catalog.externallyModified !== 'boolean' || !Array.isArray(fields) || !Array.isArray(groups)
     || !Array.isArray(sections) || !Array.isArray(facts) || !Array.isArray(unknownFileKeys)) {
@@ -189,5 +190,5 @@ export async function readSettingsCatalog(signal: AbortSignal, isCurrent: () => 
 
 /** Persists restart-only keys for the next start and answers the catalog that follows the commit. */
 export async function saveStartupSettings(revision: string, changes: Record<string, StartupChange>, signal: AbortSignal, isCurrent: () => boolean) {
-  return parse(await api.put<unknown>(startup, changes, { headers: { 'If-Match': revision }, signal, lxIsCurrent: isCurrent }))
+  return parse(await putWithRevision(startup, revision, changes, signal, isCurrent))
 }

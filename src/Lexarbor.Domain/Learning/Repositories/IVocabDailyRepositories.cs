@@ -31,10 +31,10 @@ public interface IVocabIssuedQuestionRepository
     /// <summary>Pending new/extra word keys, optionally excluding the plan whose queue can be resumed.</summary>
     Task<HashSet<string>> FindPendingNewWordKeysAsync(Guid studentId, IReadOnlyCollection<string> wordKeys, DateTimeOffset now, Guid? exceptPlanId = null, CancellationToken cancellationToken = default);
 
-    Task<HashSet<CardKey>> FindPendingReviewCardKeysAsync(Guid studentId, DateTimeOffset now, CancellationToken cancellationToken = default);
+    Task<HashSet<CardKey>> FindPendingReviewKeysAsync(Guid studentId, DateTimeOffset now, CancellationToken cancellationToken = default);
 
     /// <summary>The latest answered question of a card; unanswered and expired questions are ignored.</summary>
-    Task<VocabIssuedQuestion?> FindLatestAnsweredByCardKeyAsync(Guid studentId, string wordKey, string meaningKey, CancellationToken cancellationToken = default);
+    Task<VocabIssuedQuestion?> FindLatestAnsweredAsync(Guid studentId, string wordKey, string meaningKey, CancellationToken cancellationToken = default);
 
     Task<bool> HasPendingForWordAsync(Guid studentId, string wordKey, DateTimeOffset now, CancellationToken cancellationToken = default);
 

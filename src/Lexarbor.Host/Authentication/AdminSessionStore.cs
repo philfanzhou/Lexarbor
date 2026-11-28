@@ -48,31 +48,8 @@ public sealed class AdminSessionStore(AdminSessionRepository repository,
         cancellationToken.ThrowIfCancellationRequested();
         var hash = Hash(handle)
             ?? throw new ArgumentException("The handle must be the canonical 43-character form.", nameof(handle));
-        if (!IsValid(session) || session.AccessTokenExpiresAt.ToUnixTimeMilliseconds() <= Now())
-            throw new ArgumentException("A structurally valid, unexpired, independently verified administrator session is required.", nameof(session));
-        var expiry = session.AccessTokenExpiresAt.ToUnixTimeMilliseconds();
-        var payload = new ProtectedSession
-        {
-            Version = 1,
-            HandleHash = hash,
-            ExpiresAtUnixMs = expiry,
-            Session = new ValidatedAdminSession
-            {
-                AccessToken = session.AccessToken,
-                IdToken = session.IdToken,
-                Issuer = session.Issuer,
-                Subject = session.Subject,
-                DisplayName = session.DisplayName,
-                Roles = session.Roles.ToArray(),
-                AccessTokenExpiresAt = DateTimeOffset.FromUnixTimeMilliseconds(expiry)
-            }
-        };
-        var row = new AdminSessionEntity
-        {
-            HandleHash = hash,
-            ExpiresAtUnixMs = expiry,
-            ProtectedPayload = _protector.Protect(JsonSerializer.Serialize(payload))
-        };
+        RequireValid(session);
+        var row = BuildRow(hash, session);
         // No retry: if commit has begun and its response is lost, the outcome is unknown.
         await repository.ReplaceInPlaceAsync(row, participatingWrite, cancellationToken);
         return handle;
@@ -97,6 +74,21 @@ public sealed class AdminSessionStore(AdminSessionRepository repository,
             throw new ArgumentException("A structurally valid, unexpired, independently verified administrator session is required.", nameof(session));
         var handle = WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
         var hash = Hash(handle)!;
+        var row = BuildRow(hash, session);
+        // No retry: if commit has begun and its response is lost, the outcome is unknown.
+        await repository.CreateOrReplaceAsync(row, Hash(oldHandle), participatingWrite, cancellationToken);
+        return handle;
+    }
+
+    private void RequireValid(ValidatedAdminSession session)
+    {
+        if (!IsValid(session) || session.AccessTokenExpiresAt.ToUnixTimeMilliseconds() <= Now())
+            throw new ArgumentException("A structurally valid, unexpired, independently verified administrator session is required.", nameof(session));
+    }
+
+    /// <summary>The stored row: the session as a protected payload, bound to its handle hash and expiry.</summary>
+    private AdminSessionEntity BuildRow(string hash, ValidatedAdminSession session)
+    {
         var expiry = session.AccessTokenExpiresAt.ToUnixTimeMilliseconds();
         var payload = new ProtectedSession
         {
@@ -114,15 +106,12 @@ public sealed class AdminSessionStore(AdminSessionRepository repository,
                 AccessTokenExpiresAt = DateTimeOffset.FromUnixTimeMilliseconds(expiry)
             }
         };
-        var row = new AdminSessionEntity
+        return new AdminSessionEntity
         {
             HandleHash = hash,
             ExpiresAtUnixMs = expiry,
             ProtectedPayload = _protector.Protect(JsonSerializer.Serialize(payload))
         };
-        // No retry: if commit has begun and its response is lost, the outcome is unknown.
-        await repository.CreateOrReplaceAsync(row, Hash(oldHandle), participatingWrite, cancellationToken);
-        return handle;
     }
 
     public async Task<ValidatedAdminSession?> ReadAsync(string? handle, CancellationToken cancellationToken = default)

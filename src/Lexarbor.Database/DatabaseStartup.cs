@@ -65,7 +65,7 @@ public static class DatabaseStartup
     /// owns the readiness outcome: a return means success, and any failure is
     /// thrown as a fixed safe diagnostic for the caller to fail startup with.
     /// </summary>
-    public static async Task RunStartupMigrationAsync(
+    public static async Task RunMigrationAsync(
         IServiceProvider services,
         CancellationToken cancellationToken = default)
     {

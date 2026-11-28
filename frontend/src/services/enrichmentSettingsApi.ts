@@ -1,6 +1,6 @@
-import api from './api'
 import { ApiError } from './apiError'
 import type { CredentialChange } from './audioStorageSettingsApi'
+import { isRevision, putWithRevision } from './settingsRevision'
 
 /**
  * Changes to the review assistant or enrichment, keyed by the module's dotted names
@@ -14,7 +14,7 @@ function parse(value: unknown) {
   const state = value as Partial<{ revision: string }> | null
   // The page shows these values through the settings catalog; the save's answer only
   // has to be the module's own well-formed reply.
-  if (!state || typeof state.revision !== 'string' || !/^"[0-9a-f]{32}"$/.test(state.revision)) {
+  if (!state || !isRevision(state.revision)) {
     throw new ApiError('无法读取有效的审核与补齐配置。')
   }
   return state as { revision: string }
@@ -36,6 +36,5 @@ export function enrichmentChangesBody(changes: EnrichmentChanges) {
 }
 
 export async function saveEnrichmentSettings(revision: string, changes: EnrichmentChanges, signal: AbortSignal, isCurrent: () => boolean) {
-  return parse(await api.put<unknown>('/admin/enrichment/settings', enrichmentChangesBody(changes),
-    { headers: { 'If-Match': revision }, signal, lxIsCurrent: isCurrent }))
+  return parse(await putWithRevision('/admin/enrichment/settings', revision, enrichmentChangesBody(changes), signal, isCurrent))
 }

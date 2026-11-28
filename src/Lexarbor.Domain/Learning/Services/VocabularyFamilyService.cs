@@ -205,8 +205,3 @@ public sealed class VocabularyFamilyService(IVocabularyWordListRepository words,
         IReadOnlySet<VocabularyCatalogReference> References);
     private sealed record SourceSnapshot(IReadOnlyList<Source> Eligible, IReadOnlySet<CardKey> Learned);
 }
-
-public sealed class VocabularyFamilySourceForbiddenException : Exception
-{
-    public VocabularyFamilySourceForbiddenException() : base("This word is not eligible for family expansion.") { }
-}

@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ArrowRight, Refresh, Search, Timer, WarningFilled } from '@element-plus/icons-vue'
+import RereadButton from '@/components/settings/RereadButton.vue'
 import SettingBadge from '@/components/settings/SettingBadge.vue'
 import SettingsFacts from '@/components/settings/SettingsFacts.vue'
 import SettingsNotice from '@/components/settings/SettingsNotice.vue'
@@ -55,12 +56,7 @@ function search() {
         <h2 class="lx-page__title">概览</h2>
         <p class="lx-page__description">全部配置的整体情况：哪些可以在这里修改，哪些在等待重启，哪些由部署管理。</p>
       </div>
-      <!-- One reread on the page at a time: here while the state is known, in the card otherwise. -->
-      <div v-if="page.status.value === 'ready'" class="lx-page__actions">
-        <el-button :loading="page.busy.value" @click="page.load()">
-          <el-icon v-if="!page.busy.value" aria-hidden="true"><Refresh /></el-icon>重新读取
-        </el-button>
-      </div>
+      <RereadButton :page="page" />
     </div>
 
     <SettingsNotice :tone="page.tone.value" :message="page.notice.value" />

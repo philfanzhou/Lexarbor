@@ -23,13 +23,13 @@ namespace Lexarbor.Host;
 /// silently without authentication.
 /// </para>
 /// </remarks>
-public sealed class ConfiguredOtlpAuthenticationResolver : IRemoteTelemetryAuthenticationResolver
+public sealed class OtlpAuthenticationResolver : IRemoteTelemetryAuthenticationResolver
 {
     public const string ValueEnvironmentVariable = "LEXARBOR_TELEMETRY_OTLP_AUTHORIZATION";
 
     private readonly IReadOnlyList<FixedRemoteTelemetryAuthenticationResolver> resolvers;
 
-    public ConfiguredOtlpAuthenticationResolver(IEnumerable<string?> headerNames)
+    public OtlpAuthenticationResolver(IEnumerable<string?> headerNames)
     {
         ArgumentNullException.ThrowIfNull(headerNames);
 

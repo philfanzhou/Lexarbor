@@ -171,7 +171,8 @@ public sealed class AdminSessionAuthenticationTests
         var cookies = Cookies(host, handle, dual ? host.CreateToken("admin") : null);
         // The declared presentation change: a session write without the token fails
         // the authentication itself (the fixed 401), and the logout endpoint answers
-        // the package's fixed csrf rejection. Neither touches the session.
+        // the fixed csrf rejection kept from the retired package. Neither touches
+        // the session.
         using var write = await Send(client, "POST", "/admin/vocabulary-books", cookies);
         Assert.Equal(HttpStatusCode.Unauthorized, write.StatusCode);
         Assert.Contains("Authentication is required.", await write.Content.ReadAsStringAsync(Ct));
@@ -333,7 +334,7 @@ public sealed class AdminSessionAuthenticationTests
             }
             catch (IOException)
             {
-                // A WAL sidecar SQLite still holds is left behind.
+                // A file another process still holds is left behind.
             }
         }
     }
@@ -341,8 +342,8 @@ public sealed class AdminSessionAuthenticationTests
     private static void AssertSessionCookieDeleted(IEnumerable<string> cookies)
     {
         var values = cookies.ToArray();
-        // The session cookie is the only name deleted; the package's own session
-        // deletion may appear beside the middleware's, so the assertion is on the
+        // The session cookie is the only name deleted; the cookie handler's own
+        // session deletion may appear beside the middleware's, so the assertion is on the
         // distinct names.
         Assert.Single(values.Select(value => value.Split('=')[0]).Distinct());
         Assert.Contains(values, value => value.StartsWith(AdminSessionCookie.Name + "=;", StringComparison.Ordinal) && value.Contains("expires=", StringComparison.OrdinalIgnoreCase) && value.Contains("path=/", StringComparison.OrdinalIgnoreCase));

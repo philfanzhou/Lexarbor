@@ -2,7 +2,6 @@ namespace Lexarbor.Learning.Domain.Models;
 
 public sealed record VocabPlanSegment(string BookId, List<string>? UnitIds)
 {
-
     public bool SameAs(VocabPlanSegment other) =>
         string.Equals(BookId, other.BookId, StringComparison.Ordinal)
         && (UnitIds is null ? other.UnitIds is null : other.UnitIds is not null && UnitIds.SequenceEqual(other.UnitIds, StringComparer.Ordinal));

@@ -44,5 +44,4 @@ public sealed record CatalogLearningQuestionRequest(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     IReadOnlyList<string>? Types = null);
 
-
 internal sealed record CatalogUnitList(List<CatalogUnit> Units);

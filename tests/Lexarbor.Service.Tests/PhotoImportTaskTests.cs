@@ -22,7 +22,7 @@ public sealed class PhotoImportTaskTests
     {
         var vision = new Mock<IVocabularyPhotoRecognizer>(MockBehavior.Strict);
         vision.SetupSequence(x => x.RecognizeAsync(It.Is<VocabPhoto>(p => p.Content.SequenceEqual(Photo)), It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new VocabPhotoImportUnavailableException())
+            .ThrowsAsync(new VocabPhotoUnavailableException())
             .ReturnsAsync([new("apple", null, "fruit"), new("pear", null, "fruit", "Check handwriting")])
             .ReturnsAsync([]);
         var meanings = new[] { "apple", "pear" }.ToDictionary(word => word,

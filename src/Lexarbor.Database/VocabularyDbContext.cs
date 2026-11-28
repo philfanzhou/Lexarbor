@@ -307,10 +307,10 @@ public class VocabularyDbContext : DbContext
             // The section and the entry kind complete the position: a meaning
             // may sit in the same unit's Section A and Section B, as a word and
             // as a phrase, as separate rows. Both properties are empty-string
-            // sentinels rather than null because SQLite treats NULLs in a
-            // composite primary key as distinct, which would break the
-            // idempotent re-import of an unsectioned or unclassified
-            // assignment.
+            // sentinels rather than null: the schema was built on SQLite, which
+            // treats NULLs in a composite primary key as distinct, which would
+            // have broken the idempotent re-import of an unsectioned or
+            // unclassified assignment.
             entity.HasKey(e => new { e.UnitId, e.MeaningId, e.Section, e.EntryKind });
 
             entity.Property(e => e.Section)
@@ -370,8 +370,3 @@ public class VocabularyDbContext : DbContext
         entity.HasIndex(InsertionOrderProperty);
     }
 }
-
-internal sealed class UtcDateTimeOffsetConverter()
-    : Microsoft.EntityFrameworkCore.Storage.ValueConversion.ValueConverter<DateTimeOffset, DateTimeOffset>(
-        value => value.ToUniversalTime(),
-        value => value);

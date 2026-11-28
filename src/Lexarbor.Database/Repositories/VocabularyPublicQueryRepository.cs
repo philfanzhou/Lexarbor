@@ -14,7 +14,7 @@ namespace Lexarbor.Database.Repositories;
 public sealed partial class VocabularyPublicQueryRepository(VocabularyDbContext context) : IVocabularyPublicQueryRepository
 {
     public Task<VocabularyPublicUnitList> GetUnitsAsync(string bookId, CancellationToken cancellationToken)
-        => SnapshotAsync(async () =>
+        => ReadSnapshot.ReadAsync(context, async () =>
         {
             await EnsureEnabledBookAsync(bookId, cancellationToken);
 
@@ -57,7 +57,7 @@ public sealed partial class VocabularyPublicQueryRepository(VocabularyDbContext 
 
     public Task<VocabularyPublicEntryPage> GetEntriesAsync(
         string bookId, string? unitId, int page, int size, CancellationToken cancellationToken)
-        => SnapshotAsync(async () =>
+        => ReadSnapshot.ReadAsync(context, async () =>
         {
             await EnsureEnabledBookAsync(bookId, cancellationToken);
             // A unit of another book answers the same 404 as a missing one,
@@ -184,25 +184,6 @@ public sealed partial class VocabularyPublicQueryRepository(VocabularyDbContext 
             // the browse routes never reveal that a disabled book's units or
             // entries exist.
             throw new BusinessRuleException("Vocabulary book is disabled.");
-        }
-    }
-
-    private async Task<T> SnapshotAsync<T>(Func<Task<T>> read, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        await context.Database.OpenConnectionAsync(cancellationToken);
-        try
-        {
-            // BEGIN (deferred), not UnitOfWork's serialized BEGIN IMMEDIATE,
-            // so the counts and the page read one instant of the book.
-            await using var transaction = await ReadSnapshot.BeginAsync(context, cancellationToken);
-            var result = await read();
-            await transaction.CommitAsync(cancellationToken);
-            return result;
-        }
-        finally
-        {
-            await context.Database.CloseConnectionAsync();
         }
     }
 }

@@ -39,3 +39,11 @@ public sealed class EnrichmentServiceProbeEntity
     public long StartedAtUnixMs { get; set; }
     public long? FinishedAtUnixMs { get; set; }
 }
+
+public sealed class EnrichmentServiceLeaseEntity
+{
+    public string Id { get; set; } = "";
+    public string ServiceId { get; set; } = "";
+    public string ConfigurationVersion { get; set; } = "";
+    public long ExpiresAtUnixMs { get; set; }
+}

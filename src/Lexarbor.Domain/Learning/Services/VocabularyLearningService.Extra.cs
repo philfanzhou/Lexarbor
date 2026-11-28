@@ -127,5 +127,4 @@ public sealed partial class VocabularyLearningService
         if (!ReferenceEquals(owner, today))
             await _planDayRepository.UpdateAsync(owner, cancellationToken).ConfigureAwait(false);
     }
-
 }
