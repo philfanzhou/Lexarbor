@@ -3,7 +3,6 @@ using Lexarbor.Domain.Models;
 using Lexarbor.Host;
 using Lexarbor.Host.Integration;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Lexarbor.Service.Tests;

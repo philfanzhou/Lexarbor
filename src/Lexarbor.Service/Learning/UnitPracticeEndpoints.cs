@@ -2,6 +2,7 @@ using Lexarbor.Learning.Database.Entities;
 using Lexarbor.Learning.Database.Repositories;
 using Lexarbor.Learning.Domain.Models;
 using Lexarbor.Learning.Domain.Services;
+using Lexarbor.Service;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -29,13 +30,13 @@ public static class UnitPracticeEndpoints
             Ok(session is null ? null : await store.ProgressAsync(session, ct)), ct));
 
     private static Task<IResult> Start(Guid studentId, StartPractice request, UnitPracticeRepository store,
-        ILexarborClient catalog, UnitPracticeQuestionSource questions, CancellationToken ct) => Run(async () =>
+        ICatalogClient catalog, UnitPracticeQuestionSource questions, CancellationToken ct) => Run(async () =>
     {
         var book = request.BookId?.Trim();
         var unit = request.UnitId?.Trim();
         if (request.SessionId == Guid.Empty || string.IsNullOrEmpty(book) || string.IsNullOrEmpty(unit)
             || !UnitPracticeModes.TryParse(request.Mode, out var mode))
-            return Error(400, "VOCAB_PRACTICE_INVALID", "A session UUID, book, unit and a valid mode are required.");
+            return ApiResponse.Failure(400, "VOCAB_PRACTICE_INVALID", "A session UUID, book, unit and a valid mode are required.");
 
         async Task<IResult?> Existing(UnitPracticeSession? session)
         {
@@ -61,7 +62,7 @@ public static class UnitPracticeEndpoints
             }
             if (page >= entries.TotalPage || entries.Items.Count == 0) break;
         }
-        if (targets.Count == 0) return Error(422, "VOCAB_PRACTICE_EMPTY", "The unit contains no practice targets.");
+        if (targets.Count == 0) return ApiResponse.Failure(422, "VOCAB_PRACTICE_EMPTY", "The unit contains no practice targets.");
         var issued = await questions.CreateAsync(mode, book, unit, targets, ct);
         return await store.WithLearnerAsync(studentId, async session =>
         {
@@ -99,7 +100,7 @@ public static class UnitPracticeEndpoints
         var early = await store.WithLearnerAsync<IResult?>(studentId, async session =>
         {
             if (session?.SessionId != sessionId) return Missing();
-            if (round < 2) return Error(400, "VOCAB_PRACTICE_ROUND_INVALID", "Retry rounds start at 2.");
+            if (round < 2) return ApiResponse.Failure(400, "VOCAB_PRACTICE_ROUND_INVALID", "Retry rounds start at 2.");
             if (round == session.Round) return Ok(await store.ProgressAsync(session, ct));
             if (round != session.Round + 1 || (candidates = await store.RetryCandidatesAsync(session, ct)) is null) return Conflict();
             current = session;
@@ -120,9 +121,9 @@ public static class UnitPracticeEndpoints
     private static async Task<IResult> Run(Func<Task<IResult>> operation)
     {
         try { return await operation(); }
-        catch (VocabStudentNotFoundException) { return Error(404, "VOCAB_STUDENT_NOT_FOUND", "Student was not found."); }
-        catch (VocabCatalogUnavailableException error) { return Error(503, VocabularyCatalogErrorCodes.CatalogUnavailable, error.Message); }
-        catch (LexarborCatalogException error)
+        catch (VocabStudentNotFoundException) { return ApiResponse.Failure(404, "VOCAB_STUDENT_NOT_FOUND", "Student was not found."); }
+        catch (VocabCatalogUnavailableException error) { return ApiResponse.Failure(503, VocabularyCatalogErrorCodes.CatalogUnavailable, error.Message); }
+        catch (CatalogException error)
         {
             var status = error.ErrorCode switch
             {
@@ -130,7 +131,7 @@ public static class UnitPracticeEndpoints
                 VocabularyCatalogErrorCodes.BookNotFound or VocabularyCatalogErrorCodes.UnitNotFound => 404,
                 _ => 503
             };
-            return Error(status, error.ErrorCode, error.Message);
+            return ApiResponse.Failure(status, error.ErrorCode, error.Message);
         }
         catch (DbUpdateException error) when (error.InnerException is PostgresException
         { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: "vocab_unit_practice_session_id_key" })
@@ -139,9 +140,9 @@ public static class UnitPracticeEndpoints
         }
     }
 
-    private static IResult Missing() => Error(404, "VOCAB_PRACTICE_NOT_FOUND", "The session or question was not found.");
-    private static IResult Conflict() => Error(409, "VOCAB_PRACTICE_CONFLICT", "Read the current session before continuing.");
-    private static IResult AnswerInvalid() => Error(400, "VOCAB_PRACTICE_ANSWER_INVALID",
+    private static IResult Missing() => ApiResponse.Failure(404, "VOCAB_PRACTICE_NOT_FOUND", "The session or question was not found.");
+    private static IResult Conflict() => ApiResponse.Failure(409, "VOCAB_PRACTICE_CONFLICT", "Read the current session before continuing.");
+    private static IResult AnswerInvalid() => ApiResponse.Failure(400, "VOCAB_PRACTICE_ANSWER_INVALID",
         "Supply a question UUID and exactly one of answer, optionId, letters or unknown that suits the question.");
     private static IResult Ok(object? data) => Results.Ok(new { success = true, data = data is UnitPracticeProgress progress ? View(progress) : data });
 
@@ -179,6 +180,4 @@ public static class UnitPracticeEndpoints
         if (q.PartOfSpeech != null) view["partOfSpeech"] = q.PartOfSpeech;
         return view;
     }
-    private static IResult Error(int status, string code, string message) =>
-        Results.Json(new { success = false, code, message }, statusCode: status);
 }

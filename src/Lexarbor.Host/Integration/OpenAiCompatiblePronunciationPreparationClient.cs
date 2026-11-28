@@ -9,6 +9,7 @@ using Lexarbor.Domain.Repositories;
 using Lexarbor.Domain.Services;
 using Lexarbor.Host.Configuration;
 using OpenTelemetry;
+using static Lexarbor.Host.Integration.SupplierJson;
 
 namespace Lexarbor.Host.Integration;
 
@@ -105,7 +106,7 @@ public sealed class OpenAiCompatiblePronunciationPreparationClient(
             // HTTP diagnostics. Result codes below are the only safe history.
             using var suppression = SuppressInstrumentationScope.Begin();
             using var response = await client.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
-            var retryAfter = RetryAfter(response);
+            var retryAfter = RetryAfter(response, _time);
             if (response.StatusCode == HttpStatusCode.TooManyRequests)
                 return Result(PronunciationPreparationOutcome.Throttled, "rate_limited", true, retryAfter);
             if ((int)response.StatusCode >= 500 || response.StatusCode == HttpStatusCode.RequestTimeout)
@@ -293,20 +294,6 @@ public sealed class OpenAiCompatiblePronunciationPreparationClient(
             && Optional(m.Meaning.PartOfSpeech, 128) && PhoneticInput(m.Meaning.PhoneticUk) && PhoneticInput(m.Meaning.PhoneticUs)
             && m.PositionKinds.Count <= 100 && m.PositionKinds.All(VocabularyMeaningUnitEntryKinds.IsValid))
         && (request.TargetMeaning == null || request.Meanings.Any(m => m.Meaning == request.TargetMeaning));
-    internal static bool UniqueProperties(JsonElement element) => element.ValueKind switch
-    {
-        JsonValueKind.Object => element.EnumerateObject().Select(p => p.Name).Distinct(StringComparer.Ordinal).Count() == element.EnumerateObject().Count()
-            && element.EnumerateObject().All(p => UniqueProperties(p.Value)),
-        JsonValueKind.Array => element.EnumerateArray().All(UniqueProperties),
-        _ => true
-    };
-    internal static bool ContainsCredential(JsonElement element, string key) => element.ValueKind switch
-    {
-        JsonValueKind.String => element.GetString()!.Contains(key, StringComparison.Ordinal),
-        JsonValueKind.Array => element.EnumerateArray().Any(value => ContainsCredential(value, key)),
-        JsonValueKind.Object => element.EnumerateObject().Any(property => property.Name.Contains(key, StringComparison.Ordinal) || ContainsCredential(property.Value, key)),
-        _ => false
-    };
     private static bool PhoneticInput(string? value) => value == null || value.Length <= 512 && (string.IsNullOrWhiteSpace(value) || !value.Any(char.IsControl));
     internal static bool TemplateExpanded(string headword, string spoken)
     {
@@ -329,31 +316,8 @@ public sealed class OpenAiCompatiblePronunciationPreparationClient(
         return (!Regex.IsMatch(headword, @"\bsb\.", options) || Regex.IsMatch(spoken, @"\bsomebody\b", options))
             && (!Regex.IsMatch(headword, @"\bsth\.", options) || Regex.IsMatch(spoken, @"\bsomething\b", options));
     }
-    private static bool Bounded(string? value, int maximum) => !string.IsNullOrWhiteSpace(value) && value.Length <= maximum && !value.Any(char.IsControl);
-    private static bool Optional(string? value, int maximum) => value == null || value.Length <= maximum && !value.Any(char.IsControl);
-    private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     private static bool IsRateLimit(JsonElement error) => error.ValueKind == JsonValueKind.Object
         && error.TryGetProperty("code", out var code) && code.ValueKind == JsonValueKind.String && code.GetString() is "rate_limit_exceeded" or "slow_down";
-    private TimeSpan? RetryAfter(HttpResponseMessage response)
-    {
-        var header = response.Headers.RetryAfter;
-        var delay = header?.Delta ?? (header?.Date is { } date ? date - _time.GetUtcNow() : null);
-        return delay is { } value && value > TimeSpan.Zero ? value : null;
-    }
-    internal static async Task<byte[]?> ReadBoundedAsync(HttpContent content, CancellationToken token, int limit = MaximumBodyBytes)
-    {
-        if (content.Headers.ContentLength > limit) return null;
-        await using var stream = await content.ReadAsStreamAsync(token);
-        using var output = new MemoryStream();
-        var buffer = new byte[8192];
-        while (true)
-        {
-            var read = await stream.ReadAsync(buffer.AsMemory(0, Math.Min(buffer.Length, limit + 1 - (int)output.Length)), token);
-            if (read == 0) return output.ToArray();
-            output.Write(buffer, 0, read);
-            if (output.Length > limit) return null;
-        }
-    }
     private static PronunciationPreparationResult Result(PronunciationPreparationOutcome outcome, string code, bool called = false, TimeSpan? retry = null)
         => new(outcome, ErrorCode: code, RequestMade: called, RetryAfter: retry);
     private sealed record WirePart(string MeaningId, string PartOfSpeech);

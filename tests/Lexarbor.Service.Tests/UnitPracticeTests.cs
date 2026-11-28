@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Net;
-using System.Net.Http.Json;
 using System.Text.Json;
 using Lexarbor.Learning.Database;
 using Lexarbor.Learning.Database.Repositories;
@@ -12,7 +11,6 @@ using Lexarbor.Tests.Shared;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace Lexarbor.Service.Tests;
 
@@ -26,7 +24,7 @@ public sealed class UnitPracticeTests
         await using var factory = new VocabularyWebApplicationFactory();
         var catalog = new PracticeCatalog();
         await using var host = factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
-            services.AddSingleton<ILexarborClient>(catalog)));
+            services.AddSingleton<ICatalogClient>(catalog)));
         using var phone = host.CreateClient();
         using var tablet = host.CreateClient();
         var key = await host.SeedKeyAsync("practice", catalog: false, learning: true);
@@ -147,7 +145,7 @@ public sealed class UnitPracticeTests
         };
         await using var factory = new VocabularyWebApplicationFactory();
         await using var host = factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
-            services.AddSingleton<ILexarborClient>(catalog)));
+            services.AddSingleton<ICatalogClient>(catalog)));
         var (client, path) = await LearnerAsync(host, "choice-practice");
         var session = Guid.NewGuid();
         var start = new { sessionId = session, bookId = "book", unitId = "one", mode = "choice" };
@@ -240,7 +238,7 @@ public sealed class UnitPracticeTests
         };
         await using var factory = new VocabularyWebApplicationFactory();
         await using var host = factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
-            services.AddSingleton<ILexarborClient>(catalog)));
+            services.AddSingleton<ICatalogClient>(catalog)));
         var (client, path) = await LearnerAsync(host, "mixed-practice");
         var session = Guid.NewGuid();
         var view = await Data(await client.PostAsJsonAsync(path, new { sessionId = session, bookId = "book", unitId = "one", mode = "mixed" }, Ct));
@@ -324,27 +322,27 @@ public sealed class UnitPracticeTests
         return (await response.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("data");
     }
 
-    private sealed class PracticeCatalog : ILexarborClient
+    private sealed class PracticeCatalog : ICatalogClient
     {
         public bool Available { get; set; } = true;
         public bool QuestionsAvailable { get; set; } = true;
-        public Task<LexarborEntryPage> GetEntriesAsync(string bookId, string? unitId, int page, int size, CancellationToken cancellationToken)
+        public Task<CatalogEntryPage> GetEntriesAsync(string bookId, string? unitId, int page, int size, CancellationToken cancellationToken)
         {
-            if (!Available) throw new LexarborCatalogException(VocabularyCatalogErrorCodes.CatalogUnavailable, true, "Catalog offline.");
+            if (!Available) throw new CatalogException(VocabularyCatalogErrorCodes.CatalogUnavailable, true, "Catalog offline.");
             Assert.Equal("book", bookId);
             Assert.Equal("one", unitId);
             var apple = Entry("apple", "苹果", "one");
-            List<LexarborEntry> entries = page == 1 ? [apple, Entry("apple", "别的义项", "two")] : [apple, Entry("pear", "梨", "one")];
-            return Task.FromResult(new LexarborEntryPage(entries, 2, 4, 2));
+            List<CatalogEntry> entries = page == 1 ? [apple, Entry("apple", "别的义项", "two")] : [apple, Entry("pear", "梨", "one")];
+            return Task.FromResult(new CatalogEntryPage(entries, 2, 4, 2));
         }
 
-        private static LexarborEntry Entry(string word, string meaning, string unit) =>
+        private static CatalogEntry Entry(string word, string meaning, string unit) =>
             new(word, word, word, null, null, word + meaning, "noun", meaning, meaning, null, [new(unit, 1, null, null)]);
-        public Task<IReadOnlyList<LexarborUnit>> GetUnitsAsync(string bookId, CancellationToken cancellationToken) => throw new NotSupportedException();
-        public Task<LexarborAudio> GetAudioAsync(string wordId, string bookId, string meaningId, string locale, CancellationToken cancellationToken) => throw new NotSupportedException();
-        public Func<LexarborLearningQuestionRequest, VocabGeneratedQuestion?>? Questions { get; set; }
-        public ConcurrentQueue<LexarborLearningQuestionRequest> Requests { get; } = new();
-        public Task<VocabGeneratedQuestion?> GetLearningQuestionAsync(LexarborLearningQuestionRequest request, CancellationToken cancellationToken)
+        public Task<IReadOnlyList<CatalogUnit>> GetUnitsAsync(string bookId, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<CatalogAudio> GetAudioAsync(string wordId, string bookId, string meaningId, string locale, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Func<CatalogLearningQuestionRequest, VocabGeneratedQuestion?>? Questions { get; set; }
+        public ConcurrentQueue<CatalogLearningQuestionRequest> Requests { get; } = new();
+        public Task<VocabGeneratedQuestion?> GetLearningQuestionAsync(CatalogLearningQuestionRequest request, CancellationToken cancellationToken)
         {
             if (Questions == null) throw new NotSupportedException();
             if (!Available || !QuestionsAvailable) throw new VocabCatalogUnavailableException();

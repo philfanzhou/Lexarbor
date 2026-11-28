@@ -20,7 +20,7 @@ public sealed class LexarborClientQuestionTypesTests
     public async Task TypesAreSentOnlyWhenPresentAndBindTheReply()
     {
         var handler = new Capture(Choice);
-        var client = new LexarborClient(new HttpClient(handler), Options.Create(new LexarborOptions { BaseUrl = "https://catalog.test" }));
+        var client = new CatalogClient(new HttpClient(handler), Options.Create(new CatalogOptions { BaseUrl = "https://catalog.test" }));
 
         var question = await client.GetLearningQuestionAsync(Request(["ChineseToEnglish"]), Ct);
         Assert.Equal(VocabQuestionDirection.ChineseToEnglish, question!.Direction);
@@ -35,7 +35,7 @@ public sealed class LexarborClientQuestionTypesTests
         await Assert.ThrowsAsync<VocabCatalogUnavailableException>(() => client.GetLearningQuestionAsync(Request(["FillLetters"]), Ct));
     }
 
-    private static LexarborLearningQuestionRequest Request(IReadOnlyList<string>? types) =>
+    private static CatalogLearningQuestionRequest Request(IReadOnlyList<string>? types) =>
         new("apple", "book", "apple-m", "review", "one", SameEntryKind: true, Types: types);
 
     private sealed class Capture(string reply) : HttpMessageHandler

@@ -14,6 +14,6 @@ public sealed class AdminPreSignInRoleGate(IOptionsMonitor<AdminAuthenticationOp
 {
     public bool AllowsSession(System.Security.Claims.ClaimsPrincipal accessTokenPrincipal)
     {
-        return VocabularyClaims.HasRole(accessTokenPrincipal, options.CurrentValue.RequiredRole);
+        return IdentityClaims.HasRole(accessTokenPrincipal, options.CurrentValue.RequiredRole);
     }
 }

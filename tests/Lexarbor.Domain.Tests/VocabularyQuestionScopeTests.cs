@@ -13,11 +13,11 @@ namespace Lexarbor.Domain.Tests;
 /// </summary>
 public class VocabularyQuestionScopeTests : TestBase
 {
-    private readonly VocabularyDomainService _service;
+    private readonly VocabularyService _service;
 
     public VocabularyQuestionScopeTests()
     {
-        _service = new VocabularyDomainService(
+        _service = new VocabularyService(
             _vocabularyRepository,
             _bookRepository,
             _meaningRepository,
@@ -541,15 +541,15 @@ public class VocabularyQuestionScopeTests : TestBase
 
     // ==================== seeds ====================
 
-    private async Task<(VocabularyModel Word, VocabularyMeaningModel Meaning)> SeedWordAsync(
+    private async Task<(Vocabulary Word, VocabularyMeaning Meaning)> SeedWordAsync(
         string bookId,
         string word,
         string meaning,
         string? partOfSpeech = "noun")
     {
         return await _service.AddOrUpdateAsync(
-            new VocabularyModel { Word = word },
-            new VocabularyMeaningModel
+            new Vocabulary { Word = word },
+            new VocabularyMeaning
             {
                 BookId = bookId,
                 PartOfSpeech = partOfSpeech,
@@ -557,10 +557,10 @@ public class VocabularyQuestionScopeTests : TestBase
             });
     }
 
-    private async Task<VocabularyBookUnitModel> CreateUnitAsync(string bookId, int number = 1)
+    private async Task<VocabularyBookUnit> CreateUnitAsync(string bookId, int number = 1)
     {
         var now = DateTimeOffset.UtcNow;
-        var unit = new VocabularyBookUnitModel
+        var unit = new VocabularyBookUnit
         {
             Id = Guid.NewGuid().ToString(),
             BookId = bookId,
@@ -580,7 +580,7 @@ public class VocabularyQuestionScopeTests : TestBase
         string? section = null,
         string? entryKind = null)
     {
-        await _meaningUnitRepository.AddAsync(new VocabularyMeaningUnitModel
+        await _meaningUnitRepository.AddAsync(new VocabularyMeaningUnit
         {
             UnitId = unitId,
             MeaningId = meaningId,
@@ -606,10 +606,10 @@ public class VocabularyQuestionScopeTests : TestBase
     }
 
     private sealed record UnitBookData(
-        VocabularyBookModel Book,
-        VocabularyModel CorrectWord,
-        VocabularyBookUnitModel Unit,
-        Dictionary<string, (VocabularyModel Word, VocabularyMeaningModel Meaning)> UnitWords);
+        VocabularyBook Book,
+        Vocabulary CorrectWord,
+        VocabularyBookUnit Unit,
+        Dictionary<string, (Vocabulary Word, VocabularyMeaning Meaning)> UnitWords);
 
     /// <summary>
     /// One unit holding a few words, a correct word with no unit position, and
@@ -622,7 +622,7 @@ public class VocabularyQuestionScopeTests : TestBase
         var correct = await SeedWordAsync(book.Id, "apple", "fruit");
 
         var unitWords =
-            new Dictionary<string, (VocabularyModel, VocabularyMeaningModel)>(StringComparer.Ordinal);
+            new Dictionary<string, (Vocabulary, VocabularyMeaning)>(StringComparer.Ordinal);
         var names = new[] { "banana", "cherry", "date", "elderberry" };
         var meanings = new[] { "yellow fruit", "red fruit", "sweet fruit", "dark fruit" };
         for (var index = 0; index < unitWordCount && index < names.Length; index++)
@@ -639,11 +639,11 @@ public class VocabularyQuestionScopeTests : TestBase
     }
 
     private sealed record KindBookData(
-        VocabularyBookModel Book,
-        VocabularyBookUnitModel Unit,
-        (VocabularyModel Word, VocabularyMeaningModel Meaning) PhraseTarget,
-        (VocabularyModel Word, VocabularyMeaningModel Meaning) WordTarget,
-        (VocabularyModel Word, VocabularyMeaningModel Meaning) UnclassifiedTarget);
+        VocabularyBook Book,
+        VocabularyBookUnit Unit,
+        (Vocabulary Word, VocabularyMeaning Meaning) PhraseTarget,
+        (Vocabulary Word, VocabularyMeaning Meaning) WordTarget,
+        (Vocabulary Word, VocabularyMeaning Meaning) UnclassifiedTarget);
 
     /// <summary>
     /// One unit holding three phrases, two classified words and one

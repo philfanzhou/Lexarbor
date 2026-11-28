@@ -3,7 +3,6 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Lexarbor.Host;
 using Lexarbor.Host.Authentication;
 using Lexarbor.Host.Configuration;
 using Lexarbor.Host.RateLimiting;
@@ -11,8 +10,6 @@ using Lexarbor.Learning.Domain.Models;
 using Lexarbor.Learning.Domain.Services;
 using Lexarbor.Learning.Service;
 using Lexarbor.Service.Tests.TestInfrastructure;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Npgsql;
 
@@ -369,10 +366,10 @@ public sealed class ConfigurationCatalogTests : IDisposable
             // page shows and edits these lists as the extras.
             Assert.Equal(new[] { 1, 10, 2, 20 }, scheduling.LearningStepsMinutes);
             Assert.Equal(60, restarted.Services.GetRequiredService<IOptions<VocabularyErrorProneOptions>>().Value.WindowDays);
-            var catalogClient = restarted.Services.GetRequiredService<IOptions<LexarborOptions>>().Value;
+            var catalogClient = restarted.Services.GetRequiredService<IOptions<CatalogOptions>>().Value;
             Assert.Equal("https://lexarbor.example.test", catalogClient.BaseUrl);
             Assert.Equal("synthetic-catalog-key", catalogClient.ApiKey);
-            Assert.Equal("synthetic-submission-key", restarted.Services.GetRequiredService<LexarborIntegrationOptions>().ApiKey);
+            Assert.Equal("synthetic-submission-key", restarted.Services.GetRequiredService<IntegrationOptions>().ApiKey);
             Assert.Equal(0.85m, Field(reloaded, "VocabularyLearning:Fsrs:DesiredRetention").GetProperty("value").GetDecimal());
             Assert.Equal(new[] { 2, 20 }, Field(reloaded, "VocabularyLearning:Fsrs:LearningStepsMinutes").GetProperty("value").EnumerateArray().Select(item => item.GetInt32()));
         }

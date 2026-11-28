@@ -1,6 +1,5 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
-using Lexarbor.Domain.Models;
 
 namespace Lexarbor.Database.Entities;
 

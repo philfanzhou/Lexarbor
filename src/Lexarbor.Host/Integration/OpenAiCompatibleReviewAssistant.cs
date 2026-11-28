@@ -40,7 +40,7 @@ public sealed class OpenAiCompatibleReviewAssistant : IMeaningSubmissionReviewAs
     public bool IsEnabled => _runtime.Current.ReviewAssistant.IsEnabled;
 
     public async Task<MeaningSubmissionReviewAdvice> ReviewAsync(
-        MeaningSubmissionModel submission,
+        MeaningSubmission submission,
         CancellationToken cancellationToken = default)
     {
         var options = _runtime.Current.ReviewAssistant;

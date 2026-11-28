@@ -10,7 +10,7 @@ namespace Lexarbor.Service;
 /// <summary>Local envelopes for the two new routes; legacy/global errors stay unchanged.</summary>
 internal static class LearningQuestionEndpoints
 {
-    internal static async Task<IResult> Catalog(HttpRequest request, VocabularyDomainService service, CancellationToken cancellationToken)
+    internal static async Task<IResult> Catalog(HttpRequest request, VocabularyService service, CancellationToken cancellationToken)
     {
         var body = await ReadAsync<LearningQuestionRequest>(request, cancellationToken);
         if (body is null || !TryMode(body.Mode, out var mode)
@@ -23,7 +23,7 @@ internal static class LearningQuestionEndpoints
 
     internal static async Task<IResult> Submission(string id, HttpRequest request, MeaningSubmissionService service, CancellationToken cancellationToken)
     {
-        if (!service.IsConfigured) return Error(503, "QUESTION_SERVICE_UNAVAILABLE", "The question service is not configured.");
+        if (!service.IsConfigured) return ApiResponse.Failure(503, "QUESTION_SERVICE_UNAVAILABLE", "The question service is not configured.");
         var body = await ReadAsync<SubmissionLearningQuestionRequest>(request, cancellationToken);
         if (body is null || !TryMode(body.Mode, out var mode)) return Invalid();
         return await Generate(() => service.CreateLearningQuestionAsync(id, mode, cancellationToken));
@@ -76,22 +76,21 @@ internal static class LearningQuestionEndpoints
 
     private static async Task<IResult> Generate(Func<Task<LearningQuestion>> create)
     {
-        try { return VocabularyHttpResponse.Ok(LearningQuestionDto.From(await create())); }
+        try { return ApiResponse.Ok(LearningQuestionMapping.From(await create())); }
         catch (ResourceNotFoundException)
         {
-            return Error(404, "QUESTION_TARGET_NOT_FOUND", "The question target was not found.");
+            return ApiResponse.Failure(404, "QUESTION_TARGET_NOT_FOUND", "The question target was not found.");
         }
         catch (LearningQuestionException exception) when (exception.Failure == LearningQuestionFailure.SourceUnavailable)
         {
-            return Error(422, "QUESTION_SOURCE_UNAVAILABLE", "The question source is unavailable.");
+            return ApiResponse.Failure(422, "QUESTION_SOURCE_UNAVAILABLE", "The question source is unavailable.");
         }
         catch (LearningQuestionException exception) when (exception.Failure == LearningQuestionFailure.Unavailable)
         {
-            return Error(422, "QUESTION_UNAVAILABLE", "No allowed question type is available.");
+            return ApiResponse.Failure(422, "QUESTION_UNAVAILABLE", "No allowed question type is available.");
         }
         catch (DomainValidationException) { return Invalid(); }
     }
 
-    private static IResult Invalid() => Error(400, "QUESTION_INVALID_REQUEST", "A valid question request with mode new or review is required.");
-    private static IResult Error(int status, string code, string message) => Results.Json(new { success = false, code, message }, statusCode: status);
+    private static IResult Invalid() => ApiResponse.Failure(400, "QUESTION_INVALID_REQUEST", "A valid question request with mode new or review is required.");
 }

@@ -18,7 +18,7 @@ namespace Lexarbor.Service;
 /// </summary>
 public static class MeaningSubmissionEndpoints
 {
-    public static void MapMeaningSubmissionIntegrationEndpoints(this IEndpointRouteBuilder app)
+    public static void MapMeaningSubmissionIntegration(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/integration/meaning-submissions").RequireBusinessApiScope(BusinessApiAuthorization.MeaningSubmissions);
         group.MapPost("/{id}/learning-question", LearningQuestionEndpoints.Submission);
@@ -29,41 +29,28 @@ public static class MeaningSubmissionEndpoints
             var source = user.FindFirst(BusinessApiAuthorization.CallerClaim)!.Value;
             var submission = await service.SubmitAsync(
                 source, request.Word, request.PartOfSpeech, request.Meaning, request.Example, cancellationToken);
-            return VocabularyHttpResponse.Ok(MeaningSubmissionDto.From(submission));
+            return ApiResponse.Ok(MeaningSubmissionDto.From(submission));
         });
         app.MapGet("/integration/vocabulary/search", async ([FromQuery] string? keyword,
             MeaningSubmissionService service, CancellationToken cancellationToken) =>
-            VocabularyHttpResponse.Ok(new { items = await service.SearchCatalogAsync(keyword, cancellationToken) }))
+            ApiResponse.Ok(new { items = await service.SearchCatalogAsync(keyword, cancellationToken) }))
             .RequireAuthorization(BusinessApiAuthorization.MeaningSubmissions);
         group.MapPost("/lookup", async ([FromBody] MeaningSubmissionLookupRequest request,
             MeaningSubmissionService service, CancellationToken cancellationToken) =>
         {
             var items = await service.LookupAsync(request.Ids, cancellationToken);
-            return VocabularyHttpResponse.Ok(new { items = items.Select(MeaningSubmissionDto.From) });
+            return ApiResponse.Ok(new { items = items.Select(MeaningSubmissionDto.From) });
         });
         group.MapPost("/{id}/question", async (string id, [FromBody] MeaningSubmissionQuestionRequest request,
             MeaningSubmissionService service, CancellationToken cancellationToken) =>
         {
             var chineseToEnglish = request.ChineseToEnglish ?? Random.Shared.Next(2) == 0;
             var question = await service.CreateQuestionAsync(id, chineseToEnglish, cancellationToken);
-            return VocabularyHttpResponse.Ok(new QuestionResponse
-            {
-                Word = question.Word,
-                WordId = question.WordId,
-                MeaningId = question.MeaningId,
-                ChineseToEnglish = question.ChineseToEnglish,
-                Options = question.Options.Select(option => new OptionDto
-                {
-                    Meaning = option.Text,
-                    IsCorrect = option.IsCorrect,
-                    WordId = option.WordId,
-                    MeaningId = option.MeaningId
-                }).ToList()
-            });
+            return ApiResponse.Ok(QuestionMapping.From(question));
         });
     }
 
-    public static void MapMeaningSubmissionAdminEndpoints(this IEndpointRouteBuilder app)
+    public static void MapMeaningSubmissionAdmin(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/admin/meaning-submissions").RequireAuthorization(AdminEndpointAuthorization.PolicyName);
         group.MapGet("", async ([FromQuery] string? status, [FromQuery] int? page, [FromQuery] int? size, [FromQuery] string? reviewerKind,
@@ -76,14 +63,14 @@ public static class MeaningSubmissionEndpoints
                 "rejected" => MeaningSubmissionStatus.Rejected,
                 _ => (MeaningSubmissionStatus?)null
             };
-            if (parsed is null) return VocabularyHttpResponse.BadRequest("Status must be pending, approved or rejected.");
+            if (parsed is null) return ApiResponse.BadRequest("Status must be pending, approved or rejected.");
             reviewerKind = reviewerKind?.Trim().ToLowerInvariant();
             if (reviewerKind == "") reviewerKind = null;
             if (reviewerKind is not (null or "admin" or "ai" or "unknown"))
-                return VocabularyHttpResponse.BadRequest("Reviewer kind must be admin, ai or unknown.");
+                return ApiResponse.BadRequest("Reviewer kind must be admin, ai or unknown.");
             var pageSize = Math.Clamp(size ?? 20, 1, 100);
             var (items, total) = await service.PageAsync(parsed.Value, page ?? 1, pageSize, cancellationToken, reviewerKind);
-            return VocabularyHttpResponse.Ok(new
+            return ApiResponse.Ok(new
             {
                 configured = service.IsConfigured,
                 bookId = service.BookId,
@@ -106,23 +93,23 @@ public static class MeaningSubmissionEndpoints
             var submission = await service.ApproveAsync(id, new MeaningSubmissionApproval(
                 request.Word ?? string.Empty, request.PartOfSpeech, request.Meaning ?? string.Empty,
                 request.Example, request.PhoneticUk, request.PhoneticUs, request.ReviewComment), cancellationToken);
-            return VocabularyHttpResponse.Ok(MeaningSubmissionDto.From(submission));
+            return ApiResponse.Ok(MeaningSubmissionDto.From(submission));
         });
         group.MapPost("/{id}/reject", async (string id, HttpRequest request, MeaningSubmissionService service, CancellationToken cancellationToken) =>
         {
             MeaningSubmissionRejectRequest? body = null;
             if (request.HttpContext.Features.Get<IHttpRequestBodyDetectionFeature>()?.CanHaveBody == true)
             {
-                if (!request.HasJsonContentType()) return VocabularyHttpResponse.BadRequest("A JSON review request is required.");
+                if (!request.HasJsonContentType()) return ApiResponse.BadRequest("A JSON review request is required.");
                 try { body = await request.ReadFromJsonAsync<MeaningSubmissionRejectRequest>(cancellationToken); }
-                catch (JsonException) { return VocabularyHttpResponse.BadRequest("A valid JSON review request is required."); }
+                catch (JsonException) { return ApiResponse.BadRequest("A valid JSON review request is required."); }
             }
-            return VocabularyHttpResponse.Ok(MeaningSubmissionDto.From(await service.RejectAsync(id, body?.ReviewComment, cancellationToken)));
+            return ApiResponse.Ok(MeaningSubmissionDto.From(await service.RejectAsync(id, body?.ReviewComment, cancellationToken)));
         });
         group.MapPost("/{id}/advice", async (string id, MeaningSubmissionService service, CancellationToken cancellationToken) =>
-            VocabularyHttpResponse.Ok(await service.AdviseAsync(id, cancellationToken)));
+            ApiResponse.Ok(await service.AdviseAsync(id, cancellationToken)));
     }
 
     private static IResult NotConfigured() =>
-        VocabularyHttpResponse.ServiceUnavailable("Meaning submissions are not configured.");
+        ApiResponse.ServiceUnavailable("Meaning submissions are not configured.");
 }

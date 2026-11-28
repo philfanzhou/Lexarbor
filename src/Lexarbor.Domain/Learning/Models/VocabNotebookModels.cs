@@ -24,7 +24,7 @@ public sealed record VocabNotebookActor(VocabNotebookActorType Type, Guid? Teach
 
     public static VocabNotebookActor AsTeacher(Guid teacherId) => new(VocabNotebookActorType.Teacher, teacherId);
 }
-public sealed class VocabNotebookItemModel
+public sealed class VocabNotebookItem
 {
     public Guid Id { get; set; }
     public Guid StudentId { get; set; }
@@ -96,7 +96,7 @@ public sealed record VocabNotebookFamilySource(string WordKey, string Word, stri
 }
 
 /// <summary>An item as a reader sees it: Learned means the student already holds a memory card for it.</summary>
-public sealed record VocabNotebookEntry(VocabNotebookItemModel Item, bool Learned);
+public sealed record VocabNotebookEntry(VocabNotebookItem Item, bool Learned);
 
 public sealed record VocabNotebookSummary(int Words, int Meanings, int Teacher, int Recent, int Rejected);
 

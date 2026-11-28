@@ -13,7 +13,7 @@ public sealed class LearningQuestionServiceTests : TestBase
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private VocabularyDomainService Catalog(LearningQuestionGenerator generator, IVocabularyRepository? words = null,
+    private VocabularyService Catalog(LearningQuestionGenerator generator, IVocabularyRepository? words = null,
         IVocabularyMeaningRepository? meanings = null, MeaningSubmissionSettings? settings = null, IMeaningSubmissionRepository? submissions = null) => new(
         words ?? _vocabularyRepository, _bookRepository, meanings ?? _meaningRepository, _bookUnitRepository, _meaningUnitRepository,
         _unitOfWork, settings, submissions, generator);
@@ -21,7 +21,7 @@ public sealed class LearningQuestionServiceTests : TestBase
     private static LearningQuestionGenerator PreferLast() => new(max => max - 1);
     private static LearningQuestionGenerator PreferFirst() => new(_ => 0);
 
-    private async Task<(string Word, string Meaning)> Seed(VocabularyDomainService service, string book, string word = "explode", string meaning = "爆炸")
+    private async Task<(string Word, string Meaning)> Seed(VocabularyService service, string book, string word = "explode", string meaning = "爆炸")
     {
         var target = await service.AddOrUpdateAsync(new() { Word = word }, new() { BookId = book, Meaning = meaning });
         return (target.word.Id, target.meaning.Id);
@@ -190,7 +190,7 @@ public sealed class LearningQuestionServiceTests : TestBase
             ((ReadProbe)(object)proxy).Read = (_, _) =>
             {
                 cancellation.Cancel();
-                return Task.FromResult<MeaningSubmissionModel?>(null);
+                return Task.FromResult<MeaningSubmission?>(null);
             };
             var service = new MeaningSubmissionService(proxy, _vocabularyRepository, _meaningRepository, Catalog(PreferLast()),
                 _unitOfWork, new() { BookId = book.Id }, TimeProvider.System);
@@ -202,7 +202,7 @@ public sealed class LearningQuestionServiceTests : TestBase
             ((ReadProbe)(object)proxy).Read = (_, _) =>
             {
                 cancellation.Cancel();
-                return Task.FromResult<VocabularyModel?>(null);
+                return Task.FromResult<Vocabulary?>(null);
             };
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Catalog(PreferLast(), words: proxy).CreateLearningQuestionAsync(
                 "target", book.Id, "meaning", LearningQuestionMode.Review, cancellationToken: cancellation.Token));

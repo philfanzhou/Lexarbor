@@ -17,16 +17,16 @@ public class VocabPlanRepository : IVocabPlanRepository
         _dbContext = dbContext;
     }
 
-    public async Task<VocabPlanModel?> FindByIdAsync(Guid planId, CancellationToken cancellationToken = default)
+    public async Task<VocabPlan?> FindByIdAsync(Guid planId, CancellationToken cancellationToken = default)
     {
         var entity = await _dbContext.VocabPlans.FindAsync(new object[] { planId }, cancellationToken).ConfigureAwait(false);
         return entity is null ? null : ToModel(entity);
     }
 
-    public virtual Task<VocabPlanModel?> FindActiveByStudentAsync(Guid studentId, CancellationToken cancellationToken = default) =>
+    public virtual Task<VocabPlan?> FindActiveByStudentAsync(Guid studentId, CancellationToken cancellationToken = default) =>
         FirstByStudentAsync(studentId, cancellationToken);
 
-    private async Task<VocabPlanModel?> FirstByStudentAsync(Guid studentId, CancellationToken cancellationToken)
+    private async Task<VocabPlan?> FirstByStudentAsync(Guid studentId, CancellationToken cancellationToken)
     {
         var query = _dbContext.VocabPlans.AsNoTracking().Where(p => p.StudentId == studentId);
         query = query.Where(p => p.Status == (int)VocabPlanStatus.Active);
@@ -38,7 +38,7 @@ public class VocabPlanRepository : IVocabPlanRepository
         return entity is null ? null : ToModel(entity);
     }
 
-    public async Task<List<VocabPlanModel>> ListByIdsAsync(IReadOnlyCollection<Guid> planIds, CancellationToken cancellationToken = default)
+    public async Task<List<VocabPlan>> ListByIdsAsync(IReadOnlyCollection<Guid> planIds, CancellationToken cancellationToken = default)
     {
         if (planIds.Count == 0)
         {
@@ -51,12 +51,12 @@ public class VocabPlanRepository : IVocabPlanRepository
         return entities.Select(ToModel).ToList();
     }
 
-    public Task AddAsync(VocabPlanModel plan, CancellationToken cancellationToken = default)
+    public Task AddAsync(VocabPlan plan, CancellationToken cancellationToken = default)
     {
         return _dbContext.VocabPlans.AddAsync(ToEntity(plan), cancellationToken).AsTask();
     }
 
-    public async Task UpdateAsync(VocabPlanModel plan, CancellationToken cancellationToken = default)
+    public async Task UpdateAsync(VocabPlan plan, CancellationToken cancellationToken = default)
     {
 
 
@@ -87,7 +87,7 @@ public class VocabPlanRepository : IVocabPlanRepository
         (JsonSerializer.Deserialize<List<VocabPlanSegment>>(segments, UnitIdsJsonOptions) ?? [])
             .Select(segment => segment with { UnitIds = segment.UnitIds is { Count: > 0 } ? segment.UnitIds : null }).ToList();
 
-    private static VocabPlanEntity ToEntity(VocabPlanModel model) => new()
+    private static VocabPlanEntity ToEntity(VocabPlan model) => new()
     {
         Id = model.Id,
         StudentId = model.StudentId,
@@ -103,7 +103,7 @@ public class VocabPlanRepository : IVocabPlanRepository
         UpdatedAt = model.UpdatedAt,
     };
 
-    private static VocabPlanModel ToModel(VocabPlanEntity entity) => new()
+    private static VocabPlan ToModel(VocabPlanEntity entity) => new()
     {
         Id = entity.Id,
         StudentId = entity.StudentId,
@@ -129,7 +129,7 @@ public class VocabPlanChangeRepository : IVocabPlanChangeRepository
         _dbContext = dbContext;
     }
 
-    public Task AddAsync(VocabPlanChangeModel change, CancellationToken cancellationToken = default)
+    public Task AddAsync(VocabPlanChange change, CancellationToken cancellationToken = default)
     {
         return _dbContext.VocabPlanChanges.AddAsync(new VocabPlanChangeEntity
         {

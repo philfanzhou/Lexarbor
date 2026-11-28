@@ -7,9 +7,6 @@ using Lexarbor.Host.Audio;
 using Lexarbor.Host.Authentication;
 using Lexarbor.Host.Configuration;
 using Lexarbor.Host.RateLimiting;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Npgsql;
 
 namespace Lexarbor.Host;
@@ -21,8 +18,6 @@ namespace Lexarbor.Host;
 /// </summary>
 public static class ConfigurationCatalogEndpoints
 {
-    public const string CatalogPath = "/admin/system/settings/catalog";
-    public const string StartupPath = "/admin/system/settings/startup";
     private const int MaximumBodyBytes = 16384;
     private const string Invalid = "Invalid startup settings.";
 
@@ -66,27 +61,27 @@ public static class ConfigurationCatalogEndpoints
         {
             var count = await context.Request.Body.ReadAsync(bytes, context.RequestAborted);
             if (count == 0) break;
-            if (buffer.Length + count > MaximumBodyBytes) return Error(413, "Settings request is too large.");
+            if (buffer.Length + count > MaximumBodyBytes) return SettingsError.Write(413, "Settings request is too large.");
             buffer.Write(bytes, 0, count);
         }
         var changes = new Dictionary<string, JsonNode?>(StringComparer.OrdinalIgnoreCase);
         try
         {
             using var document = JsonDocument.Parse(buffer.ToArray(), new JsonDocumentOptions { MaxDepth = 8 });
-            if (document.RootElement.ValueKind != JsonValueKind.Object) return Error(400, Invalid);
+            if (document.RootElement.ValueKind != JsonValueKind.Object) return SettingsError.Write(400, Invalid);
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var property in document.RootElement.EnumerateObject())
             {
                 var field = ConfigurationCatalog.Find(property.Name);
                 // Only restart-only keys belong here, and no key may appear twice.
                 if (field is null || field.Apply != ConfigurationApply.Restart || !seen.Add(field.Key))
-                    return Error(400, Invalid);
+                    return SettingsError.Write(400, Invalid);
                 var (keep, value) = Read(field, property.Value);
                 if (!keep) changes.Add(field.Key, value);
             }
-            if (changes.Count == 0) return Error(400, Invalid);
+            if (changes.Count == 0) return SettingsError.Write(400, Invalid);
         }
-        catch (JsonException) { return Error(400, Invalid); }
+        catch (JsonException) { return SettingsError.Write(400, Invalid); }
         var validator = new StartupConfigurationValidator(environment, startupLogin);
         var revision = context.Request.Headers.IfMatch;
         var result = await coordinator.SaveAsync(revision.Count == 0 ? null : revision.ToString(), changes,
@@ -101,9 +96,9 @@ public static class ConfigurationCatalogEndpoints
         return result.Status switch
         {
             ConfigurationSaveStatus.Success => await reader.ReadAsync(context, CancellationToken.None),
-            ConfigurationSaveStatus.MissingRevision => Error(428, "If-Match is required. Reload settings."),
-            ConfigurationSaveStatus.InvalidRevision => Error(400, "Invalid If-Match. Reload settings."),
-            ConfigurationSaveStatus.Conflict => Error(412, "Settings changed. Reload settings; offline edits require a restart."),
+            ConfigurationSaveStatus.MissingRevision => SettingsError.Write(428, "If-Match is required. Reload settings."),
+            ConfigurationSaveStatus.InvalidRevision => SettingsError.Write(400, "Invalid If-Match. Reload settings."),
+            ConfigurationSaveStatus.Conflict => SettingsError.Write(412, "Settings changed. Reload settings; offline edits require a restart."),
             ConfigurationSaveStatus.Overridden => Results.Json(new
             {
                 message = "Settings are overridden by deployment configuration.",
@@ -114,7 +109,7 @@ public static class ConfigurationCatalogEndpoints
                 message = Invalid,
                 fields = result.InvalidFields ?? changes.Keys.ToArray()
             }, statusCode: 400),
-            _ => Error(503, ConfigurationSaveResult.StorageFailureMessage)
+            _ => SettingsError.Write(503, ConfigurationSaveResult.StorageFailureMessage)
         };
     }
 
@@ -149,8 +144,6 @@ public static class ConfigurationCatalogEndpoints
             _ => throw new JsonException()
         };
     }
-
-    private static IResult Error(int status, string message) => Results.Json(new { message }, statusCode: status);
 }
 
 /// <summary>
@@ -316,10 +309,10 @@ public sealed class ConfigurationCatalogReader(PersistentConfigurationCoordinato
         new("environment", "Environment", environment.EnvironmentName, null),
         new("container", "Running in a container",
             PersistentConfigurationBootstrapper.IsRunningInContainer() ? "true" : "false", null),
-        new("httpPort", "HTTP listen port", LexarborHostFacts.HttpPort.ToString(CultureInfo.InvariantCulture), "HTTP/1 only"),
-        new("serviceName", "Service name", LexarborHostFacts.ServiceName, "Fixed"),
+        new("httpPort", "HTTP listen port", ApplicationFacts.HttpPort.ToString(CultureInfo.InvariantCulture), "HTTP/1 only"),
+        new("serviceName", "Service name", ApplicationFacts.ServiceName, "Fixed"),
         new("database", "Database", "PostgreSQL", DatabaseLocation(read.Catalog.GetValueOrDefault(ConfigurationCatalog.ConnectionString)?.Text)),
-        new("configurationFile", "Configuration file", LexarborHostFacts.ConfigurationFile,
+        new("configurationFile", "Configuration file", ApplicationFacts.ConfigurationFile,
             File.Exists(store.FilePath) ? "Created" : "Not created yet"),
         new("administratorSignIn", "Administrator sign-in", login.Available ? "configured" : "not configured",
             AdminOidcSettings.CallbackPath),

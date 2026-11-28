@@ -1,4 +1,3 @@
-using Lexarbor.Learning.Domain.Models;
 using Lexarbor.Learning.Domain.Repositories;
 using Microsoft.Extensions.Logging;
 

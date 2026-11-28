@@ -4,9 +4,9 @@ namespace Lexarbor.Domain.Repositories;
 
 public interface IMeaningSubmissionRepository
 {
-    Task<MeaningSubmissionModel?> GetByIdAsync(string id, CancellationToken cancellationToken = default);
+    Task<MeaningSubmission?> GetByIdAsync(string id, CancellationToken cancellationToken = default);
 
-    Task<List<MeaningSubmissionModel>> GetByIdsAsync(IReadOnlyCollection<string> ids, CancellationToken cancellationToken = default);
+    Task<List<MeaningSubmission>> GetByIdsAsync(IReadOnlyCollection<string> ids, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// The newest submission with the same normalized word, part of speech and
@@ -14,27 +14,27 @@ public interface IMeaningSubmissionRepository
     /// definition. Rejected submissions never match, so a rejected definition can
     /// be proposed again.
     /// </summary>
-    Task<MeaningSubmissionModel?> FindReusableAsync(
+    Task<MeaningSubmission?> FindReusableAsync(
         string normalizedWord,
         string normalizedPartOfSpeech,
         string meaning,
         CancellationToken cancellationToken = default);
 
-    Task<(List<MeaningSubmissionModel> Items, int TotalCount)> PageAsync(
+    Task<(List<MeaningSubmission> Items, int TotalCount)> PageAsync(
         MeaningSubmissionStatus status,
         int page,
         int size,
         CancellationToken cancellationToken = default,
         string? reviewerKind = null);
 
-    Task AddAsync(MeaningSubmissionModel submission, CancellationToken cancellationToken = default);
+    Task AddAsync(MeaningSubmission submission, CancellationToken cancellationToken = default);
 
     Task<MeaningSubmissionAiReviewRecord?> GetReviewByAttemptIdAsync(string attemptId, CancellationToken cancellationToken = default);
 
     /// <summary>Append only, within the submission's UnitOfWork writer and DbContext.</summary>
     Task AddReviewAsync(MeaningSubmissionAiReviewRecord record, CancellationToken cancellationToken = default);
 
-    Task UpdateAsync(MeaningSubmissionModel submission, CancellationToken cancellationToken = default);
+    Task UpdateAsync(MeaningSubmission submission, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Every meaning in an enabled book of the first <paramref name="wordLimit"/>
@@ -51,7 +51,7 @@ public interface IMeaningSubmissionRepository
     /// spelled like <paramref name="excludeNormalizedWord"/> and none carrying the
     /// definition <paramref name="excludeNormalizedMeaning"/>.
     /// </summary>
-    Task<List<VocabularyModel>> GetCatalogWordDistractorsAsync(
+    Task<List<Vocabulary>> GetCatalogWordDistractorsAsync(
         string excludeNormalizedWord,
         string excludeNormalizedMeaning,
         int count,
@@ -61,7 +61,7 @@ public interface IMeaningSubmissionRepository
     /// Up to <paramref name="count"/> definitions from any enabled book, one per
     /// word, none of the excluded word and none equal to the excluded definition.
     /// </summary>
-    Task<List<VocabularyMeaningModel>> GetCatalogMeaningDistractorsAsync(
+    Task<List<VocabularyMeaning>> GetCatalogMeaningDistractorsAsync(
         string excludeNormalizedWord,
         string excludeNormalizedMeaning,
         int count,
@@ -74,7 +74,7 @@ public interface IMeaningSubmissionReviewAssistant
     bool IsEnabled { get; }
 
     Task<MeaningSubmissionReviewAdvice> ReviewAsync(
-        MeaningSubmissionModel submission,
+        MeaningSubmission submission,
         CancellationToken cancellationToken = default);
 }
 

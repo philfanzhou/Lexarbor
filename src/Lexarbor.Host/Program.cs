@@ -16,14 +16,8 @@ using Lexarbor.Host.RateLimiting;
 using Lexarbor.Service;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.DataProtection;
-using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using OpenTelemetry.Trace;
@@ -31,7 +25,6 @@ using ServiceMantle;
 using ServiceMantle.Audit;
 using ServiceMantle.Persistence.Relational.DataProtection;
 using ServiceMantle.Persistence.Relational.Stores;
-using ServiceMantle.Web;
 using ServiceMantle.Web.Management;
 using KestrelBadHttpRequestException = Microsoft.AspNetCore.Server.Kestrel.Core.BadHttpRequestException;
 
@@ -80,7 +73,7 @@ builder.Services.AddConfigurationCatalog();
 // HTTP listen port is fixed (not configurable via ASPNETCORE_URLS), like the other
 // host facts the settings surface reports. Host port mapping is controlled by
 // scripts/start.sh: -p ${Port}:5008.
-const int httpPort = LexarborHostFacts.HttpPort;
+const int httpPort = ApplicationFacts.HttpPort;
 
 builder.WebHost.ConfigureKestrel(options =>
 {
@@ -113,15 +106,15 @@ builder.Services.AddScoped(serviceProvider =>
     serviceProvider.GetRequiredService<IDbContextFactory<VocabularyDbContext>>().CreateDbContext());
 // The ServiceMantle startup gate: PostgreSQL target preparation, the advisory
 // migration lock, and migration orchestration around the executor above.
-builder.Services.AddLexarborDatabaseStartup();
+builder.Services.AddDatabaseStartup();
 // Data Protection keys live in the PostgreSQL database as `sm:v1:` authenticated
 // envelopes scoped to the lexarbor service id, protected by the deployment's
 // root key (injected or created under data/); see DataProtectionRootKey.
 builder.Services
     .AddDataProtection()
-    .SetApplicationName("Lexarbor")
+    .SetApplicationName(ApplicationFacts.DataProtectionApplicationName)
     .PersistKeysToServiceMantleEfCore<VocabularyDbContext>(
-        ServiceId.Parse("lexarbor"),
+        ServiceId.Parse(ApplicationFacts.ServiceName),
         serviceProvider => DataProtectionRootKey.Resolve(
             serviceProvider.GetRequiredService<IConfiguration>(),
             serviceProvider.GetRequiredService<IHostEnvironment>().ContentRootPath));
@@ -149,7 +142,7 @@ builder.Services.PostConfigure<LoggerFilterOptions>(options =>
         var rule = options.Rules[index];
         options.Rules[index] = new LoggerFilterRule(rule.ProviderName, rule.CategoryName, rule.LogLevel,
             (provider, category, level) =>
-                !LexarborLoggingSetup.SuppressLogCategory(category)
+                !LoggingSetup.SuppressLogCategory(category)
                 && !(AdminSessionRepository.IsSessionOperation
                     && category?.StartsWith("Microsoft.EntityFrameworkCore", StringComparison.Ordinal) == true)
                 && (rule.Filter?.Invoke(provider, category, level) ?? true));
@@ -224,7 +217,7 @@ builder.Services.AddScoped<VocabularyPublicQueryService>();
 builder.Services.AddScoped<IVocabularyCleanupRepository, VocabularyCleanupRepository>();
 builder.Services.AddScoped<VocabularyCleanupService>();
 builder.Services.AddScoped<LearningQuestionGenerator>();
-builder.Services.AddScoped<VocabularyDomainService>();
+builder.Services.AddScoped<VocabularyService>();
 // Meaning submissions: the supplementary book, the one integration client's key
 // ring and the optional review assistant are startup snapshots; a bad value
 // stops startup naming only the setting.
@@ -264,8 +257,8 @@ builder.Services.AddHttpClient(PronunciationSpeechClient.HttpClientName,
 builder.Services.AddSingleton<PronunciationSpeechClient>();
 builder.Services.AddSingleton<IPronunciationSpeechClient>(p => p.GetRequiredService<PronunciationSpeechClient>());
 builder.Services.AddSingleton<SpeechPreviewAdmission>();
-builder.Services.AddScoped<VocabularyBookDomainService>();
-builder.Services.AddScoped<VocabularyBookUnitDomainService>();
+builder.Services.AddScoped<VocabularyBookService>();
+builder.Services.AddScoped<VocabularyBookUnitService>();
 builder.Services.Configure<RouteHandlerOptions>(options =>
 {
     options.ThrowOnBadRequest = true;
@@ -304,7 +297,7 @@ builder.Services.AddSingleton<IHttpContextAccessor, HttpContextAccessor>();
 // on the historical X-SignaCore-CSRF header, the pre-sign-in administrator gate, the
 // hardened backchannel client, and the periodic session sweep. The SignaCore client package
 // is no longer referenced; an unconfigured deployment keeps its fixed degraded answers.
-builder.Services.AddLexarborAdminOidc();
+builder.Services.AddAdminOidc();
 // The hosted-login backchannel is the internal-service channel: its Discovery, JWKS and
 // token-endpoint calls all target the identity provider. The shared outbound correlation
 // handler is appended to the same named client the registration created (named-client
@@ -384,7 +377,7 @@ builder.Services
                     context.HandleResponse();
                     if (!context.Response.HasStarted)
                     {
-                        await VocabularyHttpResponse.WriteFailureAsync(
+                        await ApiResponse.WriteFailureAsync(
                             context.Response,
                             StatusCodes.Status401Unauthorized,
                             "Authentication is required.");
@@ -394,7 +387,7 @@ builder.Services
                 {
                     if (!context.Response.HasStarted)
                     {
-                        await VocabularyHttpResponse.WriteFailureAsync(
+                        await ApiResponse.WriteFailureAsync(
                             context.Response,
                             StatusCodes.Status403Forbidden,
                             "Administrator role is required.");
@@ -425,7 +418,7 @@ var useTrustedForwarding = networkOptions.IsConfigured || networkOptions.Forward
 // Data Protection keys, health endpoints) must be available in every
 // deployment, with or without a trusted proxy. Forwarded-header trust remains
 // the one capability that is added only when an operator configures it.
-var serviceId = ServiceId.Parse("lexarbor");
+var serviceId = ServiceId.Parse(ApplicationFacts.ServiceName);
 var instanceIdText = builder.Configuration["Service:InstanceId"];
 InstanceId instanceId;
 if (string.IsNullOrEmpty(instanceIdText))
@@ -466,10 +459,10 @@ serviceMantle.AddServiceMantleHealthEndpoints(options => options.ProbeTimeout = 
 // surface. The capability is deliberately not configurable; the /admin
 // endpoints opt in through the shared route-group requirement below.
 serviceMantle.AddSecurityResponseHeaders();
-var healthState = new LexarborHealthState();
+var healthState = new HealthState();
 builder.Services.AddSingleton(healthState);
 builder.Services.AddSingleton<ServiceMantle.Health.IServiceHealthSnapshotSource>(
-    serviceProvider => new LexarborHealthSnapshotSource(
+    serviceProvider => new HealthSnapshotSource(
         healthState,
         serviceProvider.GetRequiredService<IServiceScopeFactory>()));
 // Business exceptions map to HTTP through the ServiceMantle Problem Details
@@ -526,7 +519,7 @@ serviceMantle.AddConditionalExceptionMapping<StorageBusyException>(
 // mapped onto the pipeline: `Default` becomes the minimum level, every other
 // category becomes a minimum-level override, and `None` — which an override
 // cannot express — keeps its LoggerFilterOptions rule below.
-var mappedLogLevels = LexarborLoggingSetup.Map(builder.Configuration.GetSection("Logging:LogLevel"));
+var mappedLogLevels = LoggingSetup.Map(builder.Configuration.GetSection("Logging:LogLevel"));
 builder.AddServiceMantleSerilog(options =>
 {
     options.MinimumLevel = mappedLogLevels.MinimumLevel;
@@ -749,7 +742,7 @@ if (builder.Configuration.GetValue("Database:InitializeOnStartup", true))
         // PostgreSQL database, refuse unusable ones, and run the EF migration
         // orchestration under the advisory migration lock. A failure keeps
         // its fixed safe diagnostic and stops startup with a non-zero exit.
-        await LexarborDatabaseStartup.RunStartupMigrationAsync(app.Services);
+        await DatabaseStartup.RunStartupMigrationAsync(app.Services);
         healthState.MigrationStatus = ServiceMantle.Health.ServiceMigrationReadinessState.Succeeded;
     }
     catch
@@ -856,28 +849,28 @@ app.Use(LearningEndpoints.PrepareAsync);
 // requirement for its admin group as a delegate instead, so /api never
 // inherits it.
 var adminSurface = app.MapGroup(string.Empty).RequireServiceMantleSecurityResponseHeaders();
-adminSurface.MapAdminAuthEndpoints();
-adminSurface.MapSystemVersionEndpoints();
-adminSurface.MapSystemSettingsEndpoints();
-adminSurface.MapBusinessApiKeyEndpoints();
-adminSurface.MapVocabularyWordEditEndpoints();
-adminSurface.MapVocabularyRelationEndpoints();
-adminSurface.MapVocabularyMeaningEditEndpoints();
-adminSurface.MapVocabularyBookUnitEndpoints();
-adminSurface.MapVocabularyMeaningPositionEndpoints();
-adminSurface.MapVocabularyAdminQueryEndpoints();
-adminSurface.MapEnrichmentAdminEndpoints();
-adminSurface.MapAudioAdminQueryEndpoints();
-adminSurface.MapAudioUploadEndpoints();
-adminSurface.MapAudioUnbindEndpoints();
-adminSurface.MapAudioAdminPlaybackEndpoints();
-adminSurface.MapVocabularyCleanupEndpoints();
-adminSurface.MapMeaningSubmissionAdminEndpoints();
-adminSurface.MapMeaningSubmissionReviewAdminEndpoints();
-app.MapMeaningSubmissionIntegrationEndpoints();
-app.MapLearnerEndpoints();
-app.MapAudioPublicPlaybackEndpoints();
-app.MapVocabularyHttpEndpoints(
+adminSurface.MapAdminAuth();
+adminSurface.MapSystemVersion();
+adminSurface.MapSystemSettings();
+adminSurface.MapBusinessApiKey();
+adminSurface.MapVocabularyWordEdit();
+adminSurface.MapVocabularyRelation();
+adminSurface.MapVocabularyMeaningEdit();
+adminSurface.MapVocabularyBookUnit();
+adminSurface.MapVocabularyMeaningPosition();
+adminSurface.MapVocabularyAdminQuery();
+adminSurface.MapEnrichmentAdmin();
+adminSurface.MapAudioAdminQuery();
+adminSurface.MapAudioUpload();
+adminSurface.MapAudioUnbind();
+adminSurface.MapAudioAdminPlayback();
+adminSurface.MapVocabularyCleanup();
+adminSurface.MapMeaningSubmissionAdmin();
+adminSurface.MapMeaningSubmissionReviewAdmin();
+app.MapMeaningSubmissionIntegration();
+app.MapLearner();
+app.MapAudioPublicPlayback();
+app.MapVocabulary(
     static adminGroup => adminGroup.RequireServiceMantleSecurityResponseHeaders());
 // The ServiceMantle health endpoints are anonymous and unmetered: /health/live
 // answers liveness alone, /health/ready and /health project the readiness
@@ -897,17 +890,17 @@ string[] allHttpMethods =
 app.MapMethods(
         "/api/{**path}",
         allHttpMethods,
-        () => VocabularyHttpResponse.NotFound("API endpoint was not found."));
+        () => ApiResponse.NotFound("API endpoint was not found."));
 // Unknown integration routes answer JSON 404 rather than the SPA shell.
 app.MapMethods(
     "/integration/{**path}",
     allHttpMethods,
-    () => VocabularyHttpResponse.NotFound("Integration endpoint was not found."));
+    () => ApiResponse.NotFound("Integration endpoint was not found."));
 
 adminSurface.MapMethods(
         "/admin/{**path}",
         allHttpMethods,
-        () => VocabularyHttpResponse.NotFound("Admin endpoint was not found."))
+        () => ApiResponse.NotFound("Admin endpoint was not found."))
     .RequireAuthorization(ManagementAuthorizationDefaults.AdminPolicyName);
 app.MapFallbackToFile("index.html").AllowAnonymous();
 

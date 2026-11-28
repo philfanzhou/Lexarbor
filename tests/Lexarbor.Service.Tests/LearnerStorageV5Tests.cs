@@ -105,7 +105,7 @@ public sealed class LearnerStorageV5Tests
 
         // The repository inserts a family-only item before its sources in one save.
         var notebook = new VocabNotebookRepository(db);
-        var added = new VocabNotebookItemModel
+        var added = new VocabNotebookItem
         {
             Id = Guid.NewGuid(),
             StudentId = Student,
@@ -293,6 +293,6 @@ public sealed class LearnerStorageV5Tests
         Assert.Equal((PostgresErrorCodes.CheckViolation, "CK_vocab_notebook_item_family"), (error.SqlState, error.ConstraintName));
     }
 
-    private static string Scope(VocabPlanModel? plan) => string.Join(" ", plan!.Segments.Select(segment =>
+    private static string Scope(VocabPlan? plan) => string.Join(" ", plan!.Segments.Select(segment =>
         $"{segment.BookId}[{(segment.UnitIds is null ? "*" : string.Join(",", segment.UnitIds))}]"));
 }

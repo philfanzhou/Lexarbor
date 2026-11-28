@@ -14,7 +14,7 @@ public static class VocabularyCleanupEndpoints
 {
     public const int MaxRequestBytes = 1024 * 1024;
 
-    public static void MapVocabularyCleanupEndpoints(this IEndpointRouteBuilder app)
+    public static void MapVocabularyCleanup(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/admin/vocabulary-books").RequireAuthorization(AdminEndpointAuthorization.PolicyName);
         group.MapPost("/{bookId}/cleanup/preview", (string bookId, HttpRequest request, VocabularyCleanupService service, ILoggerFactory logs) =>
@@ -26,30 +26,20 @@ public static class VocabularyCleanupEndpoints
     private static async Task<IResult> HandleAsync(string bookId, HttpRequest request, VocabularyCleanupService service, ILoggerFactory logs, bool preview)
     {
         var cancellationToken = request.HttpContext.RequestAborted;
-        if (request.ContentLength > MaxRequestBytes) throw TooLarge();
-        using var bytes = new MemoryStream();
-        var buffer = new byte[8192];
-        int read;
-        while ((read = await request.Body.ReadAsync(buffer, cancellationToken)) != 0)
-        {
-            if (bytes.Length + read > MaxRequestBytes) throw TooLarge();
-            bytes.Write(buffer, 0, read);
-        }
+        var body = await BoundedBody.ReadAsync(request, MaxRequestBytes, cancellationToken);
         VocabularyCleanupRequest input;
         try
         {
             if (!request.HasJsonContentType()) throw new JsonException();
-            using var document = JsonDocument.Parse(bytes.ToArray());
+            using var document = JsonDocument.Parse(body);
             input = VocabularyCleanupRequest.Parse(document.RootElement, preview);
         }
         catch (JsonException) { throw new DomainValidationException("The request body is not valid JSON."); }
-        if (preview) return VocabularyHttpResponse.Ok(await service.PreviewAsync(bookId, input.ToSelection(), cancellationToken));
+        if (preview) return ApiResponse.Ok(await service.PreviewAsync(bookId, input.ToSelection(), cancellationToken));
         var result = await service.CommitAsync(bookId, input.ToSelection(), cancellationToken);
         logs.CreateLogger(nameof(VocabularyCleanupEndpoints)).LogInformation(
             "Vocabulary cleanup {Action} in book {BookId}: {MeaningCount} meanings, {WordCount} words, deleted book {DeletedBook}",
             result.Action, result.BookId, result.DeletedMeaningCount, result.DeletedWordCount, result.DeletedBook);
-        return VocabularyHttpResponse.Ok(result);
+        return ApiResponse.Ok(result);
     }
-
-    private static BadHttpRequestException TooLarge() => new("The request body is too large.", StatusCodes.Status413PayloadTooLarge);
 }

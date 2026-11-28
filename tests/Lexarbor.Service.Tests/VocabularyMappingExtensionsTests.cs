@@ -1,12 +1,5 @@
-using System;
-using System.Collections.Generic;
-using System.Threading.Tasks;
 using Lexarbor.Domain.Models;
-using Lexarbor.Domain.Repositories;
-using Lexarbor.Domain.Services;
 using Lexarbor.Service.Dtos;
-using Moq;
-using Xunit;
 
 namespace Lexarbor.Service.Tests;
 
@@ -15,10 +8,10 @@ namespace Lexarbor.Service.Tests;
 /// </summary>
 public class VocabularyMappingExtensionsTests
 {
-    // ==================== VocabularyDto <-> VocabularyModel ====================
+    // ==================== VocabularyDto <-> Vocabulary ====================
 
     [Fact]
-    public void ToEntity_VocabularyDto_MapsAllFields()
+    public void ToModel_VocabularyDto_MapsAllFields()
     {
         var dto = new VocabularyDto
         {
@@ -28,7 +21,7 @@ public class VocabularyMappingExtensionsTests
             PhoneticUs = "ˈæpəl"
         };
 
-        var model = dto.ToEntity();
+        var model = dto.ToModel();
 
         Assert.Equal("vocab-1", model.Id);
         Assert.Equal("apple", model.Word);
@@ -39,7 +32,7 @@ public class VocabularyMappingExtensionsTests
     [Fact]
     public void ToDto_VocabularyModel_MapsAllFields()
     {
-        var model = new VocabularyModel
+        var model = new Vocabulary
         {
             Id = "vocab-1",
             Word = "apple",
@@ -60,7 +53,7 @@ public class VocabularyMappingExtensionsTests
     [Fact]
     public void ToDto_VocabularyModel_MeaningsListStartsEmpty()
     {
-        var model = new VocabularyModel
+        var model = new Vocabulary
         {
             Id = "v1",
             Word = "test",
@@ -73,10 +66,10 @@ public class VocabularyMappingExtensionsTests
         Assert.Empty(dto.Meanings);
     }
 
-    // ==================== VocabularyMeaningDto <-> VocabularyMeaningModel ====================
+    // ==================== VocabularyMeaningDto <-> VocabularyMeaning ====================
 
     [Fact]
-    public void ToEntity_VocabularyMeaningDto_MapsAllFields()
+    public void ToModel_VocabularyMeaningDto_MapsAllFields()
     {
         var dto = new VocabularyMeaningDto
         {
@@ -88,7 +81,7 @@ public class VocabularyMappingExtensionsTests
             Example = "I like apples."
         };
 
-        var model = dto.ToEntity();
+        var model = dto.ToModel();
 
         Assert.Equal("meaning-1", model.Id);
         Assert.Equal("vocab-1", model.VocabularyId);
@@ -101,7 +94,7 @@ public class VocabularyMappingExtensionsTests
     [Fact]
     public void ToDto_VocabularyMeaningModel_MapsAllFields()
     {
-        var model = new VocabularyMeaningModel
+        var model = new VocabularyMeaning
         {
             Id = "meaning-1",
             VocabularyId = "vocab-1",
@@ -113,7 +106,7 @@ public class VocabularyMappingExtensionsTests
             UpdatedAt = new DateTimeOffset(2026, 1, 2, 0, 0, 0, TimeSpan.Zero)
         };
 
-        var dto = model.ToDto(new VocabularyModel { PhoneticUk = "default-uk" });
+        var dto = model.ToDto(new Vocabulary { PhoneticUk = "default-uk" });
 
         Assert.Equal("meaning-1", dto.Id);
         Assert.Equal("vocab-1", dto.VocabularyId);
@@ -134,14 +127,14 @@ public class VocabularyMappingExtensionsTests
                               "us":{"phonetic":"injected","source":"meaning"}}}
             """, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
         Assert.Null(dto.Pronunciation.Uk.Phonetic);
-        Assert.Null(dto.ToEntity().PhoneticUk);
-        Assert.Null(dto.ToEntity().PhoneticUs);
+        Assert.Null(dto.ToModel().PhoneticUk);
+        Assert.Null(dto.ToModel().PhoneticUs);
     }
 
-    // ==================== VocabularyBookDto <-> VocabularyBookModel ====================
+    // ==================== VocabularyBookDto <-> VocabularyBook ====================
 
     [Fact]
-    public void ToEntity_VocabularyBookDto_MapsAllFields()
+    public void ToModel_VocabularyBookDto_MapsAllFields()
     {
         var dto = new VocabularyBookDto
         {
@@ -157,7 +150,7 @@ public class VocabularyMappingExtensionsTests
             IconUrl = "http://example.com/icon.png"
         };
 
-        var model = dto.ToEntity();
+        var model = dto.ToModel();
 
         Assert.Equal("book-1", model.Id);
         Assert.Equal("Test Book", model.BookName);
@@ -174,7 +167,7 @@ public class VocabularyMappingExtensionsTests
     [Fact]
     public void ToDto_VocabularyBookModel_MapsAllFields()
     {
-        var model = new VocabularyBookModel
+        var model = new VocabularyBook
         {
             Id = "book-1",
             BookName = "Test Book",
@@ -207,7 +200,7 @@ public class VocabularyMappingExtensionsTests
     // ==================== Boundary scenarios ====================
 
     [Fact]
-    public void ToEntity_VocabularyDto_WithEmptyValues_MapsCorrectly()
+    public void ToModel_VocabularyDto_WithEmptyValues_MapsCorrectly()
     {
         var dto = new VocabularyDto
         {
@@ -217,7 +210,7 @@ public class VocabularyMappingExtensionsTests
             PhoneticUs = ""
         };
 
-        var model = dto.ToEntity();
+        var model = dto.ToModel();
 
         Assert.Empty(model.Id);
         Assert.Empty(model.Word);
@@ -228,13 +221,13 @@ public class VocabularyMappingExtensionsTests
     }
 
     [Fact]
-    public void ToEntity_VocabularyBookDto_WithEmptyId_GeneratesNewId()
+    public void ToModel_VocabularyBookDto_WithEmptyId_GeneratesNewId()
     {
         var dto = new VocabularyBookDto { BookName = "New Book" };
 
-        var model = dto.ToEntity();
+        var model = dto.ToModel();
 
-        Assert.Empty(model.Id); // ToEntity does not generate Id, DomainService does
+        Assert.Empty(model.Id); // ToModel does not generate Id, DomainService does
         Assert.Equal("New Book", model.BookName);
     }
 }

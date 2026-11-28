@@ -1,9 +1,7 @@
 using System.Data.Common;
-using Lexarbor.Database;
 using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Models;
 using Lexarbor.Tests.Shared;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Xunit;
 
@@ -40,8 +38,8 @@ public sealed class LearningQuestionQueryPlanTests
         await db.SaveChangesAsync(token);
 
         var options = await new VocabularyPublicQueryRepository(db).GetReviewDistractorsAsync(
-            new VocabularyModel { Id = "target", Word = "went" },
-            new VocabularyMeaningModel { Id = "meaning", VocabularyId = "target", BookId = "book", Meaning = "去了" },
+            new Vocabulary { Id = "target", Word = "went" },
+            new VocabularyMeaning { Id = "meaning", VocabularyId = "target", BookId = "book", Meaning = "去了" },
             null, chineseToEnglish: true, supplementary: false, token);
         Assert.NotNull(options);
         Assert.Equal(new[] { "go", "going", "gone" }, options.Select(option => option.Text).Order());

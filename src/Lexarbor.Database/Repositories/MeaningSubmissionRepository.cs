@@ -16,14 +16,14 @@ public sealed class MeaningSubmissionRepository : IMeaningSubmissionRepository
         _context = context;
     }
 
-    public async Task<MeaningSubmissionModel?> GetByIdAsync(string id, CancellationToken cancellationToken = default)
+    public async Task<MeaningSubmission?> GetByIdAsync(string id, CancellationToken cancellationToken = default)
     {
         var entity = await _context.MeaningSubmissions.AsNoTracking()
             .SingleOrDefaultAsync(item => item.Id == id, cancellationToken);
         return entity == null ? null : ToModel(entity);
     }
 
-    public async Task<List<MeaningSubmissionModel>> GetByIdsAsync(
+    public async Task<List<MeaningSubmission>> GetByIdsAsync(
         IReadOnlyCollection<string> ids,
         CancellationToken cancellationToken = default)
     {
@@ -33,7 +33,7 @@ public sealed class MeaningSubmissionRepository : IMeaningSubmissionRepository
         return entities.Select(ToModel).ToList();
     }
 
-    public async Task<MeaningSubmissionModel?> FindReusableAsync(
+    public async Task<MeaningSubmission?> FindReusableAsync(
         string normalizedWord,
         string normalizedPartOfSpeech,
         string meaning,
@@ -53,7 +53,7 @@ public sealed class MeaningSubmissionRepository : IMeaningSubmissionRepository
             .FirstOrDefault();
     }
 
-    public async Task<(List<MeaningSubmissionModel> Items, int TotalCount)> PageAsync(
+    public async Task<(List<MeaningSubmission> Items, int TotalCount)> PageAsync(
         MeaningSubmissionStatus status,
         int page,
         int size,
@@ -73,12 +73,12 @@ public sealed class MeaningSubmissionRepository : IMeaningSubmissionRepository
         return (entities.Select(ToModel).ToList(), total);
     }
 
-    public async Task AddAsync(MeaningSubmissionModel submission, CancellationToken cancellationToken = default)
+    public async Task AddAsync(MeaningSubmission submission, CancellationToken cancellationToken = default)
     {
         await _context.MeaningSubmissions.AddAsync(ToEntity(submission, new MeaningSubmissionEntity()), cancellationToken);
     }
 
-    public async Task UpdateAsync(MeaningSubmissionModel submission, CancellationToken cancellationToken = default)
+    public async Task UpdateAsync(MeaningSubmission submission, CancellationToken cancellationToken = default)
     {
         var entity = await _context.MeaningSubmissions.FindAsync([submission.Id], cancellationToken);
         if (entity != null)
@@ -154,7 +154,7 @@ public sealed class MeaningSubmissionRepository : IMeaningSubmissionRepository
             .ToList();
     }
 
-    public async Task<List<VocabularyModel>> GetCatalogWordDistractorsAsync(
+    public async Task<List<Vocabulary>> GetCatalogWordDistractorsAsync(
         string excludeNormalizedWord,
         string excludeNormalizedMeaning,
         int count,
@@ -186,10 +186,10 @@ public sealed class MeaningSubmissionRepository : IMeaningSubmissionRepository
         return entities
             .DistinctBy(entity => entity.Word.Trim().ToLowerInvariant(), StringComparer.Ordinal)
             .Take(count)
-            .Adapt<List<VocabularyModel>>();
+            .Adapt<List<Vocabulary>>();
     }
 
-    public async Task<List<VocabularyMeaningModel>> GetCatalogMeaningDistractorsAsync(
+    public async Task<List<VocabularyMeaning>> GetCatalogMeaningDistractorsAsync(
         string excludeNormalizedWord,
         string excludeNormalizedMeaning,
         int count,
@@ -219,10 +219,10 @@ public sealed class MeaningSubmissionRepository : IMeaningSubmissionRepository
         return entities
             .DistinctBy(entity => entity.Meaning.Trim(), StringComparer.Ordinal)
             .Take(count)
-            .Adapt<List<VocabularyMeaningModel>>();
+            .Adapt<List<VocabularyMeaning>>();
     }
 
-    private static MeaningSubmissionModel ToModel(MeaningSubmissionEntity entity) => new()
+    private static MeaningSubmission ToModel(MeaningSubmissionEntity entity) => new()
     {
         Id = entity.Id,
         Source = entity.Source,
@@ -245,7 +245,7 @@ public sealed class MeaningSubmissionRepository : IMeaningSubmissionRepository
         ReviewedAt = entity.ReviewedAtUnixMs is { } reviewed ? DateTimeOffset.FromUnixTimeMilliseconds(reviewed) : null
     };
 
-    private static MeaningSubmissionEntity ToEntity(MeaningSubmissionModel model, MeaningSubmissionEntity entity)
+    private static MeaningSubmissionEntity ToEntity(MeaningSubmission model, MeaningSubmissionEntity entity)
     {
         entity.Id = model.Id;
         entity.Source = model.Source;

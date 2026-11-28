@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Refresh, WarningFilled } from '@element-plus/icons-vue'
-import SettingRow from '@/components/settings/SettingField.vue'
+import SettingRow from '@/components/settings/SettingRow.vue'
 import SettingsFacts from '@/components/settings/SettingsFacts.vue'
 import SettingsNotice from '@/components/settings/SettingsNotice.vue'
 import SettingsSaveBar from '@/components/settings/SettingsSaveBar.vue'

@@ -3,7 +3,6 @@ using Lexarbor.Host.RateLimiting;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
-using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using ServiceMantle.Web.Management;
@@ -24,7 +23,7 @@ public static class AdminAuthEndpoints
 {
     public const string Prefix = "/admin/auth";
 
-    public static IEndpointConventionBuilder MapAdminAuthEndpoints(this IEndpointRouteBuilder app)
+    public static IEndpointConventionBuilder MapAdminAuth(this IEndpointRouteBuilder app)
     {
         var settings = app.ServiceProvider.GetRequiredService<AdminOidcSettings>();
         var group = app.MapGroup(Prefix);

@@ -13,7 +13,6 @@ function record(id = 'record-1', overrides: Partial<MeaningSubmissionReview> = {
 const paged = (items: MeaningSubmissionReview[], totalCount = items.length, page = 1) => ({ items, totalCount, page, size: 20 })
 async function setup(page: Page) {
   await page.route('**/admin/auth/session', route => json(route, { username: 'admin', roles: ['admin'] }))
-  await page.route('**/admin/auth/method', route => json(route, { mode: 'hosted', providerDisplayName: 'SignaCore' }))
   await mockAntiforgery(page)
   await page.route('**/admin/system/version', route => json(route, { version: '1', revision: null, channel: 'test' }))
   await page.route(/\/admin\/meaning-submissions\?/, route => json(route, { configured: true, assistantEnabled: true, items: [], totalCount: 0, totalPage: 0 }))

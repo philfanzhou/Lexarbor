@@ -1,4 +1,3 @@
-using Lexarbor.Database.Entities;
 using Lexarbor.Domain.Exceptions;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;

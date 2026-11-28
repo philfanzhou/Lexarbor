@@ -1,13 +1,8 @@
 using System.Threading.RateLimiting;
 using Lexarbor.Host.RateLimiting;
 using Lexarbor.Service.Tests.TestInfrastructure;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.TestHost;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using ServiceMantle;
 

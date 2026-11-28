@@ -70,7 +70,7 @@ public sealed class VocabularyExpansionClient(IHttpClientFactory clients, TimePr
             var retry = delay > TimeSpan.Zero ? delay : null;
             if (response.StatusCode == HttpStatusCode.TooManyRequests)
             {
-                var errorBytes = await OpenAiCompatiblePronunciationPreparationClient.ReadBoundedAsync(response.Content, timeout.Token);
+                var errorBytes = await SupplierJson.ReadBoundedAsync(response.Content, timeout.Token);
                 try
                 {
                     if (errorBytes != null && OpenAiCompatibleSpeechAdapter.IsBillingBlock(errorBytes))
@@ -84,11 +84,11 @@ public sealed class VocabularyExpansionClient(IHttpClientFactory clients, TimePr
             if (response.StatusCode == HttpStatusCode.RequestTimeout || (int)response.StatusCode >= 500)
                 return new("ServiceFailure", ErrorCode: "expansion.service_failed", RetryAfter: retry);
             if (!response.IsSuccessStatusCode) return new("Rejected", ErrorCode: "expansion.configuration_rejected");
-            var bytes = await OpenAiCompatiblePronunciationPreparationClient.ReadBoundedAsync(response.Content, timeout.Token);
+            var bytes = await SupplierJson.ReadBoundedAsync(response.Content, timeout.Token);
             if (bytes == null) return Invalid();
             using var envelope = JsonDocument.Parse(bytes, new JsonDocumentOptions { MaxDepth = 8 });
-            if (!OpenAiCompatiblePronunciationPreparationClient.UniqueProperties(envelope.RootElement)
-                || OpenAiCompatiblePronunciationPreparationClient.ContainsCredential(envelope.RootElement, settings.ApiKey)) return Invalid();
+            if (!SupplierJson.UniqueProperties(envelope.RootElement)
+                || SupplierJson.ContainsCredential(envelope.RootElement, settings.ApiKey)) return Invalid();
             if (envelope.RootElement.TryGetProperty("error", out var error))
             {
                 var code = error.ValueKind == JsonValueKind.Object && error.TryGetProperty("code", out var value)
@@ -124,8 +124,8 @@ public sealed class VocabularyExpansionClient(IHttpClientFactory clients, TimePr
         EnrichmentClientSettings settings, string bookId)
     {
         using var content = JsonDocument.Parse(text, new JsonDocumentOptions { MaxDepth = 8 });
-        if (!OpenAiCompatiblePronunciationPreparationClient.UniqueProperties(content.RootElement)
-            || OpenAiCompatiblePronunciationPreparationClient.ContainsCredential(content.RootElement, settings.ApiKey)) return Invalid();
+        if (!SupplierJson.UniqueProperties(content.RootElement)
+            || SupplierJson.ContainsCredential(content.RootElement, settings.ApiKey)) return Invalid();
         var wire = content.RootElement.Deserialize<WirePlan>(Json);
         if (wire?.Candidates == null || wire.Candidates.Any(c => c == null)) return Invalid();
         var plan = new VocabularyExpansionPlan(settings.Model, bookId, wire.Candidates.Select(c => new VocabularyExpansionCandidate(

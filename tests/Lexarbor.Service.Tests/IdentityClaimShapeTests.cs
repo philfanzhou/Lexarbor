@@ -5,9 +5,7 @@ using System.Security.Claims;
 using System.Text;
 using Lexarbor.Host.Authentication;
 using Lexarbor.Service.Tests.TestInfrastructure;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
 
 namespace Lexarbor.Service.Tests;
@@ -20,7 +18,7 @@ namespace Lexarbor.Service.Tests;
 ///
 /// This service runs with <c>MapInboundClaims = false</c>, so nothing rewrites claim
 /// names on the way in: whatever the issuer wrote is what the handlers see. That is why
-/// every read goes through <see cref="VocabularyClaims"/> rather than
+/// every read goes through <see cref="IdentityClaims"/> rather than
 /// <c>User.Identity.Name</c> or <c>IsInRole</c>, which can only match one shape.
 /// </summary>
 public class IdentityClaimShapeTests :
@@ -167,7 +165,7 @@ public class IdentityClaimShapeTests :
         // would still pass.
         Assert.Equivalent(
             new[] { "admin", "student" },
-            VocabularyClaims.GetRoles(principal),
+            IdentityClaims.GetRoles(principal),
             strict: true);
     }
 

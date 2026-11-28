@@ -20,7 +20,7 @@ public static class SystemSettingsEndpoints
         await next(context);
     });
 
-    public static void MapSystemSettingsEndpoints(this IEndpointRouteBuilder app)
+    public static void MapSystemSettings(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup(Path).RequireAuthorization(ManagementAuthorizationDefaults.AdminPolicyName)
             .WithMetadata(new SettingsMetadata());
@@ -62,23 +62,23 @@ public static class SystemSettingsEndpoints
         {
             var count = await context.Request.Body.ReadAsync(bytes, context.RequestAborted);
             if (count == 0) break;
-            if (buffer.Length + count > 4096) return Error(413, "Settings request is too large.");
+            if (buffer.Length + count > 4096) return SettingsError.Write(413, "Settings request is too large.");
             buffer.Write(bytes, 0, count);
         }
         var fields = new Dictionary<string, JsonNode?>();
         try
         {
             using var document = JsonDocument.Parse(buffer.ToArray());
-            if (document.RootElement.ValueKind != JsonValueKind.Object) return Error(400, "Invalid rate limit settings.");
+            if (document.RootElement.ValueKind != JsonValueKind.Object) return SettingsError.Write(400, "Invalid rate limit settings.");
             foreach (var item in document.RootElement.EnumerateObject())
             {
                 if (item.Name != "adminLoginEnabled" || item.Value.ValueKind is not (JsonValueKind.True or JsonValueKind.False)
                     || !fields.TryAdd("RateLimits:AdminLogin:Enabled", JsonValue.Create(item.Value.GetBoolean())))
-                    return Error(400, "Invalid rate limit settings.");
+                    return SettingsError.Write(400, "Invalid rate limit settings.");
             }
-            if (fields.Count == 0) return Error(400, "Invalid rate limit settings.");
+            if (fields.Count == 0) return SettingsError.Write(400, "Invalid rate limit settings.");
         }
-        catch (JsonException) { return Error(400, "Invalid rate limit settings."); }
+        catch (JsonException) { return SettingsError.Write(400, "Invalid rate limit settings."); }
         var revision = context.Request.Headers.IfMatch;
         var result = await coordinator.SaveAsync(revision.Count == 0 ? null : revision.ToString(), fields, (configuration, _) =>
         {
@@ -92,12 +92,12 @@ public static class SystemSettingsEndpoints
         return result.Status switch
         {
             ConfigurationSaveStatus.Success => await ReadCommittedAsync(context, coordinator, runtime),
-            ConfigurationSaveStatus.MissingRevision => Error(428, "If-Match is required. Reload settings."),
-            ConfigurationSaveStatus.InvalidRevision => Error(400, "Invalid If-Match. Reload settings."),
-            ConfigurationSaveStatus.Conflict => Error(412, "Settings changed. Reload settings; offline edits require a restart."),
+            ConfigurationSaveStatus.MissingRevision => SettingsError.Write(428, "If-Match is required. Reload settings."),
+            ConfigurationSaveStatus.InvalidRevision => SettingsError.Write(400, "Invalid If-Match. Reload settings."),
+            ConfigurationSaveStatus.Conflict => SettingsError.Write(412, "Settings changed. Reload settings; offline edits require a restart."),
             ConfigurationSaveStatus.Overridden => Results.Json(new { message = "Settings are overridden by deployment configuration.", fields = result.OverriddenFields }, statusCode: 409),
-            ConfigurationSaveStatus.InvalidCandidate => Error(400, "Invalid rate limit settings. Check the configured permit limit and window."),
-            _ => Error(503, ConfigurationSaveResult.StorageFailureMessage)
+            ConfigurationSaveStatus.InvalidCandidate => SettingsError.Write(400, "Invalid rate limit settings. Check the configured permit limit and window."),
+            _ => SettingsError.Write(503, ConfigurationSaveResult.StorageFailureMessage)
         };
     }
 
@@ -108,6 +108,4 @@ public static class SystemSettingsEndpoints
         context.Response.Headers.ETag = response.Revision;
         return Results.Json(response);
     }
-
-    private static IResult Error(int status, string message) => Results.Json(new { message }, statusCode: status);
 }

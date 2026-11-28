@@ -387,7 +387,7 @@ const emptyDescription = computed(() =>
 </script>
 
 <template>
-  <div class="book-words-view">
+  <div>
     <PageHeader
       title="教材词表"
       :description="book ? `${book.bookName} 的单词与释义` : '正在加载教材信息…'"
@@ -657,8 +657,7 @@ const emptyDescription = computed(() =>
 .toolbar__search {
   width: min(320px, 100%);
 }
-.toolbar__unit,
-.toolbar__section {
+.toolbar__unit {
   width: min(220px, 100%);
 }
 .toolbar__section {

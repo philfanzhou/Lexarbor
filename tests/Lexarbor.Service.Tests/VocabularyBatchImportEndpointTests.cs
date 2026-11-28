@@ -1,6 +1,5 @@
 using System.Net;
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using Lexarbor.Database;
@@ -10,7 +9,6 @@ using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 using Lexarbor.Service.Tests.TestInfrastructure;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Lexarbor.Service.Tests;
@@ -817,8 +815,8 @@ public class VocabularyBatchImportEndpointTests :
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", factory.CreateToken("admin"));
 
-        var atLimit = PaddedBatch(bookId, VocabularyHttpEndpoints.MaxBatchRequestBytes);
-        var overLimit = PaddedBatch(bookId, VocabularyHttpEndpoints.MaxBatchRequestBytes + 1);
+        var atLimit = PaddedBatch(bookId, VocabularyEndpoints.MaxBatchRequestBytes);
+        var overLimit = PaddedBatch(bookId, VocabularyEndpoints.MaxBatchRequestBytes + 1);
 
         using (var content = new ByteArrayContent(overLimit))
         {
@@ -975,28 +973,28 @@ public class VocabularyBatchImportEndpointTests :
     {
         private int _addCount;
 
-        public Task AddAsync(VocabularyMeaningModel model) =>
+        public Task AddAsync(VocabularyMeaning model) =>
             ++_addCount == 3 ? throw failure : inner.AddAsync(model);
 
-        public Task<VocabularyMeaningModel?> GetByIdAsync(string id) => inner.GetByIdAsync(id);
-        public Task<List<VocabularyMeaningModel>> GetByVocabularyIdAsync(string vocabularyId) =>
+        public Task<VocabularyMeaning?> GetByIdAsync(string id) => inner.GetByIdAsync(id);
+        public Task<List<VocabularyMeaning>> GetByVocabularyIdAsync(string vocabularyId) =>
             inner.GetByVocabularyIdAsync(vocabularyId);
-        public Task<List<VocabularyMeaningModel>> GetByBookIdAsync(string bookId) => inner.GetByBookIdAsync(bookId);
-        public Task<List<VocabularyMeaningModel>> GetByBookAndVocabularyIdAsync(string bookId, string vocabularyId) =>
+        public Task<List<VocabularyMeaning>> GetByBookIdAsync(string bookId) => inner.GetByBookIdAsync(bookId);
+        public Task<List<VocabularyMeaning>> GetByBookAndVocabularyIdAsync(string bookId, string vocabularyId) =>
             inner.GetByBookAndVocabularyIdAsync(bookId, vocabularyId);
-        public Task<VocabularyMeaningModel?> GetEquivalentAsync(
+        public Task<VocabularyMeaning?> GetEquivalentAsync(
             string vocabularyId,
             string bookId,
             string normalizedPartOfSpeech,
             string meaning) => inner.GetEquivalentAsync(vocabularyId, bookId, normalizedPartOfSpeech, meaning);
-        public Task<List<VocabularyMeaningModel>> GetRandomDistinctVocabularyExceptAsync(
+        public Task<List<VocabularyMeaning>> GetRandomDistinctVocabularyExceptAsync(
             string bookId,
             string excludeVocabularyId,
             string excludeMeaning,
             int count,
             VocabularyDistractorScope? scope = null) =>
             inner.GetRandomDistinctVocabularyExceptAsync(bookId, excludeVocabularyId, excludeMeaning, count, scope);
-        public Task UpdateAsync(VocabularyMeaningModel model) => inner.UpdateAsync(model);
+        public Task UpdateAsync(VocabularyMeaning model) => inner.UpdateAsync(model);
         public Task DeleteAsync(string id) => inner.DeleteAsync(id);
         public Task DeleteByVocabularyIdAsync(string vocabularyId) => inner.DeleteByVocabularyIdAsync(vocabularyId);
     }

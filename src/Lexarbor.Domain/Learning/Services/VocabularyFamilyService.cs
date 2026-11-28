@@ -138,7 +138,7 @@ public sealed class VocabularyFamilyService(IVocabularyWordListRepository words,
         return new(sources.OrderByDescending(word => word.LastReviewedAt).ThenBy(word => word.Key, StringComparer.Ordinal).ToArray(), learned);
 
         bool IsEligible(VocabularyWordListCard card) => actor.Type == VocabNotebookActorType.Teacher
-            || memory.GetStage(new MemoryCardModel
+            || memory.GetStage(new MemoryCard
             {
                 StudentId = studentId,
                 WordKey = card.WordKey,
@@ -192,10 +192,10 @@ public sealed class VocabularyFamilyService(IVocabularyWordListRepository words,
             new(meaning.WordId, meaning.BookId, meaning.MeaningId));
     }
 
-    private sealed class CandidateAvailability(IReadOnlySet<CardKey> learned, IReadOnlyList<VocabNotebookItemModel> notebookItems)
+    private sealed class CandidateAvailability(IReadOnlySet<CardKey> learned, IReadOnlyList<VocabNotebookItem> notebookItems)
     {
-        private readonly Dictionary<CardKey, VocabNotebookItemModel> _byKey = notebookItems.ToDictionary(item => item.Key);
-        public VocabNotebookItemModel? FindItem(VocabCatalogMeaning meaning) => _byKey.GetValueOrDefault(new(meaning.WordKey, meaning.MeaningKey));
+        private readonly Dictionary<CardKey, VocabNotebookItem> _byKey = notebookItems.ToDictionary(item => item.Key);
+        public VocabNotebookItem? FindItem(VocabCatalogMeaning meaning) => _byKey.GetValueOrDefault(new(meaning.WordKey, meaning.MeaningKey));
         public bool IsLearned(VocabCatalogMeaning meaning) => learned.Contains(new(meaning.WordKey, meaning.MeaningKey));
         public bool CanSelect(VocabCatalogMeaning meaning, VocabNotebookFamilySource source) =>
             FindItem(meaning)?.CanAttachFamily(source) ?? true;

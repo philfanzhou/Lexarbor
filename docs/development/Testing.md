@@ -122,16 +122,16 @@ checks them in real container logs while retaining health, non-root, and persist
 
 | Scenario | Expectation |
 |------|------|
-| VocabularyDto → VocabularyModel | Fields map correctly |
-| VocabularyModel → VocabularyDto | Fields map correctly |
-| VocabularyMeaningDto → VocabularyMeaningModel | Fields map correctly |
-| VocabularyMeaningModel → VocabularyMeaningDto | Fields map correctly |
-| VocabularyBookDto → VocabularyBookModel | Fields map correctly |
-| VocabularyBookModel → VocabularyBookDto | Fields map correctly |
+| VocabularyDto → Vocabulary | Fields map correctly |
+| Vocabulary → VocabularyDto | Fields map correctly |
+| VocabularyMeaningDto → VocabularyMeaning | Fields map correctly |
+| VocabularyMeaning → VocabularyMeaningDto | Fields map correctly |
+| VocabularyBookDto → VocabularyBook | Fields map correctly |
+| VocabularyBook → VocabularyBookDto | Fields map correctly |
 
 ## Domain.Tests coverage
 
-### VocabularyDomainService
+### VocabularyService
 
 | Scenario | Expectation |
 |------|------|
@@ -155,7 +155,7 @@ checks them in real container logs while retaining health, non-root, and persist
 | Batch with an invalid shape, a missing book, or a disabled book | Rejected before any write |
 | Two identical batches imported concurrently | Serialized: one creates every entry, the other reuses them |
 
-### VocabularyBookDomainService
+### VocabularyBookService
 
 | Scenario | Expectation |
 |------|------|
@@ -274,7 +274,7 @@ diagnostic, and its automated coverage lives in
 
 ## Conventions
 
-- DTO mapping extension tests verify field mapping through the public `ToEntity()` and `ToDto()` extension methods.
+- DTO mapping extension tests verify field mapping through the public `ToModel()` and `ToDto()` extension methods.
 - Domain layer tests use the real DomainService, real repositories, and a disposable PostgreSQL database of their own.
 - DTO mapping extension tests require `InternalsVisibleTo`, which is configured in the Service project's `.csproj`.
 - Assertions always use xUnit's built-in `Assert.*`; no third-party assertion library such as

@@ -1,7 +1,6 @@
 using System.Data.Common;
 using System.Net;
 using System.Net.Http.Headers;
-using System.Text;
 using System.Text.Json;
 using Lexarbor.Database;
 using Lexarbor.Database.Repositories;
@@ -13,14 +12,8 @@ using Lexarbor.Host.Configuration;
 using Lexarbor.Host.Integration;
 using Lexarbor.Service.Tests.TestInfrastructure;
 using Lexarbor.Tests.Shared;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
-using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Migrations;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Lexarbor.Service.Tests;
@@ -353,7 +346,7 @@ public sealed partial class AutomaticMeaningSubmissionReviewTests
     public async Task TimeProvider_BodyAndHeadersShareBudget_CallerCancellationDoesNotBecomeFailure()
     {
         await using var f = await Fixture.Create();
-        var submission = new MeaningSubmissionModel { Id = "synthetic", Word = "word", Meaning = "meaning" };
+        var submission = new MeaningSubmission { Id = "synthetic", Word = "word", Meaning = "meaning" };
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var headerTimeMs = (f.Runtime.Current.ReviewAssistant.TimeoutSeconds - 1) * 1000L;
         f.Http.Respond = (_, _) => { f.Clock.Now += headerTimeMs; return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new SlowStream(entered)) }); };
@@ -489,10 +482,10 @@ public sealed partial class AutomaticMeaningSubmissionReviewTests
         public MeaningSubmissionReviewBatchExecutor BatchWorker() => new(Provider.GetRequiredService<IServiceScopeFactory>(), Runtime, _submissionSettings,
             new AiTextBatchClient(Clients, Clock), Client, Clock);
         public VocabularyDbContext Open() => new(new DbContextOptionsBuilder<VocabularyDbContext>().UseNpgsql(SharedTestDatabases.ConnectionString(Path.Combine(_root, "fixture.db"))).AddInterceptors(Fault).Options);
-        public (MeaningSubmissionService Submissions, VocabularyDomainService Vocabulary) Service(VocabularyDbContext db)
+        public (MeaningSubmissionService Submissions, VocabularyService Vocabulary) Service(VocabularyDbContext db)
         {
             var submissions = new MeaningSubmissionRepository(db); var words = new VocabularyRepository(db); var meanings = new VocabularyMeaningRepository(db); var uow = new UnitOfWork(db);
-            var vocabulary = new VocabularyDomainService(words, new VocabularyBookRepository(db), meanings, new VocabularyBookUnitRepository(db), new VocabularyMeaningUnitRepository(db), uow, _submissionSettings, submissions);
+            var vocabulary = new VocabularyService(words, new VocabularyBookRepository(db), meanings, new VocabularyBookUnitRepository(db), new VocabularyMeaningUnitRepository(db), uow, _submissionSettings, submissions);
             return (new(submissions, words, meanings, vocabulary, uow, _submissionSettings, Clock, changes: Notifications), vocabulary);
         }
         public async Task<string> Submit(string word)
@@ -500,7 +493,7 @@ public sealed partial class AutomaticMeaningSubmissionReviewTests
             await using var db = Open(); var submission = await Service(db).Submissions.SubmitAsync("synthetic-source", word, "n.", "original", "original example", Ct);
             Ids[word] = submission.Id; return submission.Id;
         }
-        public async Task<MeaningSubmissionModel> Read(string word)
+        public async Task<MeaningSubmission> Read(string word)
         { await using var db = Open(); return (await new MeaningSubmissionRepository(db).GetByIdAsync(Ids[word], Ct))!; }
         public async Task<MeaningSubmissionAutomaticReviewStatus> Status()
         { await using var db = Open(); return await new MeaningSubmissionAutomaticReviewStatusProvider(Runtime, _submissionSettings, new MeaningSubmissionAutoReviewRepository(db, Clock)).ReadAsync(Ct); }

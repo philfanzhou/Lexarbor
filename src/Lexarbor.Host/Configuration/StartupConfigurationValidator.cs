@@ -7,8 +7,6 @@ using Lexarbor.Host.RateLimiting;
 using Lexarbor.Learning.Domain.Models;
 using Lexarbor.Learning.Domain.Services;
 using Lexarbor.Learning.Service;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using ServiceMantle;
 
@@ -218,8 +216,8 @@ internal sealed partial class StartupConfigurationValidator(IHostEnvironment env
         foreach (var key in new[] { CatalogApiKey, SubmissionApiKey })
         {
             var value = candidate[key] ?? "";
-            Require(value.Length == 0 || LexarborApiKey.IsValid(value), key);
-            Require(value.Length == 0 || LexarborApiKey.IsAllowedEndpoint(baseUrl, allowInsecure), CatalogBaseUrl, AllowInsecureHttp);
+            Require(value.Length == 0 || ApiKeyRules.IsValid(value), key);
+            Require(value.Length == 0 || ApiKeyRules.IsAllowedEndpoint(baseUrl, allowInsecure), CatalogBaseUrl, AllowInsecureHttp);
         }
     }
 

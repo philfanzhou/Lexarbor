@@ -1,6 +1,3 @@
-using System;
-using System.Linq;
-using System.Threading.Tasks;
 using Lexarbor.Domain.Exceptions;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Services;
@@ -11,18 +8,18 @@ namespace Lexarbor.Domain.Tests;
 
 public class VocabularyBookUnitTests : TestBase
 {
-    private readonly VocabularyBookUnitDomainService _service;
-    private readonly VocabularyDomainService _importService;
+    private readonly VocabularyBookUnitService _service;
+    private readonly VocabularyService _importService;
 
     public VocabularyBookUnitTests()
     {
-        _service = new VocabularyBookUnitDomainService(
+        _service = new VocabularyBookUnitService(
             _bookRepository,
             _meaningRepository,
             _bookUnitRepository,
             _meaningUnitRepository,
             _unitOfWork);
-        _importService = new VocabularyDomainService(
+        _importService = new VocabularyService(
             _vocabularyRepository,
             _bookRepository,
             _meaningRepository,
@@ -38,8 +35,8 @@ public class VocabularyBookUnitTests : TestBase
         var first = await _service.CreateAsync(book.Id, 2, null);
         var second = await _service.CreateAsync(book.Id, 6, null);
         var (_, meaning) = await _importService.AddOrUpdateAsync(
-            new VocabularyModel { Word = "come true" },
-            new VocabularyMeaningModel { BookId = book.Id, Meaning = "happen" });
+            new Vocabulary { Word = "come true" },
+            new VocabularyMeaning { BookId = book.Id, Meaning = "happen" });
         await _service.AssignMeaningAsync(first.Id, meaning.Id, "A", "phrase");
         await _service.AssignMeaningAsync(first.Id, meaning.Id, "A", "word");
         await _service.AssignMeaningAsync(first.Id, meaning.Id, "B", "phrase");
@@ -73,8 +70,8 @@ public class VocabularyBookUnitTests : TestBase
         var book = await CreateBookAsync();
         var unit = await _service.CreateAsync(book.Id, 1, null);
         var (_, tagged) = await _importService.AddOrUpdateAsync(
-            new VocabularyModel { Word = "give up" },
-            new VocabularyMeaningModel { BookId = book.Id, PartOfSpeech = "v.", Meaning = "quit" });
+            new Vocabulary { Word = "give up" },
+            new VocabularyMeaning { BookId = book.Id, PartOfSpeech = "v.", Meaning = "quit" });
         await _service.AssignMeaningAsync(unit.Id, tagged.Id, "A", "word");
 
         var move = await Assert.ThrowsAsync<DomainValidationException>(() => _service.MovePositionAsync(book.Id,
@@ -84,7 +81,7 @@ public class VocabularyBookUnitTests : TestBase
         Assert.False(await _meaningUnitRepository.ExistsAsync(unit.Id, tagged.Id, "A", "phrase"));
 
         // A position that is already a phrase keeps moving as one.
-        await _meaningUnitRepository.AddAsync(new VocabularyMeaningUnitModel
+        await _meaningUnitRepository.AddAsync(new VocabularyMeaningUnit
         {
             UnitId = unit.Id,
             MeaningId = tagged.Id,
@@ -98,8 +95,8 @@ public class VocabularyBookUnitTests : TestBase
         Assert.True(await _meaningUnitRepository.ExistsAsync(unit.Id, tagged.Id, null, "phrase"));
 
         var (_, plain) = await _importService.AddOrUpdateAsync(
-            new VocabularyModel { Word = "look after" },
-            new VocabularyMeaningModel { BookId = book.Id, Meaning = "care for" });
+            new Vocabulary { Word = "look after" },
+            new VocabularyMeaning { BookId = book.Id, Meaning = "care for" });
         await _service.AssignMeaningAsync(unit.Id, plain.Id, "A", "word");
         await _service.MovePositionAsync(book.Id, plain.Id, unit.Id, "A", "word",
             unit.Id, "A", "phrase", TestContext.Current.CancellationToken);
@@ -114,8 +111,8 @@ public class VocabularyBookUnitTests : TestBase
         var unit = await _service.CreateAsync(book.Id, 1, null);
         var foreignUnit = await _service.CreateAsync(other.Id, 1, null);
         var (_, meaning) = await _importService.AddOrUpdateAsync(
-            new VocabularyModel { Word = "run into" },
-            new VocabularyMeaningModel { BookId = book.Id, Meaning = "meet" });
+            new Vocabulary { Word = "run into" },
+            new VocabularyMeaning { BookId = book.Id, Meaning = "meet" });
         await _service.AssignMeaningAsync(unit.Id, meaning.Id, null, "phrase");
         await Assert.ThrowsAsync<ResourceNotFoundException>(() => _service.MovePositionAsync(book.Id,
             meaning.Id, unit.Id, null, "phrase", foreignUnit.Id, null, "word", TestContext.Current.CancellationToken));
@@ -200,11 +197,11 @@ public class VocabularyBookUnitTests : TestBase
 
         // The same entry imported twice resolves to one meaning row.
         var (_, firstImport) = await _importService.AddOrUpdateAsync(
-            new VocabularyModel { Word = "come true" },
-            new VocabularyMeaningModel { BookId = book.Id, PartOfSpeech = "phrase", Meaning = "（梦想等）实现" });
+            new Vocabulary { Word = "come true" },
+            new VocabularyMeaning { BookId = book.Id, PartOfSpeech = "phrase", Meaning = "（梦想等）实现" });
         var (_, secondImport) = await _importService.AddOrUpdateAsync(
-            new VocabularyModel { Word = "come true" },
-            new VocabularyMeaningModel { BookId = book.Id, PartOfSpeech = "phrase", Meaning = "（梦想等）实现" });
+            new Vocabulary { Word = "come true" },
+            new VocabularyMeaning { BookId = book.Id, PartOfSpeech = "phrase", Meaning = "（梦想等）实现" });
         Assert.Equal(firstImport.Id, secondImport.Id);
 
         await _service.AssignMeaningAsync(unit2.Id, firstImport.Id, null, null);
@@ -226,8 +223,8 @@ public class VocabularyBookUnitTests : TestBase
         var book = await CreateBookAsync();
         var unit = await _service.CreateAsync(book.Id, 2, null);
         var (_, meaning) = await _importService.AddOrUpdateAsync(
-            new VocabularyModel { Word = "come true" },
-            new VocabularyMeaningModel { BookId = book.Id, PartOfSpeech = "phrase", Meaning = "（梦想等）实现" });
+            new Vocabulary { Word = "come true" },
+            new VocabularyMeaning { BookId = book.Id, PartOfSpeech = "phrase", Meaning = "（梦想等）实现" });
 
         // The unsectioned place and the two sections of one unit are three
         // positions of one meaning; replaying any of them writes nothing.
@@ -248,8 +245,8 @@ public class VocabularyBookUnitTests : TestBase
         var unit = await _service.CreateAsync(book.Id, 2, null);
         var otherUnit = await _service.CreateAsync(book.Id, 6, null);
         var (_, meaning) = await _importService.AddOrUpdateAsync(
-            new VocabularyModel { Word = "come true" },
-            new VocabularyMeaningModel { BookId = book.Id, PartOfSpeech = "phrase", Meaning = "（梦想等）实现" });
+            new Vocabulary { Word = "come true" },
+            new VocabularyMeaning { BookId = book.Id, PartOfSpeech = "phrase", Meaning = "（梦想等）实现" });
 
         // The unclassified kind and the two kinds of one place are three
         // positions of one meaning — the kind never duplicates the meaning —
@@ -272,8 +269,8 @@ public class VocabularyBookUnitTests : TestBase
         var book = await CreateBookAsync();
         var unit = await _service.CreateAsync(book.Id, 2, null);
         var (_, meaning) = await _importService.AddOrUpdateAsync(
-            new VocabularyModel { Word = "apple" },
-            new VocabularyMeaningModel { BookId = book.Id, PartOfSpeech = "n.", Meaning = "苹果" });
+            new Vocabulary { Word = "apple" },
+            new VocabularyMeaning { BookId = book.Id, PartOfSpeech = "n.", Meaning = "苹果" });
 
         // Case is significant — Word is not normalized into word — and neither
         // a third kind nor a part of speech is a kind.
@@ -292,8 +289,8 @@ public class VocabularyBookUnitTests : TestBase
         var book = await CreateBookAsync();
         var unit = await _service.CreateAsync(book.Id, 2, null);
         var (_, meaning) = await _importService.AddOrUpdateAsync(
-            new VocabularyModel { Word = "apple" },
-            new VocabularyMeaningModel { BookId = book.Id, PartOfSpeech = "n.", Meaning = "苹果" });
+            new Vocabulary { Word = "apple" },
+            new VocabularyMeaning { BookId = book.Id, PartOfSpeech = "n.", Meaning = "苹果" });
 
         foreach (var section in new[] { "a", "C", "AB", "A/B" })
         {
@@ -314,8 +311,8 @@ public class VocabularyBookUnitTests : TestBase
         var book = await CreateBookAsync();
         var unit = await _service.CreateAsync(book.Id, 2, null);
         var (_, meaning) = await _importService.AddOrUpdateAsync(
-            new VocabularyModel { Word = "apple" },
-            new VocabularyMeaningModel { BookId = book.Id, PartOfSpeech = "n.", Meaning = "苹果" });
+            new Vocabulary { Word = "apple" },
+            new VocabularyMeaning { BookId = book.Id, PartOfSpeech = "n.", Meaning = "苹果" });
         await _service.AssignMeaningAsync(unit.Id, meaning.Id, null, null);
         await _service.AssignMeaningAsync(unit.Id, meaning.Id, "A", null);
         await _service.AssignMeaningAsync(unit.Id, meaning.Id, "B", null);
@@ -343,8 +340,8 @@ public class VocabularyBookUnitTests : TestBase
         var unit = await _service.CreateAsync(book.Id, 2, null);
         var otherUnit = await _service.CreateAsync(book.Id, 6, null);
         var (_, meaning) = await _importService.AddOrUpdateAsync(
-            new VocabularyModel { Word = "apple" },
-            new VocabularyMeaningModel { BookId = book.Id, PartOfSpeech = "n.", Meaning = "苹果" });
+            new Vocabulary { Word = "apple" },
+            new VocabularyMeaning { BookId = book.Id, PartOfSpeech = "n.", Meaning = "苹果" });
         await _service.AssignMeaningAsync(unit.Id, meaning.Id, "A", null);
         await _service.AssignMeaningAsync(unit.Id, meaning.Id, "A", "word");
         await _service.AssignMeaningAsync(unit.Id, meaning.Id, "A", "phrase");
@@ -378,8 +375,8 @@ public class VocabularyBookUnitTests : TestBase
         var bookB = await CreateBookAsync();
         var unitInA = await _service.CreateAsync(bookA.Id, 1, null);
         var (_, meaningInB) = await _importService.AddOrUpdateAsync(
-            new VocabularyModel { Word = "apple" },
-            new VocabularyMeaningModel { BookId = bookB.Id, PartOfSpeech = "n.", Meaning = "苹果" });
+            new Vocabulary { Word = "apple" },
+            new VocabularyMeaning { BookId = bookB.Id, PartOfSpeech = "n.", Meaning = "苹果" });
 
         await Assert.ThrowsAsync<ConflictException>(
             () => _service.AssignMeaningAsync(unitInA.Id, meaningInB.Id, null, null));
@@ -393,8 +390,8 @@ public class VocabularyBookUnitTests : TestBase
         var book = await CreateBookAsync();
         var unit = await _service.CreateAsync(book.Id, 1, null);
         var (_, meaning) = await _importService.AddOrUpdateAsync(
-            new VocabularyModel { Word = "apple" },
-            new VocabularyMeaningModel { BookId = book.Id, PartOfSpeech = "n.", Meaning = "苹果" });
+            new Vocabulary { Word = "apple" },
+            new VocabularyMeaning { BookId = book.Id, PartOfSpeech = "n.", Meaning = "苹果" });
 
         await Assert.ThrowsAsync<ResourceNotFoundException>(
             () => _service.AssignMeaningAsync("no-such-unit", meaning.Id, null, null));
@@ -416,23 +413,23 @@ public class VocabularyBookUnitTests : TestBase
         var bookB = await CreateBookAsync();
         var unitInA = await _service.CreateAsync(bookA.Id, 1, null);
         var (_, meaningInB) = await _importService.AddOrUpdateAsync(
-            new VocabularyModel { Word = "apple" },
-            new VocabularyMeaningModel { BookId = bookB.Id, PartOfSpeech = "n.", Meaning = "苹果" });
+            new Vocabulary { Word = "apple" },
+            new VocabularyMeaning { BookId = bookB.Id, PartOfSpeech = "n.", Meaning = "苹果" });
         var (_, meaningInA) = await _importService.AddOrUpdateAsync(
-            new VocabularyModel { Word = "banana" },
-            new VocabularyMeaningModel { BookId = bookA.Id, PartOfSpeech = "n.", Meaning = "香蕉" });
+            new Vocabulary { Word = "banana" },
+            new VocabularyMeaning { BookId = bookA.Id, PartOfSpeech = "n.", Meaning = "香蕉" });
 
         // One legitimate assignment and one that moves book B's meaning into
         // book A's unit, saved together: the composite foreign keys reject the
         // pair and the implicit transaction keeps the legitimate half from
         // surviving on its own.
-        await _meaningUnitRepository.AddAsync(new VocabularyMeaningUnitModel
+        await _meaningUnitRepository.AddAsync(new VocabularyMeaningUnit
         {
             UnitId = unitInA.Id,
             MeaningId = meaningInA.Id,
             BookId = bookA.Id
         });
-        await _meaningUnitRepository.AddAsync(new VocabularyMeaningUnitModel
+        await _meaningUnitRepository.AddAsync(new VocabularyMeaningUnit
         {
             UnitId = unitInA.Id,
             MeaningId = meaningInB.Id,
@@ -453,8 +450,8 @@ public class VocabularyBookUnitTests : TestBase
         var unit2 = await _service.CreateAsync(book.Id, 2, null);
         var unit6 = await _service.CreateAsync(book.Id, 6, null);
         var (_, meaning) = await _importService.AddOrUpdateAsync(
-            new VocabularyModel { Word = "come true" },
-            new VocabularyMeaningModel { BookId = book.Id, PartOfSpeech = "phrase", Meaning = "（梦想等）实现" });
+            new Vocabulary { Word = "come true" },
+            new VocabularyMeaning { BookId = book.Id, PartOfSpeech = "phrase", Meaning = "（梦想等）实现" });
         await _service.AssignMeaningAsync(unit2.Id, meaning.Id, null, null);
         await _service.AssignMeaningAsync(unit6.Id, meaning.Id, null, null);
 
@@ -549,11 +546,11 @@ public class VocabularyBookUnitTests : TestBase
         var unit3 = await _service.CreateAsync(book.Id, 3, null);
         var unit6 = await _service.CreateAsync(book.Id, 6, null);
         var (_, apple) = await _importService.AddOrUpdateAsync(
-            new VocabularyModel { Word = "apple" },
-            new VocabularyMeaningModel { BookId = book.Id, PartOfSpeech = "n.", Meaning = "苹果" });
+            new Vocabulary { Word = "apple" },
+            new VocabularyMeaning { BookId = book.Id, PartOfSpeech = "n.", Meaning = "苹果" });
         var (_, tree) = await _importService.AddOrUpdateAsync(
-            new VocabularyModel { Word = "apple tree" },
-            new VocabularyMeaningModel { BookId = book.Id, PartOfSpeech = "n.", Meaning = "苹果树" });
+            new Vocabulary { Word = "apple tree" },
+            new VocabularyMeaning { BookId = book.Id, PartOfSpeech = "n.", Meaning = "苹果树" });
         await _service.AssignMeaningAsync(unit3.Id, apple.Id, null, null);
         await _service.AssignMeaningAsync(unit3.Id, tree.Id, null, null);
         await _service.AssignMeaningAsync(unit6.Id, apple.Id, null, null);
@@ -598,8 +595,8 @@ public class VocabularyBookUnitTests : TestBase
         var book = await CreateBookAsync();
         var unit = await _service.CreateAsync(book.Id, 1, null);
         var (_, meaning) = await _importService.AddOrUpdateAsync(
-            new VocabularyModel { Word = "apple" },
-            new VocabularyMeaningModel { BookId = book.Id, PartOfSpeech = "n.", Meaning = "苹果" });
+            new Vocabulary { Word = "apple" },
+            new VocabularyMeaning { BookId = book.Id, PartOfSpeech = "n.", Meaning = "苹果" });
         await _service.AssignMeaningAsync(unit.Id, meaning.Id, null, null);
 
         await _service.RemoveMeaningAsync(unit.Id, meaning.Id, null, null);
@@ -617,8 +614,8 @@ public class VocabularyBookUnitTests : TestBase
         var book = await CreateBookAsync();
         var unit = await _service.CreateAsync(book.Id, 1, null);
         var (_, meaning) = await _importService.AddOrUpdateAsync(
-            new VocabularyModel { Word = "apple" },
-            new VocabularyMeaningModel { BookId = book.Id, PartOfSpeech = "n.", Meaning = "苹果" });
+            new Vocabulary { Word = "apple" },
+            new VocabularyMeaning { BookId = book.Id, PartOfSpeech = "n.", Meaning = "苹果" });
         await _service.AssignMeaningAsync(unit.Id, meaning.Id, null, null);
 
         await _meaningRepository.DeleteAsync(meaning.Id);
@@ -634,8 +631,8 @@ public class VocabularyBookUnitTests : TestBase
         var book = await CreateBookAsync();
         var unit = await _service.CreateAsync(book.Id, 1, null);
         var (word, meaning) = await _importService.AddOrUpdateAsync(
-            new VocabularyModel { Word = "apple" },
-            new VocabularyMeaningModel { BookId = book.Id, PartOfSpeech = "n.", Meaning = "苹果" });
+            new Vocabulary { Word = "apple" },
+            new VocabularyMeaning { BookId = book.Id, PartOfSpeech = "n.", Meaning = "苹果" });
         await _service.AssignMeaningAsync(unit.Id, meaning.Id, null, null);
 
         var wordEntity = await _dbContext.Vocabularies.FindAsync(
@@ -661,8 +658,8 @@ public class VocabularyBookUnitTests : TestBase
         var book = await CreateBookAsync();
         var unit = await _service.CreateAsync(book.Id, 1, null);
         var (word, meaning) = await _importService.AddOrUpdateAsync(
-            new VocabularyModel { Word = "apple" },
-            new VocabularyMeaningModel { BookId = book.Id, PartOfSpeech = "n.", Meaning = "苹果" });
+            new Vocabulary { Word = "apple" },
+            new VocabularyMeaning { BookId = book.Id, PartOfSpeech = "n.", Meaning = "苹果" });
         await _service.AssignMeaningAsync(unit.Id, meaning.Id, null, null);
 
         await _dbContext.Database.ExecuteSqlRawAsync(
@@ -680,12 +677,12 @@ public class VocabularyBookUnitTests : TestBase
     [Fact]
     public async Task DeleteBook_WithMeanings_StillConflicts()
     {
-        var bookService = new VocabularyBookDomainService(_bookRepository, _unitOfWork);
+        var bookService = new VocabularyBookService(_bookRepository, _unitOfWork);
         var book = await CreateBookAsync();
         var unit = await _service.CreateAsync(book.Id, 1, null);
         var (_, meaning) = await _importService.AddOrUpdateAsync(
-            new VocabularyModel { Word = "apple" },
-            new VocabularyMeaningModel { BookId = book.Id, PartOfSpeech = "n.", Meaning = "苹果" });
+            new Vocabulary { Word = "apple" },
+            new VocabularyMeaning { BookId = book.Id, PartOfSpeech = "n.", Meaning = "苹果" });
         await _service.AssignMeaningAsync(unit.Id, meaning.Id, null, null);
 
         await Assert.ThrowsAsync<ConflictException>(
@@ -696,12 +693,12 @@ public class VocabularyBookUnitTests : TestBase
     [Fact]
     public async Task DeleteBook_WithUnitsButNoMeanings_CascadesUnitsAndAssignments()
     {
-        var bookService = new VocabularyBookDomainService(_bookRepository, _unitOfWork);
+        var bookService = new VocabularyBookService(_bookRepository, _unitOfWork);
         var book = await CreateBookAsync();
         var unit = await _service.CreateAsync(book.Id, 1, null);
         var (word, meaning) = await _importService.AddOrUpdateAsync(
-            new VocabularyModel { Word = "apple" },
-            new VocabularyMeaningModel { BookId = book.Id, PartOfSpeech = "n.", Meaning = "苹果" });
+            new Vocabulary { Word = "apple" },
+            new VocabularyMeaning { BookId = book.Id, PartOfSpeech = "n.", Meaning = "苹果" });
         await _service.AssignMeaningAsync(unit.Id, meaning.Id, null, null);
 
         // The cleanup "clear" path: raw SQL removes the book's meanings and the

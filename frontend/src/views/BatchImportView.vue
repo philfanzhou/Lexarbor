@@ -198,7 +198,7 @@ function resolveAssignment(columns: string[]) {
   // The server rejects the same rows (ADR-005); columns 2-4 are the phonetics and part of speech.
   else if (entryKind === 'phrase' && columns.slice(1, 4).some(value => (value ?? '').trim() !== '')) reason = PHRASE_FIELDS_REASON
   const unitText = unit === undefined ? rawUnit : unit.title ? `${unit.number} · ${unit.title}` : String(unit.number)
-  return { unit, unitUnknown, unitText, unitFromDefault, section: rawSection || undefined, entryKind, kindFromDefault, reason }
+  return { unit, unitText, unitFromDefault, section: rawSection || undefined, entryKind, kindFromDefault, reason }
 }
 
 const previewRows = computed(() =>
@@ -750,8 +750,8 @@ onBeforeUnmount(() => { alive = false; ++unitLoads; ++fileReads; stopReadingExce
           </el-table-column>
           <el-table-column label="状态" min-width="180">
             <template #default="{ row }">
-              <span v-if="row.reason" class="batch-status batch-status--invalid">{{ row.reason }}</span>
-              <span v-else class="batch-status batch-status--valid">有效</span>
+              <span v-if="row.reason" class="batch-status--invalid">{{ row.reason }}</span>
+              <span v-else class="batch-status--valid">有效</span>
             </template>
           </el-table-column>
           <el-table-column label="原始单元" min-width="100"><template #default="{ row }">{{ row.columns[6] || '（空白）' }}</template></el-table-column>

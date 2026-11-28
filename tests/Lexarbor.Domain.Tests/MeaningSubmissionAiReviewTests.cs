@@ -191,7 +191,7 @@ public sealed class MeaningSubmissionAiReviewTests : IDisposable
         public VocabularyDbContext Db { get; }
         public MeaningSubmissionRepository Submissions { get; }
         public MeaningSubmissionService Service { get; }
-        public VocabularyDomainService Vocabulary { get; }
+        public VocabularyService Vocabulary { get; }
         public Engine(VocabularyDbContext db)
         {
             Db = db; Submissions = new(db); var words = new VocabularyRepository(db); var meanings = new VocabularyMeaningRepository(db);

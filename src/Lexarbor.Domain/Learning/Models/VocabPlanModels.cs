@@ -1,6 +1,6 @@
 namespace Lexarbor.Learning.Domain.Models;
 
-public sealed class VocabPlanModel
+public sealed class VocabPlan
 {
     public Guid Id { get; set; }
 
@@ -46,7 +46,7 @@ public sealed class VocabPlanModel
         else Segments[0] = segment;
     }
 }
-public sealed class VocabPlanChangeModel
+public sealed class VocabPlanChange
 {
     public Guid Id { get; set; }
 

@@ -42,7 +42,7 @@ public sealed class VocabularyNotebookService : IVocabularyNotebookSource
         return await EntriesAsync(studentId, items, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<IReadOnlyList<VocabNotebookEntry>> EntriesAsync(Guid studentId, IReadOnlyList<VocabNotebookItemModel> items,
+    private async Task<IReadOnlyList<VocabNotebookEntry>> EntriesAsync(Guid studentId, IReadOnlyList<VocabNotebookItem> items,
         CancellationToken cancellationToken)
     {
         var learned = items.Count == 0
@@ -184,7 +184,7 @@ public sealed class VocabularyNotebookService : IVocabularyNotebookSource
             : PendingItem(studentId, adder, submission);
         next.AddedAt = rejected.AddedAt;
 
-        VocabNotebookItemModel stored;
+        VocabNotebookItem stored;
         try
         {
             stored = await _notebookRepository.InRepeatableReadAsync(async () =>
@@ -192,7 +192,7 @@ public sealed class VocabularyNotebookService : IVocabularyNotebookSource
                 var current = await _notebookRepository.FindAsync(studentId, itemId, cancellationToken).ConfigureAwait(false);
                 if (current is null || current.Status != VocabNotebookItemStatus.Rejected || current.SubmissionId != rejected.SubmissionId)
                     throw new VocabNotebookItemNotRejectedException();
-                VocabNotebookItemModel result;
+                VocabNotebookItem result;
                 if (next.Key == current.Key)
                 {
                     current.Status = next.Status;
@@ -298,7 +298,7 @@ public sealed class VocabularyNotebookService : IVocabularyNotebookSource
             new VocabularyScopeEntry(submission.ResultWordId, key.WordKey, submission.ResultMeaningId, key.MeaningKey, null));
     }
 
-    private static VocabularyPlanScopeEntry Location(VocabNotebookItemModel item) => new(item.BookId!, false,
+    private static VocabularyPlanScopeEntry Location(VocabNotebookItem item) => new(item.BookId!, false,
         new VocabularyScopeEntry(item.WordId!, item.WordKey, item.MeaningId!, item.MeaningKey, null))
     { Source = item.FamilyOnly ? VocabularySourceKind.NotebookFamily : VocabularySourceKind.Notebook, CoveredByPlan = false };
 
@@ -334,7 +334,7 @@ public sealed class VocabularyNotebookService : IVocabularyNotebookSource
         }, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task ApplyReviewAsync(Guid studentId, VocabNotebookItemModel item, VocabMeaningSubmission submission,
+    private async Task ApplyReviewAsync(Guid studentId, VocabNotebookItem item, VocabMeaningSubmission submission,
         CancellationToken cancellationToken)
     {
         if (submission.Status == VocabSubmissionStatus.Rejected)
@@ -364,20 +364,20 @@ public sealed class VocabularyNotebookService : IVocabularyNotebookSource
         await MergeAsync(approved, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<VocabNotebookEntry> UpsertAsync(VocabNotebookItemModel item, CancellationToken cancellationToken)
+    private async Task<VocabNotebookEntry> UpsertAsync(VocabNotebookItem item, CancellationToken cancellationToken)
     {
         var stored = await MergeAsync(item, cancellationToken).ConfigureAwait(false);
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return await EntryAsync(stored, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<VocabNotebookEntry> EntryAsync(VocabNotebookItemModel stored, CancellationToken cancellationToken)
+    private async Task<VocabNotebookEntry> EntryAsync(VocabNotebookItem stored, CancellationToken cancellationToken)
     {
         var learned = await _cardRepository.FindExistingKeysAsync(stored.StudentId, [stored.Key], cancellationToken).ConfigureAwait(false);
         return new VocabNotebookEntry(stored, learned.Contains(stored.Key));
     }
-    private async Task<VocabNotebookItemModel> MergeAsync(VocabNotebookItemModel item, CancellationToken cancellationToken,
-        VocabNotebookItemModel? existing = null)
+    private async Task<VocabNotebookItem> MergeAsync(VocabNotebookItem item, CancellationToken cancellationToken,
+        VocabNotebookItem? existing = null)
     {
         existing ??= await _notebookRepository.FindByKeyAsync(item.StudentId, item.Key, cancellationToken).ConfigureAwait(false);
         if (existing is null)
@@ -463,7 +463,7 @@ public sealed class VocabularyNotebookService : IVocabularyNotebookSource
         return trimmed[..length];
     }
 
-    private static VocabNotebookItemModel ApprovedItem(Guid studentId, VocabNotebookActor actor, VocabMeaningSubmission submission)
+    private static VocabNotebookItem ApprovedItem(Guid studentId, VocabNotebookActor actor, VocabMeaningSubmission submission)
     {
         var item = NewItem(studentId, actor,
             submission.ResultWordKey ?? submission.WordKey,
@@ -477,7 +477,7 @@ public sealed class VocabularyNotebookService : IVocabularyNotebookSource
         return item;
     }
 
-    private static VocabNotebookItemModel PendingItem(Guid studentId, VocabNotebookActor actor, VocabMeaningSubmission submission)
+    private static VocabNotebookItem PendingItem(Guid studentId, VocabNotebookActor actor, VocabMeaningSubmission submission)
     {
         var item = NewItem(studentId, actor, submission.WordKey, submission.MeaningKey,
             submission.Word, submission.PartOfSpeech, submission.Meaning);
@@ -486,11 +486,11 @@ public sealed class VocabularyNotebookService : IVocabularyNotebookSource
         return item;
     }
 
-    private static VocabNotebookItemModel NewItem(
+    private static VocabNotebookItem NewItem(
         Guid studentId, VocabNotebookActor actor, string wordKey, string meaningKey, string word, string? partOfSpeech, string meaning)
     {
         var now = DateTimeOffset.UtcNow;
-        return new VocabNotebookItemModel
+        return new VocabNotebookItem
         {
             Id = Guid.NewGuid(),
             StudentId = studentId,
@@ -506,7 +506,7 @@ public sealed class VocabularyNotebookService : IVocabularyNotebookSource
         };
     }
 
-    private static void Locate(VocabNotebookItemModel item, string bookId, string wordId, string meaningId)
+    private static void Locate(VocabNotebookItem item, string bookId, string wordId, string meaningId)
     {
         item.Status = VocabNotebookItemStatus.Ready;
         item.BookId = bookId;

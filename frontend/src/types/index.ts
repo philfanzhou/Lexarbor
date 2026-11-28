@@ -29,11 +29,6 @@ export interface VocabularyMeaning {
   example?: string
 }
 
-export interface BookListResponse {
-  success: boolean
-  data: { books: Book[] }
-}
-
 export interface BookPageData {
   items: Book[]
   totalCount: number
@@ -42,9 +37,4 @@ export interface BookPageData {
 
 export interface StringListData {
   items: string[]
-}
-
-export interface BoolResponse {
-  success: boolean
-  data: { success: boolean }
 }

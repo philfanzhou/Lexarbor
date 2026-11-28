@@ -47,7 +47,7 @@ public sealed class VocabularyExpansionRepository(VocabularyDbContext context) :
         return matches.Length == 1 ? matches[0] : null;
     }
 
-    public async Task<VocabularyRelationMeaningPair?> ReadHistoricalMeaningPairAsync(VocabularyRelationModel relation, CancellationToken token)
+    public async Task<VocabularyRelationMeaningPair?> ReadHistoricalMeaningPairAsync(VocabularyRelation relation, CancellationToken token)
     {
         if (relation is not { Status: "confirmed", OriginKind: "generated", Version: 1, OriginReference: { } taskId })
             return null;

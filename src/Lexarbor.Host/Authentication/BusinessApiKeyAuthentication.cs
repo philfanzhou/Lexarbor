@@ -51,9 +51,9 @@ public sealed class BusinessApiKeyAuthentication(
     protected override Task HandleChallengeAsync(AuthenticationProperties properties)
     {
         Response.Headers.WWWAuthenticate = "ApiKey";
-        return VocabularyHttpResponse.WriteFailureAsync(Response, StatusCodes.Status401Unauthorized, "An API key is required.");
+        return ApiResponse.WriteFailureAsync(Response, StatusCodes.Status401Unauthorized, "An API key is required.");
     }
 
     protected override Task HandleForbiddenAsync(AuthenticationProperties properties) =>
-        VocabularyHttpResponse.WriteFailureAsync(Response, StatusCodes.Status403Forbidden, "The API key lacks the required permission.");
+        ApiResponse.WriteFailureAsync(Response, StatusCodes.Status403Forbidden, "The API key lacks the required permission.");
 }

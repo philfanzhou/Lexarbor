@@ -35,7 +35,7 @@ public sealed class VocabularyCleanupService(IVocabularyCleanupRepository reposi
         });
     }
 
-    private async Task<VocabularyBookModel> ResolveAsync(string bookId, VocabularyCleanupSelection selection, CancellationToken cancellationToken)
+    private async Task<VocabularyBook> ResolveAsync(string bookId, VocabularyCleanupSelection selection, CancellationToken cancellationToken)
     {
         var book = await repository.GetBookAsync(bookId, cancellationToken)
             ?? throw new ResourceNotFoundException("Vocabulary book was not found.");

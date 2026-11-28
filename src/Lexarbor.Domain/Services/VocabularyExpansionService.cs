@@ -6,7 +6,7 @@ namespace Lexarbor.Domain.Services;
 
 public sealed class VocabularyExpansionService(IVocabularyExpansionRepository expansions,
     IVocabularyRepository words, IVocabularyRelationRepository relations, IVocabularyBookRepository books,
-    VocabularyDomainService vocabulary, VocabularyRelationService relationService,
+    VocabularyService vocabulary, VocabularyRelationService relationService,
     IEnrichmentTaskRepository tasks, IUnitOfWork unitOfWork, TimeProvider clock)
 {
     public Task<bool> PublishAsync(EnrichmentTask task, EnrichmentExecutionGuard guard,
@@ -27,8 +27,8 @@ public sealed class VocabularyExpansionService(IVocabularyExpansionRepository ex
                 var targetWordId = existing?.WordId ?? (await words.GetByNormalizedWordAsync(CatalogKeys.Of(candidate.Word)))?.Id;
                 if (targetWordId == null)
                 {
-                    var created = await vocabulary.AddOrUpdateCoreAsync(new VocabularyModel { Word = candidate.Word },
-                        new VocabularyMeaningModel
+                    var created = await vocabulary.AddOrUpdateCoreAsync(new Vocabulary { Word = candidate.Word },
+                        new VocabularyMeaning
                         {
                             BookId = plan.BookId,
                             PartOfSpeech = candidate.PartOfSpeech,

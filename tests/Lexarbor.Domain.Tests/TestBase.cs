@@ -1,10 +1,8 @@
-using System;
 using Lexarbor.Database;
 using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 using Lexarbor.Tests.Shared;
-using Microsoft.EntityFrameworkCore;
 using Xunit;
 
 namespace Lexarbor.Domain.Tests;
@@ -35,10 +33,10 @@ public class TestBase : IDisposable
         _unitOfWork = new UnitOfWork(_dbContext);
     }
 
-    protected async Task<VocabularyBookModel> CreateBookAsync(bool status = true, string? id = null)
+    protected async Task<VocabularyBook> CreateBookAsync(bool status = true, string? id = null)
     {
         var now = DateTimeOffset.UtcNow;
-        var book = new VocabularyBookModel
+        var book = new VocabularyBook
         {
             Id = id ?? Guid.NewGuid().ToString(),
             BookName = $"Book-{Guid.NewGuid():N}",

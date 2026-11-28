@@ -12,7 +12,7 @@ public enum MeaningSubmissionStatus
 /// book until an administrator approves it; approval writes the reviewed
 /// definition into the supplementary book and records where it landed.
 /// </summary>
-public class MeaningSubmissionModel
+public class MeaningSubmission
 {
     public string Id { get; set; } = string.Empty;
 

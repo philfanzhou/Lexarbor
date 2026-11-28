@@ -1,5 +1,4 @@
 using System.Security.Claims;
-using ServiceMantle.Audit;
 using ServiceMantle.Management;
 
 namespace Lexarbor.Host.Authentication;
@@ -47,7 +46,7 @@ public static class ManagementIdentityMapping
         }
 
         if (string.IsNullOrWhiteSpace(requiredRole)
-            || !VocabularyClaims.HasRole(principal, requiredRole))
+            || !IdentityClaims.HasRole(principal, requiredRole))
         {
             return;
         }
@@ -55,7 +54,7 @@ public static class ManagementIdentityMapping
         // The subject is resolved through the same claim-type chain as every
         // other identity read (short "sub" or the ClaimTypes URI), so both
         // issuer shapes project.
-        var subject = VocabularyClaims.GetSubject(principal);
+        var subject = IdentityClaims.GetSubject(principal);
         if (string.IsNullOrEmpty(subject))
         {
             // No subject to project: leave the principal without a management

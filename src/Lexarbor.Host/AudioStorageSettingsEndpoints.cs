@@ -65,38 +65,38 @@ public static class AudioStorageSettingsEndpoints
         {
             var count = await context.Request.Body.ReadAsync(bytes, context.RequestAborted);
             if (count == 0) break;
-            if (buffer.Length + count > 16384) return Error(413, "Settings request is too large.");
+            if (buffer.Length + count > 16384) return SettingsError.Write(413, "Settings request is too large.");
             buffer.Write(bytes, 0, count);
         }
         var changes = new Dictionary<string, JsonNode?>();
         try
         {
             using var document = JsonDocument.Parse(buffer.ToArray());
-            if (document.RootElement.ValueKind != JsonValueKind.Object) return Error(400, InvalidMessage);
+            if (document.RootElement.ValueKind != JsonValueKind.Object) return SettingsError.Write(400, InvalidMessage);
             var seen = new HashSet<string>(StringComparer.Ordinal);
             foreach (var item in document.RootElement.EnumerateObject())
             {
-                if (!Names.TryGetValue(item.Name, out var name) || !seen.Add(item.Name)) return Error(400, InvalidMessage);
+                if (!Names.TryGetValue(item.Name, out var name) || !seen.Add(item.Name)) return SettingsError.Write(400, InvalidMessage);
                 var key = "Audio:" + name;
                 if (item.Name is "accessKey" or "secretKey")
                 {
-                    if (!Credential(item.Value, out var action, out var value)) return Error(400, InvalidMessage);
+                    if (!Credential(item.Value, out var action, out var value)) return SettingsError.Write(400, InvalidMessage);
                     if (action != "keep") changes.Add(key, JsonValue.Create(action == "clear" ? "" : value));
                 }
                 else if (item.Name == "enabled")
                 {
-                    if (item.Value.ValueKind is not (JsonValueKind.True or JsonValueKind.False)) return Error(400, InvalidMessage);
+                    if (item.Value.ValueKind is not (JsonValueKind.True or JsonValueKind.False)) return SettingsError.Write(400, InvalidMessage);
                     changes.Add(key, JsonValue.Create(item.Value.GetBoolean()));
                 }
                 else
                 {
-                    if (item.Value.ValueKind != JsonValueKind.String) return Error(400, InvalidMessage);
+                    if (item.Value.ValueKind != JsonValueKind.String) return SettingsError.Write(400, InvalidMessage);
                     changes.Add(key, JsonValue.Create(item.Value.GetString()));
                 }
             }
-            if (seen.Count == 0) return Error(400, InvalidMessage);
+            if (seen.Count == 0) return SettingsError.Write(400, InvalidMessage);
         }
-        catch (JsonException) { return Error(400, InvalidMessage); }
+        catch (JsonException) { return SettingsError.Write(400, InvalidMessage); }
 
         // Capture effective retained values with the shared revision. Completing the
         // editable Audio fields also preserves keep on a first save without a template.
@@ -113,17 +113,17 @@ public static class AudioStorageSettingsEndpoints
         return result.Status switch
         {
             ConfigurationSaveStatus.Success => await ReadResponseAsync(context, coordinator, runtime, CancellationToken.None),
-            ConfigurationSaveStatus.MissingRevision => Error(428, "If-Match is required. Reload settings."),
-            ConfigurationSaveStatus.InvalidRevision => Error(400, "Invalid If-Match. Reload settings."),
-            ConfigurationSaveStatus.Conflict => Error(412, "Settings changed. Reload settings; offline edits require a restart."),
+            ConfigurationSaveStatus.MissingRevision => SettingsError.Write(428, "If-Match is required. Reload settings."),
+            ConfigurationSaveStatus.InvalidRevision => SettingsError.Write(400, "Invalid If-Match. Reload settings."),
+            ConfigurationSaveStatus.Conflict => SettingsError.Write(412, "Settings changed. Reload settings; offline edits require a restart."),
             ConfigurationSaveStatus.Overridden => Results.Json(new
             {
                 message = "Settings are overridden by deployment configuration.",
                 fields = result.OverriddenFields?.Select(key => Names.Single(item => "Audio:" + item.Value == key).Key)
             }, statusCode: 409),
-            ConfigurationSaveStatus.ResourceConflict => Error(409, "Existing audio or active operations require a separate storage migration."),
-            ConfigurationSaveStatus.InvalidCandidate => Error(400, AudioOptions.ConfigurationFailure),
-            _ => Error(503, ConfigurationSaveResult.StorageFailureMessage)
+            ConfigurationSaveStatus.ResourceConflict => SettingsError.Write(409, "Existing audio or active operations require a separate storage migration."),
+            ConfigurationSaveStatus.InvalidCandidate => SettingsError.Write(400, AudioOptions.ConfigurationFailure),
+            _ => SettingsError.Write(503, ConfigurationSaveResult.StorageFailureMessage)
         };
     }
 
@@ -158,6 +158,4 @@ public static class AudioStorageSettingsEndpoints
             _ => false
         };
     }
-
-    private static IResult Error(int status, string message) => Results.Json(new { message }, statusCode: status);
 }

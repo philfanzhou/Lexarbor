@@ -4,7 +4,6 @@ using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text.Json;
 using Lexarbor.Database;
-using Lexarbor.Database.Entities;
 using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
@@ -21,7 +20,6 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -178,7 +176,7 @@ internal static class SettingsApiProbe
             if (commandLineOverride) builder.Configuration.AddCommandLine(["--Audio:Region=us-east-1"]);
             builder.Services.AddSingleton(file);
             builder.Services.AddSingleton<EnrichmentRuntimeConfiguration>();
-            // MapSystemSettingsEndpoints includes draft speech previews; its service
+            // MapSystemSettings includes draft speech previews; its service
             // parameters must resolve even when this probe only exercises S3 settings.
             builder.Services.AddHttpClient(PronunciationSpeechClient.HttpClientName, client => client.Timeout = Timeout.InfiniteTimeSpan)
                 .RemoveAllLoggers()
@@ -238,9 +236,9 @@ internal static class SettingsApiProbe
             app.MapGet("/admin/vocabulary-books/education-levels", () => Results.Json(new { success = true, data = new { items = Array.Empty<object>() } }));
             app.MapGet("/admin/vocabulary-books", () => Results.Json(new { success = true, data = new { items = Array.Empty<object>(), totalCount = 0, totalPage = 0 } }));
             app.MapGet("/admin/settings-login-probe", () => Results.Ok()).RequireRateLimiting(RateLimitingExtensions.AdminLoginPolicy);
-            app.MapVocabularyAdminQueryEndpoints();
-            app.UseSystemSettingsNoStore(); app.UseAuthorization(); app.MapSystemSettingsEndpoints();
-            app.MapAudioUploadEndpoints(); app.MapAudioAdminQueryEndpoints(); app.MapAudioAdminPlaybackEndpoints(); app.MapAudioPublicPlaybackEndpoints();
+            app.MapVocabularyAdminQuery();
+            app.UseSystemSettingsNoStore(); app.UseAuthorization(); app.MapSystemSettings();
+            app.MapAudioUpload(); app.MapAudioAdminQuery(); app.MapAudioAdminPlayback(); app.MapAudioPublicPlayback();
             await app.StartAsync();
             var address = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single();
             return new(app, new HttpClient { BaseAddress = new Uri(address), Timeout = TimeSpan.FromSeconds(15) });

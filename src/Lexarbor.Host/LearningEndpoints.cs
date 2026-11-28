@@ -42,7 +42,7 @@ internal static class LearningEndpoints
         services.AddScoped<VocabularyPlanService>();
         services.AddScoped<VocabularyLearningService>();
         services.AddScoped<VocabularyAudioService>();
-        services.AddScoped<IVocabularyAudioSource, LexarborAudioSource>();
+        services.AddScoped<IVocabularyAudioSource, CatalogAudioSource>();
         services.AddScoped<IVocabularyOverviewRepository, VocabularyOverviewRepository>();
         services.AddScoped<VocabularyOverviewService>();
         services.AddScoped<IVocabularyPlanStatsRepository, VocabularyPlanStatsRepository>();
@@ -56,10 +56,10 @@ internal static class LearningEndpoints
         services.AddOptions<VocabularyErrorProneOptions>()
             .Bind(configuration.GetSection(VocabularyErrorProneOptions.SectionName)).ValidateOnStart();
         services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<VocabularyErrorProneOptions>, VocabularyErrorProneOptionsValidation>();
-        services.AddLexarborClients(configuration);
-        services.AddScoped<IVocabularyPlanScopeReader, LexarborCatalogReader>();
-        services.AddScoped<IVocabularyScopeEntryReader, LexarborScopeEntryReader>();
-        services.AddScoped<IVocabularyQuestionGenerator, LexarborQuestionGenerator>();
+        services.AddCatalogClients(configuration);
+        services.AddScoped<IVocabularyPlanScopeReader, CatalogReader>();
+        services.AddScoped<IVocabularyScopeEntryReader, CatalogScopeEntryReader>();
+        services.AddScoped<IVocabularyQuestionGenerator, CatalogQuestionGenerator>();
         services.AddScoped<IVocabNotebookRepository, VocabNotebookRepository>();
         services.AddScoped<VocabularyNotebookService>();
         services.AddScoped<VocabularyFamilyService>();
@@ -86,7 +86,7 @@ internal static class LearningEndpoints
             provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<VocabularyLearningOptions>>().Value.TimeZone));
     }
 
-    internal static void MapLearnerEndpoints(this WebApplication app)
+    internal static void MapLearner(this WebApplication app)
     {
         var group = app.MapGroup("/learning/v1").RequireBusinessApiScope(BusinessApiAuthorization.Learning);
         group.WithMetadata(new LearnerRoute());
@@ -107,15 +107,15 @@ internal static class LearningEndpoints
             return Results.NoContent();
         });
         group.MapUnitPractice();
-        group.MapVocabularyPlanHttpEndpoints();
-        group.MapVocabularyNotebookHttpEndpoints();
-        group.MapVocabularyFamilyHttpEndpoints();
-        group.MapVocabularyLearningHttpEndpoints();
-        group.MapVocabularyOverviewHttpEndpoints();
-        group.MapVocabularyPlanStatsHttpEndpoints();
-        group.MapVocabularyCheckInHttpEndpoints();
-        group.MapVocabularyErrorProneHttpEndpoints();
-        group.MapVocabularyWordListHttpEndpoints();
+        group.MapVocabularyPlan();
+        group.MapVocabularyNotebook();
+        group.MapVocabularyFamily();
+        group.MapVocabularyLearning();
+        group.MapVocabularyOverview();
+        group.MapVocabularyPlanStats();
+        group.MapVocabularyCheckIn();
+        group.MapVocabularyErrorProne();
+        group.MapVocabularyWordList();
     }
 
     internal static async Task PrepareAsync(HttpContext request, RequestDelegate next)

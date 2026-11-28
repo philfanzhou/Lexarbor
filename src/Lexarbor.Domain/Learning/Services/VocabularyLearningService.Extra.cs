@@ -4,7 +4,7 @@ namespace Lexarbor.Learning.Domain.Services;
 
 public sealed partial class VocabularyLearningService
 {
-    private async Task<VocabNextQuestionOutcome> GetNextExtraAsync(VocabPlanModel plan, DateOnly date, Guid? requestedId, CancellationToken cancellationToken)
+    private async Task<VocabNextQuestionOutcome> GetNextExtraAsync(VocabPlan plan, DateOnly date, Guid? requestedId, CancellationToken cancellationToken)
     {
         for (var retry = 0; ; retry++)
         {
@@ -72,7 +72,7 @@ public sealed partial class VocabularyLearningService
                 pendingKeys, now, cancellationToken).ConfigureAwait(false)
                 ?? await _questionRepository.FindPendingDailyAsync(plan.Id, VocabQuestionKind.New,
                     pendingKeys, now, cancellationToken).ConfigureAwait(false);
-            var questions = new List<VocabIssuedQuestionModel>();
+            var questions = new List<VocabIssuedQuestion>();
             if (pending is null)
             {
                 var unavailable = day.Tasks.UnavailableNewMeanings;
@@ -103,7 +103,7 @@ public sealed partial class VocabularyLearningService
         }
     }
 
-    private async Task ApplyExtraProgressAsync(VocabPlanDayModel today, VocabIssuedQuestionModel question, CancellationToken cancellationToken)
+    private async Task ApplyExtraProgressAsync(VocabPlanDay today, VocabIssuedQuestion question, CancellationToken cancellationToken)
     {
         var owner = today.Tasks?.ExtraBatches.Any(batch => batch.QuestionIds.Contains(question.Id)
             || batch.CompletedAt is null && batch.Words.Any(word => word.WordKey == question.WordKey)) == true ? today

@@ -30,7 +30,7 @@ This design keeps the paths and business behaviour of the four existing `/api/*`
 4. The frontend never touches the Identity address, the AppSecret, an access token, or a refresh token.
 5. The existing `/api/*` paths and business semantics are preserved; the phonetic fields change to a British and American pair per ADR-003.
 6. Words, meanings, and books get reliable SQLite constraints and a first-run database creation flow.
-7. Every HTTP result uses the shared `VocabularyHttpResponse` envelope.
+7. Every HTTP result uses the shared `ApiResponse` envelope.
 8. Filtering, counting, paging, and random candidate selection happen in SQLite wherever possible.
 
 ## 3. Non-goals

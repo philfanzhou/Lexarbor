@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Configuration;
 using ServiceMantle.Configuration;
 
 namespace Lexarbor.Host;

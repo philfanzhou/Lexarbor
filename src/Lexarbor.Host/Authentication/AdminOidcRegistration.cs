@@ -2,7 +2,6 @@ using System.Globalization;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 
@@ -28,7 +27,7 @@ namespace Lexarbor.Host.Authentication;
 /// </remarks>
 public static class AdminOidcRegistration
 {
-    public static IServiceCollection AddLexarborAdminOidc(
+    public static IServiceCollection AddAdminOidc(
         this IServiceCollection services)
     {
         // Hosting diagnostics log raw query strings before the application middleware runs,
@@ -195,15 +194,15 @@ public static class AdminOidcRegistration
                     }
                 };
 
-                // The pre-sign-in administrator gate (the package's PreSignInAuthorizationDecision
-                // seam): a session may only be established for a subject whose re-verified
-                // access token carries the configured administrator role — the SignaCore ID
-                // token is a closed set without roles, so the gate reads the token-endpoint
-                // response's access token through the host's JwtBearer trust. Failing
-                // validation prevents the sign-in entirely — no ticket and no cookie are
-                // written, and an existing session is neither replaced nor extended. An
-                // unsigned ID token is refused here as well: the framework skips the signature
-                // requirement for tokens received over its authenticated backchannel.
+                // The pre-sign-in administrator gate (the successor of the retired package's
+                // PreSignInAuthorizationDecision seam): a session may only be established for a
+                // subject whose re-verified access token carries the configured administrator
+                // role — the SignaCore ID token is a closed set without roles, so the gate reads
+                // the token-endpoint response's access token through the host's JwtBearer trust.
+                // Failing validation prevents the sign-in entirely — no ticket and no cookie are
+                // written, and an existing session is neither replaced nor extended. An unsigned
+                // ID token is refused here as well: the framework skips the signature requirement
+                // for tokens received over its authenticated backchannel.
                 options.Events.OnTokenValidated = async context =>
                 {
                     if (string.Equals(context.SecurityToken?.SignatureAlgorithm, "none", StringComparison.Ordinal))
@@ -228,7 +227,7 @@ public static class AdminOidcRegistration
                     if (accessPrincipal is null
                         // The access token must carry the verified subject the session is
                         // issued for — the replaced slice demanded a non-empty one.
-                        || string.IsNullOrEmpty(VocabularyClaims.GetSubject(accessPrincipal)))
+                        || string.IsNullOrEmpty(IdentityClaims.GetSubject(accessPrincipal)))
                     {
                         // An access token that cannot be re-verified is a protocol failure,
                         // never a silent downgrade of the gate.

@@ -36,10 +36,10 @@ public sealed class VocabularyOverviewRepository(LearningDbContext context) : IV
                 """, studentId, cancellationToken).ConfigureAwait(false);
             var exists = await rows.ReadAsync(cancellationToken).ConfigureAwait(false);
             var reader = rows.DbDataReader;
-            VocabPlanModel? plan = null;
+            VocabPlan? plan = null;
             if (exists && !reader.IsDBNull(1))
             {
-                plan = new VocabPlanModel
+                plan = new VocabPlan
                 {
                     StudentId = reader.GetGuid(0),
                     Id = reader.GetGuid(1),
@@ -73,32 +73,32 @@ public sealed class VocabularyOverviewRepository(LearningDbContext context) : IV
             context.GetService<IRelationalCommandDiagnosticsLogger>()), cancellationToken);
     }
 
-    private sealed class MaterializedSnapshot(bool exists, VocabPlanModel? plan, IReadOnlyList<MemoryCardModel> cards) : IVocabularyOverviewSnapshot
+    private sealed class MaterializedSnapshot(bool exists, VocabPlan? plan, IReadOnlyList<MemoryCard> cards) : IVocabularyOverviewSnapshot
     {
         public bool StudentExists => exists;
-        public VocabPlanModel? ActivePlan => plan;
-        public Task<IReadOnlyList<MemoryCardModel>> ReadCardsAsync(CancellationToken cancellationToken = default)
+        public VocabPlan? ActivePlan => plan;
+        public Task<IReadOnlyList<MemoryCard>> ReadCardsAsync(CancellationToken cancellationToken = default)
         { cancellationToken.ThrowIfCancellationRequested(); return Task.FromResult(cards); }
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     private sealed class Snapshot(LearningDbContext context, IDbContextTransaction transaction,
-        Guid studentId, bool exists, VocabPlanModel? plan) : IVocabularyOverviewSnapshot
+        Guid studentId, bool exists, VocabPlan? plan) : IVocabularyOverviewSnapshot
     {
         public bool StudentExists => exists;
-        public VocabPlanModel? ActivePlan => plan;
+        public VocabPlan? ActivePlan => plan;
 
-        public async Task<IReadOnlyList<MemoryCardModel>> ReadCardsAsync(CancellationToken cancellationToken = default)
+        public async Task<IReadOnlyList<MemoryCard>> ReadCardsAsync(CancellationToken cancellationToken = default)
         {
             await using var rows = await ExecuteReaderAsync(context, """
                 SELECT word_key, meaning_key, stability, due_at
                 FROM vocab_memory_card WHERE student_id = {0}
                 """, studentId, cancellationToken).ConfigureAwait(false);
-            var cards = new List<MemoryCardModel>();
+            var cards = new List<MemoryCard>();
             var reader = rows.DbDataReader;
             while (await rows.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                cards.Add(new MemoryCardModel
+                cards.Add(new MemoryCard
                 {
                     StudentId = studentId,
                     WordKey = reader.GetString(0),

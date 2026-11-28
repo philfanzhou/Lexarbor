@@ -12,10 +12,6 @@ namespace Lexarbor.Host.Authentication;
 /// </summary>
 public static class AdminHostedLoginWriter
 {
-    public const string SignInFailedTarget = "/#/login?reason=sign_in_failed";
-    public const string DeniedTarget = "/#/login?reason=denied";
-    public const string CancelledTarget = "/#/login?reason=canceled";
-    public const string ProviderUnavailableTarget = "/#/login?reason=provider_unavailable";
     public const string LoggedOutTarget = "/#/login?reason=logged_out";
     public const string LogoutFailedTarget = "/#/login?reason=logout_failed";
 
@@ -87,11 +83,11 @@ public static class AdminHostedLoginWriter
     public static Task WriteStartFailureAsync(HttpContext context, AdminStartFailure failure,
         CancellationToken cancellationToken) => failure switch
         {
-            AdminStartFailure.InvalidReturnUrl => VocabularyHttpResponse
+            AdminStartFailure.InvalidReturnUrl => ApiResponse
                 .BadRequest("The login return target is invalid.").ExecuteAsync(context),
-            AdminStartFailure.AuthorityUnreachable => VocabularyHttpResponse
+            AdminStartFailure.AuthorityUnreachable => ApiResponse
                 .BadGateway("The authentication provider is unavailable.").ExecuteAsync(context),
-            _ => VocabularyHttpResponse
+            _ => ApiResponse
                 .ServiceUnavailable("Hosted authentication is not configured.").ExecuteAsync(context),
         };
 
@@ -104,9 +100,9 @@ public static class AdminHostedLoginWriter
         // endpoint — the hosted session, or a Bearer token through the scheme selector; an
         // anonymous or expired request never reaches this writer (the endpoint's policy answers
         // the fixed 401 first).
-        var username = VocabularyClaims.GetDisplayName(presented) ?? string.Empty;
-        var roles = VocabularyClaims.GetRoles(presented);
-        return VocabularyHttpResponse.Ok(new { username, roles }).ExecuteAsync(context);
+        var username = IdentityClaims.GetDisplayName(presented) ?? string.Empty;
+        var roles = IdentityClaims.GetRoles(presented);
+        return ApiResponse.Ok(new { username, roles }).ExecuteAsync(context);
     }
 
     /// <summary>The antiforgery-rejected logout: the package's fixed bare
@@ -120,12 +116,12 @@ public static class AdminHostedLoginWriter
 
     /// <summary>The local-only logout: the bare success envelope with no upstream echo.</summary>
     public static Task WriteLogoutLocalOnlyAsync(HttpContext context) =>
-        VocabularyHttpResponse.Ok().ExecuteAsync(context);
+        ApiResponse.Ok().ExecuteAsync(context);
 
     /// <summary>The prepared logout: the success envelope carrying the verified end-session
     /// URL, which the SPA follows with a top-level navigation.</summary>
     public static Task WriteLogoutPreparedAsync(HttpContext context, string logoutUrl) =>
-        VocabularyHttpResponse.Ok(new { logoutUrl }).ExecuteAsync(context);
+        ApiResponse.Ok(new { logoutUrl }).ExecuteAsync(context);
 
     /// <summary>
     /// The security headers the routed /admin surface gets from its endpoint markers. The

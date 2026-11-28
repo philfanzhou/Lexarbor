@@ -4,12 +4,7 @@ using System.Text.Json;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 using Lexarbor.Service.Tests.TestInfrastructure;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Lexarbor.Service.Tests;
@@ -272,15 +267,13 @@ public class ProblemDetailsMappingTests
 
     private sealed class ThrowingRepository(Func<Exception> exceptionFactory) : IVocabularyRepository
     {
-        public Task<(List<VocabularyModel> Items, int TotalCount)> SearchAsync(
+        public Task<(List<Vocabulary> Items, int TotalCount)> SearchAsync(
             string? keyword, int page, int size) => throw exceptionFactory();
-        public Task<VocabularyModel?> GetByIdAsync(string id) => throw Unused();
-        public Task<VocabularyModel?> GetByWordAsync(string word) => throw Unused();
-        public Task<VocabularyModel?> GetByNormalizedWordAsync(string normalizedWord) => throw Unused();
-        public Task<List<VocabularyModel>> GetByIdsAsync(IReadOnlyCollection<string> ids) => throw Unused();
-        public Task AddAsync(VocabularyModel model) => throw Unused();
-        public Task UpdateAsync(VocabularyModel model) => throw Unused();
-        public Task<List<VocabularyModel>> GetRandomByBookExceptAsync(
+        public Task<Vocabulary?> GetByIdAsync(string id) => throw Unused();
+        public Task<Vocabulary?> GetByNormalizedWordAsync(string normalizedWord) => throw Unused();
+        public Task AddAsync(Vocabulary model) => throw Unused();
+        public Task UpdateAsync(Vocabulary model) => throw Unused();
+        public Task<List<Vocabulary>> GetRandomByBookExceptAsync(
             string bookId, string excludeVocabularyId, string excludeWord,
             string excludeEquivalentMeaning, int count,
             VocabularyDistractorScope? scope = null) => throw Unused();
@@ -290,20 +283,18 @@ public class ProblemDetailsMappingTests
 
     private sealed class GatedRepository(TaskCompletionSource gate) : IVocabularyRepository
     {
-        public async Task<(List<VocabularyModel> Items, int TotalCount)> SearchAsync(
+        public async Task<(List<Vocabulary> Items, int TotalCount)> SearchAsync(
             string? keyword, int page, int size)
         {
             await gate.Task;
             throw new InvalidOperationException("unreachable");
         }
 
-        public Task<VocabularyModel?> GetByIdAsync(string id) => throw Unused();
-        public Task<VocabularyModel?> GetByWordAsync(string word) => throw Unused();
-        public Task<VocabularyModel?> GetByNormalizedWordAsync(string normalizedWord) => throw Unused();
-        public Task<List<VocabularyModel>> GetByIdsAsync(IReadOnlyCollection<string> ids) => throw Unused();
-        public Task AddAsync(VocabularyModel model) => throw Unused();
-        public Task UpdateAsync(VocabularyModel model) => throw Unused();
-        public Task<List<VocabularyModel>> GetRandomByBookExceptAsync(
+        public Task<Vocabulary?> GetByIdAsync(string id) => throw Unused();
+        public Task<Vocabulary?> GetByNormalizedWordAsync(string normalizedWord) => throw Unused();
+        public Task AddAsync(Vocabulary model) => throw Unused();
+        public Task UpdateAsync(Vocabulary model) => throw Unused();
+        public Task<List<Vocabulary>> GetRandomByBookExceptAsync(
             string bookId, string excludeVocabularyId, string excludeWord,
             string excludeEquivalentMeaning, int count,
             VocabularyDistractorScope? scope = null) => throw Unused();

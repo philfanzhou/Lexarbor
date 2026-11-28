@@ -8,7 +8,7 @@ namespace Lexarbor.Database.Repositories;
 public sealed partial class VocabularyPublicQueryRepository
 {
     /// <summary>Reads the directed link, competing answers and form choices in a single snapshot.</summary>
-    public Task<LearningQuestionRelationContext?> GetLearningRelationAsync(VocabularyMeaningModel targetMeaning, LearningQuestionRelation relation,
+    public Task<LearningQuestionRelationContext?> GetLearningRelationAsync(VocabularyMeaning targetMeaning, LearningQuestionRelation relation,
         CancellationToken cancellationToken) => SnapshotAsync<LearningQuestionRelationContext?>(async () =>
     {
         var confirmed = context.VocabularyRelations.AsNoTracking().Where(row => row.Status == "confirmed");
@@ -51,9 +51,9 @@ public sealed partial class VocabularyPublicQueryRepository
     }, cancellationToken);
 
     /// <summary>Returns null when the target has no family so review can use its ordinary choice generator.</summary>
-    public Task<IReadOnlyList<VocabularyQuestionOptionModel>?> GetReviewDistractorsAsync(VocabularyModel word,
-        VocabularyMeaningModel meaning, VocabularyDistractorScope? scope, bool chineseToEnglish, bool supplementary,
-        CancellationToken cancellationToken) => SnapshotAsync<IReadOnlyList<VocabularyQuestionOptionModel>?>(async () =>
+    public Task<IReadOnlyList<VocabularyQuestionOption>?> GetReviewDistractorsAsync(Vocabulary word,
+        VocabularyMeaning meaning, VocabularyDistractorScope? scope, bool chineseToEnglish, bool supplementary,
+        CancellationToken cancellationToken) => SnapshotAsync<IReadOnlyList<VocabularyQuestionOption>?>(async () =>
     {
         var confirmed = context.VocabularyRelations.AsNoTracking().Where(row => row.Status == "confirmed");
         var wordId = word.Id;
@@ -212,7 +212,7 @@ public sealed partial class VocabularyPublicQueryRepository
             return false;
         }
 
-        public VocabularyQuestionOptionModel[] ToOptions() => _byText.Values.Select(option => new VocabularyQuestionOptionModel
+        public VocabularyQuestionOption[] ToOptions() => _byText.Values.Select(option => new VocabularyQuestionOption
         {
             Text = option.Text,
             WordId = option.WordId,

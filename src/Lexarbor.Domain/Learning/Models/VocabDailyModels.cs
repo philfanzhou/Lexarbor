@@ -42,7 +42,7 @@ public enum VocabAttemptResult
     Wrong = 2,
     Unknown = 3,
 }
-public sealed class VocabPlanDayModel
+public sealed class VocabPlanDay
 {
     public Guid PlanId { get; set; }
 
@@ -71,7 +71,7 @@ public sealed class VocabPlanDayModel
 }
 
 public sealed record VocabQuestionOption(Guid OptionId, string Text);
-public sealed class VocabIssuedQuestionModel
+public sealed class VocabIssuedQuestion
 {
     public Guid Id { get; set; }
 
@@ -125,7 +125,7 @@ public sealed class VocabIssuedQuestionModel
 
 public sealed record VocabFamilyHint(string Word, string RelationType, string Direction);
 
-public sealed class VocabAttemptModel
+public sealed class VocabAttempt
 {
     public Guid IssuedQuestionId { get; set; }
 
@@ -167,11 +167,11 @@ public sealed record VocabTodaySnapshot(
     VocabExtraBatchSnapshot? ExtraReviewBatch = null);
 
 public sealed record VocabNextQuestionOutcome(
-    VocabIssuedQuestionModel? Question,
+    VocabIssuedQuestion? Question,
     string? DoneReason,
     VocabExtraBatchSnapshot? ExtraBatch = null)
 {
-    public static VocabNextQuestionOutcome Next(VocabIssuedQuestionModel question, VocabExtraBatchSnapshot? extraBatch = null) => new(question, null, extraBatch);
+    public static VocabNextQuestionOutcome Next(VocabIssuedQuestion question, VocabExtraBatchSnapshot? extraBatch = null) => new(question, null, extraBatch);
 
     public static VocabNextQuestionOutcome Done(string reason, VocabExtraBatchSnapshot? extraBatch = null) => new(null, reason, extraBatch);
 }

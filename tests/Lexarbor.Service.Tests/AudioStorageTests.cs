@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.Http.Json;
 using System.Net.Sockets;
 using System.Text.Json;
 using Lexarbor.Database;
@@ -8,10 +7,6 @@ using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 using Lexarbor.Host.Audio;
 using Lexarbor.Service.Tests.TestInfrastructure;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Lexarbor.Service.Tests;

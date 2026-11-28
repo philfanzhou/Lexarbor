@@ -15,7 +15,7 @@ namespace Lexarbor.Service;
 /// </summary>
 public static class VocabularyBookUnitEndpoints
 {
-    public static IEndpointRouteBuilder MapVocabularyBookUnitEndpoints(this IEndpointRouteBuilder app)
+    public static IEndpointRouteBuilder MapVocabularyBookUnit(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/admin/vocabulary-books/{bookId}/units")
             .RequireAuthorization(AdminEndpointAuthorization.PolicyName);
@@ -30,51 +30,51 @@ public static class VocabularyBookUnitEndpoints
 
     private static async Task<IResult> ListUnits(
         string bookId,
-        VocabularyBookUnitDomainService service)
+        VocabularyBookUnitService service)
     {
         var units = await service.GetByBookWithCountsAsync(bookId);
         var result = new VocabularyBookUnitListResponse();
         result.Units.AddRange(units.Select(pair => pair.Unit.ToDto(pair.MeaningCount)));
-        return VocabularyHttpResponse.Ok(result);
+        return ApiResponse.Ok(result);
     }
 
     private static async Task<IResult> CreateUnit(
         string bookId,
         [FromBody] VocabularyBookUnitUpsertRequest request,
-        VocabularyBookUnitDomainService service)
+        VocabularyBookUnitService service)
     {
         if (request.Number is not int number)
         {
-            return VocabularyHttpResponse.BadRequest("Unit number is required.");
+            return ApiResponse.BadRequest("Unit number is required.");
         }
 
         // A freshly created unit cannot have assignments yet, so its count is
         // zero by construction rather than by a read.
         var unit = await service.CreateAsync(bookId, number, request.Title);
-        return VocabularyHttpResponse.Ok(unit.ToDto(0));
+        return ApiResponse.Ok(unit.ToDto(0));
     }
 
     private static async Task<IResult> ReplaceUnit(
         string bookId,
         string unitId,
         [FromBody] VocabularyBookUnitUpsertRequest request,
-        VocabularyBookUnitDomainService service)
+        VocabularyBookUnitService service)
     {
         if (request.Number is not int number)
         {
-            return VocabularyHttpResponse.BadRequest("Unit number is required.");
+            return ApiResponse.BadRequest("Unit number is required.");
         }
 
         var (unit, meaningCount) = await service.UpdateAsync(bookId, unitId, number, request.Title);
-        return VocabularyHttpResponse.Ok(unit.ToDto(meaningCount));
+        return ApiResponse.Ok(unit.ToDto(meaningCount));
     }
 
     private static async Task<IResult> DeleteUnit(
         string bookId,
         string unitId,
-        VocabularyBookUnitDomainService service)
+        VocabularyBookUnitService service)
     {
         await service.DeleteAsync(bookId, unitId);
-        return VocabularyHttpResponse.Ok(new BoolResponse { Success = true });
+        return ApiResponse.Ok(new BoolResponse { Success = true });
     }
 }

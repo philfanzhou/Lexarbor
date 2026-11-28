@@ -5,7 +5,6 @@ using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
-using Npgsql;
 using Xunit;
 
 namespace Lexarbor.Domain.Tests;

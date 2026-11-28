@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
-using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -11,9 +10,7 @@ using Lexarbor.Host;
 using Lexarbor.Host.Configuration;
 using Lexarbor.Host.Integration;
 using Lexarbor.Service.Tests.TestInfrastructure;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Configuration.EnvironmentVariables;
-using Microsoft.Extensions.DependencyInjection;
 using OpenTelemetry.Trace;
 
 namespace Lexarbor.Service.Tests;
@@ -456,15 +453,15 @@ public sealed partial class EnrichmentSettingsTests : IDisposable
         var state = await Read(client);
         Assert.Equal(HttpStatusCode.OK, (await Put(client, Revision(state), """{"reviewAssistant":{"endpoint":"https://review.example.test/v1","model":"first-model","apiKey":{"action":"replace","value":"synthetic-enrichment-key-marker"}}}""")).StatusCode);
         var assistant = factory.Services.GetRequiredService<IMeaningSubmissionReviewAssistant>(); Assert.True(assistant.IsEnabled);
-        var first = assistant.ReviewAsync(new MeaningSubmissionModel { Word = "cat", Meaning = "fixture" }, Ct);
+        var first = assistant.ReviewAsync(new MeaningSubmission { Word = "cat", Meaning = "fixture" }, Ct);
         await handler.Started.Task.WaitAsync(Ct);
         Assert.Equal(HttpStatusCode.OK, (await Put(client, Revision(await Read(client)), """{"reviewAssistant":{"model":"next-model","apiKey":{"action":"replace","value":"synthetic-next-key"}}}""")).StatusCode);
         handler.Release.TrySetResult(); await first;
-        await assistant.ReviewAsync(new MeaningSubmissionModel { Word = "dog", Meaning = "fixture" }, Ct);
+        await assistant.ReviewAsync(new MeaningSubmission { Word = "dog", Meaning = "fixture" }, Ct);
         Assert.Equal(new[] { "first-model", "next-model" }, handler.Models); Assert.Equal(new[] { Secret, "synthetic-next-key" }, handler.Keys);
         Assert.Equal(HttpStatusCode.OK, (await Put(client, Revision(await Read(client)), """{"reviewAssistant":{"endpoint":"","apiKey":{"action":"clear"}}}""")).StatusCode);
         Assert.False(assistant.IsEnabled);
-        await Assert.ThrowsAsync<ReviewAssistantUnavailableException>(() => assistant.ReviewAsync(new MeaningSubmissionModel(), Ct)); Assert.Equal(2, handler.Models.Count);
+        await Assert.ThrowsAsync<ReviewAssistantUnavailableException>(() => assistant.ReviewAsync(new MeaningSubmission(), Ct)); Assert.Equal(2, handler.Models.Count);
     }
     private sealed class ReviewHandler : HttpMessageHandler
     {

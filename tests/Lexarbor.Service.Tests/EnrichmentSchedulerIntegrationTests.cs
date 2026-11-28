@@ -5,9 +5,7 @@ using Lexarbor.Domain.Repositories;
 using Lexarbor.Domain.Services;
 using Lexarbor.Host;
 using Lexarbor.Host.Integration;
-using Lexarbor.Service;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Lexarbor.Service.Tests;

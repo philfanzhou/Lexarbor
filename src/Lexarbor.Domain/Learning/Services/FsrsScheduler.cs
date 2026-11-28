@@ -43,8 +43,8 @@ public sealed class FsrsScheduler
     public IReadOnlyList<TimeSpan> RelearningSteps { get; }
 
     public int MaximumIntervalDays { get; }
-    public (MemoryCardModel Card, MemoryReviewLogModel Log) Schedule(
-        MemoryCardModel card,
+    public (MemoryCard Card, MemoryReviewLog Log) Schedule(
+        MemoryCard card,
         ReviewRating rating,
         DateTimeOffset now)
     {
@@ -222,7 +222,7 @@ public sealed class FsrsScheduler
                 throw new ArgumentOutOfRangeException(nameof(card), card.State, "Unknown card state.");
         }
 
-        var updated = new MemoryCardModel
+        var updated = new MemoryCard
         {
             StudentId = card.StudentId,
             WordKey = card.WordKey,
@@ -240,7 +240,7 @@ public sealed class FsrsScheduler
             Version = card.Version,
         };
 
-        var log = new MemoryReviewLogModel
+        var log = new MemoryReviewLog
         {
             StudentId = card.StudentId,
             WordKey = card.WordKey,

@@ -1,14 +1,9 @@
 using System.Net;
-using System.Net.Http.Json;
 using System.Text;
-using System.Text.Json;
 using Lexarbor.Database;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Services;
-using Lexarbor.Service.Tests.TestInfrastructure;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Lexarbor.Service.Tests;

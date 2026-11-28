@@ -7,8 +7,6 @@ using Lexarbor.Host;
 using Lexarbor.Host.Configuration;
 using Lexarbor.Host.Integration;
 using Lexarbor.Service.Tests.TestInfrastructure;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace Lexarbor.Service.Tests;
 

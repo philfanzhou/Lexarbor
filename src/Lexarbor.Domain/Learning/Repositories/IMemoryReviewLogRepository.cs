@@ -4,5 +4,5 @@ namespace Lexarbor.Learning.Domain.Repositories;
 
 public interface IMemoryReviewLogRepository
 {
-    Task AddAsync(MemoryReviewLogModel log, CancellationToken cancellationToken = default);
+    Task AddAsync(MemoryReviewLog log, CancellationToken cancellationToken = default);
 }

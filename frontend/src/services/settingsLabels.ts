@@ -58,9 +58,6 @@ export const apiKeysGroup = { id: 'api-keys', path: '/settings/api-keys', label:
 export const progressLink = { to: '/enrichment', label: '查看自治进度、服务等待与异常恢复' }
 export const progressGroups: readonly string[] = ['text', 'speech', 'background']
 
-export const overviewGroup = { id: 'overview', path: '/settings', label: '概览' }
-export const allGroup = { id: 'all', path: '/settings/all', label: '全部配置' }
-
 interface FieldLabel {
   label: string
   description?: string

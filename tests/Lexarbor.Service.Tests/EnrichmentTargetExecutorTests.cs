@@ -15,7 +15,6 @@ using Lexarbor.Service.Tests.TestInfrastructure;
 using Lexarbor.Tests.Shared;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 
 namespace Lexarbor.Service.Tests;

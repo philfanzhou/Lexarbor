@@ -3,7 +3,6 @@ using Lexarbor.Host;
 using Lexarbor.Learning.Database;
 using Lexarbor.Service.Tests.TestInfrastructure;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 
 namespace Lexarbor.Service.Tests;

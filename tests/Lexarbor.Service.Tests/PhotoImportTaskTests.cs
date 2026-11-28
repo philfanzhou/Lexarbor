@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.Http.Json;
 using System.Text.Json;
 using Lexarbor.Host;
 using Lexarbor.Learning.Database;
@@ -9,8 +8,6 @@ using Lexarbor.Service.Tests.TestInfrastructure;
 using Lexarbor.Tests.Shared;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Moq;
 
 namespace Lexarbor.Service.Tests;

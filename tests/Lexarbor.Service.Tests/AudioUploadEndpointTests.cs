@@ -1,7 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using Lexarbor.Database;
 using Lexarbor.Database.Entities;
 using Lexarbor.Database.Repositories;
@@ -11,13 +10,8 @@ using Lexarbor.Domain.Services;
 using Lexarbor.Host.Audio;
 using Lexarbor.Host.Configuration;
 using Lexarbor.Service.Tests.TestInfrastructure;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Moq;
 
@@ -413,7 +407,7 @@ public sealed class AudioUploadEndpointTests
             if (change == "import")
             {
                 await db.VocabularyBooks.Where(book => book.Id == "disabled").ExecuteUpdateAsync(set => set.SetProperty(book => book.Status, true), Ct);
-                await scope.ServiceProvider.GetRequiredService<VocabularyDomainService>().ImportBatchAsync("disabled",
+                await scope.ServiceProvider.GetRequiredService<VocabularyService>().ImportBatchAsync("disabled",
                     [(new() { Word = "Apple", PhoneticUk = "updated" }, new() { PartOfSpeech = "n.", Meaning = "fruit" }, null, null, null)]);
             }
             else if (change == "edit") await db.Vocabularies.Where(word => word.Id == "w").ExecuteUpdateAsync(set => set.SetProperty(word => word.Word, "Edited"), Ct);

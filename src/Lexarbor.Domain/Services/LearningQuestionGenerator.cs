@@ -10,7 +10,7 @@ public sealed class LearningQuestionGenerator(Func<int, int>? pickIndex = null)
 
     public async Task<LearningQuestion> CreateAsync(
         string word, string meaning, LearningQuestionMode mode,
-        Func<bool, CancellationToken, Task<VocabularyQuestionModel?>> createChoice,
+        Func<bool, CancellationToken, Task<VocabularyQuestion?>> createChoice,
         CancellationToken cancellationToken = default,
         Func<LearningQuestionType, LearningQuestion?>? createRelated = null,
         Func<CancellationToken, Task<LearningQuestion?>>? createPartOfSpeechChoice = null,

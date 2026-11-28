@@ -6,8 +6,6 @@ using Lexarbor.Domain.Repositories;
 using Lexarbor.Domain.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
-using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Migrations;
 using Xunit;
 
 namespace Lexarbor.Domain.Tests;
@@ -255,12 +253,12 @@ public sealed class EnrichmentSchedulerRepositoryTests
         var books = new VocabularyBookRepository(db); var meanings = new VocabularyMeaningRepository(db);
         var units = new VocabularyBookUnitRepository(db); var positions = new VocabularyMeaningUnitRepository(db);
         var settings = new MeaningSubmissionSettings { BookId = "book" }; var submissions = new MeaningSubmissionRepository(db);
-        var catalog = new VocabularyDomainService(words, books, meanings, units, positions, uow, settings, submissions);
+        var catalog = new VocabularyService(words, books, meanings, units, positions, uow, settings, submissions);
         db.VocabularyBooks.Add(new() { Id = "book", BookName = "Fixture", Status = true }); await uow.SaveChangesAsync(Ct);
         Assert.Equal(0, notifier.Calls);
         await catalog.ImportBatchAsync("book", [
-            (new VocabularyModel { Word = "first" }, new VocabularyMeaningModel { Meaning = "first definition" }, null, null, null),
-            (new VocabularyModel { Word = "second" }, new VocabularyMeaningModel { Meaning = "second definition" }, null, null, null)]);
+            (new Vocabulary { Word = "first" }, new VocabularyMeaning { Meaning = "first definition" }, null, null, null),
+            (new Vocabulary { Word = "second" }, new VocabularyMeaning { Meaning = "second definition" }, null, null, null)]);
         Assert.Equal(1, notifier.Calls); Assert.Equal(2, notifier.Words.Count);
         var service = new MeaningSubmissionService(submissions, words, meanings, catalog, uow, settings, TimeProvider.System);
         var pending = await service.SubmitAsync("urn:test:client", "proposed", null, "proposed definition", null, Ct);

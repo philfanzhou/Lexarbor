@@ -80,7 +80,7 @@ public static class EnrichmentSettingsEndpoints
         {
             var count = await context.Request.Body.ReadAsync(bytes, context.RequestAborted);
             if (count == 0) break;
-            if (buffer.Length + count > 16384) return Error(413, "Settings request is too large.");
+            if (buffer.Length + count > 16384) return SettingsError.Write(413, "Settings request is too large.");
             buffer.Write(bytes, 0, count);
         }
         var changes = new Dictionary<string, JsonNode?>(StringComparer.OrdinalIgnoreCase);
@@ -88,9 +88,9 @@ public static class EnrichmentSettingsEndpoints
         try
         {
             using var document = JsonDocument.Parse(buffer.ToArray(), new JsonDocumentOptions { MaxDepth = 8 });
-            if (!ReadChanges(document.RootElement, "", changes, supplied) || supplied.Count == 0) return Error(400, Invalid);
+            if (!ReadChanges(document.RootElement, "", changes, supplied) || supplied.Count == 0) return SettingsError.Write(400, Invalid);
         }
-        catch (JsonException) { return Error(400, Invalid); }
+        catch (JsonException) { return SettingsError.Write(400, Invalid); }
         var retained = await coordinator.ReadAsync(read => (Read: read, Snapshot: runtime.Current), context.RequestAborted);
         var fields = retained.Snapshot.Fields.Where(f => retained.Read.Sources[f.Key].Editable)
             .ToDictionary(f => f.Key, f => f.Value?.DeepClone(), StringComparer.OrdinalIgnoreCase);
@@ -101,16 +101,16 @@ public static class EnrichmentSettingsEndpoints
         return result.Status switch
         {
             ConfigurationSaveStatus.Success => await ReadResponse(context, coordinator, runtime, CancellationToken.None),
-            ConfigurationSaveStatus.MissingRevision => Error(428, "If-Match is required. Reload settings."),
-            ConfigurationSaveStatus.InvalidRevision => Error(400, "Invalid If-Match. Reload settings."),
-            ConfigurationSaveStatus.Conflict => Error(412, "Settings changed. Reload settings; offline edits require a restart."),
+            ConfigurationSaveStatus.MissingRevision => SettingsError.Write(428, "If-Match is required. Reload settings."),
+            ConfigurationSaveStatus.InvalidRevision => SettingsError.Write(400, "Invalid If-Match. Reload settings."),
+            ConfigurationSaveStatus.Conflict => SettingsError.Write(412, "Settings changed. Reload settings; offline edits require a restart."),
             ConfigurationSaveStatus.Overridden => Results.Json(new
             {
                 message = "Settings are overridden by deployment configuration.",
                 fields = result.OverriddenFields?.Select(key => EnrichmentConfigurationFields.Find(key)!.Name)
             }, statusCode: 409),
-            ConfigurationSaveStatus.InvalidCandidate => Error(400, Invalid),
-            _ => Error(503, ConfigurationSaveResult.StorageFailureMessage)
+            ConfigurationSaveStatus.InvalidCandidate => SettingsError.Write(400, Invalid),
+            _ => SettingsError.Write(503, ConfigurationSaveResult.StorageFailureMessage)
         };
     }
     internal static bool ReadChanges(JsonElement element, string prefix, Dictionary<string, JsonNode?> changes, HashSet<string> supplied)
@@ -175,5 +175,4 @@ public static class EnrichmentSettingsEndpoints
             _ => false
         };
     }
-    private static IResult Error(int status, string message) => Results.Json(new { message }, statusCode: status);
 }

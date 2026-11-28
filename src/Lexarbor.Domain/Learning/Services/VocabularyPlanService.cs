@@ -38,16 +38,16 @@ public sealed class VocabularyPlanService
     }
 
     /// <summary>Read the current continuous routine without loading retired settings.</summary>
-    public Task<VocabPlanModel?> GetStudentPlanAsync(
+    public Task<VocabPlan?> GetStudentPlanAsync(
         Guid studentId, CancellationToken cancellationToken = default) =>
         _planRepository.FindActiveByStudentAsync(studentId, cancellationToken);
     public Task<DateTimeOffset?> GetTeacherAdjustedAtAsync(Guid planId, CancellationToken cancellationToken = default) =>
         _changeRepository.FindLatestTeacherUpdateAtAsync(planId, cancellationToken);
 
-    public Task<List<VocabPlanModel>> ListByIdsAsync(IReadOnlyCollection<Guid> planIds, CancellationToken cancellationToken = default) =>
+    public Task<List<VocabPlan>> ListByIdsAsync(IReadOnlyCollection<Guid> planIds, CancellationToken cancellationToken = default) =>
         _planRepository.ListByIdsAsync(planIds, cancellationToken);
 
-    public Task<VocabPlanModel> CreateAsync(
+    public Task<VocabPlan> CreateAsync(
         Guid studentId,
         VocabPlanActor actor,
         string bookId,
@@ -55,7 +55,7 @@ public sealed class VocabularyPlanService
         int dailyNewWords,
         CancellationToken cancellationToken = default) =>
         CreateAsync(studentId, actor, [new VocabPlanSegment(bookId, unitIds?.ToList())], dailyNewWords, cancellationToken);
-    public async Task<VocabPlanModel> CreateAsync(
+    public async Task<VocabPlan> CreateAsync(
         Guid studentId,
         VocabPlanActor actor,
         IReadOnlyList<VocabPlanSegment> segments,
@@ -75,7 +75,7 @@ public sealed class VocabularyPlanService
         }
 
         var now = DateTimeOffset.UtcNow;
-        var plan = new VocabPlanModel
+        var plan = new VocabPlan
         {
             Id = Guid.NewGuid(),
             StudentId = studentId,
@@ -97,7 +97,7 @@ public sealed class VocabularyPlanService
         }
 
         await _planRepository.AddAsync(plan, cancellationToken).ConfigureAwait(false);
-        await _changeRepository.AddAsync(new VocabPlanChangeModel
+        await _changeRepository.AddAsync(new VocabPlanChange
         {
             Id = Guid.NewGuid(),
             PlanId = plan.Id,
@@ -112,7 +112,7 @@ public sealed class VocabularyPlanService
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return plan;
     }
-    public async Task<VocabPlanModel> UpdateAsync(
+    public async Task<VocabPlan> UpdateAsync(
         Guid planId,
         VocabPlanActor actor,
         int expectedVersion,
@@ -130,7 +130,7 @@ public sealed class VocabularyPlanService
         }
         return await UpdateAsync(plan, actor, expectedVersion, segments, dailyNewWords, cancellationToken).ConfigureAwait(false);
     }
-    public async Task<VocabPlanModel> UpdateAsync(
+    public async Task<VocabPlan> UpdateAsync(
         Guid planId,
         VocabPlanActor actor,
         int expectedVersion,
@@ -142,8 +142,8 @@ public sealed class VocabularyPlanService
         return await UpdateAsync(plan, actor, expectedVersion, segments, dailyNewWords, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<VocabPlanModel> UpdateAsync(
-        VocabPlanModel plan,
+    private async Task<VocabPlan> UpdateAsync(
+        VocabPlan plan,
         VocabPlanActor actor,
         int expectedVersion,
         IReadOnlyList<VocabPlanSegment>? segments,
@@ -192,7 +192,7 @@ public sealed class VocabularyPlanService
         await ApplyChangeAsync(plan, actor, VocabPlanChangeActions.Update, before, after, cancellationToken).ConfigureAwait(false);
         return plan;
     }
-    public async Task<VocabPlanModel> AdoptAsync(
+    public async Task<VocabPlan> AdoptAsync(
         Guid planId, Guid teacherId, int expectedVersion, CancellationToken cancellationToken = default)
     {
         var plan = await RequireActivePlanAsync(planId, cancellationToken).ConfigureAwait(false);
@@ -206,7 +206,7 @@ public sealed class VocabularyPlanService
         return plan;
     }
 
-    public async Task<VocabPlanModel> ReleaseAsync(
+    public async Task<VocabPlan> ReleaseAsync(
         Guid planId, Guid teacherId, int expectedVersion, CancellationToken cancellationToken = default)
     {
         var plan = await RequireActivePlanAsync(planId, cancellationToken).ConfigureAwait(false);
@@ -250,7 +250,7 @@ public sealed class VocabularyPlanService
         }
     }
 
-    private async Task<VocabPlanModel> RequireActivePlanAsync(Guid planId, CancellationToken cancellationToken)
+    private async Task<VocabPlan> RequireActivePlanAsync(Guid planId, CancellationToken cancellationToken)
     {
         var plan = await _planRepository.FindByIdAsync(planId, cancellationToken).ConfigureAwait(false)
             ?? throw new VocabPlanNotFoundException(planId);
@@ -261,7 +261,7 @@ public sealed class VocabularyPlanService
         return plan;
     }
 
-    private static void EnsureVersion(VocabPlanModel plan, int expectedVersion)
+    private static void EnsureVersion(VocabPlan plan, int expectedVersion)
     {
         if (plan.Version != expectedVersion)
         {
@@ -270,7 +270,7 @@ public sealed class VocabularyPlanService
     }
 
     private static void EnsureUpdateAllowed(
-        VocabPlanActor actor, VocabPlanModel plan, IReadOnlyList<VocabPlanSegment>? segments, int? dailyNewWords)
+        VocabPlanActor actor, VocabPlan plan, IReadOnlyList<VocabPlanSegment>? segments, int? dailyNewWords)
     {
         // Teacher actor: may modify any active plan; control transfer is applied by the caller.
         if (actor.Type == VocabPlanActorType.Teacher)
@@ -335,12 +335,12 @@ public sealed class VocabularyPlanService
     }
 
     private async Task ApplyChangeAsync(
-        VocabPlanModel plan, VocabPlanActor actor, string action, string? before, string? after, CancellationToken cancellationToken)
+        VocabPlan plan, VocabPlanActor actor, string action, string? before, string? after, CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.UtcNow;
         plan.UpdatedAt = now;
         await _planRepository.UpdateAsync(plan, cancellationToken).ConfigureAwait(false);
-        await _changeRepository.AddAsync(new VocabPlanChangeModel
+        await _changeRepository.AddAsync(new VocabPlanChange
         {
             Id = Guid.NewGuid(),
             PlanId = plan.Id,
@@ -355,7 +355,7 @@ public sealed class VocabularyPlanService
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private static string? SerializeSnapshot(VocabPlanModel plan) => JsonSerializer.Serialize(new
+    private static string? SerializeSnapshot(VocabPlan plan) => JsonSerializer.Serialize(new
     {
         plan.BookId,
         plan.UnitIds,

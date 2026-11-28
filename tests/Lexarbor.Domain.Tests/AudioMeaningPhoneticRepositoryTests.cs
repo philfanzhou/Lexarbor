@@ -97,7 +97,7 @@ public sealed class AudioMeaningPhoneticRepositoryTests
         using var file = new AudioTestDatabase(); await using var db = file.Open();
         await db.Database.MigrateAsync(Token); await AudioTestDatabase.SeedAsync(db);
         var meanings = new VocabularyMeaningRepository(db);
-        var meaning = Assert.IsType<VocabularyMeaningModel>(await meanings.GetByIdAsync("other-meaning"));
+        var meaning = Assert.IsType<VocabularyMeaning>(await meanings.GetByIdAsync("other-meaning"));
         meaning.PhoneticUk = "other-uk"; meaning.PhoneticUs = "other-us";
         var phonetics = new MeaningPhoneticRepository(db, new AudioInvalidationRepository(db), new EnrichmentTaskRepository(db));
         var edits = new List<MeaningPhoneticEdit>();
@@ -117,7 +117,7 @@ public sealed class AudioMeaningPhoneticRepositoryTests
         Assert.Equal("other-uk", catalog.PhoneticUk); Assert.Equal("other-us", catalog.PhoneticUs);
         await new VocabularyMeaningEditService(new VocabularyRepository(db), new VocabularyBookRepository(db), meanings,
             new VocabularyMeaningUnitRepository(db), new UnitOfWork(db)).ReplaceAsync("book", "other", "other-meaning", null, "other", "example", Token);
-        var reread = Assert.IsType<VocabularyMeaningModel>(await meanings.GetByIdAsync("other-meaning"));
+        var reread = Assert.IsType<VocabularyMeaning>(await meanings.GetByIdAsync("other-meaning"));
         Assert.Equal("other-uk", reread.PhoneticUk); Assert.Equal("other-us", reread.PhoneticUs);
     }
 

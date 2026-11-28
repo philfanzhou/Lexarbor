@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Net.Http.Json;
 using System.Text.Json;
 using Lexarbor.Learning.Database;
 using Lexarbor.Learning.Database.Repositories;
@@ -11,7 +10,6 @@ using Lexarbor.Service.Tests.TestInfrastructure;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace Lexarbor.Service.Tests;
 
@@ -292,8 +290,8 @@ public sealed class DailySourceRulesTests : IAsyncDisposable
         Assert.Equal("book", (await learner.LocationsAsync())["p1"].Item1);
     }
 
-    private static List<LexarborEntry> Plan(params string[] words) => words.Select(word =>
-        new LexarborEntry(word, word, word, null, null, word + "-m", "noun", Meaning(word), Meaning(word), null, [new("one", 1, null, null)]))
+    private static List<CatalogEntry> Plan(params string[] words) => words.Select(word =>
+        new CatalogEntry(word, word, word, null, null, word + "-m", "noun", Meaning(word), Meaning(word), null, [new("one", 1, null, null)]))
         .ToList();
 
     private static string Meaning(string word) => word + " meaning";
@@ -309,7 +307,7 @@ public sealed class DailySourceRulesTests : IAsyncDisposable
         var factory = new VocabularyWebApplicationFactory();
         var host = factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
         {
-            services.AddSingleton<ILexarborClient>(catalog);
+            services.AddSingleton<ICatalogClient>(catalog);
             services.AddSingleton<IVocabularyNotebookCatalog>(new EmptyNotebookCatalog());
             services.AddSingleton<TimeProvider>(clock);
         }));
@@ -351,7 +349,7 @@ public sealed class DailySourceRulesTests : IAsyncDisposable
             foreach (var seed in seeds)
             {
                 _addedAt = _addedAt.AddSeconds(1);
-                var item = new VocabNotebookItemModel
+                var item = new VocabNotebookItem
                 {
                     Id = Guid.NewGuid(),
                     StudentId = student,
@@ -451,24 +449,24 @@ public sealed class DailySourceRulesTests : IAsyncDisposable
             new(host.Services.GetRequiredService<LearningStorage>().Options(Caller));
     }
 
-    private sealed class SourceCatalog(List<LexarborEntry> entries) : ILexarborClient
+    private sealed class SourceCatalog(List<CatalogEntry> entries) : ICatalogClient
     {
-        public Func<LexarborLearningQuestionRequest, bool> Unavailable { get; set; } = _ => false;
-        public ConcurrentQueue<LexarborLearningQuestionRequest> Requests { get; } = new();
+        public Func<CatalogLearningQuestionRequest, bool> Unavailable { get; set; } = _ => false;
+        public ConcurrentQueue<CatalogLearningQuestionRequest> Requests { get; } = new();
 
-        public Task<LexarborEntryPage> GetEntriesAsync(string bookId, string? unitId, int page, int size, CancellationToken cancellationToken)
+        public Task<CatalogEntryPage> GetEntriesAsync(string bookId, string? unitId, int page, int size, CancellationToken cancellationToken)
         {
             Assert.Equal("book", bookId);
-            return Task.FromResult(new LexarborEntryPage(entries, 1, entries.Count, entries.Count));
+            return Task.FromResult(new CatalogEntryPage(entries, 1, entries.Count, entries.Count));
         }
 
-        public Task<IReadOnlyList<LexarborUnit>> GetUnitsAsync(string bookId, CancellationToken cancellationToken) =>
-            Task.FromResult<IReadOnlyList<LexarborUnit>>([new LexarborUnit("one", 1, null, entries.Count, entries.Count)]);
+        public Task<IReadOnlyList<CatalogUnit>> GetUnitsAsync(string bookId, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<CatalogUnit>>([new CatalogUnit("one", 1, null, entries.Count, entries.Count)]);
 
-        public Task<LexarborAudio> GetAudioAsync(string wordId, string bookId, string meaningId, string locale, CancellationToken cancellationToken) =>
+        public Task<CatalogAudio> GetAudioAsync(string wordId, string bookId, string meaningId, string locale, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
-        public Task<VocabGeneratedQuestion?> GetLearningQuestionAsync(LexarborLearningQuestionRequest request, CancellationToken cancellationToken)
+        public Task<VocabGeneratedQuestion?> GetLearningQuestionAsync(CatalogLearningQuestionRequest request, CancellationToken cancellationToken)
         {
             Requests.Enqueue(request);
             if (Unavailable(request)) return Task.FromResult<VocabGeneratedQuestion?>(null);

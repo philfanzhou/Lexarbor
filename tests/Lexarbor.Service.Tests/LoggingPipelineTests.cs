@@ -1,8 +1,6 @@
 using System.Net;
 using Lexarbor.Host.Authentication;
 using Lexarbor.Service.Tests.TestInfrastructure;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.DependencyInjection;
 using ServiceMantle.Web.Logging;
 
 namespace Lexarbor.Service.Tests;
@@ -153,7 +151,7 @@ public class LoggingPipelineTests
                 ["Logging:LogLevel:Microsoft.EntityFrameworkCore.Database.Command"] = "None"
             })
             .Build();
-        var mapped = Lexarbor.Host.LexarborLoggingSetup.Map(configuration.GetSection("Logging:LogLevel"));
+        var mapped = Lexarbor.Host.LoggingSetup.Map(configuration.GetSection("Logging:LogLevel"));
 
         Assert.Equal(LogLevel.Warning, mapped.MinimumLevel);
         var overridePair = Assert.Single(mapped.Overrides);
@@ -172,7 +170,7 @@ public class LoggingPipelineTests
                 ["Logging:LogLevel:Default"] = "Information"
             })
             .Build();
-        var mapped = Lexarbor.Host.LexarborLoggingSetup.Map(configuration.GetSection("Logging:LogLevel"));
+        var mapped = Lexarbor.Host.LoggingSetup.Map(configuration.GetSection("Logging:LogLevel"));
 
         Assert.Equal(LogLevel.Information, mapped.MinimumLevel);
         Assert.Empty(mapped.Overrides);
@@ -193,7 +191,7 @@ public class LoggingPipelineTests
             .Build();
 
         var failure = Assert.Throws<InvalidOperationException>(() =>
-            Lexarbor.Host.LexarborLoggingSetup.Map(configuration.GetSection("Logging:LogLevel")));
+            Lexarbor.Host.LoggingSetup.Map(configuration.GetSection("Logging:LogLevel")));
 
         Assert.Contains("Logging:LogLevel", failure.Message);
         if (value.Trim().Length > 0)

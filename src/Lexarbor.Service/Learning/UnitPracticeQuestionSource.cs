@@ -11,7 +11,7 @@ namespace Lexarbor.Learning.Service;
 /// prefer distractors from the practiced unit, then from the whole book. A target for which neither
 /// produces a question is asked as a full spelling.
 /// </summary>
-public sealed class UnitPracticeQuestionSource(ILexarborClient catalog)
+public sealed class UnitPracticeQuestionSource(ICatalogClient catalog)
 {
     private const int Parallelism = 4;
     private static readonly string[] ChoiceTypes = [nameof(VocabQuestionDirection.ChineseToEnglish)];
@@ -61,8 +61,8 @@ public sealed class UnitPracticeQuestionSource(ILexarborClient catalog)
         var types = mode == UnitPracticeMode.Choice ? ChoiceTypes : null;
         foreach (var unit in new string?[] { unitId, null })
         {
-            var question = await catalog.GetLearningQuestionAsync(new LexarborLearningQuestionRequest(target.WordId, bookId,
-                target.MeaningId, LexarborLearningQuestionReader.ReviewMode, unit, SameEntryKind: true, Types: types), ct);
+            var question = await catalog.GetLearningQuestionAsync(new CatalogLearningQuestionRequest(target.WordId, bookId,
+                target.MeaningId, CatalogLearningQuestionReader.ReviewMode, unit, SameEntryKind: true, Types: types), ct);
             if (question != null) return Issued(question);
         }
         return null;

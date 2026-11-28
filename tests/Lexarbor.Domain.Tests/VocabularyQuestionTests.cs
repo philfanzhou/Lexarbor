@@ -7,11 +7,11 @@ namespace Lexarbor.Domain.Tests;
 
 public class VocabularyQuestionTests : TestBase
 {
-    private readonly VocabularyDomainService _service;
+    private readonly VocabularyService _service;
 
     public VocabularyQuestionTests()
     {
-        _service = new VocabularyDomainService(
+        _service = new VocabularyService(
             _vocabularyRepository,
             _bookRepository,
             _meaningRepository,
@@ -104,8 +104,8 @@ public class VocabularyQuestionTests : TestBase
         var correct = await SeedWordAsync(book.Id, "apple", "fruit");
         var banana = await SeedWordAsync(book.Id, "banana", "fruit");
         await _service.AddOrUpdateAsync(
-            new VocabularyModel { Id = banana.Id, Word = banana.Word },
-            new VocabularyMeaningModel
+            new Vocabulary { Id = banana.Id, Word = banana.Word },
+            new VocabularyMeaning
             {
                 BookId = book.Id,
                 Meaning = "yellow fruit"
@@ -129,7 +129,7 @@ public class VocabularyQuestionTests : TestBase
         var book = await CreateBookAsync();
         var correct = await SeedWordAsync(book.Id, "apple", "fruit");
         var now = DateTimeOffset.UtcNow;
-        var historicalDuplicate = new VocabularyModel
+        var historicalDuplicate = new Vocabulary
         {
             Id = Guid.NewGuid().ToString(),
             Word = " APPLE ",
@@ -137,7 +137,7 @@ public class VocabularyQuestionTests : TestBase
             UpdatedAt = now
         };
         await _vocabularyRepository.AddAsync(historicalDuplicate);
-        await _meaningRepository.AddAsync(new VocabularyMeaningModel
+        await _meaningRepository.AddAsync(new VocabularyMeaning
         {
             Id = Guid.NewGuid().ToString(),
             VocabularyId = historicalDuplicate.Id,
@@ -474,8 +474,8 @@ public class VocabularyQuestionTests : TestBase
         if (addSecondMeaningToDistractor)
         {
             await _service.AddOrUpdateAsync(
-                new VocabularyModel { Id = banana.Id, Word = banana.Word },
-                new VocabularyMeaningModel
+                new Vocabulary { Id = banana.Id, Word = banana.Word },
+                new VocabularyMeaning
                 {
                     BookId = book.Id,
                     PartOfSpeech = "noun",
@@ -505,15 +505,15 @@ public class VocabularyQuestionTests : TestBase
         return new MultiSenseSeedData(book.Id, bank);
     }
 
-    private async Task<VocabularyModel> SeedSenseAsync(
+    private async Task<Vocabulary> SeedSenseAsync(
         string bookId,
         string word,
         string partOfSpeech,
         string meaning)
     {
         var (createdWord, _) = await _service.AddOrUpdateAsync(
-            new VocabularyModel { Word = word },
-            new VocabularyMeaningModel
+            new Vocabulary { Word = word },
+            new VocabularyMeaning
             {
                 BookId = bookId,
                 PartOfSpeech = partOfSpeech,
@@ -522,14 +522,14 @@ public class VocabularyQuestionTests : TestBase
         return createdWord;
     }
 
-    private async Task<VocabularyModel> SeedWordAsync(
+    private async Task<Vocabulary> SeedWordAsync(
         string bookId,
         string word,
         string meaning)
     {
         var (createdWord, _) = await _service.AddOrUpdateAsync(
-            new VocabularyModel { Word = word },
-            new VocabularyMeaningModel
+            new Vocabulary { Word = word },
+            new VocabularyMeaning
             {
                 BookId = bookId,
                 PartOfSpeech = "noun",
@@ -539,7 +539,7 @@ public class VocabularyQuestionTests : TestBase
     }
 
     private static void AssertQuestionOptions(
-        VocabularyQuestionModel question,
+        VocabularyQuestion question,
         IReadOnlyCollection<string> expectedOptions)
     {
         Assert.Equal(4, question.Options.Count);
@@ -550,9 +550,9 @@ public class VocabularyQuestionTests : TestBase
             question.Options.Select(option => option.Text).OrderBy(value => value));
     }
 
-    private sealed record MultiSenseSeedData(string BookId, VocabularyModel Word);
+    private sealed record MultiSenseSeedData(string BookId, Vocabulary Word);
 
     private sealed record QuestionSeedData(
-        VocabularyBookModel Book,
-        VocabularyModel CorrectWord);
+        VocabularyBook Book,
+        Vocabulary CorrectWord);
 }

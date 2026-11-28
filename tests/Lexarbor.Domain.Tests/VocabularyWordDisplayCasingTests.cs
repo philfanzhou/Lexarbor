@@ -1,6 +1,3 @@
-using System;
-using System.Linq;
-using System.Threading.Tasks;
 using Lexarbor.Database;
 using Lexarbor.Database.Repositories;
 using Lexarbor.Domain.Models;
@@ -52,8 +49,8 @@ public sealed class VocabularyWordDisplayCasingTests : IDisposable
             // lower-case spelling exactly as it is; the original casing is not
             // recoverable and nothing guesses at it.
             var (reused, _) = await service.AddOrUpdateAsync(
-                new VocabularyModel { Word = "APPLE" },
-                new VocabularyMeaningModel { BookId = "book", PartOfSpeech = "n.", Meaning = "苹果" });
+                new Vocabulary { Word = "APPLE" },
+                new VocabularyMeaning { BookId = "book", PartOfSpeech = "n.", Meaning = "苹果" });
             Assert.Equal("legacy-apple", reused.Id);
             Assert.Equal(
                 "apple",
@@ -62,8 +59,8 @@ public sealed class VocabularyWordDisplayCasingTests : IDisposable
             // A new word keeps the imported display casing while remaining
             // resolvable through its normalized key.
             var (created, _) = await service.AddOrUpdateAsync(
-                new VocabularyModel { Word = "  Come True  " },
-                new VocabularyMeaningModel { BookId = "book", PartOfSpeech = "phrase", Meaning = "（梦想等）实现" });
+                new Vocabulary { Word = "  Come True  " },
+                new VocabularyMeaning { BookId = "book", PartOfSpeech = "phrase", Meaning = "（梦想等）实现" });
             Assert.Equal(
                 "Come True",
                 await StoredWordAsync(context, created.Id));
@@ -72,11 +69,11 @@ public sealed class VocabularyWordDisplayCasingTests : IDisposable
             // Apple / ' apple ' / APPLE still share one row, and re-importing
             // does not create a second one.
             await service.AddOrUpdateAsync(
-                new VocabularyModel { Word = " apple " },
-                new VocabularyMeaningModel { BookId = "book", PartOfSpeech = "n.", Meaning = "苹果" });
+                new Vocabulary { Word = " apple " },
+                new VocabularyMeaning { BookId = "book", PartOfSpeech = "n.", Meaning = "苹果" });
             await service.AddOrUpdateAsync(
-                new VocabularyModel { Word = "APPLE" },
-                new VocabularyMeaningModel { BookId = "book", PartOfSpeech = "n.", Meaning = "苹果" });
+                new Vocabulary { Word = "APPLE" },
+                new VocabularyMeaning { BookId = "book", PartOfSpeech = "n.", Meaning = "苹果" });
             Assert.Equal(
                 1,
                 await context.Vocabularies.CountAsync(
@@ -109,9 +106,9 @@ public sealed class VocabularyWordDisplayCasingTests : IDisposable
             TestContext.Current.CancellationToken);
     }
 
-    private static VocabularyDomainService CreateService(VocabularyDbContext context)
+    private static VocabularyService CreateService(VocabularyDbContext context)
     {
-        return new VocabularyDomainService(
+        return new VocabularyService(
             new VocabularyRepository(context),
             new VocabularyBookRepository(context),
             new VocabularyMeaningRepository(context),

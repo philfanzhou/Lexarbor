@@ -1,12 +1,10 @@
 using System.Collections.Concurrent;
-using System.Net.Http.Json;
 using System.Text.Json;
 using Lexarbor.Learning.Domain.Models;
 using Lexarbor.Learning.Domain.Services;
 using Lexarbor.Learning.Service;
 using Lexarbor.Service.Tests.TestInfrastructure;
 using Microsoft.AspNetCore.TestHost;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace Lexarbor.Service.Tests;
 
@@ -67,7 +65,7 @@ public sealed class DailyNotebookSourceTests : IAsyncDisposable
         var factory = new VocabularyWebApplicationFactory();
         var host = factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
         {
-            services.AddSingleton<ILexarborClient>(catalog);
+            services.AddSingleton<ICatalogClient>(catalog);
             services.AddSingleton<IVocabularyNotebookCatalog>(notebook);
         }));
         _hosts.Add(factory);
@@ -89,29 +87,29 @@ public sealed class DailyNotebookSourceTests : IAsyncDisposable
             new { mode = "new" }, Ct));
     }
 
-    private static LexarborEntry Entry(string word, string meaning, string? meaningId = null) =>
+    private static CatalogEntry Entry(string word, string meaning, string? meaningId = null) =>
         new(word, word, word, null, null, meaningId ?? word + "-m", "noun", meaning, meaning, null, [new("one", 1, null, null)]);
 
-    private sealed class DailyCatalog : ILexarborClient
+    private sealed class DailyCatalog : ICatalogClient
     {
-        public List<LexarborEntry> Entries { get; init; } = [Entry("pear", "梨"), Entry("apple", "苹果")];
-        public Func<LexarborLearningQuestionRequest, bool> Unavailable { get; init; } = _ => false;
-        public ConcurrentQueue<LexarborLearningQuestionRequest> Requests { get; } = new();
-        public ConcurrentQueue<LexarborLearningQuestionRequest> Issued { get; } = new();
+        public List<CatalogEntry> Entries { get; init; } = [Entry("pear", "梨"), Entry("apple", "苹果")];
+        public Func<CatalogLearningQuestionRequest, bool> Unavailable { get; init; } = _ => false;
+        public ConcurrentQueue<CatalogLearningQuestionRequest> Requests { get; } = new();
+        public ConcurrentQueue<CatalogLearningQuestionRequest> Issued { get; } = new();
 
-        public Task<LexarborEntryPage> GetEntriesAsync(string bookId, string? unitId, int page, int size, CancellationToken cancellationToken)
+        public Task<CatalogEntryPage> GetEntriesAsync(string bookId, string? unitId, int page, int size, CancellationToken cancellationToken)
         {
             Assert.Equal("book", bookId);
-            return Task.FromResult(new LexarborEntryPage(Entries, 1, Entries.Count, Entries.Select(entry => entry.Word).Distinct().Count()));
+            return Task.FromResult(new CatalogEntryPage(Entries, 1, Entries.Count, Entries.Select(entry => entry.Word).Distinct().Count()));
         }
 
-        public Task<IReadOnlyList<LexarborUnit>> GetUnitsAsync(string bookId, CancellationToken cancellationToken) =>
-            Task.FromResult<IReadOnlyList<LexarborUnit>>([new LexarborUnit("one", 1, null, 2, 2)]);
+        public Task<IReadOnlyList<CatalogUnit>> GetUnitsAsync(string bookId, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<CatalogUnit>>([new CatalogUnit("one", 1, null, 2, 2)]);
 
-        public Task<LexarborAudio> GetAudioAsync(string wordId, string bookId, string meaningId, string locale, CancellationToken cancellationToken) =>
+        public Task<CatalogAudio> GetAudioAsync(string wordId, string bookId, string meaningId, string locale, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
-        public Task<VocabGeneratedQuestion?> GetLearningQuestionAsync(LexarborLearningQuestionRequest request, CancellationToken cancellationToken)
+        public Task<VocabGeneratedQuestion?> GetLearningQuestionAsync(CatalogLearningQuestionRequest request, CancellationToken cancellationToken)
         {
             Requests.Enqueue(request);
             if (Unavailable(request)) return Task.FromResult<VocabGeneratedQuestion?>(null);

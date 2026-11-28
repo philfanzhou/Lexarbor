@@ -9,8 +9,6 @@ using Lexarbor.Domain.Services;
 using Lexarbor.Host.Configuration;
 using Lexarbor.Host.Integration;
 using Lexarbor.Service.Tests.TestInfrastructure;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 using OpenTelemetry;
 
 namespace Lexarbor.Service.Tests;

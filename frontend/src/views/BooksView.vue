@@ -211,7 +211,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="books-view">
+  <div>
     <PageHeader title="教材管理" description="维护教材信息，启用或停用教材">
       <template #actions>
         <el-button type="primary" @click="openCreate">新增教材</el-button>

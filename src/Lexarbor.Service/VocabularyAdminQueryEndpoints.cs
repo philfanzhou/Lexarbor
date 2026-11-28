@@ -3,7 +3,6 @@ using Lexarbor.Domain.Repositories;
 using Lexarbor.Domain.Services;
 using Lexarbor.Service.Dtos;
 using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
 
@@ -11,22 +10,22 @@ namespace Lexarbor.Service;
 
 public static class VocabularyAdminQueryEndpoints
 {
-    public static void MapVocabularyAdminQueryEndpoints(this IEndpointRouteBuilder app)
+    public static void MapVocabularyAdminQuery(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/admin").RequireAuthorization(AdminEndpointAuthorization.PolicyName);
         group.MapGet("/vocabulary", async ([FromQuery] string? keyword, [FromQuery] string? bookId,
             [FromQuery] int? page, [FromQuery] int? size, VocabularyAdminQueryService service, CancellationToken cancellationToken) =>
         {
             var result = await service.SearchAsync(keyword, bookId, page, size, cancellationToken);
-            return VocabularyHttpResponse.Ok(new { items = result.Items.Select(Summary), result.TotalCount, result.TotalPage });
+            return ApiResponse.Ok(new { items = result.Items.Select(Summary), result.TotalCount, result.TotalPage });
         });
         group.MapGet("/vocabulary/{wordId}", async (string wordId, VocabularyAdminQueryService service, CancellationToken cancellationToken) =>
-            VocabularyHttpResponse.Ok(Detail(await service.GetAsync(wordId, cancellationToken))));
+            ApiResponse.Ok(Detail(await service.GetAsync(wordId, cancellationToken))));
         group.MapGet("/vocabulary-books/{bookId}/content", async (string bookId, [FromQuery] string? keyword,
             [FromQuery] int? page, [FromQuery] int? size, VocabularyAdminQueryService service, CancellationToken cancellationToken) =>
         {
             var result = await service.GetContentAsync(bookId, keyword, page, size, cancellationToken);
-            return VocabularyHttpResponse.Ok(new
+            return ApiResponse.Ok(new
             {
                 book = result.Book.ToDto(),
                 result.WordCount,
@@ -42,7 +41,7 @@ public static class VocabularyAdminQueryEndpoints
             CancellationToken cancellationToken) =>
         {
             var result = await service.GetPhrasePositionsAsync(bookId, unitId, section, keyword, page, size, cancellationToken);
-            return VocabularyHttpResponse.Ok(new { result.Items, result.TotalCount, result.TotalPage });
+            return ApiResponse.Ok(new { result.Items, result.TotalCount, result.TotalPage });
         });
         // Read-only unit content. A disabled book stays readable, matching the
         // whole-book content route; the meanings listed are only those assigned
@@ -58,7 +57,7 @@ public static class VocabularyAdminQueryEndpoints
             VocabularyAdminQueryService service, CancellationToken cancellationToken) =>
         {
             var result = await service.GetUnitContentAsync(bookId, unitId, keyword, section, entryKind, page, size, cancellationToken);
-            return VocabularyHttpResponse.Ok(new
+            return ApiResponse.Ok(new
             {
                 book = result.Book.ToDto(),
                 unit = new VocabularyAdminUnitRefDto(result.Unit.Id, result.Unit.BookId, result.Unit.Number, result.Unit.Title),

@@ -8,7 +8,6 @@ using Lexarbor.Host.Integration;
 using Lexarbor.Tests.Shared;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
-using Npgsql;
 
 namespace Lexarbor.Service.Tests;
 

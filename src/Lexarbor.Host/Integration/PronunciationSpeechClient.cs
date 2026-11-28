@@ -2,13 +2,13 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
 using Lexarbor.Domain.Services;
 using Lexarbor.Host.Configuration;
 using Lexarbor.Service;
 using OpenTelemetry;
+using static Lexarbor.Host.Integration.SupplierJson;
 
 namespace Lexarbor.Host.Integration;
 
@@ -75,7 +75,7 @@ public sealed class PronunciationSpeechClient(IHttpClientFactory clients, Enrich
         {
             using var suppression = SuppressInstrumentationScope.Begin();
             using var response = await client.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
-            var retry = RetryAfter(response);
+            var retry = RetryAfter(response, _time);
             if (response.StatusCode == HttpStatusCode.TooManyRequests)
             {
                 if (!native)
@@ -85,7 +85,7 @@ public sealed class PronunciationSpeechClient(IHttpClientFactory clients, Enrich
                     // unreadable 429 body as a consumed service failure.
                     try
                     {
-                        var error = await ReadBoundedAsync(response.Content, 65536, timeout.Token);
+                        var error = await ReadBoundedAsync(response.Content, timeout.Token, 65536);
                         if (error != null && OpenAiCompatibleSpeechAdapter.IsBillingBlock(error))
                             return Failure(PronunciationSpeechOutcome.Rejected, "balance_required", true);
                     }
@@ -98,7 +98,7 @@ public sealed class PronunciationSpeechClient(IHttpClientFactory clients, Enrich
                 return Failure(PronunciationSpeechOutcome.ServiceFailure, "service_unavailable", true);
             if (!response.IsSuccessStatusCode) return Failure(PronunciationSpeechOutcome.Rejected,
                 response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden ? "credentials_rejected" : "request_rejected", true);
-            var bytes = await ReadBoundedAsync(response.Content, native ? MaximumJsonBytes : MaximumAudioBytes, timeout.Token);
+            var bytes = await ReadBoundedAsync(response.Content, timeout.Token, native ? MaximumJsonBytes : MaximumAudioBytes);
             if (bytes == null) return Failure(PronunciationSpeechOutcome.InvalidAudio, "response_too_large", true);
             var result = native ? MiniMaxSpeechAdapter.Decode(bytes, retry) : OpenAiCompatibleSpeechAdapter.Decode(bytes, retry);
             if (result.Audio is { } audio && audio.AsSpan().IndexOf(Encoding.UTF8.GetBytes(settings.ApiKey)) >= 0)
@@ -130,39 +130,9 @@ public sealed class PronunciationSpeechClient(IHttpClientFactory clients, Enrich
                 : PronunciationPhonetics.ShareReading(plan.RequiredPhonetic!, plan.Content.Phonetic!)))
         && plan.InputVersion.SourceRevision == AudioSelectionService.ComputeRevision(plan.Input)
         && OpenAiCompatiblePronunciationPreparationClient.TemplateExpanded(plan.Input.Word, plan.Content.SpokenText);
-    private static bool Bounded(string? text, int length) => !string.IsNullOrWhiteSpace(text) && text.Length <= length && !text.Any(char.IsControl);
-    private static bool Optional(string? text, int length) => text == null || text.Length <= length && !text.Any(char.IsControl);
-    private static string? Clean(string? text) => string.IsNullOrWhiteSpace(text) ? null : text.Trim();
-    internal static bool UniqueProperties(JsonElement element) => element.ValueKind switch
-    {
-        JsonValueKind.Object => element.EnumerateObject().Select(p => p.Name).Distinct(StringComparer.Ordinal).Count() == element.EnumerateObject().Count()
-            && element.EnumerateObject().All(p => UniqueProperties(p.Value)),
-        JsonValueKind.Array => element.EnumerateArray().All(UniqueProperties),
-        _ => true
-    };
     internal static PronunciationSpeechResult ValidateAudio(byte[] bytes) => bytes.Length is >= 300 and <= MaximumAudioBytes && Mp3Validation.IsValid(bytes)
         ? new(PronunciationSpeechOutcome.Ready, bytes, RequestMade: true)
         : Failure(PronunciationSpeechOutcome.InvalidAudio, "invalid_audio", true);
     internal static PronunciationSpeechResult Failure(PronunciationSpeechOutcome outcome, string code, bool called = false, TimeSpan? retry = null)
         => new(outcome, ErrorCode: code, RequestMade: called, RetryAfter: retry);
-    private TimeSpan? RetryAfter(HttpResponseMessage response)
-    {
-        var header = response.Headers.RetryAfter;
-        var delay = header?.Delta ?? (header?.Date is { } date ? date - _time.GetUtcNow() : null);
-        return delay is { } value && value > TimeSpan.Zero ? value : null;
-    }
-    private static async Task<byte[]?> ReadBoundedAsync(HttpContent content, int maximum, CancellationToken token)
-    {
-        if (content.Headers.ContentLength > maximum) return null;
-        await using var stream = await content.ReadAsStreamAsync(token);
-        using var output = new MemoryStream();
-        var buffer = new byte[8192];
-        while (true)
-        {
-            var read = await stream.ReadAsync(buffer.AsMemory(0, Math.Min(buffer.Length, maximum + 1 - (int)output.Length)), token);
-            if (read == 0) return output.ToArray();
-            output.Write(buffer, 0, read);
-            if (output.Length > maximum) return null;
-        }
-    }
 }

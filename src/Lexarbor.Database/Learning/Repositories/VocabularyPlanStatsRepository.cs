@@ -22,7 +22,7 @@ public sealed class VocabularyPlanStatsRepository(LearningDbContext context) : I
         try
         {
             await context.Database.ExecuteSqlRawAsync("SET TRANSACTION READ ONLY", cancellationToken).ConfigureAwait(false);
-            var plans = new List<VocabPlanModel>();
+            var plans = new List<VocabPlan>();
             var reactivations = new Dictionary<Guid, VocabularyPlanReactivation>();
             // One plan query also reads each plan's latest reactivate and the latest complete before it (ADR-0019 continuous plans).
             await using (var rows = await ExecuteReaderAsync(context, """
@@ -40,7 +40,7 @@ public sealed class VocabularyPlanStatsRepository(LearningDbContext context) : I
                 while (await rows.ReadAsync(cancellationToken).ConfigureAwait(false))
                 {
                     var id = reader.GetGuid(0);
-                    plans.Add(new VocabPlanModel
+                    plans.Add(new VocabPlan
                     {
                         Id = id,
                         StudentId = reader.GetGuid(1),
@@ -70,10 +70,10 @@ public sealed class VocabularyPlanStatsRepository(LearningDbContext context) : I
     }
 
     private sealed class Snapshot(LearningDbContext context, IDbContextTransaction transaction,
-        IReadOnlyList<VocabPlanModel> plans, IReadOnlyDictionary<Guid, VocabularyPlanReactivation> reactivations)
+        IReadOnlyList<VocabPlan> plans, IReadOnlyDictionary<Guid, VocabularyPlanReactivation> reactivations)
         : IVocabularyPlanStatsSnapshot
     {
-        public IReadOnlyList<VocabPlanModel> Plans => plans;
+        public IReadOnlyList<VocabPlan> Plans => plans;
         public IReadOnlyDictionary<Guid, VocabularyPlanReactivation> Reactivations => reactivations;
         public async Task<IReadOnlyDictionary<Guid, VocabularyPlanStatsCounts>> ReadCountsAsync(
             IReadOnlyList<VocabularyPlanStatsScope> scopes, CancellationToken cancellationToken = default)

@@ -4,7 +4,7 @@ namespace Lexarbor.Learning.Domain.Services;
 
 public sealed partial class VocabularyLearningService
 {
-    private async Task<VocabNextQuestionOutcome> GetNextExtraReviewAsync(VocabPlanModel plan, DateOnly date,
+    private async Task<VocabNextQuestionOutcome> GetNextExtraReviewAsync(VocabPlan plan, DateOnly date,
         Guid? requestedId, CancellationToken cancellationToken)
     {
         for (var retry = 0; ; retry++)
@@ -73,7 +73,7 @@ public sealed partial class VocabularyLearningService
         }
     }
 
-    private async Task<VocabIssuedQuestionModel?> NextBatchReviewQuestionAsync(VocabPlanModel plan, VocabReviewBatch batch,
+    private async Task<VocabIssuedQuestion?> NextBatchReviewQuestionAsync(VocabPlan plan, VocabReviewBatch batch,
         IReadOnlySet<CardKey> paused, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var pending = batch.QuestionIds.Count == 0 ? null :
@@ -99,7 +99,7 @@ public sealed partial class VocabularyLearningService
         return null;
     }
 
-    private async Task<bool> RecordExtraReviewAsync(Guid planId, VocabIssuedQuestionModel question, DateTimeOffset answeredAt,
+    private async Task<bool> RecordExtraReviewAsync(Guid planId, VocabIssuedQuestion question, DateTimeOffset answeredAt,
         CancellationToken cancellationToken)
     {
         var owner = await _planDayRepository.FindReviewQuestionDayAsync(planId, question.Id, cancellationToken).ConfigureAwait(false);

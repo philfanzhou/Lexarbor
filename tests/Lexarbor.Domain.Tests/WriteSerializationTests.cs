@@ -45,16 +45,16 @@ public sealed class WriteSerializationTests : IDisposable
 
         var results = await Task.WhenAll(
             firstService.AddOrUpdateAsync(
-                new VocabularyModel { Word = " Apple " },
-                new VocabularyMeaningModel
+                new Vocabulary { Word = " Apple " },
+                new VocabularyMeaning
                 {
                     BookId = "concurrency-book",
                     PartOfSpeech = " N. ",
                     Meaning = " fruit "
                 }),
             secondService.AddOrUpdateAsync(
-                new VocabularyModel { Word = "APPLE" },
-                new VocabularyMeaningModel
+                new Vocabulary { Word = "APPLE" },
+                new VocabularyMeaning
                 {
                     BookId = "concurrency-book",
                     PartOfSpeech = "n.",
@@ -92,11 +92,11 @@ public sealed class WriteSerializationTests : IDisposable
         }
 
         const int entryCount = 50;
-        static List<(VocabularyModel, VocabularyMeaningModel, string?, string?, string?)> Batch() =>
+        static List<(Vocabulary, VocabularyMeaning, string?, string?, string?)> Batch() =>
             Enumerable.Range(0, entryCount)
                 .Select(index => (
-                    new VocabularyModel { Word = $"word{index:D2}" },
-                    new VocabularyMeaningModel { PartOfSpeech = "n.", Meaning = $"meaning {index:D2}" },
+                    new Vocabulary { Word = $"word{index:D2}" },
+                    new VocabularyMeaning { PartOfSpeech = "n.", Meaning = $"meaning {index:D2}" },
                     (string?)null, (string?)null, (string?)null))
                 .ToList();
 
@@ -143,7 +143,7 @@ public sealed class WriteSerializationTests : IDisposable
         {
             await using var context = CreateContext(databasePath, timeoutSeconds: 1);
             var bookRepository = new VocabularyBookRepository(context);
-            var service = new VocabularyBookDomainService(bookRepository, new UnitOfWork(context));
+            var service = new VocabularyBookService(bookRepository, new UnitOfWork(context));
             var book = await service.GetAsync("busy-book");
             Assert.NotNull(book);
             book.BookName = "Renamed";
@@ -210,7 +210,7 @@ public sealed class WriteSerializationTests : IDisposable
         });
         await importIsWriting.Task;
 
-        var service = new VocabularyBookDomainService(
+        var service = new VocabularyBookService(
             new VocabularyBookRepository(bookContext),
             new UnitOfWork(bookContext));
         var book = await service.GetAsync("serialized-book");
@@ -315,8 +315,8 @@ public sealed class WriteSerializationTests : IDisposable
 
         // SaveChanges must join the transaction already owned by this context.
         var import = CreateService(context).AddOrUpdateAsync(
-            new VocabularyModel { Word = "apple" },
-            new VocabularyMeaningModel { BookId = "reentrancy-book", Meaning = "fruit" });
+            new Vocabulary { Word = "apple" },
+            new VocabularyMeaning { BookId = "reentrancy-book", Meaning = "fruit" });
         var timeout = Task.Delay(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
 
         Assert.Same(import, await Task.WhenAny(import, timeout));
@@ -327,9 +327,9 @@ public sealed class WriteSerializationTests : IDisposable
 
     public void Dispose() => _database.Dispose();
 
-    private static VocabularyDomainService CreateService(VocabularyDbContext context)
+    private static VocabularyService CreateService(VocabularyDbContext context)
     {
-        return new VocabularyDomainService(
+        return new VocabularyService(
             new VocabularyRepository(context),
             new VocabularyBookRepository(context),
             new VocabularyMeaningRepository(context),

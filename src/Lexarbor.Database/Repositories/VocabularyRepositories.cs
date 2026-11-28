@@ -1,7 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
 using Lexarbor.Database.Entities;
 using Lexarbor.Domain.Models;
 using Lexarbor.Domain.Repositories;
@@ -115,19 +111,13 @@ public class VocabularyRepository : IVocabularyRepository
         _context = context;
     }
 
-    public Task<VocabularyModel?> GetByIdAsync(string id) => GetByIdAsync(id, CancellationToken.None);
+    public Task<Vocabulary?> GetByIdAsync(string id) => GetByIdAsync(id, CancellationToken.None);
 
-    public async Task<VocabularyModel?> GetByIdAsync(string id, CancellationToken cancellationToken)
+    public async Task<Vocabulary?> GetByIdAsync(string id, CancellationToken cancellationToken)
     {
         // Transactional editors must see the current row, not an earlier tracked snapshot.
         var entity = await _context.Vocabularies.AsNoTracking().SingleOrDefaultAsync(v => v.Id == id, cancellationToken);
-        return entity?.Adapt<VocabularyModel>();
-    }
-
-    public async Task<VocabularyModel?> GetByWordAsync(string word)
-    {
-        var entity = await _context.Vocabularies.FirstOrDefaultAsync(v => v.Word == word);
-        return entity?.Adapt<VocabularyModel>();
+        return entity?.Adapt<Vocabulary>();
     }
 
     /// <summary>
@@ -140,27 +130,16 @@ public class VocabularyRepository : IVocabularyRepository
     /// table. The comparison now lands on the generated <c>normalized_word</c>
     /// column, which holds the same expression and is indexed, so the same
     /// question is answered by a seek. The semantics are unchanged -- it is
-    /// literally the same SQL expression, evaluated by the same engine.
+    /// literally the same SQL expression.
     /// </remarks>
-    public async Task<VocabularyModel?> GetByNormalizedWordAsync(string normalizedWord)
+    public async Task<Vocabulary?> GetByNormalizedWordAsync(string normalizedWord)
     {
         var entity = await _context.Vocabularies
             .FirstOrDefaultAsync(vocabulary => vocabulary.NormalizedWord == normalizedWord);
-        return entity?.Adapt<VocabularyModel>();
+        return entity?.Adapt<Vocabulary>();
     }
 
-    public async Task<List<VocabularyModel>> GetByIdsAsync(IReadOnlyCollection<string> ids)
-    {
-        if (ids == null || ids.Count == 0)
-            return new List<VocabularyModel>();
-
-        var entities = await _context.Vocabularies
-            .Where(v => ids.Contains(v.Id))
-            .ToListAsync();
-        return entities.Adapt<List<VocabularyModel>>();
-    }
-
-    public async Task<(List<VocabularyModel> Items, int TotalCount)> SearchAsync(string? keyword, int page, int size)
+    public async Task<(List<Vocabulary> Items, int TotalCount)> SearchAsync(string? keyword, int page, int size)
     {
         var query = _context.Vocabularies
             .AsNoTracking()
@@ -182,16 +161,16 @@ public class VocabularyRepository : IVocabularyRepository
                                   .Skip((page - 1) * size)
                                   .Take(size)
                                   .ToListAsync();
-        return (entities.Adapt<List<VocabularyModel>>(), totalCount);
+        return (entities.Adapt<List<Vocabulary>>(), totalCount);
     }
 
-    public async Task AddAsync(VocabularyModel model)
+    public async Task AddAsync(Vocabulary model)
     {
         var entity = model.Adapt<VocabularyEntity>();
         await _context.Vocabularies.AddAsync(entity);
     }
 
-    public async Task UpdateAsync(VocabularyModel model)
+    public async Task UpdateAsync(Vocabulary model)
     {
         var entity = await _context.Vocabularies.FindAsync(model.Id);
         if (entity != null)
@@ -201,11 +180,11 @@ public class VocabularyRepository : IVocabularyRepository
         }
     }
 
-    public Task<List<VocabularyModel>> GetRandomByBookExceptAsync(
+    public Task<List<Vocabulary>> GetRandomByBookExceptAsync(
         string bookId, string excludeVocabularyId, string excludeWord, string excludeEquivalentMeaning, int count, VocabularyDistractorScope? scope = null)
         => GetRandomByBookExceptAsync(bookId, excludeVocabularyId, excludeWord, excludeEquivalentMeaning, count, scope, CancellationToken.None);
 
-    public async Task<List<VocabularyModel>> GetRandomByBookExceptAsync(
+    public async Task<List<Vocabulary>> GetRandomByBookExceptAsync(
         string bookId,
         string excludeVocabularyId,
         string excludeWord,
@@ -253,7 +232,7 @@ public class VocabularyRepository : IVocabularyRepository
             .ToList();
         if (selected.Count == count)
         {
-            return selected.Adapt<List<VocabularyModel>>();
+            return selected.Adapt<List<Vocabulary>>();
         }
 
         // The window did not fill. Either the book is nearly out of candidates
@@ -309,7 +288,7 @@ public class VocabularyRepository : IVocabularyRepository
             .AsNoTracking()
             .ToListAsync(cancellationToken);
 
-        return entities.Adapt<List<VocabularyModel>>();
+        return entities.Adapt<List<Vocabulary>>();
     }
 
     /// <summary>
@@ -399,9 +378,9 @@ public class VocabularyBookRepository : IVocabularyBookRepository
         _context = context;
     }
 
-    public Task<VocabularyBookModel?> GetByIdAsync(string id) => GetByIdAsync(id, CancellationToken.None);
+    public Task<VocabularyBook?> GetByIdAsync(string id) => GetByIdAsync(id, CancellationToken.None);
 
-    public async Task<VocabularyBookModel?> GetByIdAsync(string id, CancellationToken cancellationToken)
+    public async Task<VocabularyBook?> GetByIdAsync(string id, CancellationToken cancellationToken)
     {
         var books = UnitOfWork.OwnsWriteContext(_context)
             ? _context.VocabularyBooks.FromSqlInterpolated($"SELECT * FROM vocabulary_book WHERE id = {id} FOR SHARE")
@@ -409,19 +388,19 @@ public class VocabularyBookRepository : IVocabularyBookRepository
         var entity = await books
             .AsNoTracking()
             .FirstOrDefaultAsync(book => book.Id == id, cancellationToken);
-        return entity?.Adapt<VocabularyBookModel>();
+        return entity?.Adapt<VocabularyBook>();
     }
 
-    public async Task<List<VocabularyBookModel>> GetAllAsync()
+    public async Task<List<VocabularyBook>> GetAllAsync()
     {
         var entities = await _context.VocabularyBooks
             .AsNoTracking()
             .OrderBy(book => book.DisplayOrder)
             .ToListAsync();
-        return entities.Adapt<List<VocabularyBookModel>>();
+        return entities.Adapt<List<VocabularyBook>>();
     }
 
-    public async Task<List<VocabularyBookModel>> GetActiveAsync(bool excludeManagedSupplement = false)
+    public async Task<List<VocabularyBook>> GetActiveAsync(bool excludeManagedSupplement = false)
     {
         var query = _context.VocabularyBooks.AsNoTracking().Where(book => book.Status);
         if (excludeManagedSupplement)
@@ -432,10 +411,10 @@ public class VocabularyBookRepository : IVocabularyBookRepository
         var entities = await query
             .OrderBy(book => book.DisplayOrder)
             .ToListAsync();
-        return entities.Adapt<List<VocabularyBookModel>>();
+        return entities.Adapt<List<VocabularyBook>>();
     }
 
-    public async Task<(List<VocabularyBookModel> Items, int TotalCount)> SearchAsync(
+    public async Task<(List<VocabularyBook> Items, int TotalCount)> SearchAsync(
         string? keyword,
         int page,
         int size)
@@ -458,10 +437,10 @@ public class VocabularyBookRepository : IVocabularyBookRepository
             .Skip((page - 1) * size)
             .Take(size)
             .ToListAsync();
-        return (entities.Adapt<List<VocabularyBookModel>>(), totalCount);
+        return (entities.Adapt<List<VocabularyBook>>(), totalCount);
     }
 
-    public async Task<List<VocabularyBookModel>> GetByCategoryAsync(string? category, string? grade)
+    public async Task<List<VocabularyBook>> GetByCategoryAsync(string? category, string? grade)
     {
         var query = _context.VocabularyBooks.AsNoTracking();
         if (!string.IsNullOrWhiteSpace(category))
@@ -478,7 +457,7 @@ public class VocabularyBookRepository : IVocabularyBookRepository
             .OrderBy(book => book.DisplayOrder)
             .ThenBy(book => book.BookName)
             .ToListAsync();
-        return entities.Adapt<List<VocabularyBookModel>>();
+        return entities.Adapt<List<VocabularyBook>>();
     }
 
     public Task<List<string>> GetDistinctCategoriesAsync()
@@ -547,7 +526,7 @@ public class VocabularyBookRepository : IVocabularyBookRepository
     /// the first place, so both disappear, and it is the same shape the word
     /// search already uses.
     /// </remarks>
-    public async Task<(List<VocabularyModel> Items, int TotalCount)> GetWordsAsync(
+    public async Task<(List<Vocabulary> Items, int TotalCount)> GetWordsAsync(
         string bookId,
         int page,
         int size)
@@ -564,16 +543,16 @@ public class VocabularyBookRepository : IVocabularyBookRepository
             .Skip((page - 1) * size)
             .Take(size)
             .ToListAsync();
-        return (entities.Adapt<List<VocabularyModel>>(), totalCount);
+        return (entities.Adapt<List<Vocabulary>>(), totalCount);
     }
 
-    public async Task AddAsync(VocabularyBookModel model)
+    public async Task AddAsync(VocabularyBook model)
     {
         var entity = model.Adapt<VocabularyBookEntity>();
         await _context.VocabularyBooks.AddAsync(entity);
     }
 
-    public async Task UpdateAsync(VocabularyBookModel model)
+    public async Task UpdateAsync(VocabularyBook model)
     {
         var entity = await _context.VocabularyBooks.FindAsync(model.Id);
         if (entity != null)
@@ -602,41 +581,41 @@ public class VocabularyMeaningRepository : IVocabularyMeaningRepository
         _context = context;
     }
 
-    public async Task<VocabularyMeaningModel?> GetByIdAsync(string id)
+    public async Task<VocabularyMeaning?> GetByIdAsync(string id)
     {
         // Preserve current ownership even if this context previously tracked the meaning.
         var entity = await _context.VocabularyMeanings.AsNoTracking().SingleOrDefaultAsync(m => m.Id == id);
-        return entity?.Adapt<VocabularyMeaningModel>();
+        return entity?.Adapt<VocabularyMeaning>();
     }
 
-    public async Task<List<VocabularyMeaningModel>> GetByVocabularyIdAsync(string vocabularyId)
+    public async Task<List<VocabularyMeaning>> GetByVocabularyIdAsync(string vocabularyId)
     {
         var entities = await _context.VocabularyMeanings
             .Where(m => m.VocabularyId == vocabularyId)
             .ToListAsync();
-        return entities.Adapt<List<VocabularyMeaningModel>>();
+        return entities.Adapt<List<VocabularyMeaning>>();
     }
 
-    public async Task<List<VocabularyMeaningModel>> GetByBookIdAsync(string bookId)
+    public async Task<List<VocabularyMeaning>> GetByBookIdAsync(string bookId)
     {
         var entities = await _context.VocabularyMeanings
             .Where(m => m.BookId == bookId)
             .ToListAsync();
-        return entities.Adapt<List<VocabularyMeaningModel>>();
+        return entities.Adapt<List<VocabularyMeaning>>();
     }
 
-    public Task<List<VocabularyMeaningModel>> GetByBookAndVocabularyIdAsync(string bookId, string vocabularyId)
+    public Task<List<VocabularyMeaning>> GetByBookAndVocabularyIdAsync(string bookId, string vocabularyId)
         => GetByBookAndVocabularyIdAsync(bookId, vocabularyId, CancellationToken.None);
 
-    public async Task<List<VocabularyMeaningModel>> GetByBookAndVocabularyIdAsync(string bookId, string vocabularyId, CancellationToken cancellationToken)
+    public async Task<List<VocabularyMeaning>> GetByBookAndVocabularyIdAsync(string bookId, string vocabularyId, CancellationToken cancellationToken)
     {
         var entities = await _context.VocabularyMeanings
             .Where(m => m.BookId == bookId && m.VocabularyId == vocabularyId)
             .ToListAsync(cancellationToken);
-        return entities.Adapt<List<VocabularyMeaningModel>>();
+        return entities.Adapt<List<VocabularyMeaning>>();
     }
 
-    public async Task<VocabularyMeaningModel?> GetEquivalentAsync(
+    public async Task<VocabularyMeaning?> GetEquivalentAsync(
         string vocabularyId,
         string bookId,
         string normalizedPartOfSpeech,
@@ -648,14 +627,14 @@ public class VocabularyMeaningRepository : IVocabularyMeaningRepository
             item.BookId == bookId &&
             (item.PartOfSpeech ?? string.Empty).Trim().ToLower() == normalizedPartOfSpeech &&
             item.Meaning.Trim() == normalizedMeaning);
-        return entity?.Adapt<VocabularyMeaningModel>();
+        return entity?.Adapt<VocabularyMeaning>();
     }
 
-    public Task<List<VocabularyMeaningModel>> GetRandomDistinctVocabularyExceptAsync(
+    public Task<List<VocabularyMeaning>> GetRandomDistinctVocabularyExceptAsync(
         string bookId, string excludeVocabularyId, string excludeMeaning, int count, VocabularyDistractorScope? scope = null)
         => GetRandomDistinctVocabularyExceptAsync(bookId, excludeVocabularyId, excludeMeaning, count, scope, CancellationToken.None);
 
-    public async Task<List<VocabularyMeaningModel>> GetRandomDistinctVocabularyExceptAsync(
+    public async Task<List<VocabularyMeaning>> GetRandomDistinctVocabularyExceptAsync(
         string bookId,
         string excludeVocabularyId,
         string excludeMeaning,
@@ -692,7 +671,7 @@ public class VocabularyMeaningRepository : IVocabularyMeaningRepository
         var selected = SelectOneMeaningPerWord(window, count);
         if (selected.Count == count)
         {
-            return selected.Adapt<List<VocabularyMeaningModel>>();
+            return selected.Adapt<List<VocabularyMeaning>>();
         }
 
         // Same reasoning as the word direction: a short window must not become a
@@ -755,7 +734,7 @@ public class VocabularyMeaningRepository : IVocabularyMeaningRepository
             .AsNoTracking()
             .ToListAsync(cancellationToken);
 
-        return entities.Adapt<List<VocabularyMeaningModel>>();
+        return entities.Adapt<List<VocabularyMeaning>>();
     }
 
     /// <summary>
@@ -877,13 +856,13 @@ public class VocabularyMeaningRepository : IVocabularyMeaningRepository
         return chosen;
     }
 
-    public async Task AddAsync(VocabularyMeaningModel model)
+    public async Task AddAsync(VocabularyMeaning model)
     {
         var entity = model.Adapt<VocabularyMeaningEntity>();
         await _context.VocabularyMeanings.AddAsync(entity);
     }
 
-    public async Task UpdateAsync(VocabularyMeaningModel model)
+    public async Task UpdateAsync(VocabularyMeaning model)
     {
         var entity = await _context.VocabularyMeanings.FindAsync(model.Id);
         if (entity != null)

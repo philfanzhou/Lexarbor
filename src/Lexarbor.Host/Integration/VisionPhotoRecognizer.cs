@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
 using System.Text.Json;
 using Lexarbor.Host.Configuration;
 using Lexarbor.Learning.Domain.Models;
@@ -93,7 +92,7 @@ public sealed class VisionPhotoRecognizer(IHttpClientFactory clients, Enrichment
                 throw new VocabPhotoImportUnavailableException();
             }
 
-            var body = await OpenAiCompatiblePronunciationPreparationClient.ReadBoundedAsync(response.Content, budget.Token, MaxResponseBytes)
+            var body = await SupplierJson.ReadBoundedAsync(response.Content, budget.Token, MaxResponseBytes)
                 .ConfigureAwait(false) ?? throw new VocabPhotoImportUnavailableException("The vision model response is too large.");
             trace.RecognitionResponse = body;
             var entries = Parse(body);
