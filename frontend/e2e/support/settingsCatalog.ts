@@ -297,7 +297,6 @@ export const settingsNav = (page: Page) => page.getByRole('navigation', { name: 
 export const category = (page: Page, label: string) => settingsNav(page).getByRole('link', { name: label, exact: true })
 export const notice = (page: Page) => page.getByRole('status', { name: '配置状态', exact: true })
 export const save = (page: Page) => page.getByRole('button', { name: '保存修改', exact: true })
-export const discard = (page: Page) => page.getByRole('button', { name: '放弃修改', exact: true })
 export const reread = (page: Page) => page.getByRole('button', { name: '重新读取', exact: true })
 export const unknownState = (page: Page) => page.getByRole('heading', { name: '当前配置状态未知' })
 /** One configuration row, by its key. */

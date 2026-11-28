@@ -106,7 +106,6 @@ $semantic-colors: (
   // Colour
   --lx-color-primary: #{$primary};
   --lx-color-primary-hover: #{mix($black, $primary, 20%)};
-  --lx-color-primary-soft: #{mix($white, $primary, 90%)};
   --lx-color-success: #{$success};
   --lx-color-warning: #{$warning};
   --lx-color-danger: #{$danger};

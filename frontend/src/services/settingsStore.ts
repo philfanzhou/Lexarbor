@@ -3,9 +3,9 @@ import { getApiError } from './apiError'
 import { sessionGeneration } from './authState'
 import { audioTextFields, credentialFields, saveAudioStorage, type AudioStorageChanges } from './audioStorageSettingsApi'
 import { saveEnrichmentSettings, type EnrichmentChanges } from './enrichmentSettingsApi'
+import { saveRateLimits, type RateLimitChanges } from './rateLimitApi'
 import { readSettingsCatalog, saveStartupSettings, type LiveModule, type SettingField, type SettingValue, type SettingsCatalog, type StartupChange } from './settingsCatalogApi'
 import { fieldLabel } from './settingsLabels'
-import { saveRateLimits, type RateLimitChanges } from './systemSettingsApi'
 
 const catalog = shallowRef<SettingsCatalog | null>(null)
 /** The last catalog a settings page read. The navigation reads its pending counts from it. */

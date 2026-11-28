@@ -29,7 +29,6 @@ function link(expiry = Date.now() + 60000, url = '/fixture/tone.mp3') {
 async function setup(page: Page) {
   await mockAntiforgery(page)
   await page.route('**/admin/auth/session', route => json(route, { username: 'audio-admin', roles: ['admin'] }))
-  await page.route('**/admin/auth/config', route => json(route, { mode: 'hosted', loginUrl: '/hosted-login' }))
   await page.route('**/admin/system/version', route => json(route, { version: 'unknown', channel: 'development', revision: null }))
   await page.route('**/admin/vocabulary-books/categories', route => json(route, { items: [] }))
   await page.route('**/admin/vocabulary-books/education-levels', route => json(route, { items: [] }))

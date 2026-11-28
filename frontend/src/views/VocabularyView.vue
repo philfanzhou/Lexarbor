@@ -213,7 +213,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="vocabulary-view">
+  <div>
     <PageHeader
       title="单词管理"
       description="全库去重单词，包含仅属于停用教材与无教材归属的单词"

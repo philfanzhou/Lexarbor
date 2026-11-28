@@ -116,7 +116,7 @@ onMounted(load)
 </script>
 
 <template>
-  <section class="submissions">
+  <section>
     <PageHeader title="释义投稿审核" description="词书里都没有的释义由接入方投稿，通过后写入补充词书。" />
     <el-alert
       v-if="!configured"
@@ -137,7 +137,7 @@ onMounted(load)
         <el-radio-button value="approved">已通过</el-radio-button>
         <el-radio-button value="rejected">已驳回</el-radio-button>
       </el-radio-group>
-      <label class="submissions__reviewer">审核人
+      <label>审核人
         <select v-model="reviewerKind" aria-label="审核人筛选"><option value="">全部</option><option value="admin">管理员</option><option value="ai">AI</option><option value="unknown">未知或未审核</option></select>
       </label>
       <el-button :disabled="loading" @click="load">刷新投稿</el-button>

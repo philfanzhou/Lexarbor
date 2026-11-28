@@ -8,11 +8,10 @@ import tseslint from 'typescript-eslint'
 export default defineConfig(
   {
     name: 'lexarbor/ignores',
-    // Build output, plus the two declaration files unplugin-auto-import and
-    // unplugin-vue-components rewrite on every build. Both already open with an
-    // eslint-disable header, but a generated file should not cost a lint run
-    // even to be skipped.
-    ignores: ['dist/**', 'auto-imports.d.ts', 'components.d.ts']
+    // Build output, plus the declaration file unplugin-vue-components rewrites
+    // on every build. It already opens with an eslint-disable header, but a
+    // generated file should not cost a lint run even to be skipped.
+    ignores: ['dist/**', 'components.d.ts']
   },
   {
     name: 'lexarbor/files',

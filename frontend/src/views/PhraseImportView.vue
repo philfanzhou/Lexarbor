@@ -140,7 +140,7 @@ onMounted(() => { void loadBooks() })
 </script>
 
 <template>
-  <section class="phrase-import">
+  <section>
     <PageHeader title="新增短语" description="为教材中的一个单元新增短语位置；类别固定为短语" />
     <el-alert v-if="booksError" class="phrase-import__alert" type="error" :title="`教材加载失败：${booksError}`" :closable="false" show-icon>
       <el-button :disabled="submitting" @click="loadBooks">重试教材列表</el-button>
